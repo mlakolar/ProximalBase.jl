@@ -45,6 +45,17 @@ table of the plan, Float32/Float64 extremes against 4096-bit BigFloat (proximal 
 infinite and zero factors, an infinite level beside a finite one, levels that need different folds, and read
 counts that show values and proximal points on sparse and symmetric iterates read the weights of the stored
 entries only.
+`norml1nonneg` and `norml1nonneg_extremes` cover `NormL1Nonneg` (#947) in Float32/64: the constructor and traits,
+analytic cases, proximal points against a golden-section search of the constrained objective and against `max(v - t̂, 0)`
+in 4096-bit BigFloat with the kernel's threshold (within 4 ulp), the refusal of negative and `NaN` scalar steps before
+writes, dense, sparse, block and symmetric representations with read counts, `value_and_prox!` against the value at the
+stored output, restriction and inferred types, the archived implementation (proximal points bit for bit where the
+infinite-level rule did not change them, the changed rows asserted as changes), warmed allocations, the endpoint truth
+table of the plan, values against BigFloat on both sides of the loop switches and at each early return of the
+unweighted method (`NaN` before `Inf`, within `(n + 2) eps`), terms below `floatmin` (#373), the point-aware KKT scores
+and the full-point measure (an infinite entry at the first, a middle and the last position, array against view against
+the entry form), and `Scaled` folds, chains, infinite and zero factors and the hard route of an infinite level.
+
 `indnonnegative` covers `IndNonnegative` (#948) in Float32/64 against references written with comparisons, not the
 kernels: the truth table over the infinities, extremes, subnormals, signed zeros and `NaN` (value `NaN`, `Inf` or `0`,
 projection `max(v, 0)` with `-0` and `-Inf` giving `+0`), integer inputs, the admitted and refused scalar steps (refusal

@@ -94,6 +94,34 @@ PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/p
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/elasticnet.jl
 ```
 
+## NormL1Nonneg harness
+
+`norml1nonneg.jl` times `NormL1Nonneg` (issue #947) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control, in Float32 and Float64 at n = 8, 1024,
+2048 and 65536: a loop of `prox_block`, dense `prox!` (unweighted and
+weighted, a zero level, per-entry steps), dense values at a feasible point (unweighted, weighted,
+a zero level), `value_and_prox!`, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`
+values and `prox!`, and the `prox!` and `value_and_prox!` of a `Scaled` `NormL1Nonneg`. A dense call
+takes its argument in turn from four arrays, so that consecutive calls do not repeat their input;
+the roles share their plain input and output arrays. Cases whose id starts with `info/` time the value at an
+input with a negative or a `NaN` entry, in every round; their outputs are not compared with the archive, the A/A
+check applies to them, and they are not part of the comparison of the plan. Each round times every case in
+alternating role order and keeps the minimum over the samples of each role; the summary gives per case the median,
+minimum and maximum of the paired ratios candidate/archive and control/candidate, with the warmed
+allocations, and marks medians above 1.05. `PB_REVERSE=1` loads and times the candidate in the place
+of the archive, for the reversed-role rerun in a fresh process; `PB_FILTER` selects cases;
+`PB_CHECK_ONLY=1` performs the output checks and exits before timing; the control must be identical to the
+candidate. With `PB_VS_NORML1=1` the archive role is `NormL1` of the
+candidate tree.
+
+```sh
+# the archived source tree at eff21b6d, extracted once
+mkdir -p /tmp/pb947-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb947-archive
+PB_ARCHIVE=/tmp/pb947-archive PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb947-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
+```
+
 ## IndNonnegative harness
 
 `indnonnegative.jl` times `IndNonnegative` (issue #948) between the archived source tree at

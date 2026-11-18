@@ -35,10 +35,11 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
-## Entrywise ℓ₁ norm and elastic net
+## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs
 NormL1
+NormL1Nonneg
 ElasticNet
 ```
 

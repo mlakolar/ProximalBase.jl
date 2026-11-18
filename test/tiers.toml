@@ -24,6 +24,8 @@ quick = [
   "linear_value_recovery",
   "matrixview",
   "minimal_math",
+  "norml1nonneg",
+  "norml1nonneg_extremes",
   "norml2",
   "normlinf",
   "numerical_kernels",

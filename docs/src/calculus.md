@@ -59,7 +59,7 @@ prox(h,x,0.4)
 `kkt_violation(h, v, x, k)` and `kkt_violation(h, v, x)` of `h = Scaled(f, α)` with a
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
-together. `f` is `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
+together. `f` is `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
 `GroupNormL2` or, for the full-point form, `NormL2`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
 parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
@@ -102,19 +102,19 @@ remain `BigFloat`.
 
 * **Nested wrappers whose level does not fold.** For two positive finite factors, the
   constructor merges the wrappers when the product is a normal number and keeps them nested
-  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
+  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2` or `NormL2` the product of the
   factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
   number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
   `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
   that level, in each form. A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
   rounded level times the weight. Where
-  it does not fold, the three-argument screen of `NormL1` and `ElasticNet`, and the four-argument
-  form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
+  it does not fold, the three-argument screen of `NormL1`, `NormL1Nonneg` and `ElasticNet`, and the four-argument
+  form of `NormL1`, `NormL1Nonneg`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
   ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the
   weight. For a positive finite ``\lambda`` and ``w`` the significands of the three are multiplied and their exponents are
   applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``. A zero weight gives the coefficient 0 (also
   under an infinite level), and an infinite weight or level gives `Inf`. For finite entries of `v` the value is
-  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
+  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate (``-v_i-a\lambda w_i`` for `NormL1Nonneg`) and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
   of the coefficient and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
   three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2`. An
   `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate, whatever `v` holds.
@@ -186,11 +186,11 @@ calls and [Array and precision conventions](numerical_usage.md) for aliasing and
 
 Nested positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
-into `NormL1`'s level or into both levels of `ElasticNet`, or recover a
+into the level of `NormL1` or `NormL1Nonneg` or into both levels of `ElasticNet`, or recover a
 representable squared-norm value. When the fold takes the ridge level of an
 `ElasticNet` below `floatmin` while folding a step, that level is dropped,
 since its ridge factor `1/(1 + γλ2)` rounds to one. An infinite level of
-`NormL1` or `ElasticNet` stays a hard constraint when the factor and the step
+`NormL1`, `NormL1Nonneg` or `ElasticNet` stays a hard constraint when the factor and the step
 leave the range. The folds of an `ElasticNet` keep an infinite level as it is
 and fold the other level as they fold it beside a finite level; a fold that
 overflows is not used. With `λ1 = Inf`, a folded ridge level acts on the
@@ -214,7 +214,12 @@ functions it returns `ZeroFunction()`. A zero-scaled finite-level `NormL1` with
 finite weights also returns `ZeroFunction`. Infinite weights are retained in
 `NormL1(0,w)` so their fixed-zero restrictions survive. A zero-scaled
 `ElasticNet` with finite levels likewise returns `ZeroFunction` for finite
-weights and `ElasticNet(0,0,w)` for infinite ones. Infinite `NormL1` and
+weights and `ElasticNet(0,0,w)` for infinite ones. A zero-scaled finite-level
+`NormL1Nonneg` is `NormL1Nonneg(0,w)` for any weights, which keeps its domain
+`x ≥ 0` and the restrictions of infinite weights. With finite weights it is the
+indicator of the orthant, whose proximal operator is the projection `max(v, 0)`, not the
+identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])` maps
+a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. The indicator `IndNonnegative` does not depend on its scale:
@@ -228,6 +233,13 @@ h = 0 * NormL1(1.0,[Inf,1.0])
 @assert h isa NormL1
 @assert prox(h,[2.0,3.0]) == [0,3]
 prox(h,[2.0,3.0])
+```
+
+```@example scaled_zero
+z = 0 * NormL1Nonneg(2.0)
+@assert z isa NormL1Nonneg && z.λ0 == 0
+@assert z([1.0, 0.0]) == 0 && z([1.0, -1.0]) == Inf
+@assert prox(z,[-2.0,3.0]) == [0,3]
 ```
 
 There is no general function-object addition or composition API.

@@ -735,19 +735,25 @@ for T in (Float32, Float64)
               zf = ZeroFunction(), ws = WeightedSquare(w), en = ElasticNet(T(0.5), two, w), en0 = ElasticNet(T(0.5), two))
     viewed = (nl1 = NormL1(one(T)), nl1w = NormL1(one(T), wv), sq = SqrNormL2(two), sqc = SqrNormL2(two, cv), lin = LinearFunction(cv, one(T)),
               zf = ZeroFunction(), ws = WeightedSquare(wv), en = ElasticNet(T(0.5), two, wv), en0 = ElasticNet(T(0.5), two))
+    # the value from value_and_prox! is a sum over the entries, which an @simd loop may add in a different order for
+    # another array layout, CPU or Julia version, so views and plain arrays are compared within rtol = 4eps(T); that
+    # tolerance is for these four-entry tests, not a bound for longer sums or sums whose terms cancel; the proximal
+    # outputs are computed entry by entry and stay bitwise
     for k in keys(sample)
       f, fv = sample[k], viewed[k]
       @test same(fv(xv), f(x))
       @test same(fv(x), f(x)) && same(fv(xv), f(xv))
       y, yv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
       @test same(prox!(yv, fv, xv, two), prox!(y, f, x, two))
-      @test same(value_and_prox!(yv, fv, xv, two), value_and_prox!(y, f, x, two)) && same(yv, y)
+      va, vb = value_and_prox!(yv, fv, xv, two), value_and_prox!(y, f, x, two)
+      @test typeof(va) === typeof(vb) && isapprox(va, vb; rtol = 4eps(T), atol = 0) && same(yv, y)
       @test same(prox(fv, xv, two), prox(f, x, two))
       Sf = Scaled(f, three)
       Sfv = Scaled(fv, three)
       @test same(Sfv(xv), Sf(x))
       @test same(prox!(yv, Sfv, xv, two), prox!(y, Sf, x, two))
-      @test same(value_and_prox!(yv, Sfv, xv, two), value_and_prox!(y, Sf, x, two)) && same(yv, y)
+      va, vb = value_and_prox!(yv, Sfv, xv, two), value_and_prox!(y, Sf, x, two)
+      @test typeof(va) === typeof(vb) && isapprox(va, vb; rtol = 4eps(T), atol = 0) && same(yv, y)
       @test same(prox!(yv, Scaled(Sfv, two), xv, two), prox!(y, Scaled(Sf, two), x, two))
     end
     for k in (:nl1, :nl1w, :zf, :ws, :en, :en0)
@@ -755,9 +761,11 @@ for T in (Float32, Float64)
       y, yv = fill(T(7), 4), view(fill(T(7), 6), 2:5)
       γ = T[0.5, 1, 2, 3]; γvw = view(vcat(T[0], γ, T[0]), 2:5)
       @test same(prox!(yv, fv, xv, γvw), prox!(y, f, x, γ))
-      @test same(value_and_prox!(yv, fv, xv, γvw), value_and_prox!(y, f, x, γ)) && same(yv, y)
+      va, vb = value_and_prox!(yv, fv, xv, γvw), value_and_prox!(y, f, x, γ)
+      @test typeof(va) === typeof(vb) && isapprox(va, vb; rtol = 4eps(T), atol = 0) && same(yv, y)
       @test same(prox!(yv, Scaled(fv, two), xv, γvw), prox!(y, Scaled(f, two), x, γ))
-      @test same(value_and_prox!(yv, Scaled(Scaled(fv, two), three), xv, γvw), value_and_prox!(y, Scaled(Scaled(f, two), three), x, γ))
+      va, vb = value_and_prox!(yv, Scaled(Scaled(fv, two), three), xv, γvw), value_and_prox!(y, Scaled(Scaled(f, two), three), x, γ)
+      @test typeof(va) === typeof(vb) && isapprox(va, vb; rtol = 4eps(T), atol = 0)
       @test same(prox(fv, xv, γvw), prox(f, x, γ))
     end
     for k in (:sq, :sqc, :lin, :zf)

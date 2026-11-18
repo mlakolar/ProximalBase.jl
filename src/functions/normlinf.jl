@@ -533,7 +533,7 @@ end
 #      τ = τ0 + max(level, 0) with the level from `_l1ball_michelot` on Lᵢ = max(uᵢ - τ0, 0) for i ∈ J and 0 off J (the lazy
 #      _LinfShifted). τ0 is a lower bound of the exact level (it is the first level of Michelot's iteration on J), and for
 #      any σ ≤ τ, Σ_J (uᵢ - τ)₊ = Σ_J (max(uᵢ - σ, 0) - (τ - σ))₊, so the level of the Lᵢ for the radius c is τ - τ0.
-#      The shift is by τ0 and not by μ: with the shift by μ every Lᵢ has the size of |μ| when one face entry is far below the
+#      The shift is by τ0 and not by μ: with the shift by μ each Lᵢ has the size of |μ| when one face entry is far below the
 #      level, and the level inherits an error of order a u |μ|. Preconditions: the Lᵢ are nonnegative and finite, and since
 #      τ0 > μ each is at most uᵢ - μ, so their sum is at most Σ_J (uᵢ - μ) ≤ (cnt + 1) Σ|vᵢ| (as Σ_J uᵢ ≤ Σ|vᵢ| and |μ| ≤ Σ|vᵢ|),
 #      with the exact Σ|vᵢ| at most 1.41 sv (a computed sum of nonnegative terms has a relative error of at most θ = 0.29 for

@@ -627,10 +627,10 @@ end
 # One face entry lies far below the level and the others (a bulk of a = n - 1 equal entries) are above it: x = ones(n), u = -v =
 # (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
 # level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
-# a shift by the smallest entry instead gives every shifted value the size of |u₁| and a level whose error grows with the number of
+# a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
 # entries. The measured errors of the kernel with that shift on these inputs, in units of u (‖v‖₂ + λ), with --check-bounds=yes and without, on Julia
 # 1.10.13 and 1.13.4, on two kinds of CPU: Float32, n = 200001, λ = 3: 1.8e4 to 1.2e6; Float64, n = 200001, λ = 0.3: 2.8e5 to 1.9e6,
-# and λ = 3: 8.4e4 to 3.1e6 (the stated bound, about 4e5 there, separates them in some runs only). The kernel here gave at most 100
+# and λ = 3: 8.4e4 to 3.1e6 (the stated bound, about 4e5 there, separates them in some of the runs). The kernel here gave at most 100
 # (Float32, λ = 3), 4100 (Float64, λ = 0.3) and 1600 (Float64, λ = 3). The guards below are at least 4.9 times those maxima and at
 # least 10 times below the smallest error with the shift by the smallest entry; the stated bound holds too.
 function bulk_error(::Type{W}, a, λ) where {W}

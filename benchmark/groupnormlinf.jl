@@ -53,33 +53,41 @@ function makedata(::Type{T}, m::Int, layout::Symbol) where {T}
        W = [similar(u) for u in U], λ0, γ, w)
 end
 
+# The probes of one case. It is a function of the typed data `d` and of the package functions, so that the closures capture
+# values of concrete types and call the methods directly (a captured Module, or fields of the abstractly typed elements of
+# `data`, would make each call a runtime lookup and a dynamic dispatch that allocates).
+function addcase!(probes, id, d, m, ::Type{G}, prox!, value_and_prox!, prox_block!) where {G}
+    f = G(d.λ0, d.groups, d.w)
+    x, x0, xi, y, U, outs, W, γ = d.x, d.x0, d.xi, d.y, d.U, d.outs, d.W, d.γ
+    K = length(U)
+    # setup restores the argument of a destructive op outside the timing; check restores it too, then runs op
+    add(name, op, check; setup = nothing) =
+        push!(probes, (id = "$id/$name", op = op, check = check, setup = setup, n = length(x), m = m, K = K))
+    add("prox", () -> (prox!(y, f, x, γ); nothing), () -> copy(y))
+    restore_x() = (copyto!(xi, x0); nothing)
+    prox_inplace() = (prox!(xi, f, xi, γ); nothing)
+    add("prox_inplace", prox_inplace, () -> (restore_x(); prox_inplace(); copy(xi)); setup = restore_x)
+    add("value_and_prox", () -> (value_and_prox!(y, f, x, γ); nothing),
+        () -> (value_and_prox!(y, f, x, γ), copy(y)))
+    add("value", () -> (y[1] = f(x); nothing), () -> f(x))
+    add("block_sweep", () -> begin
+        for k in 1:K
+            @inbounds prox_block!(outs[k], f, U[k], k, γ)
+        end
+        nothing
+    end, () -> reduce(vcat, outs))
+    restore_blocks() = (for k in 1:K; @inbounds copyto!(W[k], U[k]); end; nothing)
+    sweep_inplace() = (for k in 1:K; @inbounds prox_block!(W[k], f, W[k], k, γ); end; nothing)
+    add("block_sweep_inplace", sweep_inplace, () -> (restore_blocks(); sweep_inplace(); reduce(vcat, W));
+        setup = restore_blocks)
+    nothing
+end
+
 function makeprobes(PB, data)
     probes = NamedTuple[]
     for ((T, m, layout), d) in data
-        id = "GroupNormLinf/$(T)/m$(m)/$(layout)"
-        f = PB.GroupNormLinf(d.λ0, d.groups, d.w)
-        x, x0, xi, y, U, outs, W, γ = d.x, d.x0, d.xi, d.y, d.U, d.outs, d.W, d.γ
-        K = length(U)
-        # setup restores the argument of a destructive op outside the timing; check restores it too, then runs op
-        add(name, op, check; setup = nothing) =
-            push!(probes, (id = "$id/$name", op = op, check = check, setup = setup, n = length(x), m = m, K = K))
-        add("prox", () -> (PB.prox!(y, f, x, γ); nothing), () -> copy(y))
-        restore_x() = (copyto!(xi, x0); nothing)
-        prox_inplace() = (PB.prox!(xi, f, xi, γ); nothing)
-        add("prox_inplace", prox_inplace, () -> (restore_x(); prox_inplace(); copy(xi)); setup = restore_x)
-        add("value_and_prox", () -> (PB.value_and_prox!(y, f, x, γ); nothing),
-            () -> (PB.value_and_prox!(y, f, x, γ), copy(y)))
-        add("value", () -> (y[1] = f(x); nothing), () -> f(x))
-        add("block_sweep", () -> begin
-            for k in 1:K
-                @inbounds PB.prox_block!(outs[k], f, U[k], k, γ)
-            end
-            nothing
-        end, () -> reduce(vcat, outs))
-        restore_blocks() = (for k in 1:K; @inbounds copyto!(W[k], U[k]); end; nothing)
-        sweep_inplace() = (for k in 1:K; @inbounds PB.prox_block!(W[k], f, W[k], k, γ); end; nothing)
-        add("block_sweep_inplace", sweep_inplace, () -> (restore_blocks(); sweep_inplace(); reduce(vcat, W));
-            setup = restore_blocks)
+        addcase!(probes, "GroupNormLinf/$(T)/m$(m)/$(layout)", d, m, PB.GroupNormLinf, PB.prox!, PB.value_and_prox!,
+                 PB.prox_block!)
     end
     probes
 end

@@ -4,8 +4,10 @@
 # array): a loop of prox_block, dense prox! (unweighted and weighted, a zero level, per-entry steps), dense
 # values at a feasible point (unweighted, weighted, a zero level), value_and_prox!, SparseIterate,
 # BlockIterate and SymmetricSparseIterate values and prox!, and the prox! and value_and_prox! of a Scaled
-# NormL1Nonneg. Cases whose id starts with `info/` time inputs that take the entrywise fallback (a negative
-# entry, a NaN entry) once, so that a cliff is visible; they are not part of the comparison of the plan.
+# NormL1Nonneg. Cases whose id starts with `info/` time the value at an input with a negative entry or a NaN entry,
+# in every round like the other cases; they are not gated and their outputs are not compared. Of the four, only the
+# unweighted negative-entry input takes the entrywise fallback of the value; the unweighted NaN input returns after a
+# scan for non-finite entries, and the weighted inputs return from the first loop.
 #
 #   PB_ARCHIVE=<root of the archived tree> PB_CANDIDATE=<root of the candidate> PB_OUTPUT=<dir> \
 #   PB_ROUNDS=21 julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
@@ -111,7 +113,8 @@ function makeprobes(PB, ctor, ::Type{T}, D) where {T}
         add("value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.res, d.out, fw, d.xs, γ))
         add("scaled_prox!/weighted/n$n", n, :prox, prox_case(px, d.out, fs, d.xs, γ))
         add("scaled_value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.res, d.out, fs, d.xs, γ))
-        # inputs that leave the feasible set: the entrywise fallback of the value (timed once, not compared)
+        # inputs that leave the feasible set (timed in every round, not gated, not compared); of these only the
+        # unweighted negative entry takes the entrywise fallback of the value
         if n == 1024 || n == 65536
             add("info/value/unweighted_negative_entry/n$n", n, :info, value_case(d.res, fu, d.xneg))
             add("info/value/weighted_negative_entry/n$n", n, :info, value_case(d.res, fw, d.xneg))

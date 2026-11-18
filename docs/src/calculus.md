@@ -211,8 +211,10 @@ finite weights also returns `ZeroFunction`. Infinite weights are retained in
 `ElasticNet` with finite levels likewise returns `ZeroFunction` for finite
 weights and `ElasticNet(0,0,w)` for infinite ones. A zero-scaled finite-level
 `NormL1Nonneg` is `NormL1Nonneg(0,w)` for any weights, which keeps its domain
-`x ≥ 0`: the indicator of the orthant, whose proximal operator is the projection
-`max(v, 0)`, not the identity. Infinite `NormL1`, `NormL1Nonneg` and
+`x ≥ 0` and the restrictions of infinite weights. With finite weights it is the
+indicator of the orthant, whose proximal operator is the projection `max(v, 0)`, not the
+identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])` maps
+a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. Inspect the constructed object rather than assume

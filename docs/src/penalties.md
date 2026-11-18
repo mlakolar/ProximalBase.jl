@@ -396,11 +396,20 @@ f([2.0, 1.0])
 The domain is ``x_i\geq0`` exactly: `-0.0` and `+Inf` are feasible, and any negative number,
 a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and
 `NaN` where one is `NaN`; `NaN` takes precedence over `Inf`. A zero level or a zero weight keeps
-the domain: `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a feasible
-point (`+Inf` entries included) and `Inf` at a negative entry, and its proximal operator is the
+the domain. With finite weights, `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a
+feasible point (`+Inf` entries included) and `Inf` at a negative entry, and its proximal operator is the
 projection ``\max(v,0)`` onto the orthant, not the identity: `-0.0` and `-Inf` give `+0`, `+Inf` is
-kept and `NaN` stays `NaN`. A zero weight, or a zero step with a finite level and weight, gives the
-same projection for the entry.
+kept and `NaN` stays `NaN`. The projection is the result for an entry in these cases:
+
+* a zero weight, at every level and step (an infinite level and an infinite step included);
+* a zero level with a finite weight;
+* a zero step with a finite level and a finite weight;
+* an infinite step with a zero level or a zero weight.
+
+An infinite weight, and an infinite level with a positive weight, follow the rules below instead
+(`NormL1Nonneg(0.0, [Inf])([1.0])` is `Inf`, and `prox(NormL1Nonneg(Inf), [3.0], 0.0)` is `[0.0]`). An infinite step with a
+positive finite level and a positive finite weight maps finite inputs and `-Inf` to `+0` and `+Inf` and `NaN`
+to `NaN`.
 
 ```@example nonneg_l1
 @assert f([0.0, -0.0]) == 0 && f([1.0, -1e-300]) == Inf
@@ -423,10 +432,10 @@ stored by reference. `NormL1Nonneg` accepts real dense vectors and matrices (vie
 noted below, an array of per-entry steps. On a `SparseIterate` or a `SymmetricSparseIterate` the
 value reads the stored entries only, and so does the proximal operator from such an iterate into an
 iterate of the same kind; an entry stored in an iterate destination stays stored, possibly as a zero,
-and a zero result does not activate an absent entry. On a `SymmetricSparseIterate` the weights are a
-`p × p` matrix read at both positions of an off-diagonal coordinate, and the value counts such a
-coordinate twice. The weights must then be exactly symmetric, a precondition that the oracles
-assume and `check_symmetric_parameters` validates (see
+and a zero result does not activate an absent entry. On a `SymmetricSparseIterate` the weights, which may be omitted,
+have `p²` entries in full-matrix linear order, read as a `p × p` array at both positions of an off-diagonal
+coordinate, and the value counts such a coordinate twice. The weights must then be exactly symmetric, a
+precondition that the oracles assume and `check_symmetric_parameters` validates (see
 [Symmetric parameters](symmetric_parameters.md)).
 
 Not supported: an array of steps with a `SymmetricSparseIterate` destination (an `ArgumentError`
@@ -439,8 +448,9 @@ before any write), or with a dense destination and a `SymmetricSparseIterate` ar
 before anything is written. The entries of an array of steps are not checked: they must be
 nonnegative, a documented precondition. `prox_block` does not check its step, and `Scaled` keeps
 its own step rule; a negative step that reaches the function through `Scaled` violates the
-precondition ``\gamma\geq0``, and its result depends on the representation: the proximal point of
-`0` is then positive, which a loop over the stored entries of a sparse iterate does not visit.
+precondition ``\gamma\geq0``, and its result can depend on the representation: a sparse iterate and
+a dense array disagree only where the negative step gives a strictly negative threshold at an entry that is not stored,
+whose proximal point is then positive and is not visited by a loop over the stored entries.
 
 ```@example nonneg_l1
 y = [7.0, 7.0]
@@ -485,9 +495,10 @@ v = [0.1, -4.0, 0.8]
 @assert kkt_violation(h, v, [0.0, -1.0, 0.25]) == Inf
 ```
 
-`restrict(h, S)` keeps the level and selects the weights. `Scaled` folds a factor into the level; a
-zero factor keeps the domain, `0 * NormL1Nonneg(λ0, w)` being `NormL1Nonneg(0, w)` (see
-[Scaling a function](calculus.md)).
+`restrict(h, S)` keeps the level and selects the weights. `Scaled` folds a factor into the level where the
+product is a level that the type can hold, and otherwise takes the other routes of
+[Scaling a function](calculus.md). For a finite level a zero factor keeps the domain and the infinite weights:
+`0 * NormL1Nonneg(λ0, w)` is `NormL1Nonneg(0, w)`. An infinite level with a zero factor throws an `ArgumentError`.
 
 ```@example nonneg_l1
 r = restrict(h, [3, 1])

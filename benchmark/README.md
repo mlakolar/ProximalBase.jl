@@ -105,9 +105,11 @@ weighted, a zero level, per-entry steps), dense values at a feasible point (unwe
 a zero level), `value_and_prox!`, `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`
 values and `prox!`, and the `prox!` and `value_and_prox!` of a `Scaled` `NormL1Nonneg`. A dense call
 takes its argument in turn from four arrays, so that consecutive calls do not repeat their input;
-the roles share their plain input and output arrays. Cases whose id starts with `info/` time an
-input with a negative or a `NaN` entry (the entrywise fallback of the value) once, so that a cliff
-is visible; they are not part of the comparison. Each round times every case in alternating role
+the roles share their plain input and output arrays. Cases whose id starts with `info/` time the value at an
+input with a negative or a `NaN` entry, in every round like the other cases; they are not gated and their outputs
+are not compared. Of the four, only the unweighted negative-entry input takes the entrywise fallback of the value:
+the unweighted `NaN` input returns after a scan for non-finite entries, and the weighted inputs return from the
+first loop. Each round times every case in alternating role
 order and keeps the minimum over the samples of each role; the summary gives per case the median,
 minimum and maximum of the paired ratios candidate/archive and control/candidate, with the warmed
 allocations, and marks medians above 1.05. `PB_REVERSE=1` loads and times the candidate in the place
@@ -118,7 +120,9 @@ candidate tree, for the `prox!` and value cells timed against `NormL1` as inform
 values at feasible points are compared).
 
 ```sh
-PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb947-results \
+# the archived source tree at eff21b6d, extracted once
+mkdir -p /tmp/pb947-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb947-archive
+PB_ARCHIVE=/tmp/pb947-archive PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/pb947-results \
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
 ```
 

@@ -483,9 +483,9 @@ that range the sums are scaled by an exponent, which extends the range and not t
 
 [`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
 screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
-group, the full-point form and the three-argument form throw an `ArgumentError`, and the call has no method under `Scaled`.
+group, the full-point form and the three-argument form throw an `ArgumentError`, and the four-argument and full-point forms have no method under `Scaled`.
 
-`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
+`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above but `GroupNormLinf`; `NormL2` in
 the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
 of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where

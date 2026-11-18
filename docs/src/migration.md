@@ -138,7 +138,7 @@ What changed besides the values of the table:
   nonzero group, in the full-point form and in the three-argument form. Before 0.6 (the legacy implementation) it returned that
   screen for a group of a `BlockIterate`, also where the group was nonzero, and `abs(v[i])` at an entry of a nonzero group of an
   array point, neither of which is a score of the nonzero group; the Euclidean screen of `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)).
-* `Scaled` over a function of the package without a score (`NormLinf`, `GroupNormLinf`, the losses) throws a
+* `Scaled` over a function of the package without a score (`NormLinf`, the losses, and `GroupNormLinf` in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero

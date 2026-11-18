@@ -179,7 +179,7 @@ range from the squared-residual kernel above, in units of the largest stored ent
 On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
 recomputation visit the stored entries only, each off-diagonal symmetric coordinate
 twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
-`NormL2`, `GroupNormL2` and `GroupNormLinf` values, and their fused values, recompute a value at or above `floatmax(T)/2`
+`NormL2`, `GroupNormL2` and `GroupNormLinf` values, and their fused values, may recompute a value at or above `floatmax(T)/2`
 in power-of-two units, with sums accumulated in at least `Float64`. Within a few eps of
 the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide on
 which side the exact value lies, so a value that rounds to `floatmax(T)` may be
@@ -189,7 +189,7 @@ returned as `Inf`, or the reverse: the same limit as the other recoveries above
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 `GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
 as `(λ0*w[k])*m` with two rounded products when `λ0*w[k]` is a normal number (and by the three-factor kernel otherwise)
-and then converted to the output type, and recompute from the exponents of `w[k]*max|x[G_k]|` with `λ0` applied once.
+and then converted to the output type, and may recompute from the exponents of `w[k]*max|x[G_k]|` with `λ0` applied once.
 The proximal operators of `GroupNormL2` recompute, for finite inputs, a group norm whose sum of
 squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range, in
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of

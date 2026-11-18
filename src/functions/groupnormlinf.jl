@@ -63,7 +63,7 @@ julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
 - The value of a group is `λ₀wₖ max|x[Gₖ]|`, formed in floating point as `(λ₀wₖ) m` (two rounded products) when `λ₀wₖ` is a
   normal number and by the three-factor kernel in power-of-two units otherwise, then converted to the output type: zero
   when `wₖ = 0` (whatever the group holds), when the group is zero, and when `λ₀ = 0` with a finite weight; then `NaN` at a
-  `NaN` entry; `Inf` at a nonzero group, without `NaN`, when `λ₀` or `wₖ` is infinite. The sum of the terms is recomputed in power-of-two units where it
+  `NaN` entry; `Inf` at a nonzero group, without `NaN`, when `λ₀` or `wₖ` is infinite. The sum of the terms may be recomputed in power-of-two units where it
   may have lost accuracy (below `K floatmin` for `K` groups) or class (at or above `floatmax/2`). `value_and_prox!`
   returns the value of the stored output.
 - The accuracy of each group's level is absolute, of order `n eps(T) max|x[Gₖ]| + δ` in the floating type `T` of the output
@@ -237,11 +237,7 @@ function _linf_group_prox!(y, x, G, λ0, w, γ::Real, src, maxlen::Int)
   _linf_group_clip!(y, x, G, τ)
 end
 
-# The radius γ λ0 w in T, for positive finite factors: (γ λ0) w formed in the working type R and converted to T when γ λ0
-# is a normal number and the result lies in the normal range of T; otherwise the three-factor kernel with the power 2^-k,
-# which forms the product from the significands and exponents, so that a factor product such as γ λ0 that underflows (or
-# λ0 w that overflows) does not decide the radius, and then converted to T. The result can be zero, subnormal or Inf after
-# the conversion to T.
+# The radius γ λ0 w converted to T, in units of 2^-k.
 @inline function _linf_group_radius(::Type{T}, γ, λ0, w, k::Int = 0) where {T}
   if k == 0
     c, normal = _threshold_product(T, γ, λ0, w)
@@ -286,8 +282,7 @@ end
 @inline function _linf_group_level(src, ::Type{T}, maxlen::Int, xv, r::T, rd) where {T}
   max(_l1ball_threshold!(_linf_buffer(src, T, maxlen), xv, r, rd), zero(T))
 end
-# The buffer of the threshold: the scratch of the function at the length of its longest group (a buffer of the right size
-# is returned as it is, so the allocation happens at the first group that needs it), or an array that the caller gives.
+# The buffer of the threshold: the scratch of the function at the length of its longest group, or an array that the caller gives.
 @inline _linf_buffer(sc::Scratch, ::Type{T}, maxlen::Int) where {T} = _array_buffer!(sc, T, (maxlen,))
 @inline _linf_buffer(buf::AbstractArray, ::Type{T}, maxlen::Int) where {T} = buf
 

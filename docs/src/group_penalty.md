@@ -374,7 +374,7 @@ The group is selected as for `GroupNormL2`: on an array point `k` is an entry, w
 group has the score ``\lvert G_k\rvert``), and on a `BlockIterate` it is the group number, whose layout must equal that
 of `g`. The three-argument form `kkt_violation(g, G, k)` throws an `ArgumentError` because the penalty is not separable,
 as does the full-point form `kkt_violation(g, G, x)`, which is not provided for this function, and a
-`SymmetricSparseIterate` has no groups. Under `Scaled`, the call has no method (a `MethodError`). The margin is the screen
+`SymmetricSparseIterate` has no groups. Under `Scaled`, the four-argument and full-point forms have no method (a `MethodError`). The margin is the screen
 of the dual norm, which is not the Euclidean screen of `GroupNormL2` ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)):
 the two differ in sign for the gradient `(5/8, 5/8)` with ``\lambda_0=w=1``, where the group must enter. The positive part of the
 margin is an ℓ₁ screen and not a stationarity distance, so a tolerance chosen for another score does not carry over.
@@ -417,7 +417,7 @@ so that the proximal operator and the value do not form a product such as ``\lam
 
 The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in floating point as
 ``(\lambda_0w_k)m`` with two rounded products when ``\lambda_0w_k`` is a normal number and by the three-factor
-kernel in power-of-two units otherwise, and then converted to the output type; the sum over the groups is recomputed in power-of-two units, accumulated in at least `Float64`, where it may
+kernel in power-of-two units otherwise, and then converted to the output type; the sum over the groups may be recomputed in power-of-two units, accumulated in at least `Float64`, where it may
 have lost accuracy (a sum below `K*floatmin(T)` for `K` groups, whose terms may have rounded into the subnormal range) or
 class (at or above `floatmax(T)/2`), as for `GroupNormL2` ([value range limits](@ref numerical-value-range)). A sum of
 magnitudes of one group above `floatmax(T)/2` is processed in power-of-two units. With a positive finite level and

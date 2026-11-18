@@ -105,12 +105,13 @@ step and an array of steps), `SparseIterate`, `BlockIterate` and `SymmetricSpars
 and `prox!`, and the `prox!` of a `Scaled` `IndNonnegative`, at n = 1024 and 65536. The roles share
 their plain input and output arrays, and the summary has the columns of the ElasticNet harness
 (median, minimum and maximum of the paired ratios candidate/archive and control/candidate, warmed
-allocations, medians above 1.05 marked). `PB_REVERSE=1`, `PB_FILTER`, `PB_ROUNDS` and `PB_OUTPUT`
+allocations of the archive and candidate roles, with those of the control in `raw.csv`, medians above 1.05
+marked). A case id starts with the element type `<T>`, Float32 or Float64. `PB_REVERSE=1`, `PB_FILTER`, `PB_ROUNDS` and `PB_OUTPUT`
 act as there.
 
 The archive does not evaluate the value at the output of `value_and_prox!` (its fused value is
-always 0), so the cells `value_and_prox!/...` report the ratio to the archive without a verdict, and
-the cells `comparator/value_and_prox!/...` are the ones judged. In a comparator cell the role
+always 0), so the cells `<T>/value_and_prox!/...` report the ratio to the archive without a verdict, and
+the cells `<T>/comparator/value_and_prox!/...` are the ones judged. In a comparator cell the role
 "archive" is the candidate's own `prox!` followed by `f(y)` and the roles "candidate" and "control" are
 `value_and_prox!` of their trees, so that the C/A column is the ratio of the candidate's
 `value_and_prox!` to its `prox!` then `f(y)`, and the A/A column is as in the other cells.

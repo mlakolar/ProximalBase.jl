@@ -14,11 +14,13 @@
 # roles of every case in alternating order (the reverse order in even rounds), and keeps per role the
 # minimum over the samples of its trial. The paired ratios of a round are candidate/archive and
 # control/candidate (A/A); the summary reports their median, minimum and maximum over the rounds, with the
-# warmed allocations of each role, and marks medians above 1.05. The roles share one set of plain input and
+# warmed allocations of the archive and candidate roles (those of the control are in raw.csv), and marks
+# medians above 1.05. The roles share one set of plain input and
 # output arrays (the iterates, whose types belong to each tree, are built per role), so that the placement of
 # the arrays does not differ between the roles.
 #
-# The cases whose id starts with "comparator/" have a different first role. The archive does not take the
+# The cases whose id has "comparator/" after the element type (such as
+# "Float32/comparator/value_and_prox!/scalar_step/n1024") have a different first role. The archive does not take the
 # check of the output that the candidate's value_and_prox! makes (its fused value is 0 without evaluating the
 # value at the output), so the timing of value_and_prox! is judged against the candidate's own prox! followed
 # by f(y), not against the archive. In these cells the "archive" role runs, in the candidate's tree, prox! and
@@ -50,8 +52,9 @@ end
 Base.include(CandidateControl, joinpath(candidate_root, "src", "ProximalBase.jl"))
 
 const SIZES = (1024, 65536)
-# the plain arrays of one element type, shared by the roles: entries of magnitude at least 0.01, above the
-# tolerance of the archived value for Float32 (sqrt(eps) = 3.5e-4)
+# the plain arrays of one element type, shared by the roles: their nonzero entries have magnitude at least 0.01,
+# above the tolerance of the archived value for Float32 (sqrt(eps) = 3.5e-4); the sparse and block inputs also
+# hold zeros
 function makedata(::Type{T}) where {T}
     rng = MersenneTwister(948)
     mags(n) = T(0.01) .+ T(2) .* abs.(randn(rng, T, n))
@@ -170,7 +173,7 @@ open(joinpath(outdir, "provenance.txt"), "w") do io
     println(io, "Bounds option: ", Base.JLOptions().check_bounds, "\nReversed roles: ", reversed)
     println(io, "archive: ", archive_root, "\ncandidate: ", candidate_root)
 end
-for r in ("archive", "candidate", "control"), p in suites[r]     # compile and warm: each probe of each role runs once
+for r in ("archive", "candidate", "control"), p in suites[r]     # compile and warm: one benchmark trial per role and case
     bench(p)
 end
 rounds = parse(Int, get(ENV, "PB_ROUNDS", "21"))

@@ -373,8 +373,8 @@ g(x)=\begin{cases}\lambda_0\sum_{i}w_ix_i, & x_i\geq0\text{ for every }i,\\ +\in
 | ``\lambda_0\sum_i w_ix_i`` on ``x\geq0`` | `NormL1Nonneg(λ0, w)` | Weights paired with entries by linear index |
 
 It is a separable function, convex, proximable and zero-preserving, not smooth and not an
-indicator. For a step ``\gamma>0`` its proximal operator is a one-sided soft threshold, with the
-threshold ``\gamma\lambda_0w_i`` that `NormL1` forms:
+indicator. For finite inputs and a positive finite level, weight and step, its proximal operator is a
+one-sided soft threshold, with the threshold ``\gamma\lambda_0w_i`` that `NormL1` forms (the endpoint rules are below):
 
 ```math
 [\operatorname{prox}_{\gamma g}(v)]_i=\max\bigl(v_i-\gamma\lambda_0w_i,\ 0\bigr).
@@ -399,7 +399,7 @@ a subnormal one included, is not. The value is `Inf` where an entry that is read
 ``\lambda_0w_i`` rounds to zero also gives `NaN`, as for `NormL1`
 ([#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)), which then takes precedence over the `Inf` of a negative
 entry. A zero level or a zero weight keeps the domain. With finite weights, `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a
-feasible point (`+Inf` entries included) and `Inf` at a negative entry, and its proximal operator is the
+feasible point (`+Inf` entries included), and its proximal operator is the
 projection ``\max(v,0)`` onto the orthant, not the identity: `-0.0` and `-Inf` give `+0`, `+Inf` is
 kept and `NaN` stays `NaN`. The projection is the result for an entry in these cases:
 
@@ -422,9 +422,9 @@ to `NaN`.
 ```
 
 At a feasible point the value is the value of `NormL1` with the same level and weights, with its
-recovery of terms below `floatmin` (see the [numerical contract](numerics.md)): on a `SparseIterate`,
-a `BlockIterate` and a `SymmetricSparseIterate` bit for bit, on a dense array up to the order of the
-sum. `value_and_prox!` returns the value at the stored output.
+recovery of terms below `floatmin` (see the [numerical contract](numerics.md)): bit for bit on a
+`SparseIterate`, a `BlockIterate` and a `SymmetricSparseIterate`, and within the error bound of the sum on a
+dense array. `value_and_prox!` returns the value at the stored output.
 
 ### Weights, shapes and representations
 
@@ -463,8 +463,8 @@ refused = try prox!(y, f, [3.0, -2.0], -1.0); false catch e; e isa ArgumentError
 An infinite level fixes each entry with a positive weight at `+0` at every step ``\gamma\geq0``,
 ``\gamma=0`` included, for `NaN` and `±Inf` inputs too (the rule of `NormL1`); entries with a zero
 weight are projected onto the orthant. An infinite weight at a finite level maps finite inputs and
-`-Inf` to `+0`, also at zero level and step, and `+Inf` and `NaN` to `NaN`, as `NormL1` does
-([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)); its value is `0` at `0` and `Inf`
+`-Inf` to `+0`, also at zero level and step, and `+Inf` and `NaN` to `NaN` (see
+[#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)); its value is `0` at `0` and `Inf`
 at any other number, also at a zero level. A threshold formed from finite factors that overflows
 keeps the documented limitation of `NormL1` for an input of `+Inf`
 ([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)).
@@ -479,12 +479,12 @@ keeps the documented limitation of `NormL1` for an input of `+Inf`
 
 ### KKT scores, restriction and scaling
 
-With ``c_i=\lambda_0w_i``, the screen of a coordinate assumed zero is ``-v_i-c_i``, and
+For finite inputs and ``c_i=\lambda_0w_i``, the screen of a coordinate assumed zero is ``-v_i-c_i``, and
 `kkt_violation(g,v,x,k)` is ``-v_k-c_k`` at a zero coordinate, ``\lvert v_k+c_k\rvert`` at a
 positive one and `Inf` at a negative one, which is outside the domain. The full-point value is the
-``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for finite inputs, and `Inf` where an entry
-of `x` is negative. The rules for `NaN` and infinite entries are those of the other entrywise
-functions (see the [numerical contract](numerics.md)).
+``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for a finite point in the domain, and `Inf` at a
+finite point with a negative entry. The rules for `NaN` and infinite entries are in the
+[numerical contract](numerics.md).
 
 ```@example nonneg_l1
 h = NormL1Nonneg(0.5, [1.0, 2.0, 4.0])

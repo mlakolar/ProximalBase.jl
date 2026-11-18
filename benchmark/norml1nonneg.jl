@@ -1,13 +1,11 @@
 # Paired benchmark of NormL1Nonneg (#947) between the archived source tree (eff21b6d), the candidate and
-# a second compilation of the candidate (the A/A control), Float32 and Float64, at n = 8, 1024, 2048 and 65536
-# (both sides of the loop switches of the dense value, 16 to 1024 entries, and of the soft threshold, 16 KiB per
-# array): a loop of prox_block, dense prox! (unweighted and weighted, a zero level, per-entry steps), dense
+# a second compilation of the candidate (the A/A control), Float32 and Float64, at n = 8, 1024, 2048 and 65536:
+# a loop of prox_block, dense prox! (unweighted and weighted, a zero level, per-entry steps), dense
 # values at a feasible point (unweighted, weighted, a zero level), value_and_prox!, SparseIterate,
 # BlockIterate and SymmetricSparseIterate values and prox!, and the prox! and value_and_prox! of a Scaled
-# NormL1Nonneg. Cases whose id starts with `info/` time the value at an input with a negative entry or a NaN entry,
-# in every round like the other cases; they are not gated and their outputs are not compared. Of the four, only the
-# unweighted negative-entry input takes the entrywise fallback of the value; the unweighted NaN input returns after a
-# scan for non-finite entries, and the weighted inputs return from the first loop.
+# NormL1Nonneg. Cases whose id starts with `info/` time the value at an input with a negative entry or a NaN entry, in
+# every round; their outputs are not compared with the archive, the A/A check applies to them, and they are not part of
+# the comparison of the plan.
 #
 #   PB_ARCHIVE=<root of the archived tree> PB_CANDIDATE=<root of the candidate> PB_OUTPUT=<dir> \
 #   PB_ROUNDS=21 julia --threads=1 --check-bounds=no --project=benchmark benchmark/norml1nonneg.jl
@@ -25,8 +23,7 @@
 # place of the archived ones, values within 2(n + 2) eps relative to the archived value at feasible points (each
 # value is within (n + 2) eps of the exact one), and the control identical to the candidate; the `info/` cells
 # are not compared with the archive. PB_FILTER selects cases by a regular expression on their ids. With
-# PB_VS_NORML1=1 the archive role is replaced by NormL1 of the candidate tree (the same code, not the archive):
-# the cells are then timed against NormL1 as information, and only the values at feasible points are compared.
+# PB_VS_NORML1=1 the archive role is replaced by NormL1 of the candidate tree.
 using BenchmarkTools, LinearAlgebra, SparseArrays, Random, Statistics, Dates, Printf
 Threads.nthreads() == 1 || error("one Julia thread required")
 BLAS.set_num_threads(1)
@@ -113,8 +110,7 @@ function makeprobes(PB, ctor, ::Type{T}, D) where {T}
         add("value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.res, d.out, fw, d.xs, γ))
         add("scaled_prox!/weighted/n$n", n, :prox, prox_case(px, d.out, fs, d.xs, γ))
         add("scaled_value_and_prox!/weighted/n$n", n, :vprox, vprox_case(vp, d.res, d.out, fs, d.xs, γ))
-        # inputs that leave the feasible set (timed in every round, not gated, not compared); of these only the
-        # unweighted negative entry takes the entrywise fallback of the value
+        # inputs with a negative or a NaN entry: timed in every round, not compared with the archive, the A/A check applies
         if n == 1024 || n == 65536
             add("info/value/unweighted_negative_entry/n$n", n, :info, value_case(d.res, fu, d.xneg))
             add("info/value/weighted_negative_entry/n$n", n, :info, value_case(d.res, fw, d.xneg))

@@ -40,8 +40,7 @@ steps are rejected before writes. No trait automatically supplies this dispatch.
 `NormL1Nonneg` overrides the public scalar-step `prox!` and `value_and_prox!` the same way and
 for the same reason, and takes the generic separable loops after the check; an array of steps is
 not read by it. Its value reaches the `NormL1` loops through the hook `_l1_value` and its stored
-`NormL1`, and a dense array without weights has a method of its own (`_value_dense`), so that the call
-operator, `_value_unchecked` and the value at the stored output of `value_and_prox!` share one route.
+`NormL1`, and a dense array without weights has a method of its own (`_value_dense`).
 `ElasticNet` overrides the public scalar-step `prox!` and `value_and_prox!` only to
 refuse a negative or `NaN` step before writes, then takes the checked separable route;
 its private routes (used by `Scaled`) and `prox_block` do not check the step. Its

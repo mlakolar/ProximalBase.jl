@@ -109,9 +109,9 @@ a zero coordinate and ``\lvert v_j+c_j\operatorname{sign}(x_j)\rvert`` at a nonz
 `ElasticNet` returns the same at a zero coordinate with ``c_j=\lambda_1w_j``, and
 ``\lvert(v_j+\lambda_2x_j)+c_j\operatorname{sign}(x_j)\rvert`` at a nonzero one. For these two
 the full-point value is the ``\ell_\infty`` distance from ``-v`` to the
-subdifferential ``\partial g(x)`` when the inputs are finite. `NormL1Nonneg` returns ``-v_j-c_j`` at a zero
-coordinate, ``\lvert v_j+c_j\rvert`` at a positive one and `Inf` at a negative one, outside its domain; its full-point
-value is the same distance for a point with no negative entry and `Inf` otherwise. For `ZeroFunction`,
+subdifferential ``\partial g(x)`` when the inputs are finite. For finite inputs, `NormL1Nonneg` returns
+``-v_j-c_j`` at a zero coordinate and ``\lvert v_j+c_j\rvert`` at a positive one; the rules for infeasible and
+non-finite points are in the [numerical contract](numerics.md). For `ZeroFunction`,
 `LinearFunction` and `SqrNormL2` the score is ``\lvert v_j+d_j\rvert`` at zero and
 nonzero coordinates alike, with ``d_j`` the entry of ``\nabla g(x)`` (``0`` for
 `ZeroFunction`, the coefficient for `LinearFunction`), and the full-point value

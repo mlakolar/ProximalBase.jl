@@ -418,7 +418,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
     end
   end
 
-  # value_and_prox! returns the value at the stored output, bit for bit, on every length of the dense loops
+  # value_and_prox! returns the value at the stored output, bit for bit, at lengths on both sides of the loop switches
   for T in (Float32, Float64)
     @testset "$T value_and_prox! is the value at the stored output" begin
       rng = Xoshiro(947)
@@ -439,7 +439,7 @@ alloc_loop(f, x, γ) = @allocated loop_prox_block(f, x, γ)
           end
         end
       end
-      # the value is NaN at a NaN output, and Inf cannot be an output of a finite step (a +Inf entry stays at a zero level)
+      # the value is NaN at a NaN output, and a +Inf entry stays +Inf at a zero level, where its value is 0
       f0 = NormL1Nonneg(zero(T))
       y = zeros(T, 3)
       @test isnan(value_and_prox!(y, f0, T[NaN, 1, 2], T(0.5))) && isnan(y[1]) && y[2:3] == T[1, 2]

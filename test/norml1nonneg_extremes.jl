@@ -1,6 +1,6 @@
 module NormL1NonnegExtremesTest
 # NormL1Nonneg (#947): the endpoint truth table (the rejection of negative and NaN steps is in norml1nonneg.jl), values
-# against BigFloat on every route of the dense loops, the point-aware KKT scores and the full-point measure, and Scaled
+# against BigFloat on the routes of the dense loops, the point-aware KKT scores and the full-point measure, and Scaled
 # (folds, chains, infinite and zero factors, the hooks of scaled.jl).
 #
 # Proximal points are compared with max(v - t̂, 0) in BigFloat, t̂ the threshold that the NormL1 kernel forms, within 4
@@ -73,7 +73,7 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
       for λ0 in T[0.5, 2], w in (nothing, T[1], T[3])
         @test isproj(NormL1Nonneg(λ0, w), zero(T))
       end
-      # an infinite level fixes positive-weight entries at +0 at every step, NaN and ±Inf trials included (#665)
+      # an infinite level fixes positive-weight entries at +0 at each step below, NaN and ±Inf trials included (#665)
       for w in (nothing, T[1], T[0.5], T[Inf]), γ in steps
         f = NormL1Nonneg(T(Inf), w)
         @test all(prox_block(f, v, 1, γ) === zero(T) for v in trials)
@@ -99,7 +99,7 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
       for (λ0, w) in ((T(0.5), T[2]), (zero(T), nothing), (T(0.5), T[0]), (T(Inf), T[0]))
         @test all(isnan(prox_block(NormL1Nonneg(λ0, w), T(NaN), 1, γ)) for γ in T[0, 0.5, Inf])
       end
-      # -0 and +0 trials give +0 at every threshold
+      # -0 and +0 trials give +0 at the levels, weights and steps below
       for λ0 in T[0, 0.5], w in (nothing, T[0], T[2]), γ in T[0, 1]
         f = NormL1Nonneg(λ0, w)
         @test prox_block(f, -zero(T), 1, γ) === zero(T) && prox_block(f, zero(T), 1, γ) === zero(T)

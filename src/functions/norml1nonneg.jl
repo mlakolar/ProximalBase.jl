@@ -143,15 +143,15 @@ _value_sep(f::NormL1Nonneg, x::BlockIterate) =
 _value_sep(f::NormL1Nonneg, x::SymmetricSparseIterate) =
   _l1_underflow_checked(f, x, invoke(_value_sep, Tuple{Any, SymmetricSparseIterate}, f, x), 2 * x.nnz)
 
-# Without weights, a dense array of floats takes the route of the call operator of NormL1 (norml1.jl) with the
+# Without weights, a dense array of floats takes the steps of the call operator of NormL1 (norml1.jl) with the
 # membership of the entries in the sum. A term of the sum of magnitudes is Inf at a negative entry and |v| otherwise,
-# and the sums are those of _value_sumabs (a loop for _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries of a strided
-# Float32 or Float64 array and Julia's reduction otherwise). A sum cannot tell a feasible +Inf from a negative
-# entry where the level is zero or does not fit, so those two cases take a sum of membership terms: Inf at a
-# negative entry, 0 at any other number, NaN at NaN. The level converted to T that does not keep a normal number
-# (_level_fits) multiplies the sum of magnitudes in the wider type after membership (_converted_l1_value). The
-# overflow of the sum or of its product with the level takes the entrywise value, which also gives a negative entry its
-# Inf: the call of the generic method goes through invoke, since _value_dense on f would be this method.
+# and the sums are those of _value_sumabs (one loop for _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries of a strided
+# Float32 or Float64 array, Julia's reduction otherwise). That sum is Inf at a feasible +Inf entry as it is at a negative
+# one, while the value at a zero level is 0 at +Inf. So a zero level, and a level that does not convert to a normal
+# number of the type of the data (_level_fits), take a sum of membership terms: Inf at a negative entry, 0 at any other
+# number, NaN at NaN. For the second case a feasible point then takes _converted_l1_value, which multiplies the sum of
+# magnitudes in the wider type. An overflow of the sum or of its product with the level takes the entrywise value
+# (which gives a negative entry its Inf too) through invoke: a call of _value_dense on f would be this method.
 @inline _nonneg_member(v::T) where {T} = ifelse(v < 0, T(Inf), ifelse(v == v, zero(T), v))
 @inline _nonneg_abs(v::T) where {T} = ifelse(v < 0, T(Inf), abs(v))
 @inline _nonneg_reduce(g, x) = isempty(x) ? zero(float(eltype(x))) : sum(g, x)

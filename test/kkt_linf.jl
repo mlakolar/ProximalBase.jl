@@ -14,9 +14,10 @@ module KktLinfTest
 # is in the range of W: the bound of the ordinary path, plus the subnormal spacing. A reference above floatmax(W) must
 # overflow to Inf, and the band of relative width 100 eps(W) around floatmax(W) is not decided.
 #
-# Which tests fail at the base (13891ccf): the tests that call kkt_violation on a NormLinf, or on a Scaled over it, and
-# expect a value or an ArgumentError: at the base each such call is a MethodError. The tests of Scaled over SqrtLeastSquaresLoss
-# and the other functions pass there.
+# Which tests fail at the base (13891ccf): the checks of valid inputs, of the new NormLinf methods and of the refusals that they
+# throw, which are MethodErrors at the base. Checks of argument validation that the generic public methods perform before they
+# reach a NormLinf method (complex entries, offset axes, lengths) can pass at the base. The tests of Scaled over
+# SqrtLeastSquaresLoss and the other functions pass there.
 using Test, ProximalBase, LinearAlgebra, SparseArrays, Random, OffsetArrays
 using ..TestUtils
 const PB = ProximalBase
@@ -250,9 +251,9 @@ end
 end
 
 # ---- 4. the steepest descent rate ---------------------------------------------------------------------------------------
-# The distance from -v to the subdifferential is the largest rate of descent of v·d + f along a unit direction d:
-# -(⟨v, d⟩ + λ max_{i∈J} sign(xᵢ) dᵢ), with J the face (and λ max|dᵢ| at x = 0). No sampled direction exceeds the score by more
-# than the bound, and the direction (-v - s)/dist from the nearest subgradient s attains it.
+# The distance from -v to the subdifferential is the largest rate of descent of v·d + f over ‖d‖₂ ≤ 1:
+# -(⟨v, d⟩ + λ max_{i∈J} sign(xᵢ) dᵢ), with J the face (and λ max|dᵢ| at x = 0). No sampled unit direction exceeds the score by
+# more than the bound; when the distance is positive, the unit direction (-v - s)/dist from the nearest subgradient s attains it.
 @testset "$T steepest descent" for T in TYPES
   rng = MersenneTwister(972)
   rate(c, V, X, d) = begin
@@ -414,6 +415,30 @@ end
   end
 end
 
+# Float16 counts up to 2048 exactly in a sum of ones: small sizes are accepted and their value is within the bound of the type; a
+# length n with n + 1 not finite in Float16 (n + 1 ≥ 65520) is refused before any pass
+@testset "Float16" begin
+  for (v, x, λ, br) in ((Float16[3, 1], zeros(Float16, 2), 1, :zero), (Float16[0.3, -0.5], zeros(Float16, 2), 1, :zero),
+                        (Float16[-3, 1], Float16[2, -2], 1, :threshold), (Float16[-3, 1], Float16[2, -2], 10, :closed),
+                        (Float16[3, -1, 0.5, 2], Float16[2, 2, -2, 1], 0.5, :threshold),
+                        (Float16[5, -1, -1, -1, -1, -1, -1], ones(Float16, 7), 0.3, :threshold))
+    @test branch(λ, v, x) === br
+    r = kkt_violation(NormLinf(Float16(λ)), v, x)
+    @test r isa Float16
+    @test ok(r, Float16(λ), v, x)
+    @inferred kkt_violation(NormLinf(Float16(λ)), v, x)
+  end
+  n = 65519
+  for (v, x) in ((ones(Float16, n), zeros(Float16, n)), (ones(Float16, n), ones(Float16, n)))
+    f = NormLinf(Float16(1))
+    @test_throws ArgumentError kkt_violation(f, v, x)
+    m = msg(() -> kkt_violation(f, v, x))
+    @test occursin("65519", m) && occursin("Float16", m)
+    @test_throws ArgumentError kkt_violation(Scaled(f, Float16(2)), v, x)
+  end
+  @test kkt_violation(NormLinf(Float16(1)), Float16[], Float16[]) === zero(Float16)
+end
+
 # ---- 7. NaN and infinite entries ---------------------------------------------------------------------------------------------
 # rule 1: a NaN anywhere gives NaN, also with an Inf present; otherwise an Inf gives Inf (also where λ = 0 or the level is Inf)
 @testset "$T NaN and Inf" for T in TYPES
@@ -465,7 +490,8 @@ end
   w = fill(small, 7)
   @test near(kkt_violation(NormLinf(zero(T)), w, zeros(T, 7)), sqrt(T(7)) * small)
   @test ok(kkt_violation(NormLinf(small / 4), w, zeros(T, 7)), small / 4, w, zeros(T, 7))
-  # a level near floatmax with small entries: the level is the distance (a face of two, closed form)
+  # a level near floatmax with small entries: the negative closed-form face threshold gives a large residual whose squares
+  # require the cold path
   for λ in (floatmax(T), floatmax(T) / 2, floatmax(T) / 4, ldexp(one(T), emax - 5))
     v, x = T[0.5, 0.25], T[1, 1]
     @test ok(kkt_violation(NormLinf(λ), v, x), λ, v, x)
@@ -543,6 +569,7 @@ end
   @test_throws ArgumentError kkt_violation(f, ones(T, 2, 2), S)
   @test_throws ArgumentError kkt_violation(f, ones(T, 4), S)
   @test occursin("SymmetricSparseIterate", msg(() -> kkt_violation(f, ones(T, 2, 2), S)))
+  @test !occursin("kkt_violation(f, v, x, k)", msg(() -> kkt_violation(f, ones(T, 2, 2), S)))   # the form that NormLinf refuses is not advised
 end
 
 # ---- 10. the other forms are refused ----------------------------------------------------------------------------------------------
@@ -618,6 +645,17 @@ alloc_first(f, v, x) = @allocated kkt_violation(f, v, x)
   @test r1 === r2
   y = prox(f, v, one(T))
   @test y == prox(NormLinf(λ), v, one(T))
+  # a buffer populated by a proximal call that uses it is not written by the score
+  let f = NormLinf(T(0.2) * sum(abs, v)), z = copy(v)
+    prox!(z, f, z, one(T))
+    buf = f.scratch.buf
+    @test buf isa Vector{T}
+    saved = copy(buf)
+    kkt_violation(f, v, x)
+    kkt_violation(f, v, zeros(T, n))
+    @test f.scratch.buf === buf
+    @test isequal(buf, saved)
+  end
   # the lazy v/α of the Scaled route
   @test allocs(kkt_violation, Scaled(NormLinf(λ), T(2)), v, x) == 0
   @test allocs(kkt_violation, Scaled(NormLinf(λ), T(2)), v, zeros(T, n)) == 0
@@ -628,11 +666,17 @@ end
 # (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
 # level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
 # a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
-# entries. The measured errors of the kernel with that shift on these inputs, in units of u (‖v‖₂ + λ), with --check-bounds=yes and without, on Julia
-# 1.10.13 and 1.13.4, on two kinds of CPU: Float32, n = 200001, λ = 3: 1.8e4 to 1.2e6; Float64, n = 200001, λ = 0.3: 2.8e5 to 1.9e6,
-# and λ = 3: 8.4e4 to 3.1e6 (the stated bound, about 4e5 there, separates them in some of the runs). The kernel here gave at most 100
-# (Float32, λ = 3), 4100 (Float64, λ = 0.3) and 1600 (Float64, λ = 3). The guards below are at least 4.9 times those maxima and at
-# least 10 times below the smallest error with the shift by the smallest entry; the stated bound holds too.
+# entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and -O0 (scalar loops: the LLVM IR of
+# the reductions has no vector instructions at -O0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on a znver3 node
+# (and, for n = 200001, on a skylake-avx512 node), for the kernel with that shift (old) and for this kernel (new):
+#   Float32, n = 2000001, λ = 3:    old 1.56e6 to 1.57e6,  new at most 6.3e4 (guard 3e5)
+#   Float32, n = 2000001, λ = 0.3:  old 4.0e6 to 4.1e6,    new at most 1.6e5 (guard 8e5)
+#   Float64, n = 200001, λ = 0.3:   old 2.8e5 to 1.9e6,    new at most 1.3e4 (guard 6e4)
+#   Float64, n = 200001, λ = 3:     old 8.4e4 to 3.1e6,    new at most 4.8e3 (guard 2e4)
+#   Float64, n = 2000001, λ = 3:    old 8.7e6 to 2.2e7,    new at most 1.0e5 (guard 1e6)
+# Each guard is at least 4.2 times the largest new error and at least 4.2 times below the smallest old error. The stated bound
+# (about 4e5 for n = 200001 and 4e6 for n = 2000001) does not separate old from new in all of these runs, which is why the
+# guards are given.
 function bulk_error(::Type{W}, a, λ) where {W}
   w = one(W) / sqrt(W(a)) + λ / a
   v = fill(-w, a + 1)
@@ -647,7 +691,8 @@ function bulk_error(::Type{W}, a, λ) where {W}
   end
 end
 @testset "a face entry far below the level, equal bulk" begin
-  for (W, a, λ, guard) in ((Float32, 200_000, Float32(3), 1000.0), (Float64, 200_000, 0.3, 20_000.0), (Float64, 200_000, 3.0, 8_000.0))
+  for (W, a, λ, guard) in ((Float32, 2_000_000, 3.0, 3e5), (Float32, 2_000_000, 0.3, 8e5), (Float64, 200_000, 0.3, 6e4),
+                           (Float64, 200_000, 3.0, 2e4), (Float64, 2_000_000, 3.0, 1e6))
     isW, units, bound = bulk_error(W, a, W(λ))
     @test isW
     @test units <= bound

@@ -43,9 +43,10 @@ NormL1Nonneg
 ElasticNet
 ```
 
-## Nonnegative orthant
+## Box and nonnegative orthant
 
 ```@docs
+IndBox
 IndNonnegative
 ```
 

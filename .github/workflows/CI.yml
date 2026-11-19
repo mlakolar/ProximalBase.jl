@@ -74,6 +74,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The migration ledger reads its frozen documentation baseline.
+          fetch-depth: 0
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
@@ -99,6 +102,14 @@ jobs:
         run: |
           set -o pipefail
           python3 docs/check_html.py 2>&1 | tee "${RUNNER_TEMP}/pb-docs-html.log"
+      - name: Report documentation migration preservation
+        run: |
+          set -o pipefail
+          scope_args=()
+          if [[ "${GITHUB_HEAD_REF:-}" == docs/reader-tracks* ]]; then
+            scope_args=(--scope-base HEAD^1)
+          fi
+          python3 -B docs/check_migration.py --check all --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
       - name: Preserve rendered documentation
         uses: actions/upload-artifact@v7
         with:

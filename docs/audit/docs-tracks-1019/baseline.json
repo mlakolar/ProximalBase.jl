@@ -1,0 +1,21 @@
+{
+  "authored_pages": 42,
+  "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
+  "block_count": 2162,
+  "content_anchor_count": 621,
+  "example_scripts": {
+    "examples/block_prox_extension.jl": "0354ebf15cca157c9dfc69dce98fd686dd299da86af8aa68c0d2f69e8f20769e",
+    "examples/block_storage.jl": "b961008b3e7c6d57312688ddf0553a18bad9c564f5f11d06699d5969e53795f9",
+    "examples/coordinate_operations.jl": "2f899f0a7640f667a8536319216e8dd2dd266d8daceff71cbe0bad04d3216ac5",
+    "examples/custom_function.jl": "d37c669fccbaf68bfe151ac8a3b77a4288e0b382ef301043e428456bcc85e561",
+    "examples/group_lasso_prox.jl": "7ce9282c12ba2723cb955e7384a7d1065277033c9482217dc26d915cf632d4b6",
+    "examples/lasso.jl": "907a2e3b86096e4aca5f8f9838f4ce29dca47a04701c42cc1eb57506089cb06d",
+    "examples/proximal_gradient.jl": "018606bccca457654e183e9f42d3ca5b2556e1bc8848325a09958ab365f38d33",
+    "examples/sparse_working_sets.jl": "1552786446c789786af4d26ee7fbb28ab0deb97d63be785c95da760423c87cd0",
+    "examples/symmetric_storage.jl": "4081c2fb0281631106f9c4452254e11f53e046d010c98903a5c71675d15fe9b6"
+  },
+  "issue": 1019,
+  "mode": "report-only",
+  "rendered_pages": 54,
+  "schema": 1
+}

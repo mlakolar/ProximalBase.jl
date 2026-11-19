@@ -106,9 +106,10 @@ of `NaN` and infinite entries, ranges (a residual far below the level, a level n
 points with a zero residual), matrices, `SparseIterate` and `BlockIterate` points, the refusal of the three-argument and four-argument forms and of a
 `SymmetricSparseIterate`, no mutation of `v`, `x` or the buffer of the object (also a buffer populated by a proximal call), zero allocations for same-type `Float32` and `Float64` arrays with a level of a hardware float type, and inference, `Scaled` (one
 factor, the forms of the leaf, an infinite factor, retained chains that fold and that do not, a symmetric point, whose message does not advise the
-four-argument form), the threshold search when the count of entries above a level rises (a deterministic two-entry input that asserts the level of
-`_l1ball_michelot`, large ties with a level near them at the zero point, on a face, through `Scaled` and on the scaled path, and a grid of
-clusters around the breakpoint, against exact distances in BigFloat) and the absence of ambiguities.
+four-argument form), a head above large ties (up to `10^6` entries) with a level near them, where the first level of all the entries rounds near the ties:
+at the zero point, on a face of all the entries and on a face with entries off it, through `Scaled` (one factor, and a chain that folds) and
+on the scaled path, a grid of such clusters around the breakpoint, a two-entry input, the closed form of a face inside its range and faces of
+nearly equal entries at its boundary, against exact distances in BigFloat, and the absence of ambiguities.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

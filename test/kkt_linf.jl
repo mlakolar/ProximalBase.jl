@@ -664,19 +664,20 @@ end
 # ---- 11b. a face with entries far below the level ------------------------------------------------------------------------------------
 # One face entry lies far below the level and the others (a bulk of a = n - 1 equal entries) are above it: x = ones(n), u = -v =
 # (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
-# level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
-# a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
-# entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and optimization level 0 (scalar loops: the LLVM IR of
-# the reductions has no vector instructions at level 0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes
-# (and, for n = 200001, on a skylake-avx512 node), for the kernel with that shift (old) and for this kernel (new):
-#   Float32, n = 2000001, λ = 3:    old 1.56e6 to 1.57e6,  new at most 6.3e4 (guard 3e5)
-#   Float32, n = 2000001, λ = 0.3:  old 4.0e6 to 4.1e6,    new at most 1.6e5 (guard 8e5)
-#   Float64, n = 200001, λ = 0.3:   old 2.8e5 to 1.9e6,    new at most 1.3e4 (guard 6e4)
-#   Float64, n = 200001, λ = 3:     old 8.4e4 to 3.1e6,    new at most 4.8e3 (guard 2e4)
-#   Float64, n = 2000001, λ = 3:    old 8.7e6 to 2.2e7,    new at most 1.0e5 (guard 1e6)
-# Each guard is at least 4.2 times the largest new error and at least 4.2 times below the smallest old error. The stated bound
-# (about 4e5 for n = 200001 and 4e6 for n = 2000001) does not separate old from new in all of these runs, which is why the
-# guards are given.
+# level of the face is found on the face values shifted by the first level of the face, a lower bound of the level in exact arithmetic
+# (the mean of the face entries minus λ/n); a shift by the smallest face entry instead gives each shifted value the size of |u₁| and a
+# level whose error grows with the number of entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and
+# optimization level 0 (scalar loops: the LLVM IR of the reductions has no vector instructions at level 0 and has 4 and 8 lanes
+# otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes (and, for n = 200001, on a skylake-avx512 node), for a variant of
+# the search with the shift by the smallest entry (μ-shift) and for the search of this file (first-level shift):
+#   Float32, n = 2000001, λ = 3:    μ-shift 1.56e6 to 1.57e6,  first-level shift at most 6.3e4 (guard 3e5)
+#   Float32, n = 2000001, λ = 0.3:  μ-shift 4.0e6 to 4.1e6,    first-level shift at most 1.6e5 (guard 8e5)
+#   Float64, n = 200001, λ = 0.3:   μ-shift 2.8e5 to 1.9e6,    first-level shift at most 1.3e4 (guard 6e4)
+#   Float64, n = 200001, λ = 3:     μ-shift 8.4e4 to 3.1e6,    first-level shift at most 4.8e3 (guard 2e4)
+#   Float64, n = 2000001, λ = 3:    μ-shift 8.7e6 to 2.2e7,    first-level shift at most 1.0e5 (guard 1e6)
+# Each guard is at least 4.2 times the largest error of the first-level shift and at least 4.2 times below the smallest error of the
+# μ-shift. The stated bound (about 4e5 for n = 200001 and 4e6 for n = 2000001) does not separate the two in all of these runs, which
+# is why the guards are given.
 function bulk_error(::Type{W}, a, λ) where {W}
   w = one(W) / sqrt(W(a)) + λ / a
   v = fill(-w, a + 1)
@@ -720,66 +721,82 @@ end
   end
 end
 
-# ---- 11c. a large tie and a level near it (#987) ---------------------------------------------------------------------------------------------
-# The threshold search `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a
-# level at or above a large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below
-# the previous one, and the count of entries above it rises. The routine then returns the previous level; returning the lower
-# level would give a false zero score at the zero point (and a clip of the tie at zero in the prox, tested in normlinf.jl).
-# The inputs are a head entry y1 above m equal entries y0 with a radius c near the breakpoint y1 - y0, where the exact level is at or
-# just below y0. The reference is the exact distance in BigFloat from the stored entries and level (the levels of a head and a tie
-# have a closed form; no kernel of the package is called). The sum of the ties is rounded in an order that depends on the
-# compilation mode (and on the loop that the compiler chooses), so an input reaches that exit in some modes and not in others: each
-# is a check of the returned level and distance where it does, and a check of accuracy where it does not. The lower level gives
-# the whole distance as error (31.6 for the first input of the list below, against a bound of 0.4).
+# ---- 11c. a large tie and a level near it ---------------------------------------------------------------------------------------------
+# The inputs are a head entry y1 above m equal entries y0 (the tie), with a radius c near the breakpoint y1 - y0, where the exact level
+# is at or just below y0 and the first level of all the entries, (Σ y - c)/(m + 1), lies within the summation error of the sum
+# of the entries from y0. The sum of the ties is rounded in an order that depends on the compilation mode (and on the loop that the
+# compiler chooses), so the first level is above the tie in some modes and below it in others: each input is a check of accuracy in
+# either case. A search that returns a level far below the tie gives a negative level and a zero score at the zero point on some
+# inputs, and a positive level and an inaccurate score on others; the comparisons with the exact distance cover both. The reference
+# is the exact distance in BigFloat from the stored entries and level (the levels of a head and a tie have a closed form; no kernel
+# of the package is called). The optional off entries lie off the face (x = 1/2 there, v = off), and enter the distance as they are.
 # the exact distance for the head y1 and the tie (y0, m): at the zero point the distance to the ball of radius c (0 inside), on a
-# face (all entries on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
-function cluster_dist(c, y1, y0, m; face = false)
+# face (all entries of the cluster on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
+function cluster_dist(c, y1, y0, m; face = false, off = ())
   bigprec() do
     C, Y1, Y0 = big(c), big(y1), big(y0)
     !face && Y1 + m * Y0 <= C && return zero(BigFloat)
     τ = C <= Y1 - Y0 ? Y1 - C : (Y1 + m * Y0 - C) / (m + 1)
-    sqrt(min(Y1, τ)^2 + m * min(Y0, τ)^2)
+    sqrt(min(Y1, τ)^2 + m * min(Y0, τ)^2 + sum(a -> big(a)^2, off; init = zero(BigFloat)))
   end
 end
-# the cluster as arrays: the head first (or last), at the zero point or on the face x = ones (v = -u there)
-function cluster_arrays(::Type{W}, y1, y0, m; face = false, pos = :first) where {W}
+# the cluster as arrays: the head first (or last), at the zero point or on the face x = ones (v = -u there), then the off entries
+function cluster_arrays(::Type{W}, y1, y0, m; face = false, pos = :first, off = ()) where {W}
   u = fill(W(y0), m + 1)
   u[pos === :first ? 1 : end] = W(y1)
-  face ? (-u, ones(W, m + 1)) : (u, zeros(W, m + 1))
+  face || return u, zeros(W, m + 1)
+  vo = W[a for a in off]
+  vcat(-u, vo), vcat(ones(W, m + 1), fill(W(0.5), length(vo)))
 end
 # whether r is within slack × the bound (and the subnormal term) of the reference
-function cluster_ok(r, c, y1, y0, m, ::Type{W}; face = false, slack = 1) where {W}
+function cluster_ok(r, c, y1, y0, m, ::Type{W}; face = false, slack = 1, off = ()) where {W}
   r isa W || return false
-  ref = cluster_dist(c, y1, y0, m; face)
+  ref = cluster_dist(c, y1, y0, m; face, off)
   bigprec() do
-    unit = (big(eps(W)) / 2) * (sqrt(big(y1)^2 + m * big(y0)^2) + big(c))
-    isfinite(r) && abs(big(r) - ref) <= slack * big(linf_bound(m + 1)) * unit + 4 * (m + 1) * big(nextfloat(zero(W)))
+    unit = (big(eps(W)) / 2) * (sqrt(big(y1)^2 + m * big(y0)^2 + sum(a -> big(W(a))^2, off; init = zero(BigFloat))) + big(c))
+    n = m + 1 + length(off)
+    isfinite(r) && abs(big(r) - ref) <= slack * big(linf_bound(n)) * unit + 4 * n * big(nextfloat(zero(W)))
   end
 end
 const TIE_CASES = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
                    (Float64, 1.8, 0.9, 10^6, 0.9000008), (Float32, 0.2, 0.1, 10^6, 1.0))
 
-@testset "the threshold search when the count rises: two entries ($T)" for T in TYPES
+@testset "two entries whose first level rounds above the second ($T)" for T in TYPES
   ε = eps(T)
-  # y = (3, 1 + 3ε), radius 2 - 2ε: the sum 4 + 3ε rounds up to 4 + 4ε, the first level is 1 + 3ε (the second entry is not above
-  # it), the next level is 1 + 2ε and the count rises from 1 to 2. The routine returns 1 + 3ε; the exact level is 1 + 2.5ε.
+  # y = (3, 1 + 3ε), radius 2 - 2ε: the sum 4 + 3ε rounds up to 4 + 4ε, so the first level 1 + 3ε is above the second entry; the
+  # exact level is 1 + 2.5ε
   y = T[3, 1 + 3ε]
   r = T(2) - 2ε
-  @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
   @test cluster_ok(kkt_violation(NormLinf(r), y, zeros(T, 2)), r, y[1], y[2], 1, T)
   @test cluster_ok(kkt_violation(NormLinf(r), -y, ones(T, 2)), r, y[1], y[2], 1, T; face = true)
 end
 
+const OFF_ENTRIES = (0.3, -0.2, 0.7)
+
 @testset "large ties against the exact distance" begin
   for (W, y1, y0, m, λ) in TIE_CASES
     c = W(λ)
-    for pos in (:first, :last), face in (false, true)
-      v, x = cluster_arrays(W, y1, y0, m; face, pos)
+    for pos in (:first, :last), (face, off) in ((false, ()), (true, ()), (true, OFF_ENTRIES))
+      v, x = cluster_arrays(W, y1, y0, m; face, pos, off)
       r = kkt_violation(NormLinf(c), v, x)
-      @test cluster_ok(r, c, W(y1), W(y0), m, W; face)
+      @test cluster_ok(r, c, W(y1), W(y0), m, W; face, off)
       # through Scaled with a power of two: the level c/2 under the factor 2 is the level c
-      @test cluster_ok(kkt_violation(Scaled(NormLinf(c / 2), W(2)), v, x), c, W(y1), W(y0), m, W; face, slack = 1 + 6 / linf_bound(m + 1))
+      slack = 1 + 6 / linf_bound(m + 1 + length(off))
+      @test cluster_ok(kkt_violation(Scaled(NormLinf(c / 2), W(2)), v, x), c, W(y1), W(y0), m, W; face, off, slack)
     end
+  end
+end
+
+@testset "$W the head above 10^5 equal entries, at the zero point and on the face of all entries" for W in TYPES
+  # a head 1 above 10^5 entries of 0.009486833 and the radius 0.1 (100001 entries): the distance is 3.1320918539449983 for the
+  # stored Float32 entries and radius, and 3.1320918... for Float64 within the bound
+  m = 10^5
+  c = W(0.1)
+  for pos in (:first, :last), face in (false, true)
+    v, x = cluster_arrays(W, 1.0, 0.009486833, m; face, pos)
+    r = kkt_violation(NormLinf(c), v, x)
+    @test cluster_ok(r, c, W(1.0), W(0.009486833), m, W; face)
+    @test isapprox(r, 3.13209; atol = 1e-3)
   end
 end
 
@@ -793,13 +810,22 @@ end
     v, x = cluster_arrays(W, y1, y0, m; face, pos)
     @test cluster_ok(kkt_violation(NormLinf(c), v, x), c, y1, y0, m, W; face, slack = 4)
   end
+  # the head 1 above 10^5 entries of 0.009486833 with the radius 0.1, scaled to entries near floatmax, on the zero point, on the face of
+  # all entries and on a face with entries off it
+  m = 10^5
+  sc = W(0.8) * floatmax(W) / (1 + m * W(0.009486833))
+  y0, y1, c = W(0.009486833) * sc, sc, W(0.1) * sc
+  for pos in (:first, :last), (face, off) in ((false, ()), (true, ()), (true, ntuple(i -> OFF_ENTRIES[i] * Float64(sc), 3)))
+    v, x = cluster_arrays(W, y1, y0, m; face, pos, off)
+    @test cluster_ok(kkt_violation(NormLinf(c), v, x), c, y1, y0, m, W; face, off, slack = 4)
+  end
 end
 
 @testset "$W a grid of clusters around the breakpoint against the exact distance" for W in TYPES
   # the radius is the breakpoint y1 - y0 plus θ times the rounding error of the sum of the entries, read from the sum that the
   # kernel forms
   bad = 0
-  for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
+  for m in (1000, 3000, 10_000, 100_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
     y0, y1 = W(y0f), W(mult) * W(y0f)
     v, _ = cluster_arrays(W, y1, y0, m; pos)
     s, _ = PB._linf_classify(v, PB._AbsRead{W}(), W)
@@ -809,12 +835,44 @@ end
     c = bigprec() do
       W(big(y1) - big(y0) + θ * abs(serr))
     end
-    for face in (false, true)
-      u, x = cluster_arrays(W, y1, y0, m; face, pos)
-      bad += !cluster_ok(kkt_violation(NormLinf(c), u, x), c, y1, y0, m, W; face)
+    for (face, off) in ((false, ()), (true, ()), (true, OFF_ENTRIES))
+      u, x = cluster_arrays(W, y1, y0, m; face, pos, off)
+      bad += !cluster_ok(kkt_violation(NormLinf(c), u, x), c, y1, y0, m, W; face, off)
     end
   end
   @test bad == 0
+end
+
+# ---- 11d. the closed form of a face, certified or not ----------------------------------------------------------------------------
+# The closed form of the level of a face is returned when the computed first level plus a bound on its error is at most the
+# smallest face value; otherwise the level search continues from the first level. The tests assert values and accuracy, not the
+# branch taken.
+@testset "$W the closed form of a face inside its range, and faces at its boundary" for W in TYPES
+  # the first level -1 is far below the smallest face value 1: the level is -1 and the residual is -1 on the three entries
+  @test kkt_violation(NormLinf(W(9)), -W[3, 2, 1], ones(W, 3)) === sqrt(W(3))
+  @test kkt_violation(NormLinf(W(9)), W[3, 2, 1], -ones(W, 3)) === sqrt(W(3))
+  # three equal entries and radii so small that the first level, formed in W, is at or above the entries
+  v, x = fill(-W(0.1), 3), ones(W, 3)
+  for λ in (ldexp(one(W), W === Float32 ? -30 : -60), ldexp(one(W), W === Float32 ? -22 : -50), W(1e-3), W(0.2), W(0.3), W(0.31))
+    @test ok(kkt_violation(NormLinf(λ), v, x), λ, v, x)
+  end
+  # the head 1 above 10^5 entries of 0.009486833 with the radius 0.1, on the face of all entries
+  m = 10^5
+  v, x = cluster_arrays(W, 1.0, 0.009486833, m; face = true)
+  @test cluster_ok(kkt_violation(NormLinf(W(0.1)), v, x), W(0.1), W(1.0), W(0.009486833), m, W; face = true)
+end
+
+@testset "$T faces of nearly equal entries" for T in TYPES
+  rng = MersenneTwister(981)
+  for n in (3, 17, 200, 2000), spread in (0, 1, 4, 64), cf in (1e-8, 1e-4, 1e-2, 0.5, 5.0), sg in (1, -1)
+    y = T(0.1 + rand(rng))
+    u = T[y + spread * eps(y) * T(rand(rng) - 0.5) for _ in 1:n]
+    x = fill(T(sg), n)
+    v = -sg .* u
+    λ = T(cf) * y
+    @test ok(kkt_violation(NormLinf(λ), v, x), λ, v, x)
+    @test ok(kkt_violation(NormLinf(λ * n), v, x), λ * n, v, x)
+  end
 end
 
 # ---- 12. Scaled -----------------------------------------------------------------------------------------------------------------------
@@ -822,6 +880,21 @@ tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)                    # tiny(T
 lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)                      # tiny(T)^2 * lvl(T) is
 folded(T) = ldexp(one(T), T === Float32 ? -100 : -200)                   # tiny(T)^2 lvl(T)
 chain(T, f) = (c = Scaled(Scaled(f, tiny(T)), tiny(T)); c.f isa Scaled || error("merged"); c)
+
+@testset "$W the clusters through a chain that folds" for W in TYPES
+  # the cluster and the radius times folded(W) (a power of two), and the chain around NormLinf(λ lvl(W)), which folds to the radius
+  # λ folded(W): the score is that of the cluster at that radius
+  f = folded(W)
+  for (W0, y1, y0, m, λ) in TIE_CASES
+    W0 === W || continue
+    h = chain(W, NormLinf(lvl(W) * W(λ)))
+    for pos in (:first, :last), (face, off) in ((false, ()), (true, ()), (true, OFF_ENTRIES .* Float64(f)))
+      v, x = cluster_arrays(W, W(y1) * f, W(y0) * f, m; face, pos, off)
+      slack = 1 + 6 / linf_bound(m + 1 + length(off))
+      @test cluster_ok(kkt_violation(h, v, x), W(λ) * f, W(y1) * f, W(y0) * f, m, W; face, off, slack)
+    end
+  end
+end
 
 @testset "$T Scaled" for T in TYPES
   rng = MersenneTwister(977)

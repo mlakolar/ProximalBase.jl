@@ -527,8 +527,8 @@ same process. A `NaN` in either input gives `NaN`. Otherwise an infinite input
 entry gives `+Inf`. With finite inputs, ordinary arithmetic in the gradient
 and residual can still overflow, underflow or produce `NaN`.
 
-The call reads `v` and `x` without modifying them and refuses overlap detected
-by `Base.mightalias` with scratch it writes. A quadratic uses its existing
+The call reads `v` and `x` without modifying them and uses `Base.mightalias`
+on their storage to detect overlap with the scratch it writes. A quadratic uses its existing
 scratch for the gradient and makes one matrix product. A least-squares loss
 makes two matrix products and uses both its existing residual scratch and a
 dense coefficient-shaped output. The first ordinary call that needs this
@@ -550,7 +550,7 @@ kkt_violation(ZeroFunction(), d, x)
 For a finite positive factor `α`, `Scaled` applies its
 [usual rule](@ref scaled-kkt) to the supplied gradient `v`. An infinite
 factor or a retained chain whose factors do not fold throws `ArgumentError`.
-Scaling by zero through the public constructor yields `ZeroFunction()`.
+Scaling a function with finite data by zero through the public constructor yields `ZeroFunction()`.
 
 ## [Zero function](@id Zero-function)
 

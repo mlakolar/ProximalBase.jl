@@ -139,7 +139,8 @@ remain `BigFloat`.
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
   nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
   these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
-  is zero and for an entry in no group of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`.
+  is zero and for an entry in no group of a `GroupNormL2`; for smooth functions
+  with a local form it is `α` times the score at `v = 0`.
 * **A stack that nests an infinite factor with another `Scaled` wrapper.** `Scaled(f, α)` and `α * f` do not produce it,
   because they merge the infinite factor; a direct call of the parameterized constructor `Scaled{F,T}(f, α)` does. For such a stack the
   three-argument screen and the four-argument value at a zero coordinate or group are **unspecified**: they can differ from

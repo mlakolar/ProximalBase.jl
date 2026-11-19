@@ -319,7 +319,8 @@ The local form of `GroupNormL2` takes an entry of an array point, which selects 
 a group (an `ArgumentError`); the value of `NormLinf` is a 2-norm distance to the subdifferential and not a maximum of scores,
 and its definition, ties and an example are in [the ℓ∞ norm guide](@ref norm-linf-kkt).
 `LeastSquaresLoss` and `QuadraticFunction` give the infinity norm of
-`v + gradient(g, x)` in the full-point form. See
+`v + ∇g(x)` in the full-point form, with the gradient stored in the function's
+type by `gradient!`. See
 [smooth stationarity scores](@ref smooth-kkt) for precision and scratch ownership.
 `Scaled` of the functions with a full-point score evaluates that score on `v/α` and multiplies it by `α`, with
 the limits and unsupported cases of the [scaling guide](@ref scaled-kkt).

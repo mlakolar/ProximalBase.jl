@@ -194,8 +194,17 @@ end
   xmat = hcat(x, 2x)
   rejects_unchanged(DimensionMismatch, loss, v, x)
   rejects_unchanged(DimensionMismatch, loss, ones(T, 1, 4), ones(T, 1, 4))
+  rejects_unchanged(ArgumentError, loss, Diagonal(view(loss.tmp, :, 1)), xmat)
   kkt_violation(loss, xmat, xmat)
-  rejects_unchanged(ArgumentError, loss, view(loss.output.buf, :, :), xmat)
+  for oracle in (loss, Scaled(loss, T(2))), buf in (loss.tmp, loss.output.buf)
+    d, e = view(buf, 1:2, 1), view(buf, 1:1, 2)
+    for alias in (view(buf, :, :), Diagonal(d), view(Diagonal(d), :, :),
+                  Symmetric(view(buf, :, :)), Bidiagonal(d, e, :U),
+                  SymTridiagonal(d, e), Tridiagonal(e, d, e))
+      rejects_unchanged(ArgumentError, loss, alias, xmat, oracle)
+      rejects_unchanged(ArgumentError, loss, xmat, alias, oracle)
+    end
+  end
 end
 
 @testset "Value, gradient, prox and reset after a score ($T)" for T in (Float32, Float64)

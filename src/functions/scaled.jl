@@ -44,7 +44,7 @@ _ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N,
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
-_smooth_kkt_parent(a::_ScaledArray) = _smooth_kkt_parent(a.g)
+_smooth_kkt_overlap(buf, a::_ScaledArray) = _smooth_kkt_overlap(buf, a.g)
 
 # the entries of g times a factor that is not a normal number, with the exponent applied last
 struct _ExpScaledArray{T, N, A<:AbstractArray, S<:_ProjectionScale} <: AbstractArray{T, N}

@@ -752,12 +752,22 @@ end
   _checksize(v, x)
 end
 
-_smooth_kkt_parent(a) = a
 @inline function _check_smooth_kkt_alias(buf, v, x)
   isempty(buf) && return nothing
-  (Base.mightalias(buf, _smooth_kkt_parent(v)) || Base.mightalias(buf, x)) && _smooth_kkt_alias_error()
+  (_smooth_kkt_overlap(buf, v) || _smooth_kkt_overlap(buf, x)) && _smooth_kkt_alias_error()
   nothing
 end
+@inline function _smooth_kkt_overlap(buf, a)
+  Base.mightalias(buf, a) && return true
+  p = parent(a)
+  p !== a && p isa AbstractArray && _smooth_kkt_overlap(buf, p)
+end
+# Some structured matrices do not report their backing vectors to Base.mightalias.
+_smooth_kkt_overlap(buf, a::Diagonal) = _smooth_kkt_overlap(buf, a.diag)
+_smooth_kkt_overlap(buf, a::Union{Bidiagonal, SymTridiagonal}) =
+  _smooth_kkt_overlap(buf, a.dv) || _smooth_kkt_overlap(buf, a.ev)
+_smooth_kkt_overlap(buf, a::Tridiagonal) =
+  _smooth_kkt_overlap(buf, a.dl) || _smooth_kkt_overlap(buf, a.d) || _smooth_kkt_overlap(buf, a.du)
 @noinline _smooth_kkt_alias_error() =
   throw(ArgumentError("kkt_violation(f, v, x) needs v and x to be independent of the function's scratch"))
 

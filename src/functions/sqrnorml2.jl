@@ -102,28 +102,21 @@ function _value_unchecked(f::SqrNormL2, x::_ArrayOrSymmetricIterate)
   _checkvalue(f, x)
   T = _valtype(x)
   iszero(f.λ) && return zero(T)
-  λ = convert(T, f.λ)
   y = f.y
-  T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value32(λ, x, y)
-  _square_value(λ, x, _ridge_value_center(T, y))
+  T === Float32 && y !== nothing && eltype(y) === Float64 && return _ridge_value32(f.λ, x, y)
+  _square_value(f.λ, x, _ridge_value_center(T, y))
 end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
 # The scaled-value mechanism: the recomputation of _square_value in power-of-two units, with the
 # centers rounded as the value rounds them.
-# Exact-zero protection: the ordinary value is λ/2 Σ (xᵢ - yᵢ)², with the sum in the type T of the
-# value. A difference is exact where it is subnormal and zero only for equal entries. Where a square
-# can underflow (the sum below n floatmin/eps), the value is recomputed
-# in power-of-two units and rounded once (_square_value), so a zero value there is below δ. Otherwise
-# the sum is normal, with relative error below n eps, and a zero value is the product with λ/2
-# rounded to zero: below δ/2 (1 + n eps). The centers are rounded as the value rounds them, both
-# here and in the parts. So |f(x)| < n δ in every case, whatever λ is (λ = 0 is exact).
+# For homogeneous data, a difference is exact where subnormal and is zero for equal entries.
+# Where a square can underflow (sum below n floatmin/eps), the value is recomputed in power-of-two
+# units and rounded once. A zero computed value there is below δ. Otherwise the sum is normal
+# with relative error below n eps, and a zero value bounds the exact value by δ/2 (1 + n eps).
 _has_value_parts(::Type{<:SqrNormL2}) = true
-function _value_parts(f::SqrNormL2, x::AbstractArray, v)
-  T = _valtype(x)
-  _square_parts(convert(T, f.λ), x, _ridge_value_center(T, f.y))
-end
+_value_parts(f::SqrNormL2, x::AbstractArray, v) = _square_parts(f.λ, x, _ridge_value_center(_valtype(x), f.y))
 @inline _zero_value_exponent(f::SqrNormL2, x::AbstractArray) =
   iszero(f.λ) ? _EXACT_ZERO : _underflow_exponent(_valtype(x), length(x))
 _parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
@@ -131,20 +124,22 @@ _parameter_alias(f::SqrNormL2, out) = _mightalias_parameter(out, f.y)
 # Round the same centers for the value and its parts.
 function _ridge_value_center(::Type{T}, y) where {T}
   y === nothing && return y
-  ((T === Float32 && eltype(y) === Float64) || (T <: Union{Float32, Float64} && float(eltype(y)) <: BigFloat)) || return y
-  map(T, y)
+  T <: Union{Float32, Float64} || return y
+  R = float(eltype(y))
+  ((T === Float32 && eltype(y) === Float64) || R <: BigFloat) || return y
+  map(c -> R(T(c)), y)
 end
 
 # Float32 residuals with a Float64 center. Accumulate their squares in Float64 as
 # before. The exceptional path uses the same rounded center as the value parts.
-function _ridge_value32(λ::Float32, x, y)
+function _ridge_value32(λ, x, y)
   s = 0.0
   @inbounds @simd for i in eachindex(x, y)
     s += abs2(Float64(Float32(x[i]) - Float32(y[i])))
   end
   s32 = Float32(s)
-  v = λ * s32 / 2
-  (isfinite(v) & _squares_normal(s32, length(x), Float32)) && return v
+  v = convert(Float32, λ) * s32 / 2
+  (isfinite(v) & _squares_normal(s32, length(x), Float32)) && _level_fits(Float32, λ) && return v
   _exceptional_square_value(λ, x, _ridge_value_center(Float32, y), s32, v)
 end
 
@@ -387,12 +382,13 @@ Base.@propagate_inbounds _kkt_plain(y::AbstractArray, l::W, x::W, i) where {W} =
 Base.@propagate_inbounds _kkt_natural(f::SqrNormL2, s, ::Type{W}, v::W, x::W, i) where {W} =
   abs(v + _kkt_plain(f.y, s, x, i))
 @inline _kkt_flag(::SqrNormL2, x, r) = r - r
-@inline _kkt_ridge(::Nothing, l, x, i) = l * x
-Base.@propagate_inbounds _kkt_ridge(y, l, x, i) = _ridge_gradient_entry(l, x, y[i])
+@inline _kkt_ridge(::Nothing, l, ::Type{W}, x, i) where {W} = l * x
+Base.@propagate_inbounds _kkt_ridge(y, l, ::Type{W}, x, i) where {W} =
+  convert(W, _ridge_gradient_entry(l, x, y[i]))
 Base.@propagate_inbounds function _kkt_entry(f::SqrNormL2, s, ::Type{W}, v, x, i) where {W}
   vw = convert(W, v)
   xw = convert(W, x)
-  _kkt_override(abs(vw + _kkt_ridge(f.y, s, xw, i)), vw, xw)
+  _kkt_override(abs(vw + _kkt_ridge(f.y, s, W, xw, i)), vw, xw)
 end
 @_kkt_entrywise SqrNormL2
 

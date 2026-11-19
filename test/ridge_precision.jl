@@ -178,7 +178,6 @@ setprecision(BigFloat, BIG) do
   @testset "mixed parameters use the converted model" begin
     x = Float32[2f0^-64]
     f = SqrNormL2(2.0^160)
-    @test f(x) === Inf32
     @test gradient(f, x) == Float32[Inf]
 
     x = zeros(Float32, 9)
@@ -197,6 +196,14 @@ setprecision(BigFloat, BIG) do
     @test gradient(f, x) == Float32[-Inf]
     @test prox(f, x, 1.0) == Float32[Inf]
     @test prox_block(f, x[1], 1, 1.0) === Inf32
+  end
+  @testset "mixed values retain shared squared-residual arithmetic" begin
+    λ = ldexp(1.5, -100)
+    x = Float32[ldexp(1f0 + 2f0^-12, 70)]
+    @test SqrNormL2(λ)(x) === Float32(big(λ) * big(only(x))^2 / 2)
+    @test SqrNormL2(1.0, BigFloat[1])(Float64[2.0^54]) === prevfloat(2.0^107)
+    f = Scaled(ElasticNet(2.0^-1000, 2.0^160), 2.0^-100)
+    @test f(Float32[32]) === 2f0^69
   end
   @testset "review regressions" begin
     # the gradient may be written over the center: the repair pass must not reread it

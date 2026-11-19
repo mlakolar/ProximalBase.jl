@@ -24,16 +24,18 @@ A wider data or parameter type does not establish a general promotion rule
 for the result. Other real types, including `BigFloat`, are not guaranteed
 production types. `BigFloat` remains useful for independent reference tests.
 
-Conversion can lose the range of a mixed-type parameter. In `SqrNormL2`,
-the value rounds the level to the argument's floating type, and the gradient
-and point-aware KKT scores round it to their working type. Centers that these
-operations or the proximal map narrow are read at the converted precision,
-including during residual recovery. The dense unweighted values of `NormL1`
-and `NormL1Nonneg` also round the level to the argument's floating type. A
-parameter that rounds to zero, a subnormal, or infinity can therefore change
-the result even when the exact result is representable. The proximal weights
-of `SqrNormL2` still use the product of the supplied step and level in their
-promoted type, with the scaled-weight path when needed.
+Conversion can lose the range of a mixed-type parameter. The gradient and
+point-aware KKT scores of `SqrNormL2` convert the level and center entries
+to their working type. The proximal map also converts the center entries to
+its working type. The value rounds a `Float64` center to `Float32` for
+`Float32` data, and a center of `BigFloat` precision to the data type for
+`Float32` or `Float64` data. The same center rounding applies during
+value recovery. The dense unweighted sum paths of `NormL1` and
+`NormL1Nonneg` convert the level to the data type. Their entrywise
+fallbacks use the supplied level when the converted level and entries are
+finite and the product with the sum is nonfinite. An input that rounds to
+zero, a subnormal, or infinity can therefore change the result even when
+the exact result is representable.
 
 For supported homogeneous array-function calls:
 

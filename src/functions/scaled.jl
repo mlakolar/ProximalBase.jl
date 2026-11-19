@@ -223,6 +223,11 @@ function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
 end
+# A normal folded level can recover a rounded leaf value of NormL2.
+function _fold_level(f::NormL2, α::_NormalScale)
+  c = _folded_level(f.λ, α)
+  c === nothing ? nothing : NormL2(c)
+end
 function _fold_level(f::NormL1Nonneg, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1Nonneg(c, f.w)
@@ -399,8 +404,7 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # recomputed. The terms of both parts at the entries that y stores are added in one exponent-sum accumulator
 # (`_elastic_expsum`, under the precondition with which the ElasticNet value recomputes a sum below 2 floatmin: both
 # levels positive and finite, so that a NaN or ±Inf entry makes v non-finite and never reaches it), and α multiplies
-# the sum before its single rounding (`_expsum_value`). This reads the stored entries of y once. Other functions, a
-# zero level, a zero leaf value and other factors keep the value of their route (`_fused_small_case` is false).
+# the sum before its single rounding (`_expsum_value`). This reads the stored entries of y once.
 _fused_small_case(f, α, v) = false
 @inline _fused_small_case(f::ElasticNet, α, v) =
   α isa Real && v isa AbstractFloat && !iszero(v) && abs(v) < floatmin(v) && α > 1 && isfinite(α) &&
@@ -629,7 +633,9 @@ value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
 _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
   (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ));
-   _value_at(_fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) : _scaled_value(s, y, v, isinf(s.α)), y))
+   r = _fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) :
+       _scaled_value(s, y, v, s.f isa Union{NormL1, NormL2} || isinf(s.α));
+   _value_at(r, y))
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)

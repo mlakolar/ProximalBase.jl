@@ -1629,6 +1629,116 @@ function test_scaled_single_factors(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+function test_scaled_fused_small_values(::Type{T}) where {T<:AbstractFloat}
+  @testset "Scaled fused value recovers a small norm at the stored output" begin
+    a, l, z, t = T === Float32 ? (29, -100, -50, -50) : (200, -1000, -100, -500)
+    α, λ = pow2(T, a), pow2(T, l)
+    x, γ = T[pow2(T, z)], pow2(T, t)
+    f = NormL1(λ)
+    @test !PB._array_route(Scaled(f, α), x, [γ])
+    for (norm, steps) in ((f, (γ, [γ])), (NormL2(λ), (γ,))), step in steps
+      h = Scaled(norm, α)
+      y = similar(x)
+      v = value_and_prox!(y, h, x, step)
+      @test y == prox!(similar(x), h, x, step) == x
+      @test norm(y) === zero(T)
+      r = big(α) * big(λ) * abs(big(only(y)))  # either norm of a one-entry vector
+      @test r == pow2(T, a + l + z)
+      @test v === T(r) && h(y) === T(r)
+
+      alias = copy(x)
+      @test value_and_prox!(alias, h, alias, step) === T(r)
+      @test alias == y
+    end
+
+    # The 3δ/2 leaf value rounds to 2δ. Scaling before rounding also
+    # recovers δ/2 and agrees across the normal boundary at floatmin(T).
+    δ = nextfloat(zero(T))
+    α = pow2(T, precision(T) + 2)
+    λ = T(0.5)
+    h = Scaled(NormL1(λ), α)
+    for (entry, inner) in ((δ, zero(T)), (T(3) * δ, T(2) * δ),
+                           (T(2) * prevfloat(floatmin(T)), prevfloat(floatmin(T))),
+                           (T(2) * floatmin(T), floatmin(T))),
+        step in (zero(T), zeros(T, 1))
+      x = T[entry]
+      y = similar(x)
+      v = value_and_prox!(y, h, x, step)
+      @test y == prox!(similar(x), h, x, step) == x
+      @test h.f(y) === inner
+      r = big(α) * l1val(λ, nothing, y)
+      @test v === T(r) && h(y) === T(r)
+    end
+  end
+
+  @testset "Scaled fused norm endpoints and ordinary values" begin
+    x = T[3, -4]
+    α = T(2)
+    for (f, input, γ, expected) in (
+        (NormL1(one(T)), x, T(0.5), T(10)),
+        (NormL1(one(T)), x, T(4), zero(T)),
+        (NormL1(one(T)), zeros(T, 2), T(0.5), zero(T)),
+        (NormL1(zero(T)), x, T(0.5), zero(T)),
+        (NormL1(one(T), zeros(T, 2)), x, T(0.5), zero(T)),
+        (ZeroFunction(), x, T(0.5), zero(T)),
+        (NormL1(T(Inf)), T[NaN, Inf], zero(T), zero(T)),
+        (NormL1(one(T)), T[NaN, 3], T(0.5), T(NaN)),
+        (NormL1(one(T)), T[Inf, 3], T(0.5), T(Inf)))
+      h = Scaled(f, α)
+      for step in (γ, fill(γ, length(input)))
+        y = similar(input)
+        @test isequal(value_and_prox!(y, h, input, step), expected)
+        @test isequal(y, prox!(similar(y), h, input, step))
+        @test isequal(h(y), expected)
+      end
+    end
+
+    h = Scaled(NormL1(one(T)), T(Inf))
+    for step in (one(T), ones(T, 2))
+      y = similar(x)
+      @test value_and_prox!(y, h, x, step) === h(y) === zero(T)
+      @test y == prox!(similar(y), h, x, step) == zeros(T, 2)
+    end
+
+    for (λ, γ, expected) in ((one(T), T(0.5), T(8)), (zero(T), one(T), zero(T)),
+                             (T(Inf), zero(T), zero(T)))
+      h = Scaled(NormL2(λ), α)
+      y = similar(x)
+      v = value_and_prox!(y, h, x, γ)
+      @test y == prox!(similar(y), h, x, γ)
+      @test v ≈ expected rtol = 2eps(T)
+      @test h(y) ≈ expected rtol = 2eps(T)
+      for step in (-one(T), T(NaN))
+        out = copy(x)
+        @test_throws ArgumentError value_and_prox!(out, h, x, step)
+        @test out == x
+      end
+    end
+  end
+end
+
+@testset "Scaled fused values for tiny Float64 norm levels" begin
+  setprecision(BigFloat, 512) do
+    for (norm, λ, α, x, γ, magnitude) in (
+        (NormL2, 1.8542864676817134e-301, 7.361520265230996e224,
+         [-4.300482185090916e-193], 4.7304910869299796e-231, y -> sqrt(sum(abs2, big.(y)))),
+        (NormL1, 1e-300, 1e300, [1e-200], 1e-300, y -> sum(abs, big.(y))))
+      f = norm(λ)
+      h = Scaled(f, α)
+      for aliased in (false, true)
+        y = aliased ? copy(x) : similar(x)
+        input = aliased ? y : x
+        v = value_and_prox!(y, h, input, γ)
+        @test y == prox!(similar(x), h, x, γ) == x
+        @test f(y) === 0.0
+        r = big(α) * big(λ) * magnitude(y)
+        @test within(v, r, 2)
+        @test within(h(y), r, 2)
+      end
+    end
+  end
+end
+
 function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
   δ = nextfloat(zero(T))
@@ -1689,6 +1799,7 @@ setprecision(BigFloat, 2400) do
   test_sparse_products(T)   # sparse and symmetric matrix products: overflowing terms, cancellation and non-finite factors
   test_symmetric_part(T)   # symmetric part of an asymmetric argument: the mean and the tiny-α product
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers
+  test_scaled_fused_small_values(T)
   test_recorded_defects(T)   # recorded defects (see the audit document): @test_broken against the independent reference
 end
 end

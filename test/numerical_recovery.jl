@@ -1777,7 +1777,7 @@ end
 # the chain of two Scaled factors over NormL1(λ0, [w]): every draw whose exact threshold t = α1 α2 γ λ0 w is a normal
 # number (at most floatmax / 8) and whose exact product P = α1 α2 γ λ0 lies between 2^(2 emin + 6) and 2^(2 emax - 6)
 # is checked at the point near 3t, for prox! and prox_block, against the reference. The filter is computed from the
-# exact inputs. The draws differ between Julia versions, so the number of checked draws is asserted too.
+# exact inputs. The draws may differ between Julia versions, so the number of checked draws is asserted too.
 function test_scaled_threshold_sweep(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
   smin = e0 - precision(T) + 1

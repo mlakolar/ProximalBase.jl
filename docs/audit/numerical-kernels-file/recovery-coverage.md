@@ -161,25 +161,29 @@ before, is fixed (#886); its entry follows.
 **D1 (fixed, #886): scalar-step prox of a `Scaled` factor or chain over a weighted
 `NormL1` or `NormL1Nonneg` lost the threshold when the level could not hold the
 factors and the weights compensated.** `_nested_step` folded the factors and the
-step significand into the level `λ0` only (`_fold_level_step`); if `α1 α2 γ λ0` was
-not a normal number (a zero, a subnormal level that had lost bits, or an overflow,
-or a fold that overflows although the product does not) the function was
-left with the step rounded (`step = α1 α2 γ`, 0 or Inf) and the threshold was
-wrong, even though `α1 α2 γ λ0 w` is representable. The *value* of the same chain
+exponent of the step into the level `λ0` only (`_fold_level_step`), with the step
+reduced to its significand `mγ`. The level that the fold stores, `α1 α2 2^eγ λ0`
+(that is, `α1 α2 γ λ0 / mγ`), was zero, a subnormal number that had lost bits, or an
+overflow, the last also where `α1 α2 γ λ0` itself is at most `floatmax`. A subnormal
+level was kept, with the step's significand, and the threshold carried its lost bits.
+For a zero or an overflowing level the fold was refused and the function was left
+with the step rounded (`step = α1 α2 γ`: zero, a subnormal number or Inf). The
+threshold was wrong in each case, even though `α1 α2 γ λ0 w` is representable. The *value* of the same chain
 recovers it through the partial fold (`_scaled_value_partial`), and the
 *array-step* route recovers it through `_shifted_fold`. `prox!`, `value_and_prox!`
 and `prox_block` take the scalar-step route.
 
 Now, for a `NormL1` or `NormL1Nonneg` whose level is a positive finite IEEE number
-after `float`, when the fold of the whole exponent would not store a normal level,
-`_nested_step` splits the exponent between the step and the level
-(`_split_level_step`): the step is `mγ 2^k` for the significand `mγ` of `γ`, and the
-level takes the exponent that is left, with `k` near half the exponent of the product
-of the level and the exponent of the factors and `γ`. The split is used if the step
-and the folded level are both normal numbers; the leaf then forms the threshold
-`γ λ0 wᵢ` from them (from the three significands with one exponent when the product of
-the step and the level is not a normal number, as `(γ λ0) wᵢ` when it is). A chain whose
-fold into the level is a normal number takes the fold as before.
+after `float`, when the level that the fold of the whole exponent would store is not a
+normal number (zero, subnormal or an overflow), `_nested_step` splits the exponent between
+the step and the level (`_split_level_step`): the step is `mγ 2^k` for the significand
+`mγ` of `γ`, and the level takes the exponent that is left, with `k` near half the sum of
+the exponent `e` of the factors and of `γ` and the exponent of `λ0`. The split is used if
+the step and the folded level are both normal numbers; the leaf then forms the threshold
+`α1 α2 γ λ0 wᵢ` of an entry from the step, the folded level and `wᵢ` (from the three
+significands with one exponent when the product of the step and the level is not a normal
+number, as the product of that product and `wᵢ` when it is). A chain whose fold into the
+level is a normal number takes the fold as before.
 The tests are the testsets "scalar-step threshold of Scaled weighted ℓ1 (#886)",
 "seeded sweep of exponents (#886)" and "scalar-step threshold of Scaled weighted ℓ1:
 unchanged cases (#886)" of `test/numerical_recovery.jl`.
@@ -190,12 +194,14 @@ T = Float32; E = 127; p = E ÷ 2 + 20            # same shape in Float64 with E 
 f  = NormL1(T(1.3) * 2f0^20, T[2f0^(E - 10)])
 s  = Scaled(Scaled(f, 2f0^-p), 2f0^-p)           # α1 α2 = 2^-(E+39): not a normal number
 γ  = 2f0^-30
-x  = T[3 * 2f0^-50]                              # threshold t = α1 α2 γ λ0 w = 2.2551405e-18
+x  = T[3 * 2f0^-50]                              # threshold t = α1 α2 γ λ0 w = 2.2551404e-18 (Float64: 2.2551405187698493e-18)
 prox!(zeros(T, 1), s, x, γ)                      # [2.66228f-15]; before the fix [2.6645353f-15] (x unchanged)
 prox!(zeros(T, 1), s, x, T[γ])                   # array step: [2.66228f-15]
 s(T[1])                                          # value: 2.4214386f-9
 # Float64 (same construction): 2.662280118581606e-15; before the fix 2.6623668547554047e-15
-#   (the level 1.3 * 2^-1072 is subnormal with two bits: a 4% error in the threshold)
+#   (the level that the fold stored, 5.0e-323, is 10 units of the smallest subnormal number where the
+#   exact level is 10.4 units: a 4% error in the threshold; in Float32 the fold was refused and the
+#   step rounded)
 # Overflow side: NormL1(1.3 * 2^(E-20), [2^(-(E-10)-20)]) under two factors 2^p, γ = 2^-30, x = 3 t:
 #   Float64: 1.1143689514737182e302, Float32: 2.1093705f32; before the fix 0.0
 ```
@@ -203,15 +209,15 @@ s(T[1])                                          # value: 2.4214386f-9
 What remains of D1:
 
 - When `α1 α2 γ λ0` cannot be written as a normal level times a normal step (about the
-  square of the range of the type or beyond), the split is not available and the earlier
-  route runs: the fold into a level that can be subnormal, or the step rounded to 0 or Inf.
+  square of the range of the type or beyond), the split is not available and the step is
+  passed rounded (zero, a subnormal number or Inf), as before.
 - `ElasticNet` keeps the earlier route (`numerics.md` states the limit): its scalar
   step can lose the ℓ₁ threshold where the array step gives it (#567).
-- An infinite input beside a finite threshold: on the overflow side the earlier route gave
-  NaN (the step was rounded to Inf); `NormL1` now gives `±Inf` and `NormL1Nonneg` gives `+Inf`
-  for `+Inf` (and `+0` for `-Inf`), as the array step does. An entry whose own threshold
-  overflows (a weight of one beside compensating weights) still gives `0` for a finite
-  input and NaN for `+Inf`.
+- An infinite input beside a finite threshold: in the overflow-side example of the tests the
+  earlier route gave NaN (the step was rounded to Inf); `NormL1` now gives `±Inf` and
+  `NormL1Nonneg` gives `+Inf` for `+Inf` (and `+0` for `-Inf`) there, as the array step does.
+  In the tests, an entry whose own threshold overflows (a weight of one beside compensating
+  weights) still gives `0` for a finite input and NaN for `+Inf`.
 - A call on the new route builds the folded leaf once, as the earlier fold did, and the
   `NormL1` constructor checks the weights: one `prox_block` call costs time proportional
   to the number of weights.
@@ -249,7 +255,8 @@ defect.
   `prox` gives `0.0` (Float64 and Float32), expected `3/(1 + 2^(E-20)) = 3.4997e-302`
   (Float64) / `1.8489e-32` (Float32). The same happens for two-factor chains over
   `SqrNormL2`. For `NormL1` and `NormL1Nonneg` the level absorbs the product, or the
-  exponent is split between the step and the level where it cannot (D1 above).
+  exponent is split between the step and the level where the level cannot absorb it and the
+  split is available (D1 above).
 - **S2. Gradients of `Scaled` are the leaf gradient times the factor.** If the leaf
   gradient overflows or underflows before the factor is applied, `Scaled` returns
   `Inf` or a flushed zero although the product is representable

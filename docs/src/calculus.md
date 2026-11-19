@@ -156,8 +156,8 @@ remain `BigFloat`.
   [smooth stationarity score](@ref smooth-kkt). Infinite factors and retained
   chains whose factors do not fold throw `ArgumentError`. The coordinate and
   group forms throw `ArgumentError`, including at zero.
-* **Functions without the forms.** `SqrtLeastSquaresLoss` and `IndNonnegative` have no
-  four-argument or full-point score; the call on the `Scaled` function throws a `MethodError` (the call
+* **Functions without the forms.** `SqrtLeastSquaresLoss`, `IndNonnegative` and `GroupNormLinf` have no
+  four-argument or full-point score under `Scaled`; the call throws a `MethodError` (the call
   names the `Scaled` function). For a positive finite or infinite factor, `Scaled(f, α)` forwards the
   supported three-argument screen of an indicator `f` with the supplied gradient and returns its result
   unscaled. For `IndNonnegative` the result is `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
@@ -226,7 +226,8 @@ and of the ridge part, each recovered as for `NormL1` and `SqrNormL2` and
 rounded on its own, are added; the sum replaces that result if it is finite
 after conversion to its type, and the first result is kept otherwise. This is
 not a promise that arbitrary user-defined functions acquire numerical range
-recovery.
+recovery. `GroupNormLinf` has no fold of its level: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
+and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infinite-step exit gives `+0`; a group with a zero weight, or a zero level with a finite weight, keeps the identity, because those exits come first (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
 
 ## A zero scale can change the returned type
 

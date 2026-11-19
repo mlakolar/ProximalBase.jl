@@ -286,6 +286,30 @@ PB_FIRST=/tmp/pb-ref PB_SECOND="$PWD" PB_EXACT=1 PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/l2_norms.jl
 ```
 
+## Group ℓ∞ norm harness
+
+`groupnormlinf.jl` times `GroupNormLinf` (issue #956) between two source trees that both define it, through its exported methods:
+the array `prox!` into a separate output, the in-place `prox!(x, f, x, γ)`, `value_and_prox!`, the value, and sweeps of the compact
+`prox_block!` over all groups, with an output that is not the input and in place, for Float32 and Float64, groups of 4, 32, 512 and 4096
+entries over 4096 entries (1024, 128, 8 and 1 groups), contiguous (range) and permuted index layouts. The two in-place cases destroy their
+argument: the BenchmarkTools `setup` restores it (the argument, or every working copy before a sweep) outside the timing, and each timed
+sample is one call (`evals = 1`) and up to 1600 samples are requested; the other cases request up to 100 samples of 16 calls.
+Each is subject to the time limit of 0.15 s. The
+weights give group `k` a radius that is 0.1, 0.4, 0.8 or 1.2 times its ℓ₁ norm (`k` modulo 4): with groups of 4, 32 and 512 entries three
+groups in four are clipped and one is zero (fraction 1.2); with 4096 entries there is one group, with fraction 0.1, which is clipped, and
+no group is zero. It has the design of `l2_norms.jl` (roles X, Y and
+the A/A control XC, alternating order, shared input and output arrays, `raw.csv` and `provenance.txt` summarized by
+`summarize_norml1_infinite_weight.py`). The frozen full tree at eff21b6d7d33c622313122f46c6ee71693c101ee (`legacy/full`) is the
+historical reference for X. `PB_CHECK_ONLY=1` requires agreement between X and Y to `8 (m + K) eps(T)` times the largest entry of an
+array (or relative to a value) for groups of `m` entries and `K` groups, and `isequal` outputs of X and XC; with `PB_EXACT=1` it
+requires equality of X and Y bit for bit.
+
+```sh
+mkdir -p /tmp/pb-legacy && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb-legacy
+PB_FIRST=/tmp/pb-legacy PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/groupnormlinf.jl
+```
+
 ## Cold-path harness
 
 `l2_cold_paths.jl` is a differential check and a paired benchmark of the exceptional paths of `NormL2` and

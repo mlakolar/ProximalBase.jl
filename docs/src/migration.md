@@ -11,14 +11,14 @@ API. This development reduction is not a release announcement.
 ## Retained and removed scope
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf` and `GroupNormL2`, nonconvex penalties,
+other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties,
 Poisson and robust-loss families, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
-the norm `NormLinf` separately (#946). The restored indicators are
+the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restored indicators are
 `IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954) and
 `IndBallL2` (#950).
 
@@ -160,7 +160,11 @@ What changed besides the values of the table:
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
   0.5, and the nonzero and full-point forms throw an `ArgumentError`.
-* `Scaled` over a function of the package without a score (the losses) throws a
+* `GroupNormLinf` has the margin `‖v_G‖₁ - λ0 w` of its dual norm at a zero group, and the call throws an `ArgumentError` at a
+  nonzero group, in the full-point form and in the three-argument form. Before 0.6 (the legacy implementation) it returned that
+  screen for a group of a `BlockIterate`, also where the group was nonzero, and `abs(v[i])` at an entry of a nonzero group of an
+  array point, neither of which is a score of the nonzero group; the Euclidean screen of `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)).
+* `Scaled` over a function of the package without a score (the losses and `GroupNormLinf` in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero

@@ -240,7 +240,7 @@ prox_block(g, 2.0, 1, 1.0)  # 1.5
 
 `value_entry(g,v,i)` evaluates the scalar contribution ``g_i(v)``
 where this operation is implemented (not for every mathematically
-separable function). `GroupNormL2` implements
+separable function). `GroupNormL2` and `GroupNormLinf` implement
 `prox_block!(out,g,u,k,γ)` on compact vector buffers; custom group functions
 can implement the same hook. These hooks
 compute mathematical answers; **they do not update an iterate's active
@@ -313,6 +313,9 @@ full-point form and no form for a block:
 | `GroupNormL2` | ``\lVert v_G\rVert_2-c`` | ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2`` | ``\max(0,\text{block scores},\lvert v_i\rvert\text{ for the entries in no group})``, a maximum of block 2-norms |
 | `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
 | `NormLinf` | (no form for a block) | (no form for a block) | the 2-norm distance from ``-v`` to ``\partial g(x)`` for ``g(x)=\lambda\max_i\lvert x_i\rvert``: at ``x=0``, the distance from ``v`` to the ℓ₁ ball of radius ``\lambda`` (``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``); at ``x\ne0``, the distance with the face of the entries of largest magnitude, compared for equality after conversion to the working type |
+
+`GroupNormLinf` scores a group at zero with the margin ``\lVert v_G\rVert_1-c`` of its dual (ℓ₁) norm, with ``c=\lambda_0w_k``, and has no
+score at a nonzero group, no full-point form and no three-argument form (`ArgumentError`): see [the group ℓ∞ norm](group_penalty.md#group-linf-guide).
 
 The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
 `k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` and `NormLinf` have no form for an entry or

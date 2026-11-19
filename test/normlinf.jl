@@ -756,10 +756,11 @@ end
 tie_input(::Type{T}, y0, m, H, h, order) where {T} = place_input(fill(T(y0), m), fill(T(H), h), order)
 const ORDERS = (:first, :last, :middle, :padded)
 
-# the inputs of #1003, measured at the base: levels 0.17933007, 0.29999998, 0.8999997002396832 and 0.0027803732 where the levels of
-# the issue are about 0.5, 0.93, 0.9 and 0.5 (the last field of each tuple is that approximate target: the exact level of the stored data
-# of input 2 is 0.9300000429153442, and that of input 3 is 1 - BigFloat(0.1); each test compares with the exact level of the data). Input 1: Condat's pass hands over to Michelot's iteration (10^5 candidates); input 2: the pass
-# alone (the zeros keep the candidates below the handover); inputs 3 and 4: Michelot's iteration after the handover.
+# the inputs of #1003, measured at the base: levels 0.17933007, 0.29999998, 0.8999997002396832 and 0.0027803732 where the levels
+# of the issue are about 0.5, 0.93, 0.9 and 0.5 (the last field of each tuple is that approximate target: the exact level of the
+# stored data of input 2 is 0.9300000429153442, and that of input 3 is 1 - BigFloat(0.1); each test compares with the exact
+# level of the data). Input 1: Condat's pass hands over to Michelot's iteration (10^5 candidates); input 2: the pass alone (the
+# zeros keep the candidates below the handover); inputs 3 and 4: Michelot's iteration after the handover.
 function issue1003_inputs()
   y0, y1, y2 = 0.17933106f0, 0.8999997002398832, 0.0027806521f0
   (("1", Float32, [fill(y0, 100_000); 1f0], 0.5f0, 0.5),
@@ -773,10 +774,10 @@ function large_tie_cases()
            (Float64, 1.8, 0.9, 10^6, 0.9000008))
   [(T, [T(y1); fill(T(y0), m)], T(λ)) for (T, y1, y0, m, λ) in cases]
 end
-# one head 1 above m ties y0 = (1 - c)/(1 + ρ m² u) at the radius c. Before y0 is rounded to T, the exact level 1 - c lies above the ties
-# by ρ m² u y0; the parameter ρ sets this gap against a worst-case rounding scale of the sum of the ties, not against the measured error
-# of that sum. After the rounding the gap can differ, and can be zero (Float64, m = 10, c = 0.5, ρ = 0.003 gives y0 = 0.5);
-# (m, c, ρ, order, x)
+# one head 1 above m ties y0 = (1 - c)/(1 + ρ m² u) at the radius c. Before y0 is rounded to T, the exact level 1 - c lies above
+# the ties by ρ m² u y0; the parameter ρ sets this gap against a worst-case rounding scale of the sum of the ties, not against
+# the measured error of that sum. After the rounding the gap can differ, and can be zero (Float64, m = 10, c = 0.5, ρ = 0.003
+# gives y0 = 0.5); (m, c, ρ, order, x)
 function head_ties_cases(::Type{T}) where {T}
   u = Float64(eps(T)) / 2
   [(m, cf, ρ, order, tie_input(T, (1 - cf) / (1 + ρ * Float64(m)^2 * u), m, 1, 1, order))
@@ -847,9 +848,10 @@ end
   # after the handover (inputs 3 and 4); the returns reached depend on the order of the vectorized sums, and the bounds hold for each.
   for (name, T, x, λ, target) in issue1003_inputs()
     groups = ref_groups(x)
-    @test abs(ref_level_groups(groups, λ) - big(target)) < 1e-6     # the exact level of the data is within 1e-6 of the target of the issue
+    @test abs(ref_level_groups(groups, λ) - big(target)) < 1e-6     # the target of the issue, to within 1e-6
     @test prox_msg(T, x, groups, λ) === nothing
-    # the head first (inputs 1, 3 and 4): the level is then the level of the head alone, rounded, and the first level of the issue
+    # the head first (inputs 1, 3 and 4): the level is then the level of the head alone, rounded, and the first level of the
+    # issue
     if name != "2"
       xf = [x[end]; x[1:(end - 1)]]
       @test prox_msg(T, xf, groups, λ; scaled = false) === nothing
@@ -989,17 +991,18 @@ end
   x = ones(T, 2001)
   @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c) == 1
   @test c.calls[] > 2001
-  # the callers give the sum of their own pass: the handover then starts at its level, and the pass that sums the entries is not made
+  # the callers give the sum of their own pass: the handover then starts at its level, and the pass that sums the entries is not
+  # made
   c2 = CountRead{T}()
   @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c2, PB._linf_sum(x, rd, T)) == 1
   @test c.calls[] - c2.calls[] == 2001
 end
 
 @testset "the discard level of Condat's pass does not decrease (Float32)" begin
-  # the head 1.25 with the radius 1 puts the level at prevfloat(1/4) and the 4000 entries prevfloat(1/4) are discarded; the entry
-  # 1/4 then joins the candidates; the join value, before the monotone maximum, is below prevfloat(1/4) (the factor 1 - (nv + 4)u
-  # shortens it), and without the maximum it would lower the discard level below the 60 entries 1/4 - 15 2^-26, which must not be
-  # stored: the level is 1/4 (the excess of the head, 1.25 - 1/4 = 1 = a, is exact)
+  # the head 1.25 with the radius 1 puts the level at prevfloat(1/4) and the 4000 entries prevfloat(1/4) are discarded; the
+  # entry 1/4 then joins the candidates; the join value, before the monotone maximum, is below prevfloat(1/4) (the factor 1 -
+  # (nv + 4)u shortens it), and without the maximum it would lower the discard level below the 60 entries 1/4 - 15 2^-26, which
+  # must not be stored: the level is 1/4 (the excess of the head, 1.25 - 1/4 = 1 = a, is exact)
   x = Float32[1.25; fill(prevfloat(0.25f0), 4000); 0.25f0; fill(0.25f0 - 15 * 2.0f0^-26, 60)]
   c = CountRead{Float32}()
   @test PB._l1ball_threshold!(Vector{Float32}(undef, length(x)), x, 1f0, c) == 0.25f0
@@ -1021,10 +1024,10 @@ end
 end
 
 @testset "the discard level at a negative numerator with a subnormal sum of the candidates ($T)" for T in (Float32, Float64)
-  # x = [δ (25 times), 1], a = 1/2: at each join the numerator of the join value is negative (the sum of the candidates is subnormal and
-  # a is normal, so the difference is not exact). The value is then at most zero, and not at most L_V + δ/2 with L_V = (Σ_V - a)/nv the exact
-  # level of the candidates: in Float32 the value at 25 candidates, -0.02f0, is above L_V + δ/2 by about 4.5e-10. The level that the
-  # routine returns is within the bounds of the exact level 1/2
+  # x = [δ (25 times), 1], a = 1/2: at each join the numerator of the join value is negative (the sum of the candidates is
+  # subnormal and a is normal, so the difference is not exact). The value is then at most zero, and not at most L_V + δ/2 with
+  # L_V = (Σ_V - a)/nv the exact level of the candidates: in Float32 the value at 25 candidates, -0.02f0, is above L_V + δ/2 by
+  # about 4.5e-10. The level that the routine returns is within the bounds of the exact level 1/2
   δ = nextfloat(zero(T))
   a = T(0.5)
   x = [fill(δ, 25); one(T)]
@@ -1042,8 +1045,9 @@ end
 end
 
 @testset "a certified return from a level above the exact root ($T)" for (T, n, a) in ((Float32, 5, 3.6192696f0), (Float64, 7, 4.428546679406913))
-  # ones(n) with a radius whose plain level lies above the exact level 1 - a/n: with the sums in sequential order the pass at that level
-  # gives an excess just above a, and the certified step t, which lies above the exact level too, is returned (no entry between the levels)
+  # ones(n) with a radius whose plain level lies above the exact level 1 - a/n: with the sums in sequential order the pass at
+  # that level gives an excess just above a, and the certified step t, which lies above the exact level too, is returned (no
+  # entry between the levels)
   x = ones(T, n)
   τ, exit, k, passes = seq_michelot(x, a)
   g = ref_groups(x)
@@ -1053,9 +1057,10 @@ end
 
 @testset "the pass counts without wrapping ($T)" for T in (Float32, Float64)
   # `_l1ball_excess` counts in the integer type of the width of the entries (Int32 for Float32) when n fits in it, and in Int
-  # otherwise (2^31 entries or more: 8 GiB in Float32, which these tests do not allocate). Tested: the selection at the boundary sizes, and that the two
-  # counters give the same count and smallest entry on a small input, and sums within the bound of (P) of each other (the two
-  # loops can be vectorized differently, which changes the order of the sum). Not tested: a pass over 2^31 entries
+  # otherwise (2^31 entries or more: 8 GiB in Float32, which these tests do not allocate). Tested: the selection at the boundary
+  # sizes, and that the two counters give the same count and smallest entry on a small input, and sums within the bound of (P)
+  # of each other (the two loops can be vectorized differently, which changes the order of the sum). Not tested: a pass over
+  # 2^31 entries
   rd = PB._AbsRead{T}()
   U = T == Float32 ? Int32 : Int64
   @test PB._excess_narrow(T, 10) && PB._excess_narrow(T, Int(typemax(U)))
@@ -1173,8 +1178,8 @@ end
 @testset "a radius below the rounding of the sum, and a radius near the full sum ($T)" for T in (Float32, Float64)
   rd = PB._AbsRead{T}()
   bad = 0
-  # equal entries and a radius below the spacing of their sum: some radii round the plain level onto the entries, and the grid also has
-  # levels just below them (Michelot's iteration after the handover for n > 2000, Condat's pass alone below)
+  # equal entries and a radius below the spacing of their sum: some radii round the plain level onto the entries, and the grid
+  # also has levels just below them (Michelot's iteration after the handover for n > 2000, Condat's pass alone below)
   for n in (4, 100, 2001, 20_001), y0 in T[1, 0.3, 0.7], a in (eps(y0) / 4, eps(y0), 3 * eps(y0), T(1.25) * eps(T), eps(T) * n * y0 / 1000)
     x = fill(y0, n)
     bad += prox_msg(T, x, ref_groups(x), a; entry_points = n < 1000, scaled = n < 1000) !== nothing
@@ -1198,8 +1203,9 @@ end
 end
 
 @testset "the scaled path: entries near floatmax ($T)" for T in (Float32, Float64)
-  # the sum of the magnitudes is approximately 0.9 floatmax (the normalization and the entries are rounded), above floatmax/2: the entries are read in units of a power of two; the level of
-  # the exceptional path is within the same bounds (the units of the subnormal losses are below these at these sizes)
+  # the sum of the magnitudes is approximately 0.9 floatmax (the normalization and the entries are rounded), above floatmax/2:
+  # the entries are read in units of a power of two; the level of the exceptional path is within the same bounds (the units of
+  # the subnormal losses are below these at these sizes)
   bad = 0
   u = Float64(eps(T)) / 2
   for m in (10, 1000, 10^4), cf in (0.1, 0.5, 0.9), ρ in (0.06, 0.25, 1.0), order in (:first, :last, :padded)

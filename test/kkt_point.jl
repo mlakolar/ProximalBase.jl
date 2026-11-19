@@ -664,7 +664,7 @@ end
   end
   @test_throws ArgumentError kkt_violation(NormL1(T(0.3)), G, x)
   @test occursin("SymmetricSparseIterate", msg(() -> kkt_violation(NormL1(T(0.3)), G, x)))
-  @test_throws MethodError kkt_violation(NormLinf(T(1)), G, x)
+  @test_throws ArgumentError kkt_violation(NormLinf(T(1)), G, x)
 end
 
 # ---- 8. extension by a function defined outside the package ----------------------------------------------------
@@ -700,13 +700,14 @@ end
   @test kkt_violation(o, g, x, 2) === 10 * g[2] + x[2]
   @test kkt_violation(o, g, x) === sum(abs, g) + sum(abs, x)
   @test kkt_violation(o, g, b, 2) === g[2] + g[4]
-  # a function of the package without a score
-  @test_throws MethodError kkt_violation(NormLinf(1.0), g, x, 1)
+  # NormLinf has the full-point form and refuses the others; a function of the package without a score gives a MethodError
+  @test_throws ArgumentError kkt_violation(NormLinf(1.0), g, x, 1)
+  @test_throws MethodError kkt_violation(SqrtLeastSquaresLoss(g, ones(4, 4)), g, x, 1)
   @test_throws ArgumentError kkt_violation(NormL2(1.0), g, x, 1)               # the forms of NormL2 for an entry or a group are refused
-  @test_throws MethodError kkt_violation(NormLinf(1.0), g, x)
+  @test kkt_violation(NormLinf(1.0), g, x) ≈ sqrt(22.25)                       # the face {2, 4}: residual (2, 3) there, (3, 0.5) off it
   @test kkt_violation(GroupNormL2(1.0, [[1, 2], [3, 4]], [1.0, 1.0]), g, x) ≈ sqrt(10)   # the full-point form of the groups
   @test kkt_violation(Scaled(NormL1(1.0), 2.0), g, x) === 2.0                  # and of Scaled
-  @test_throws MethodError kkt_violation(Scaled(NormLinf(1.0), 2.0), g, x)
+  @test kkt_violation(Scaled(NormLinf(1.0), 2.0), g, x) ≈ 2 * sqrt(4.3125)     # 2 times the score at g/2
   # no ambiguity inside the package for the new methods
   @test isempty(Test.detect_ambiguities(ProximalBase))
 end

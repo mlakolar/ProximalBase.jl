@@ -220,6 +220,7 @@ the parameters of the particular object.
 | `QuadraticFunction` | yes | yes | no | no¹ | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `SqrtLeastSquaresLoss` | no | no | no | yes | no |
+| `LogDetLoss` | yes | yes | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
 | `NormL1Nonneg` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |

@@ -8,6 +8,9 @@ belong to quick; standard/thorough/full include that inventory.
 
 The preserved storage suites cover scalar/block/symmetric indexing, active
 zeros, copies, views, aliases, arbitrary block layouts, writes and products.
+`iterate_queries` checks `SparseCoordinates` sorting, display and array
+indexing against plain vectors for vector and matrix owners, including
+exception type parity and preservation of the working set on reads.
 `symmetric_iterate_interface` also checks finite and infinite `Scaled` gradients
 in Float32/64, including active-zero membership, IEEE activation of implicit
 zeros, retained finite exponent products, and validation before writes.
@@ -96,6 +99,23 @@ types, `@inferred` (also of the class of a `Scaled`), zero allocations of the de
 kernel, entries converted to the working type before they are classified or measured (integer extremes, `UInt128`, `Float16`
 with an integer point, `Rational` and `BigInt` points), the merging of an infinite factor by the constructors, the refusals of hand-built stacks with an infinite factor (nonzero points of
 each point type and the full-point form), and malformed parameters of a symmetric model under `Scaled`.
+`kkt_linf` tests the full-point form of `kkt_violation` (#970) for `NormLinf` and for `Scaled` over it in Float32/64: the Euclidean
+distance from `-v` to the subdifferential of `λ max|xᵢ|`, against a BigFloat evaluation with sort-based levels of the ball and the
+simplex within `(2n + √n + 5) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W))` (six families of data, `n` from 1 to 200), the worked examples,
+a face with one entry far below the level and a bulk of equal entries (`n` up to 2,000,001, an exact reference in closed form, with
+measured guards that a shift of the level by the smallest face entry exceeds in vectorized and in scalar summation) and the same shape with random entries,
+the zero point against the norm of the proximal point, stationary points built from the proximal operator, the steepest descent
+rate along sampled directions and along the direction of the nearest subgradient, faces of one, several and all entries
+with mixed signs, both branches of the face (each checked on its inputs), a tie broken by one ulp, `x = 0` inside, on and
+outside the ball, `λ = 0` and `λ = Inf`, signed zeros, subnormals, `typemin(Int)`, mixed element types, BigFloat, Float16 at small sizes and the refusal of the lengths for which `n + 1` is not finite in Float16, the precedence
+of `NaN` and infinite entries, ranges (a residual far below the level, a level near `floatmax`, sums that overflow, stationary
+points with a zero residual), matrices, `SparseIterate` and `BlockIterate` points, the refusal of the three-argument and four-argument forms and of a
+`SymmetricSparseIterate`, no mutation of `v`, `x` or the buffer of the object (also a buffer populated by a proximal call), zero allocations for same-type `Float32` and `Float64` arrays with a level of a hardware float type, and inference, `Scaled` (one
+factor, the forms of the leaf, an infinite factor, retained chains that fold and that do not, a symmetric point, whose message does not advise the
+four-argument form), a head above large ties (up to `10^6` entries) with a level near them, where the first level of all the entries rounds near the ties:
+at the zero point, on a face of all the entries and on a face with entries off it, through `Scaled` (one factor, and a chain that folds) and
+on the scaled path, a grid of such clusters around the breakpoint, a two-entry input, the closed form of a face inside its range and faces of
+nearly equal entries at its boundary, against exact distances in BigFloat, and the absence of ambiguities.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous
@@ -219,6 +239,16 @@ and each file still runs in a fresh Julia process with bounds checks enabled.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
+
+`PB_TEST_FILE_TIME` records the parent runner's wall-clock time in seconds for
+each test-file subprocess, including startup and compilation. Its `status` is
+`pass` for a zero exit, `fail` for a nonzero exit, or `error` if running the
+subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
+for the selected files, including runner overhead, and uses `shard=all` for
+unsharded runs. Find both records in the GitHub Actions test job logs and the
+`package-validation-logs-linux-current-julia-shard-*` artifacts. The timing
+records measure the existing shard assignments.
+
 The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are
 required by the existing PR verdict and merge gate. PR builds may warm

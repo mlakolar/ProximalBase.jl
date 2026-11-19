@@ -205,13 +205,25 @@ Finite sums above `floatmax(T)/2` are compared in power-of-two units. The
 shared ℓ₁-ball threshold from `NormLinf` selects the soft-threshold level.
 A tiny radius can be lost when that level rounds to the largest magnitude.
 The fallback sorts the magnitudes and forms the output directly from their
-gaps at `O(n log n)` cost. It is used when the radius is tiny relative to the
-largest magnitude or when a small radius relative to the sum shows
-loss in the tentative projection beyond the mass check's rounding
-allowance. Subnormal radii also use the mass check. For a subnormal radius on
-the sorted path, the gaps and remaining radius are combined in scaled units
-and rounded back when storing the output. With `M = floatmax(Float64)` and
-radius `1`, the projection of `[M, -M]` is `[0.5, -0.5]`.
+gaps at `O(n log n)` cost. The exceptional path is selected when the
+radius is at most `64 eps(T)` times the computed sum in the working units
+or when a level search is needed at a subnormal radius. A radius tiny
+relative to the largest magnitude goes directly to the fallback. The
+other cases on this path check the tentative projected mass before writing.
+On the sorted path for a subnormal radius, the gaps and remaining radius
+are combined in scaled units and rounded back when storing the output.
+With `M = floatmax(Float64)` and radius `1`, the projection of `[M, -M]`
+is `[0.5, -0.5]`.
+
+For an exact normal threshold, rounding the threshold alone changes the
+projected mass by at most `u S/(1-u)`, where `u = eps(T)/2` and `S` is the
+exact sum of the magnitudes in the working units. The displacement is at
+most `u` times the exact threshold per affected coordinate, and each
+affected magnitude exceeds the smaller of the two thresholds.
+Outside the mass screen, this contribution relative to the radius is bounded
+by `(S/s)/(128(1-u))` for the computed sum `s`. The bound isolates threshold
+rounding. The selector's absolute error, sum rounding, and subnormal
+rounding retain their own effects.
 
 `value_and_prox!` evaluates the stored point. Its value can be `Inf` when
 rounding puts that point outside the computed boundary. For example, with

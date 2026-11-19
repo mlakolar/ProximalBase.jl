@@ -123,11 +123,14 @@ end
 _value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::IndBallL1,
                            x::_ArrayOrSymmetricIterate, γ::Real) = value_and_prox!(y, f, x, γ)
 
-# Screen for cancellation using the sum already computed by the ordinary path.
-# A rounding of the level by eps(T)*τ/2 can change the projected mass by up to
-# that amount per active entry. Their magnitudes sum to at least their count
-# times τ. The screen also reaches many ties when the radius per entry is small.
-@inline _ball_l1_may_cancel(a::T, s::T) where {T} = a <= 8 * eps(T) * s
+# For an exact normal level τ, let τ̂ be its rounding with unit roundoff u.
+# If k entries exceed the smaller level, rounding changes the projected mass
+# by at most k*u*τ. Their total magnitude is at least k*(1-u)*τ, so this error
+# is at most u/(1-u) times the exact sum of magnitudes. For a > 64*eps(T)*s
+# this contribution is below (exact sum / s)/(128*(1-u)) of a. This screen
+# uses the caller's sum in the units of the level search. The selector's own
+# absolute error and subnormal rounding are separate.
+@inline _ball_l1_may_cancel(a::T, s::T) where {T} = a <= 64 * eps(T) * s
 
 # The endpoints and nonfinite inputs reuse the IndBallL2 routes. The magnitudes
 # are read from the stored values: for a SparseIterate the implicit zeros add
@@ -172,7 +175,7 @@ end
 # A small radius against the sum can still be large against the active entries.
 # In that case, inspect the mass before sorting or overwriting the input.
 @noinline function _ball_l1_check_cancellation!(y, f, x, v, a::T, a′::T, s::T, k, m::T, rd) where {T}
-  _ball_l1_may_cancel(a, m) && return _ball_l1_water_fill!(y, f, x, v, a)
+  a <= 8 * eps(T) * m && return _ball_l1_water_fill!(y, f, x, v, a)
   τ = _ball_l1_threshold(y, f, v, a′, s, rd)
   τ = k == 0 ? τ : min(ldexp(τ, k), m)
   mass = _linf_sum(v, w -> max(abs(T(w)) - τ, zero(T)), T)

@@ -199,6 +199,22 @@ end
   end
 end
 
+@testset "cancellation beyond the original screen ($T)" for T in (Float32, Float64)
+  e = eps(T)
+  b = one(T) + 16 * e
+  scale = ldexp(one(T), exponent(floatmax(T)) - 1)
+  for k in (one(T), scale), (x, r, exact) in (
+      (T[b, -b], 17 * e, T[8.5, -8.5] .* e),
+      (T[1 + 50 * e, -(1 + 33 * e)], 35 * e / 2, T[69/4, -1/4] .* e))
+    arg, radius, expected = k .* x, k * r, k .* exact
+    @test T.(reference_projection(arg, radius)) == expected
+    @test prox(IndBallL1(radius), arg) == expected
+    y = copy(arg)
+    @test prox!(y, IndBallL1(radius), y) === y
+    @test y == expected
+  end
+end
+
 @testset "nonfinite inputs and Scaled ($T)" for T in (Float32, Float64)
   δ = nextfloat(zero(T))
   f = IndBallL1(T(2))

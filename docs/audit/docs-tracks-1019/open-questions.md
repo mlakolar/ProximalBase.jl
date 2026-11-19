@@ -22,11 +22,11 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. Eight receipts now cover fourteen transitions
-from PRs #1020, #1022, #1023, #1024, #1026 and #1025. These include the original
+provenance and independent review. Eight receipts now cover fifteen transitions
+from PRs #1020, #1022, #1023, #1024, #1026, #1025 and #1027. These include the original
 heading's renames, a sentence that became three, the later `IndBallLinf`
 inventory changes, the least-squares test description and the scaled-indicator
-screen rule. No baseline identity is replaced. Reconcile pending external
+screen rule, and the `IndBallL1` API addition. No baseline identity is replaced. Reconcile pending external
 changes to an all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
@@ -60,6 +60,10 @@ already merged into the numerical hub increase the existing-page backlog from
 map with its existing hub location. Named inventory blocks retain upstream receipts:
 the API coverage check verifies presence, not their descriptive claims.
 Batch several external changes when practical, before the next migration starts.
+
+The later `IndBallL1` restore already has its own fourteen-section contract page
+and family-map/navigation entries. It therefore adds no existing-page migration
+backlog. Its merge is reconciled separately in the API inventory receipt.
 
 Clause conversion, the remaining families, numerical routine pages, lessons,
 figures, the agent entry file and the final blocking-mode switch remain tracked

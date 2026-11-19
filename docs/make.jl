@@ -106,6 +106,7 @@ makedocs(;
             "Array and precision conventions" => "numerical_usage.md",
             "Range, non-finite values and sparse products" => "numerics.md",
             "NormL1" => "spec/norml1.md",
+            "IndBallL1" => "spec/indballl1.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

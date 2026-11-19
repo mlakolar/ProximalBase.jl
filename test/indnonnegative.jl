@@ -535,11 +535,14 @@ end
 
     merged = Scaled(Scaled(IND, T(2)), T(3))
     nested = Scaled(Scaled(IND, tiny), tiny)
+    inner = Scaled{AbstractFunction,T}(IND, T(2))
+    retained = Scaled{typeof(inner),T}(inner, T(2))
     @test merged.f === IND && merged.α === T(6)
     @test nested.f isa Scaled && PB._chained(nested)
+    @test retained.f === inner && !PB._chained(retained)
     v = specials(T)
     x = zeros(T, length(v))
-    for s in (Scaled(IND, T(1.5)), Scaled(IND, tiny), Scaled(IND, T(Inf)), merged, nested)
+    for s in (Scaled(IND, T(1.5)), Scaled(IND, tiny), Scaled(IND, T(Inf)), merged, nested, retained)
       for i in eachindex(v)
         @test same(kkt_violation(s, v, i), kkt_violation(IND, v, i))
       end

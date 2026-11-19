@@ -656,7 +656,7 @@ iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _screen_chain(s, g, i) :
-   _isindicator(s.f) ? kkt_violation(s.f, g, i) :
+   _isindicator(_kkt_innermost(s.f)) ? kkt_violation(s.f, g, i) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 
 # ---- the point-aware scores of a scaled function ----

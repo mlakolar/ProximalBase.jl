@@ -234,6 +234,47 @@ class PreservationTests(unittest.TestCase):
         page = '<nav><input id="collapse-1"></nav><article id="documenter-page"><h1 id="kept">Text</h1></article>'
         self.assertEqual(m.ContentAnchors(page).ids, {"documenter-page", "kept"})
 
+    def anchor_profile_fixture(self):
+        audit = self.root / "audit"
+        audit.mkdir()
+        metadata = dict(baseline=m.BASELINE, rendered_pages=1, content_anchor_count=1, anchor_profiles={})
+        for profile, filename, fragment in (("local", "anchors.tsv", "original-local-hash"),
+                                             ("ci", "anchors-ci.tsv", "original-ci-hash")):
+            rows = [dict(page="old", fragment=""), dict(page="old", fragment=fragment)]
+            m.write_tsv(audit / filename, ("page", "fragment"), rows)
+            metadata["anchor_profiles"][profile] = dict(file=filename, sha256=m.digest((audit / filename).read_text()))
+        return audit, metadata
+
+    def test_anchor_profiles_are_explicit_and_wrong_runtime_fails(self):
+        audit, metadata = self.anchor_profile_fixture()
+        self.write("build/old.html", '<article id="documenter-page"><h1 id="original-local-hash">Old</h1></article>')
+        build = self.root / "build"
+        self.assertEqual(m.anchor_check(m.anchor_snapshot(metadata, "local", audit), build), [])
+        self.assertTrue(m.anchor_check(m.anchor_snapshot(metadata, "ci", audit), build))
+        with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
+            m.anchor_snapshot(metadata, "other", audit)
+        del metadata["anchor_profiles"]["ci"]
+        with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
+            m.anchor_snapshot(metadata, "ci", audit)
+
+    def test_empty_or_truncated_anchor_profile_is_not_accepted(self):
+        audit, metadata = self.anchor_profile_fixture()
+        path = audit / "anchors.tsv"
+        for rows, error in (([], "empty"), ([dict(page="old", fragment="")], "anchor count"),
+                            ([dict(page="old", fragment="original-local-hash")], "page records")):
+            with self.subTest(rows=rows):
+                m.write_tsv(path, ("page", "fragment"), rows)
+                metadata["anchor_profiles"]["local"]["sha256"] = m.digest(path.read_text())
+                with self.assertRaisesRegex(ValueError, error):
+                    m.anchor_snapshot(metadata, "local", audit)
+
+    def test_anchor_profile_snapshot_hash_is_checked(self):
+        audit, metadata = self.anchor_profile_fixture()
+        path = audit / "anchors.tsv"
+        path.write_text(path.read_text().replace("original-local-hash", "different-hash"))
+        with self.assertRaisesRegex(ValueError, "snapshot hash mismatch"):
+            m.anchor_snapshot(metadata, "local", audit)
+
     def test_flat_and_directory_urls_share_page_identity(self):
         self.assertEqual(m.page_key("old.html"), m.page_key("old/index.html"))
         self.assertEqual(m.page_key("index.html"), "")

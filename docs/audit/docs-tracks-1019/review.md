@@ -77,7 +77,7 @@ advisory also present in the baseline remains non-failing.
 |:--|:--|
 | Markdown lint | 49 active documentation sources pass |
 | Contract schema | One family page with all fourteen headings; no clause statuses or identifiers assigned yet |
-| Preservation checker fixtures | 27 pass |
+| Preservation checker fixtures | 30 pass, including explicit anchor-profile regressions |
 | Block, token, sentence, anchor, citation and example checks | All six pass in blocking acceptance mode |
 | Rendered HTML | 56 pages; 5,637 checked internal links/assets; no broken links or orphan pages |
 | Baseline URLs | All 54 original pages and 621 original content anchors retained |
@@ -92,3 +92,25 @@ endpoint blocks remaining in the common page. All original examples survive.
 The ledger now contains 2,123 unchanged blocks, 38 exact moved blocks and one
 independently reviewed example-label repair. CI continues to run the migration
 checks in report-only mode until the final lock in Phase 5.
+
+## Exact anchors across the two build environments
+
+The first CI comparison exposed two generated admonition IDs that differ
+between Julia 1.10.10 and 1.13.4. Documenter 1.20.0 constructs these IDs with
+Julia's `hash` of the flattened admonition text; that hash is not a stable
+cross-version identifier. The authored text and page locations did not change.
+
+Both original snapshots are retained: `anchors.tsv` for the exact local baseline
+and `anchors-ci.tsv` from the SHA-verified baseline CI artifact above. The CLI
+selects `local` or `ci` explicitly, and CI passes `--anchor-profile ci`.
+Each profile is pinned to its file hash, 54 page records and 621 content anchors.
+There is no hash stripping, omission of admonition anchors, or fallback to a
+profile that happens to pass.
+
+The baseline CI snapshot was compared independently with the final CI artifact
+`14493262087` from run `44445716820` (ZIP SHA-256
+`e5b6ff2ebbdf98733db612b8799f367d540b9368d544c9a83f63c104adfcdc8a`).
+That exact comparison loses no original page or fragment. All six preservation
+checks pass with the local profile against the final local build, and with the
+CI profile against that final CI build. The profile correction changes no
+authored documentation page or numerical behavior.

@@ -113,7 +113,7 @@ jobs:
           if [[ "${GITHUB_HEAD_REF:-}" == docs/reader-tracks* ]]; then
             scope_args=(--scope-base HEAD^1)
           fi
-          python3 -B docs/check_migration.py --check all --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
+          python3 -B docs/check_migration.py --check all --anchor-profile ci --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
       - name: Preserve rendered documentation
         uses: actions/upload-artifact@v7
         with:

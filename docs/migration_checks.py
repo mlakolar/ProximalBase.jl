@@ -263,6 +263,38 @@ def html_anchors(build):
             for path in sorted(build.rglob("*.html"))}
 
 
+def anchor_snapshot(metadata, profile="local", audit=AUDIT):
+    """Load one explicitly selected, complete runtime-specific baseline.
+
+    Generated admonition fragments use Julia's version-dependent Base.hash.
+    Profiles preserve every exact page/fragment pair; they are never fallback
+    sets, suffix stripping, or a user-supplied path that could waive failures.
+    """
+    files = {"local": "anchors.tsv", "ci": "anchors-ci.tsv"}
+    if profile not in files or profile not in metadata.get("anchor_profiles", {}):
+        raise ValueError(f"unknown or unavailable anchor profile: {profile}")
+    descriptor = metadata["anchor_profiles"][profile]
+    if descriptor.get("file") != files[profile]:
+        raise ValueError(f"unexpected snapshot filename for anchor profile {profile}")
+    path = audit / files[profile]
+    content = path.read_text(encoding="utf-8")
+    if not content.startswith(f"# baseline\t{metadata['baseline']}\n"):
+        raise ValueError(f"anchor profile {profile} names a different baseline")
+    if digest(content) != descriptor.get("sha256"):
+        raise ValueError(f"anchor profile {profile} snapshot hash mismatch")
+    rows = read_tsv(path)
+    pairs = {(row["page"], row["fragment"]) for row in rows}
+    pages = {row["page"] for row in rows if not row["fragment"]}
+    anchors = sum(bool(row["fragment"]) for row in rows)
+    if not rows or len(pairs) != len(rows):
+        raise ValueError(f"anchor profile {profile} is empty or has duplicate rows")
+    if pages != {row["page"] for row in rows} or len(pages) != metadata["rendered_pages"]:
+        raise ValueError(f"anchor profile {profile} has incomplete baseline page records")
+    if anchors != metadata["content_anchor_count"]:
+        raise ValueError(f"anchor profile {profile} has an incomplete baseline anchor count")
+    return rows
+
+
 def initial_ledger(base_blocks):
     return [dict(block_id=b.id, sha=b.sha, kind=b.kind, action="stay", dest=b.path,
                  dest_sha=b.sha, clause_ids="", reviewer="mechanical") for b in base_blocks]
@@ -320,6 +352,10 @@ def initialize(build, root=ROOT, audit=AUDIT, baseline=BASELINE):
                     block_count=len(baseline_data), authored_pages=sum(p.startswith("docs/src/") for p in scope),
                     rendered_pages=len(pages), content_anchor_count=sum(map(len, pages.values())),
                     example_scripts=examples, measurements=baseline_measurements(root, baseline))
+    metadata["anchor_profiles"] = {"local": {
+        "file": "anchors.tsv", "sha256": digest((audit / "anchors.tsv").read_text()),
+        "source": "Explicit unchanged HTML supplied to --baseline-html",
+    }}
     (audit / "baseline.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     return metadata
 

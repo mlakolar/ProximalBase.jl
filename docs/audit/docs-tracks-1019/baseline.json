@@ -1,4 +1,27 @@
 {
+  "anchor_profiles": {
+    "ci": {
+      "artifact_id": 14492512149,
+      "artifact_sha256": "35c8aa068d12a170ad9f43007b62fa701fcbea499dbefca60abf9cef45183af1",
+      "base_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+      "documenter": "1.20.0",
+      "file": "anchors-ci.tsv",
+      "julia": "1.13.4",
+      "pr_head_commit": "db20ba7564992abadf0c1293a6ff4d10acd07ad5",
+      "sha256": "54065538a2e0e88c989eeb0e28678ee5f8e33af681e748d5ca50e82ff88797cf",
+      "source": "Retained strict CI build of Phase 0 before any authored documentation change",
+      "source_commit": "f08c07bbfb6d36dd9096cd94754e12a30300cef6",
+      "workflow_run_id": 44443622327
+    },
+    "local": {
+      "documenter": "1.20.0",
+      "file": "anchors.tsv",
+      "julia": "1.10.10",
+      "sha256": "12244f245010d94a54df747c474b1bd09e50ac46e560dbf90dfc30b20f5c09a5",
+      "source": "Strict local baseline build; original anchors.tsv retained unchanged",
+      "source_commit": "7ae86e2093060eb124211e2f21f043c6379f97ae"
+    }
+  },
   "authored_pages": 42,
   "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
   "block_count": 2162,

@@ -18,7 +18,8 @@ historical audit data and generated copies are excluded from the prose ledger.
 
 `ledger.tsv` has one row per baseline block. Baseline text is read with
 `git show`, so this folder does not duplicate the old manual. `anchors.tsv`
-records each baseline rendered page and its content anchors. The snapshot
+and `anchors-ci.tsv` record each baseline rendered page and its content anchors
+for the two explicitly selected build runtimes described below. Each snapshot
 contains 54 rendered pages, including generated examples and contracts, and
 621 content anchors. Sidebar control IDs are excluded because navigation
 regrouping intentionally changes those controls. `source-citations.tsv` records
@@ -52,6 +53,12 @@ python3 -m unittest discover -s docs -p 'test_migration_checks.py'
 python3 docs/check_migration.py --check all --build docs/build
 ```
 
+CI selects its original baseline runtime explicitly:
+
+```sh
+python3 docs/check_migration.py --anchor-profile ci --check all --build docs/build
+```
+
 The default is report-only: every check prints `PASS` or `FAIL` and its findings,
 but preservation findings do not change the command's exit status. Missing or
 unreadable configuration is an execution error, not a successful report. Use
@@ -71,6 +78,47 @@ unrelated upstream implementation changes may continue during this migration.
 The source/test trees and source docstrings are therefore protected by PR scope,
 while their links to old manual locations are protected by the anchor and
 citation checks.
+
+## Exact anchors and build runtimes
+
+Documenter 1.20.0 constructs an admonition fragment from its title and
+`string(hash(strip(mdflatten(node))), base=16)`. That uses Julia's runtime
+string hash rather than a portable content digest. The unchanged two
+admonitions therefore have different fragments under the local Julia 1.10.10
+build and the CI Julia 1.13.4 build, although their content is identical. The
+flattened input contains the admonition text, title, and category, not its file
+path or link destinations.
+
+The `local` profile is the original `anchors.tsv`; it remains the default and
+is unchanged. The `ci` profile is `anchors-ci.tsv`, captured from the retained
+Phase 0 CI artifact **14492512149** at commit
+`db20ba7564992abadf0c1293a6ff4d10acd07ad5`, before any authored documentation
+change. Its ZIP SHA-256 is
+`35c8aa068d12a170ad9f43007b62fa701fcbea499dbefca60abf9cef45183af1`.
+Both builds used Documenter 1.20.0. Runtime, source-commit, artifact, and
+snapshot SHA-256 provenance is recorded in `baseline.json`.
+
+The CI job log records the actual merge-ref checkout as
+`f08c07bbfb6d36dd9096cd94754e12a30300cef6`, merging that checkpoint into
+`2a55362d374fa4299d29db7684659fce8cc8e149`. The latter upstream commit changes
+only least-squares implementation and tests, so the authored documentation
+still matches the frozen provenance baseline. Both parents and the actual
+build revision are recorded separately in the profile metadata.
+
+| Page | Local fragment | CI fragment |
+|:--|:--|:--|
+| `function_library` | `Which-squared-loss-object-should-I-use?-4d7e89b086da14ac` | `Which-squared-loss-object-should-I-use?-7961aee47a1e55` |
+| `getting_started` | `Degenerate-data-and-step-size-estimates-431e86eee387de1e` | `Degenerate-data-and-step-size-estimates-a1d8f97b86f5e430` |
+
+These are the only differences between the two baseline snapshots. Each is
+validated as a complete, nonempty snapshot of 54 original page records and
+621 exact content anchors, with no duplicate rows and a verified snapshot hash.
+Every anchor remains bound to its original page. Selection is explicit via
+`--anchor-profile local` or `--anchor-profile ci`; unknown or unavailable
+profiles are configuration errors. The checker never removes hash suffixes,
+ignores the two IDs, accepts a reduced subset, or falls back to another profile.
+Use a baseline and final build from the same declared runtime. A future runtime
+change requires an explicit provenance and compatibility decision.
 
 ## Block identity and destinations
 

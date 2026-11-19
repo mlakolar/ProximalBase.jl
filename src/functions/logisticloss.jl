@@ -134,9 +134,7 @@ function _checkwrite(::Union{typeof(gradient!),typeof(value_and_gradient!)}, f::
 end
 
 (f::LogisticLoss{T})(β::StridedVector{T}) where {T} =
-  (_checkvalue(f, β); _value_unchecked(f, β))
-_value_unchecked(f::LogisticLoss{T}, β::StridedVector{T}) where {T} =
-  _logistic_scan!(nothing, f, _logistic_predict!(f, β), Val(true))
+  (_checkvalue(f, β); _logistic_scan!(nothing, f, _logistic_predict!(f, β), Val(true)))
 
 function gradient!(g::StridedVector{T}, f::LogisticLoss{T}, β::StridedVector{T}) where {T}
   _checkwrite(gradient!, f, g, β)

@@ -23,7 +23,7 @@ value oracles of the next group.
 SqrtLeastSquaresLoss
 ```
 
-## Oracles at a supplied predictor or residual
+## [Oracles at a supplied predictor or residual](@id Least-squares-oracles-at-a-supplied-predictor-or-residual)
 
 Both predictor operations support `LeastSquaresLoss` and `LogisticLoss`.
 `SqrtLeastSquaresLoss` supports the predictor value operation. The residual

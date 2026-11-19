@@ -134,10 +134,10 @@ end
 
   @testset "Empty shapes" for (n, p) in ((0, 3), (2, 0), (0, 0)), design in (zeros(T, n, p), spzeros(T, n, p))
     f = LogisticLoss(zeros(T, n), design; offset=ones(T, n))
-    β, eta = zeros(T, p), ones(T, n)
-    v = f(β)
+    empty_β, eta = zeros(T, p), ones(T, n)
+    v = f(empty_β)
     @test v ≈ T(n * log1p(exp(1)))
-    @test value_and_gradient(f, β) == (v, zeros(T, p))
+    @test value_and_gradient(f, empty_β) == (v, zeros(T, p))
     d = zeros(T, n)
     g = ones(T, p)
     @test logistic_fused!(g, d, f, eta) == v
@@ -169,6 +169,8 @@ end
     g, d, scratch = fill(T(2), 2), fill(T(3), 4), fill(T(7), 4)
     copyto!(f.tmp, scratch)
     @test_throws DimensionMismatch f(T[1])
+    @test_throws DimensionMismatch (T(2)*f)(T[1])
+    @test_throws ArgumentError (T(2)*f)(view(f.tmp, 1:2))
     @test_throws DimensionMismatch gradient!(g, f, T[1])
     @test_throws DimensionMismatch value_and_gradient!(d, f, β)
     @test_throws MethodError value_and_gradient!(Int[1, 2], f, β)

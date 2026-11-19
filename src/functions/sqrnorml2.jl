@@ -109,12 +109,9 @@ end
 
 _checkvalue(f::SqrNormL2, x) = (_checkreal(f, x); _checkparams(f, x); f.y === nothing || _checksize(f.y, x); true)
 
-# The scaled-value mechanism: the recomputation of _square_value in power-of-two units, with the
-# centers rounded as the value rounds them.
-# For homogeneous data, a difference is exact where subnormal and is zero for equal entries.
-# Where a square can underflow (sum below n floatmin/eps), the value is recomputed in power-of-two
-# units and rounded once. A zero computed value there is below δ. Otherwise the sum is normal
-# with relative error below n eps, and a zero value bounds the exact value by δ/2 (1 + n eps).
+# Scaled uses the same center conversion as the value when recomputing in power-of-two units.
+# For homogeneous inputs, _underflow_exponent bounds the exact value when the ordinary or
+# recomputed value rounded to zero. An exactly zero level is handled before any arithmetic.
 _has_value_parts(::Type{<:SqrNormL2}) = true
 _value_parts(f::SqrNormL2, x::AbstractArray, v) = _square_parts(f.λ, x, _ridge_value_center(_valtype(x), f.y))
 @inline _zero_value_exponent(f::SqrNormL2, x::AbstractArray) =

@@ -511,11 +511,6 @@ end
     y = similar(xn)
     @test isequal(value_and_prox!(y, sinf, xn, zero(T)), zero(T)) && sameall(y, refproject(xn))
     @test isequal(value_and_prox!(y, sinf, xn, zeros(T, length(xn))), zero(T)) && sameall(y, refproject(xn))
-    # the screen is the screen of the indicator under a factor that is a power of two
-    v = T[-0.5, 0.25, -3, 0]
-    for α in (2.0, 0.25), i in 1:4
-      @test kkt_violation(Scaled(IND, α), v, i) == -v[i]
-    end
     # sparse and symmetric iterates under Scaled
     s = Scaled(IND, 2)
     sp = SparseIterate(T, 5); fill_entries!(sp, [(2, -1.0), (4, 3.0)])
@@ -528,6 +523,37 @@ end
     @test isequal(value_and_prox!(zs, s, zs, one(T)), zero(T))
     @test PB.check_symmetric_parameters(s, S) === true
   end
+end
+
+@testset "Scaled kkt_violation" begin
+  for T in TYPES
+    tiny = nextfloat(zero(T))
+    for (α, entry) in ((T(2), tiny), (T(0.25), floatmax(T)), (tiny, tiny), (T(Inf), T(0.25)))
+      v = T[entry]
+      @test kkt_violation(Scaled(IND, α), v, 1) === kkt_violation(IND, v, 1)
+    end
+
+    merged = Scaled(Scaled(IND, T(2)), T(3))
+    nested = Scaled(Scaled(IND, tiny), tiny)
+    @test merged.f === IND && merged.α === T(6)
+    @test nested.f isa Scaled && PB._chained(nested)
+    v = specials(T)
+    x = zeros(T, length(v))
+    for s in (Scaled(IND, T(1.5)), Scaled(IND, tiny), Scaled(IND, T(Inf)), merged, nested)
+      for i in eachindex(v)
+        @test same(kkt_violation(s, v, i), kkt_violation(IND, v, i))
+      end
+      @test_throws BoundsError kkt_violation(s, v, 0)
+      @test_throws BoundsError kkt_violation(s, v, length(v) + 1)
+      @test_throws ArgumentError kkt_violation(s, complex.(v), 1)
+      @test_throws ArgumentError kkt_violation(s, OffsetVector(v, 0:(length(v) - 1)), 1)
+      @test_throws MethodError kkt_violation(s, v, x, 1)
+      @test_throws MethodError kkt_violation(s, v, x)
+    end
+    @test_throws ArgumentError Scaled(IND, -one(T))
+    @test_throws ArgumentError Scaled(IND, T(NaN))
+  end
+  @test @inferred(kkt_violation(Scaled(IND, 2.0), Float32[0.25], 1)) === -0.25f0
 end
 
 @testset "kkt_violation, restrict, traits" begin

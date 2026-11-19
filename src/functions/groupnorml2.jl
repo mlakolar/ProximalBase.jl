@@ -91,15 +91,19 @@ BlockIterate(x::AbstractVector, f::GroupNormL2) = BlockIterate(x, f.groups)
 #  Checks
 ####################################
 
-@noinline _group_extent_error(f, x) = throw(DimensionMismatch(
-  "the groups of GroupNormL2 reach index $(length(f.group_of)), but the argument has $(length(x)) entries"))
-# every group index is a linear index of x: the loops over a group skip the bounds checks
-@inline _check_group_extent(f::GroupNormL2, x) = (length(x) >= length(f.group_of) || _group_extent_error(f, x); nothing)
-_checkparams(f::GroupNormL2, x) = (_check_group_extent(f, x); true)
-# a symmetric iterate is rejected by the oracles themselves, with their own message
-_checkparams(::GroupNormL2, ::SymmetricSparseIterate) = true
+# GroupNormL2 and GroupNormLinf (groupnormlinf.jl, included before this file) have the same group fields; the checks
+# and the sums of the checked value below serve both, and the messages name the type of f.
+const _GroupNorm = Union{GroupNormL2, GroupNormLinf}
 
-function _check_group_arrays(f::GroupNormL2, y::AbstractArray, x::AbstractArray, γ::Real)
+@noinline _group_extent_error(f, x) = throw(DimensionMismatch(
+  "the groups of $(nameof(typeof(f))) reach index $(length(f.group_of)), but the argument has $(length(x)) entries"))
+# every group index is a linear index of x: the loops over a group skip the bounds checks
+@inline _check_group_extent(f::_GroupNorm, x) = (length(x) >= length(f.group_of) || _group_extent_error(f, x); nothing)
+_checkparams(f::_GroupNorm, x) = (_check_group_extent(f, x); true)
+# a symmetric iterate is rejected by the oracles themselves, with their own message
+_checkparams(::_GroupNorm, ::SymmetricSparseIterate) = true
+
+function _check_group_arrays(f::_GroupNorm, y::AbstractArray, x::AbstractArray, γ::Real)
   _checkreal(f, x)
   _checkreal(f, y)
   Base.require_one_based_indexing(y, x)
@@ -109,16 +113,16 @@ function _check_group_arrays(f::GroupNormL2, y::AbstractArray, x::AbstractArray,
   nothing
 end
 
-@noinline _block_length_error(k, m, nu, nout) = throw(DimensionMismatch(
-  "group $k of GroupNormL2 has $m entries, but the input has $nu and the output $nout"))
+@noinline _block_length_error(f, k, m, nu, nout) = throw(DimensionMismatch(
+  "group $k of $(nameof(typeof(f))) has $m entries, but the input has $nu and the output $nout"))
 @noinline _block_alias_error() = throw(ArgumentError("prox_block! supports exact input/output aliasing (out === u) only"))
 
-@inline function _check_group_block(out::AbstractVector, f::GroupNormL2, u::AbstractVector, k::Integer, γ::Real)
+@inline function _check_group_block(out::AbstractVector, f::_GroupNorm, u::AbstractVector, k::Integer, γ::Real)
   (!(k isa Bool) && checkbounds(Bool, f.groups, k)) || throw(BoundsError(Base.OneTo(length(f.groups)), k))
   Base.require_one_based_indexing(out, u)
   (eltype(out) <: Real && eltype(u) <: Real) || _real_error(:prox_block!)
   m = @inbounds length(f.groups[k])
-  (length(u) == m && length(out) == m) || _block_length_error(k, m, length(u), length(out))
+  (length(u) == m && length(out) == m) || _block_length_error(f, k, m, length(u), length(out))
   (out === u || !Base.mightalias(out, u)) || _block_alias_error()
   _check_l2_step(f, γ)
   m
@@ -133,14 +137,15 @@ end
 # The ordinary sum s of the terms is returned unless it may have lost its accuracy or its class: a sum
 # below K floatmin(T), for K groups, whose terms may have rounded into the subnormal range (#373), and a
 # sum at or above floatmax(T)/2 (Inf included), whose class the terms' rounding may decide. Those are
-# recomputed from the terms w ns 2^k, accumulated with their exponents (_ExpSum, in at least Float64),
+# recomputed from the terms w ns 2^k (w m 2^e for GroupNormLinf, with m its largest magnitude), accumulated with their
+# exponents (_ExpSum, in at least Float64),
 # with λ0 applied once (_expsum_value). Exceptional cases keep s: a NaN s, a zero level (every term with
 # a finite weight is 0, and an infinite weight at a nonzero group without NaN makes s Inf), and an infinite level or
 # weight at a nonzero group or a NaN or ±Inf entry in a penalized group, which make s infinite or NaN
 # already. So does an exactly zero argument.
 # K counts every group, penalized or not. The scan for a zero argument runs only below K floatmin, and for Float32
 # and Float64 it returns at its first block of 512 stored values that holds a nonzero one.
-@inline function _group_value_checked(f::GroupNormL2, x, s::T) where {T}
+@inline function _group_value_checked(f::_GroupNorm, x, s::T) where {T}
   if _l2_ordinary(s, T)
     _underflow_checked(T) || return s
     _sum_kept(s, length(f.groups)) && return s
@@ -148,13 +153,13 @@ end
   _group_value_unkept(f, x, s)
 end
 # out of line, so that the loop over the groups of the callers does not carry the scans
-@noinline function _group_value_unkept(f::GroupNormL2, x, s::T)::T where {T}
+@noinline function _group_value_unkept(f::_GroupNorm, x, s::T)::T where {T}
   if _l2_ordinary(s, T)
     iszero(s) && _all_zero_early(_stored_values(x)) && return s
   end
   _group_value_recomputed(f, x, s)
 end
-@noinline function _group_value_recomputed(f::GroupNormL2, x, s::T)::T where {T}
+@noinline function _group_value_recomputed(f::_GroupNorm, x, s::T)::T where {T}
   isnan(s) && return s
   λ = f.λ0
   (λ > 0 && isfinite(λ)) || return s
@@ -163,12 +168,15 @@ end
   for k in eachindex(f.groups)
     w = @inbounds f.w[k]
     iszero(w) && continue          # an unpenalized group adds nothing, whatever it holds
-    next = _l2_expsum_add(acc, x, @inbounds(f.groups[k]), w)
+    next = _group_expsum_add(f, acc, x, @inbounds(f.groups[k]), w)
     next === nothing && return s
     acc = next
   end
   _expsum_value(T, acc, λ)
 end
+# the term of one group in the recomputed sum: w ‖x[G]‖₂ or w max|x[G]|
+@inline _group_expsum_add(::GroupNormL2, acc, x, G, w) = _l2_expsum_add(acc, x, G, w)
+@inline _group_expsum_add(::GroupNormLinf, acc, x, G, w) = _linf_expsum_add(acc, x, G, w)
 
 ####################################
 #  Oracles
@@ -243,9 +251,9 @@ kkt_violation(f::GroupNormL2, g::AbstractArray, i::Integer) =
 @noinline _gradient_length_error(g, x) = throw(DimensionMismatch(
   "the gradient has length $(length(g)), but the argument has $(length(x)) entries"))
 
-@noinline _block_layout_error(k) = throw(DimensionMismatch("group $k of the BlockIterate differs from group $k of GroupNormL2"))
+@noinline _block_layout_error(f, k) = throw(DimensionMismatch("group $k of the BlockIterate differs from group $k of $(nameof(typeof(f)))"))
 @noinline _block_count_error(x, f) = throw(DimensionMismatch(
-  "the BlockIterate has $(ncoordinates(x)) groups and GroupNormL2 has $(length(f.groups))"))
+  "the BlockIterate has $(ncoordinates(x)) groups and $(nameof(typeof(f))) has $(length(f.groups))"))
 
 # The score of a group (_l2_score) with the level λ of the call, which is f.λ0 or, for the function under a chain of
 # Scaled wrappers, the level that the chain folds into it. Group k of f is selected by the entry i of an array point (an
@@ -263,7 +271,7 @@ function _level_score(f::GroupNormL2, λ, g::AbstractArray, x::BlockIterate, k::
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   B = blockindices(x, k)          # BoundsError for an invalid group
   G = @inbounds f.groups[k]
-  B == G || _block_layout_error(k)
+  B == G || _block_layout_error(f, k)
   length(g) == length(x) || _gradient_length_error(g, x)
   _l2_score(λ, @inbounds(f.w[k]), g, x, G)
 end
@@ -278,7 +286,7 @@ _check_point_layout(f::GroupNormL2, x::AbstractArray) = nothing
 function _check_point_layout(f::GroupNormL2, x::BlockIterate)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   for k in eachindex(f.groups)
-    blockindices(x, k) == @inbounds(f.groups[k]) || _block_layout_error(k)
+    blockindices(x, k) == @inbounds(f.groups[k]) || _block_layout_error(f, k)
   end
   nothing
 end
@@ -309,7 +317,7 @@ kkt_violation(f::GroupNormL2, v::AbstractArray, x::AbstractArray) = _level_point
 kkt_violation(f::GroupNormL2, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)
 
 # no proximal operator for a symmetric iterate (argument or output); nothing is written
-for F in (:NormL2, :GroupNormL2)
+for F in (:NormL2, :GroupNormL2, :GroupNormLinf)
   @eval begin
     prox!(::SymmetricSparseIterate, f::$F, x, ::Real) = _symmetric_prox_error(f)
     prox!(::AbstractArray, f::$F, ::SymmetricSparseIterate, ::Real) = _symmetric_prox_error(f)

@@ -136,7 +136,10 @@ outside the package, they behave as follows.
   define. This holds on arrays, on a `BlockIterate` and on a `SymmetricSparseIterate`.
 * Without the three-argument method, the four-argument form throws a `MethodError`.
 * There is no generic full-point fallback: `kkt_violation(f,v,x)` is a `MethodError`
-  until the function defines it.
+  until the function defines it. The [smooth stationarity scores](@ref smooth-kkt)
+  for the built-in least-squares and quadratic functions are specific to those
+  functions. An independent gradient buffer and `ZeroFunction()` can be used
+  to measure an infinity-norm residual for a custom smooth function.
 * To support nonzero points, define the methods of the table. A method that you
   define is called as defined, and it owns the validation of its arguments.
 

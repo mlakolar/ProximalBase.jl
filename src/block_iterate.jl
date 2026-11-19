@@ -11,6 +11,8 @@
     BlockIterate(x::AbstractVector, num_groups::Integer)
     BlockIterate([T = Float64,] p, f::GroupNormL2)
     BlockIterate(x::AbstractVector, f::GroupNormL2)
+    BlockIterate([T = Float64,] p, f::GroupNormLinf)
+    BlockIterate(x::AbstractVector, f::GroupNormLinf)
 
 A real vector whose optimization coordinates are ordered groups of entries.
 The nonempty, disjoint groups must partition `1:p`; ranges and reordered

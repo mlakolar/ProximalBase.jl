@@ -4,18 +4,24 @@ _prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
-# α v at the output y of an array step with a factor inside the band: a product that overflows
-# with α < 1 is recovered as for a scalar step (the levels with the factor folded in, or the
-# parts of the value); an underflow is not (#359), except the nonzero subnormal leaf value of an
-# ElasticNet under a factor above one (`_fused_small_case`). An indicator ignores its scale and stays on
-# this route for any factor: its value is exactly 0 or Inf, so an infinite factor at 0 gives 0, as
-# `_scaled_nan_value` certifies on the other routes, and a NaN value stays NaN.
+function _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray)
+  _checkparams(s, x)
+  _array_route(s, x, γ) && return _value_and_prox_chain!(y, s, x, γ)
+  v, exact_zero = _scaled_leaf_value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α))
+  exact_zero && isfinite(s.α) && return _value_at(v, y)
+  _value_at(_scaled_value_overflow(s.f, s.α, y, v), y)
+end
+# With an array step and a factor inside the band, recover an overflow with α < 1 or a
+# zero or subnormal NormL1 leaf value with α > 1 by recomputing at the stored output.
+# ElasticNet keeps its separate nonzero subnormal recovery. An indicator ignores its scale
+# and stays on this route for any factor: its value is exactly 0 or Inf, so an infinite
+# factor at 0 gives 0, and a NaN value stays NaN.
 @inline function _scaled_value_overflow(f, α, y, v)
   r = α * v
-  (!isfinite(r) && _scale_below_one(α)) && return _scaled_value_recover(f, α, y, v, r)
+  if (!isfinite(r) && _scale_below_one(α)) ||
+     (f isa NormL1 && _scaled_small(v) && _scale_above_one(α) && isfinite(α))
+    return _scaled_value_recover(f, α, y, v, r)
+  end
   _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : _indicator_product(f, r, v)
 end
 @inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r

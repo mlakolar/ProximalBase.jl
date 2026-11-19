@@ -61,8 +61,20 @@ shard with `julia scripts/test.jl --shard=1/3` (or `2/3`, `3/3`).
 GPU, cross-platform and release automation remain deferred. No release or
 ProximalSolvers pin/source change is implied.
 
+## Julia performance and correctness
+
+Use Julia 1.13.4 for performance benchmarks and optimization decisions.
+Use Julia 1.10.13 to verify correctness. Performance parity on Julia 1.10.13
+is outside the performance gate.
+
+Investigate and escalate repeatable slowdowns above 5% on ordinary Julia 1.13
+paths. Compare equivalent workloads and consider the absolute cost and how
+often the workload runs. Prioritize bottlenecks on Julia 1.13.4. Add
+version-specific complexity only when it delivers a substantial improvement
+on Julia 1.13.
+
 Use the retained benchmark harness for changes affecting hot paths and compare
 against the frozen post-#848 source on the same machine with the same harness,
-including an A/A control. Record any slowdown above five percent with its
+including an A/A control. Record slowdowns under investigation with their
 allocations, dispersion, controls and attribution. Historical def81ec9 results
 are diagnostic rather than the primary comparison.

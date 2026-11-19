@@ -116,6 +116,12 @@ four-argument form), a head above large ties (up to `10^6` entries) with a level
 at the zero point, on a face of all the entries and on a face with entries off it, through `Scaled` (one factor, and a chain that folds) and
 on the scaled path, a grid of such clusters around the breakpoint, a two-entry input, the closed form of a face inside its range and faces of
 nearly equal entries at its boundary, against exact distances in BigFloat, and the absence of ambiguities.
+`kkt_smooth` tests full-point `kkt_violation` for `LeastSquaresLoss` and
+`QuadraticFunction` in Float32/64. It checks analytic and BigFloat references,
+bit parity with the gradient oracle, vector and multiresponse layouts, sparse
+and structured products, exceptional and invalid inputs, scratch aliases,
+cold and warm allocations, subsequent value, gradient and prox calls, and
+the `Scaled` and custom dispatch routes.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous
@@ -127,6 +133,14 @@ overflow threshold, the class and accuracy of the BigFloat value; within it, `fl
 or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups near
 `floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
 storage.
+`groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
+equal to `NormLinf` and singleton groups equal to `NormL1` (the proximal outputs bit for bit, the values within a tolerance), irregular range and permuted
+partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
+against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
+underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
+`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
+refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of
+`prox_block!` over groups of different sizes).
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate
@@ -247,3 +261,16 @@ The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are
 required by the existing PR verdict and merge gate. PR builds may warm
 independent Julia package caches for the three validation job types.
+
+`logisticloss` checks homogeneous Float32 and Float64 logistic regression with
+dense, strided-view and CSC designs. It covers binary and fractional responses,
+weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
+warmed allocations and product counts. Independent BigFloat and finite-difference
+references check the value and both gradient spaces, including weighted tails.
+
+## SCAD coverage
+
+`scad` checks the globally minimizing scalar prox against independent BigFloat objectives
+and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
+and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.

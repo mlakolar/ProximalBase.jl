@@ -40,7 +40,7 @@ _isindicator(::Type{<:IndBallL2}) = true
   T = _valtype(x)
   isempty(x) && return (zero(T), 0)
   length(x) == 1 && return (abs(T(x[1])), 0)
-  s = _ball_l2_sumabs2(x)
+  s = _value_sumabs2(x)
   if isnan(s) || (isfinite(s) && _squares_normal(s, _square_term_count(x), T))
     return (sqrt(s), 0)
   end
@@ -49,14 +49,7 @@ end
 
 const _BallL2Float = Union{Float32, Float64}
 
-_ball_l2_sumabs2(x) = _value_sumabs2(x)
 @inline _ball_l2_sum4(a, b, c, d) = ((abs2(a) + abs2(b)) + abs2(c)) + abs2(d)
-
-@inline function _ball_l2_sumabs2(x::Vector{<:_BallL2Float})
-  # This is the ordinary short-array reduction order used by sum(abs2, x).
-  length(x) == 4 && return @inbounds _ball_l2_sum4(x[1], x[2], x[3], x[4])
-  _value_sumabs2(x)
-end
 
 @noinline function _ball_l2_scaled_norm(x, ::Type{R}) where {R}
   k = _square_exponent(x, nothing, R)
@@ -80,7 +73,12 @@ function (f::IndBallL2)(x::AbstractArray)
     m = _maximum_abs(x)
     return isnan(m) ? T(NaN) : (isinf(r) || iszero(m) ? zero(T) : T(Inf))
   end
+  _ball_l2_finite_radius_value(r, x)
+end
+
+@inline function _ball_l2_finite_radius_value(r, x)
   n, k = _ball_l2_norm(x)
+  T = _valtype(x)
   isnan(n) ? T(NaN) : (_ball_l2_inside(r, n, k) ? zero(T) : T(Inf))
 end
 
@@ -110,37 +108,46 @@ end
 _value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::IndBallL2,
                            x::_ArrayOrSymmetricIterate, γ::Real) = value_and_prox!(y, f, x, γ)
 
+function prox(f::IndBallL2{T}, x::Vector{T}, γ::Real = 1) where {T<:_BallL2Float}
+  _check_l2_step(f, γ)
+  point = _ball_l2_point4(f.r, x)
+  point === nothing || return T[point[1]...]
+  _ball_l2_project!(nothing, f.r, x)
+end
+
 function prox!(y::Vector{T}, f::IndBallL2{T}, x::Vector{T}, γ::Real) where {T<:_BallL2Float}
   _check_l2_arrays(f, y, x, γ)
-  if _ball_l2_project4!(y, f.r, x) === nothing
+  point = _ball_l2_point4(f.r, x)
+  if point === nothing
     _ball_l2_project!(y, f.r, x)
+  else
+    _ball_l2_store4!(y, point[1])
   end
   y
 end
 
 function value_and_prox!(y::Vector{T}, f::IndBallL2{T}, x::Vector{T}, γ::Real) where {T<:_BallL2Float}
   _check_l2_arrays(f, y, x, γ)
-  value = _ball_l2_project4!(y, f.r, x)
-  value === nothing || return value
-  _ball_l2_project!(y, f.r, x)
-  f(y)
+  point = _ball_l2_point4(f.r, x)
+  point === nothing && return _ball_l2_project!(y, f.r, x, f)
+  _ball_l2_store4!(y, point[1])
+  point[2]
 end
 
-# Keep the four coefficients in registers through scaling and evaluation so
-# that the standalone and fused oracles can use the same ordinary reduction.
-@inline function _ball_l2_project4!(y::Vector{T}, r::T, x::Vector{T}) where {T<:_BallL2Float}
+@inline function _ball_l2_store4!(y, p)
+  @inbounds y[1], y[2], y[3], y[4] = p
+  y
+end
+
+@inline function _ball_l2_point4(r::T, x::Vector{T}) where {T<:_BallL2Float}
   length(x) == 4 || return nothing
-  # Leave margin above the ordinary sum-of-squares floor after rounding inward.
   lower = 2sqrt(T(4) * floatmin(T) / eps(T))
   lower <= r < T(Inf) || return nothing
   @inbounds a, b, c, d = x[1], x[2], x[3], x[4]
   s = _ball_l2_sum4(a, b, c, d)
   _squares_normal(s, 4, T) && isfinite(s) || return nothing
   n = sqrt(s)
-  if n <= r
-    _ball_l2_copy!(y, x)
-    return zero(T)
-  end
+  n <= r && return ((a, b, c, d), zero(T))
   t = r / n
   a, b, c, d = t*a, t*b, t*c, t*d
   m = sqrt(_ball_l2_sum4(a, b, c, d))
@@ -149,8 +156,7 @@ end
     a, b, c, d = t*a, t*b, t*c, t*d
     m = sqrt(_ball_l2_sum4(a, b, c, d))
   end
-  @inbounds y[1], y[2], y[3], y[4] = a, b, c, d
-  m <= r ? zero(T) : T(Inf)
+  (a, b, c, d), (m <= r ? zero(T) : T(Inf))
 end
 
 # A ball indicator ignores the scale. Keep the original step for validation,
@@ -164,16 +170,34 @@ _scaled_step(::Scaled{<:_BallIndicator}, γ::Real) = γ
 @inline _scaled_step(s::Scaled{<:Scaled}, γ::Real) =
   _ball_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
 
-@inline function _ball_l2_project!(y, r, x)
-  isempty(x) && return y
-  iszero(r) && return _ball_l2_zero!(y)
-  isinf(r) && return _ball_l2_copy!(y, x)
+@inline _ball_l2_result(y, r, ::Nothing) = y
+@inline _ball_l2_result(y, r, f::IndBallL2) = _ball_l2_finite_radius_value(r, y)
+
+@inline _ball_l2_output(y, x) = y
+@inline _ball_l2_output(::Nothing, x) = similar(x)
+
+@inline function _ball_l2_project!(y, r, x, fused = nothing)
+  isempty(x) && return fused === nothing ? _ball_l2_output(y, x) : zero(eltype(y))
+  if iszero(r)
+    y = _ball_l2_zero!(_ball_l2_output(y, x))
+    return fused === nothing ? y : zero(eltype(y))
+  end
+  if isinf(r)
+    y = _ball_l2_copy!(_ball_l2_output(y, x), x)
+    return fused === nothing ? y : fused(y)
+  end
   n, k = _ball_l2_norm(x)
-  isfinite(n) || return _ball_l2_nonfinite!(y, r, x, n)
-  _ball_l2_inside(r, n, k) && return _ball_l2_copy!(y, x)
+  isfinite(n) || return _ball_l2_result(_ball_l2_nonfinite!(_ball_l2_output(y, x), r, x, n), r, fused)
+  if _ball_l2_inside(r, n, k)
+    y = _ball_l2_copy!(_ball_l2_output(y, x), x)
+    # The fused caller uses matching dense element types. The copy keeps the
+    # coefficients whose norm has just passed the standalone comparison.
+    return fused === nothing ? y : zero(eltype(y))
+  end
   if length(x) == 1
+    y = _ball_l2_output(y, x)
     @inbounds y[1] = copysign(float(r), float(x[1]))
-    return y
+    return _ball_l2_result(y, r, fused)
   end
   # An indexed view can refer to the same slot more than once. Read from a
   # snapshot for in-place destinations whose entries may share storage.
@@ -182,9 +206,9 @@ _scaled_step(::Scaled{<:_BallIndicator}, γ::Real) = γ
   end
   if k == 0
     a = r / n
-    a >= floatmin(typeof(a)) && return _ball_l2_scale!(y, x, a)
+    a >= floatmin(typeof(a)) && return _ball_l2_result(_ball_l2_scale!(_ball_l2_output(y, x), x, a), r, fused)
   end
-  _ball_l2_scale_recovered!(y, x, r, n, k)
+  _ball_l2_result(_ball_l2_scale_recovered!(_ball_l2_output(y, x), x, r, n, k), r, fused)
 end
 
 _ball_l2_copy!(y, x) = (y === x ? y : copyto!(y, x))

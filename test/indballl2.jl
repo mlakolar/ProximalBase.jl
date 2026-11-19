@@ -91,10 +91,26 @@ end
       end
     end
     @test f(T[0, nextfloat(one(T)), 0, 0]) === T(Inf)
+    for γ in (T(-1), T(NaN))
+      @test_throws ArgumentError prox(f, x, γ)
+    end
     for op in (prox!, value_and_prox!), γ in (T(-1), T(NaN))
       y = copy(x)
       @test_throws ArgumentError op(y, f, y, γ)
       @test isequal(y, x)
+    end
+    for n in (2, 3, 5, 32)
+      input = zeros(T, n)
+      input[1], input[2] = T(a), T(11)
+      expected = input .* (one(T) / sqrt(sum(abs2, input)))
+      @test isequal(prox(f, input), expected)
+      for alias in (false, true)
+        source = copy(input)
+        y = alias ? source : similar(input)
+        value = value_and_prox!(y, f, source, one(T))
+        @test isequal(y, expected)
+        @test value === f(y)
+      end
     end
   end
 end

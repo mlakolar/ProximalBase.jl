@@ -36,10 +36,11 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
-## Cardinality penalty
+## Separable nonconvex penalties
 
 ```@docs
 NormL0
+SCAD
 ```
 
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net

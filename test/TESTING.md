@@ -34,6 +34,10 @@ whose terms round below floatmin on every representation (#373), the ridge prox
 weights and owners, the SVD prox, the recomputed-dot shift, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
 part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
+`scad` checks the globally minimizing scalar prox against independent BigFloat objectives
+and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
+and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
 `symmetric_parameters` covers symmetric per-entry parameters as a model precondition: valid
 symmetric models (`NormL1`, `SqrNormL2`, `LinearFunction`, nested `Scaled` and a custom separable
 function) against dense and structurally symmetric references in Float32/64, the explicit `check_symmetric_parameters` (stored and unstored pairs, nested `Scaled`,

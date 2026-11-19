@@ -41,6 +41,7 @@ quick = [
   "quadratic_domain",
   "real_iterates",
   "ridge_precision",
+  "scad",
   "sparse_iterate",
   "sparse_iterate_basics",
   "sparse_iterate_basics_grids",

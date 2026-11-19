@@ -205,6 +205,15 @@ end
     @test isequal(Array(z), T[δ, -0.0])
     @test isactive(z, 2)
     @test isequal(Array(prox!(x, f, x)), Array(z))
+
+    for (x, f) in ((T[floatmax(T), -floatmax(T)/2], IndBallL2(δ)),
+                   (T[3, -δ], IndBallL2(one(T))),
+                   (T[0, -0.0], IndBallL2(T(Inf))))
+      z = SparseIterate(T, 2)
+      @test isequal(value_and_prox!(z, f, x), f(z))
+      @test isequal(Array(z), prox(f, x))
+      @test isactive(z, 2)
+    end
   end
 end
 

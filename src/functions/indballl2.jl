@@ -131,6 +131,8 @@ _scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
 end
 
 _ball_l2_copy!(y, x) = (y === x ? y : copyto!(y, x))
+_ball_l2_copy!(y::SparseIterate, x::AbstractArray) = _ball_l2_map!(identity, y, x)
+_ball_l2_copy!(y::SparseIterate, x::SparseIterate) = (y === x ? y : copyto!(y, x))
 # Inactive groups can contain signed zeros, which the block state copy skips.
 _ball_l2_copy!(y::BlockIterate, x::BlockIterate) = (y === x ? y : _ball_l2_map!(identity, y, x))
 _ball_l2_zero!(y) = fill!(y, zero(eltype(y)))
@@ -165,7 +167,7 @@ end
 
 function _ball_l2_map!(op, y, x)
   @inbounds for i in 1:length(x)
-    y[i] = op(x[i])
+    _ball_l2_write!(y, op(x[i]), i)
   end
   y
 end
@@ -179,20 +181,25 @@ function _ball_l2_map!(op, y::SparseIterate, x::SparseIterate)
   else
     fill!(y, zero(eltype(y)))
     @inbounds for j in 1:x.nnz
-      i = x.nzval2ind[j]
-      v = convert(eltype(y), op(x.nzval[j]))
-      # An implicit sparse zero would lose the sign of this rounded result.
-      if iszero(v) && signbit(v) && iszero(y.ind2nzval[i])
-        _store!(y, i, v)
-      else
-        y[i] = v
-      end
+      _ball_l2_write!(y, op(x.nzval[j]), x.nzval2ind[j])
     end
   end
   y
 end
 
-_ball_l2_scale!(y::SparseIterate, x::SparseIterate, a::T) where {T} =
+Base.@propagate_inbounds _ball_l2_write!(y, v, i) = setindex!(y, v, i)
+
+Base.@propagate_inbounds function _ball_l2_write!(y::SparseIterate, v, i)
+  w = convert(eltype(y), v)
+  # An implicit sparse zero would lose the sign of this rounded result.
+  if iszero(w) && signbit(w) && iszero(y.ind2nzval[i])
+    _store!(y, i, w)
+  else
+    y[i] = w
+  end
+end
+
+_ball_l2_scale!(y::SparseIterate, x, a::T) where {T} =
   _ball_l2_map!(v -> a * T(v), y, x)
 
 # Logical coordinates for ordinary arrays, and the stored coordinates for

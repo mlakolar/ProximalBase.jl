@@ -736,80 +736,103 @@ end
 #   Range: the scaled path is used when sv > floatmax(W)/2 at the zero point, when (n + 1) sv > floatmax(W)/4 on a face,
 #   and when τ0 is not finite. That path forms τ in units of a power of two.
 #
-# Error of the ordinary path. To first order in n u, with u = eps(W)/2, n = length(x), the entries and c normal numbers,
-# Λ = ‖v‖₂ + λ and d the exact distance for the radius c. A sum of k terms in any order has an error of at most
-# (k - 1) u times the sum of the magnitudes. Quantities named exact (τ0, the level τ, the active set) are those of the exact
-# data; the computed ones carry a hat or are named as computed.
-#   (1) The level. p ↦ (c′/c) p maps the ball (the simplex) of radius c onto that of radius c′ and moves p by at most
-#       |c - c′| ‖p‖₂/c ≤ |c - c′|, since ‖p‖₂ ≤ ‖p‖₁ ≤ c. The distance changes by at most |c - c′|, so rounding λ to c costs
-#       at most u λ.
-#   (2) The level equation. For a set A of a ≥ 1 entries and the computed level τ̂, let η = a τ̂ - (Σ_A uᵢ - c) (uᵢ = |vᵢ| at
-#       the zero point). When A = {i : uᵢ > τ̂}, Σ_A (uᵢ - τ̂) = c - η, so the residual formed from τ̂ is the exact residual for
-#       the radius c - η. In d² = Σ_{i∉A} rᵢ² + a τ², with τ solving Σ_A (uᵢ - τ) = c, dτ/dc = -1/a and d(d²)/dc = -2τ: the
-#       distance changes by |τ||η|/d to first order, and d ≥ √a |τ| gives |τ|/d ≤ 1/√a.
-#   (3) Zero point, and a face with τ0 ≤ μ (then A = J, a = cnt). For the zero point the routine returns the level τ̂ =
-#       fl((Σ_G yᵢ - c)/g) of the set G of g entries above the level of its previous pass (all entries for the first pass),
-#       with yᵢ = |vᵢ|, or its minimum with the largest entry; the exits that are not an ordinary convergence are (3a), (3b)
-#       and (3c). When G is the set above τ̂ (A = G), the sum of the a terms uᵢ has an error of at most (a - 1) u ‖u_A‖₁;
-#       the subtraction and the division add u |Σ_A uᵢ - c| = u a |τ| each: |η| ≤ (a - 1) u ‖u_A‖₁ + 2 u a |τ|. With ‖u_A‖₁
-#       ≤ √a ‖u_A‖₂ ≤ √a ‖v‖₂ the effect on d is at most (a - 1) u ‖v‖₂ + 2 u d.
-#   (3a) The count above the level is zero (the set A is empty: v = ones(2001), c = 8e-14 in Float64 has the level 1.0, and
-#       no entry is above it). Write τ̂ = τ_G + e with τ_G = (Σ_G yᵢ - c)/g and η_G = g e, bounded as in (3) with a = g. As
-#       yᵢ ≤ τ̂ for the entries of G, summing yᵢ ≤ τ_G + e over G gives c ≤ g e = η_G. The routine returns min(τ̂, largest
-#       entry), the level of the radius 0, so the returned value is the exact value for a radius between 0 and c, and the
-#       radius is off by at most η_G. The exact level lies in [τ_G, τ̂] (τ_G is a lower bound of the level for any set G
-#       with Σ_G (yᵢ - τ_G) = c), and the entries of G have a total deficit Σ_G (τ_G - yᵢ)₊ ≤ g e below τ_G, so d ≥ √g (τ_G
-#       - e) and |τ|/d ≤ 1/√g to first order. The effect on d is at most η_G/√g ≤ (g - 1) u ‖v‖₂ + 2 u d, the bound of (3).
-#   (3b) The count did not change (c = cnt): the returned level τ was computed from the set above τp, which has cnt entries,
-#       and the set above τ has c = cnt entries as well. The two sets are nested, whichever of τ and τp is the lower, and have
-#       the same count, so they are the same set: the set above the returned level is its generating set, and this is (3).
-#   (3c) The count rose (c > cnt, the returned level is τp, capped at the largest entry). Let G′ (g′ entries) be the set
-#       that generated τp, τp = τ_{G′} + e′ with τ_{G′} = (Σ_{G′} yᵢ - c)/g′ and |e′| at most the rounding of that level,
-#       ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ_{G′}|)/g′. G = {yᵢ > τp} has g < g′ entries and G ⊂ G′ (a lower τp would not give
-#       a smaller count). The level τ̂ = τ_G + e computed from G has more than g entries above it, so τ̂ < τp (a level not
-#       below τp has at most the entries of G above it). The returned residual is the exact residual for the radius c′ = Σ_G
-#       (yᵢ - τp) = c + g (τ_G - τp). The entries of G′ \ G are at or below τp, and Σ_{G′∖G} (τp - yᵢ) = g (τ_G - τp) + g′
-#       e′, because Σ_{G′} (τp - yᵢ) = g′ τp - Σ_{G′} yᵢ = g′ e′ - c and Σ_G (τp - yᵢ) = -c - g (τ_G - τp). The left side is
-#       not negative, so c′ - c ≥ -g′ |e′|; and τ̂ < τp gives τ_G - τp < |e|, so c′ - c < g |e|. Hence |c′ - c| ≤ max(g′
-#       |e′|, g |e|). The same identity gives Σ_{G′∖G} (τp - yᵢ) < g |e| + g′ |e′|: the entries that the pass before dropped
-#       lie within the rounding of the level, so to first order each contributes τ² to d² and d ≥ √g′ |τ|. The effect on d
-#       is |c′ - c| |τ|/d ≤ max(g′ |e′|, g |e|)/√g′ ≤ ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ|)/√g′ ≤ (g′ - 1) u ‖v‖₂ + 2 u d, the
-#       bound of (3) with g′ ≤ n. On a face the same holds in the units of the shifted values, with the errors e′ and e of
-#       (4) in place of those of (3), and the effect is inside the bound of (4) with a = g′. The returned level can differ
-#       from the one that returning τ̂ would give by a rounding, also where that one was accurate (v = [nextfloat(2.0),
-#       nextfloat(1.0)], λ = nextfloat(nextfloat(1.0)), x = zeros(2): 1.4142135623730951 without the exit,
-#       1.4142135623730954 with it, both within the bound).
-#   (4) A face with τ0 > μ. (4a) The computed τ0 is at most the exact level; let σ be the computed τ0 (a number used
-#       consistently), t = τ - σ ≥ 0, A the active set, a = |A| and B = J \ A, b = |B| = cnt - a, whose residuals are the uᵢ
-#       themselves, so ‖u_B‖₂ ≤ d. Σ_A Lᵢ = c + a t. The values Lᵢ are rounded (u each), the sum of the a terms has an error of
-#       at most (a - 1) u Σ_A Lᵢ, the subtraction and the division add u |Σ_A Lᵢ - c| = u a t each, and τ = σ + level is
-#       rounded: η = a τ̂ - (Σ_A uᵢ - c) satisfies |η| ≤ a u (c + a t) + 2 u a t + a u |τ|. Since Σ_A uᵢ = c + a τ and
-#       S = Σ_A uᵢ + Σ_B uᵢ, the exact τ0 is (a τ + Σ_B uᵢ)/cnt and t = Σ_B (τ - uᵢ)/cnt up to the rounding of σ, which adds a
-#       term of second order (it multiplies a u). Then a t ≤ (a/cnt) (b |τ| + √b d), and with |τ| ≤ d/√a (as d ≥ √a |τ|)
-#       a t |τ|/d ≤ (b/cnt + √(ab)/cnt) d ≤ 3d/2. The effect on d, |τ||η|/d, is at most
-#       √a u c + (a + 2) (3/2) u d + u d = (3a/2 + 4) u d + √a u c. With the exact τ0 above μ, B holds the entry of μ and
-#       a ≤ n - 1; when the computed τ0 is above μ and the exact τ0 is not, B can be empty, t is the rounding of σ, and the
-#       effect is at most √a u c + u d (up to second order), which is smaller.
-#       (4b) The computed τ0 exceeds the exact level τ (witness: v = fill(-0.1, 3), x = ones(3), c = 2.0^-60). Then
-#       0 < σ - τ ≤ σ - τ0 ≤ ε0, the rounding of the closed form, ε0 ≤ ((cnt - 1) u ‖u_J‖₁ + 2 u cnt |τ0|)/cnt. The values
-#       max(uᵢ - σ, 0) sum to at most c in exact arithmetic, so the routine returns a level at or below zero or within
-#       rounding of zero, at most (1 + u) u c from its sums, and τ̂ = σ + max(level, 0) satisfies 0 < τ̂ - τ ≤ ε0 + (1 + u) u c.
-#       Evaluating the residual at τ̂ in place of τ changes d by a |τ| (τ̂ - τ)/d ≤ √a (τ̂ - τ) to first order, a the size of the
-#       active set at τ (the entries between τ and τ̂ are counted with it). √a ε0 ≤ √cnt ε0 ≤ (cnt - 1) u ‖v‖₂ +
-#       2 u (‖v‖₂ + c/√cnt), as √cnt |τ0| = |S - c|/√cnt ≤ ‖u_J‖₂ + c/√cnt. The effect is at most
-#       (cnt - 1) u ‖v‖₂ + 2 u (‖v‖₂ + c/√cnt) + √a (1 + u) u c, within the bound of (3) after (5) and (6).
-#   (5) The residual is formed without rounding (a min, a sign change, or vᵢ). The sum of squares and the root add a
-#       relative (n/2 + 1) u to the norm of the residual.
-#   (6) d ≤ ‖v‖₂ + c, since -v is at distance d from a subgradient of 2-norm at most c (an element of the ball or of the simplex
-#       of radius c).
-#   Together, with d ≤ ‖v‖₂ + c: at most (3n/2 + 4) u Λ for the zero point and for τ0 ≤ μ, and for τ0 > μ with a ≤ n - 1,
-#   (3a/2 + n/2 + 5) u d + (√a + 1) u c ≤ (2n + √n + 5) u Λ. The function's bound is (2n + √n + 5) u (‖v‖₂ + λ). The √n term
-#   is the one with c: the shifted values of the active entries add up to c + a t, so the summation error of the level is
-#   proportional to c. On a long sum of nearly equal values the error grows about linearly in n in practice (measured, in
-#   units of u Λ, about 0.01 n on one entry far below the level and a bulk of equal entries, and up to about 0.3 n on random
-#   entries of that shape, at n = 200000), inside the bound. The exit sv ≤ c costs at most (n - 1) u ‖v‖₂: v scaled by
-#   c/Σ|vᵢ| is in the ball. The bound has no term for entries or terms near the subnormal range, where each adds up to the
-#   spacing of W.
+# Error of the ordinary path. To first order in n u, with u = eps(W)/2, n = length(x), the entries and c normal numbers (the terms of
+# the subnormal spacing are not counted), n u ≤ 1/4 (not checked), Λ = ‖v‖₂ + λ, and d the exact distance for the radius c.
+# A sum of k terms in any order has an error of at most (k - 1) u times the sum of the magnitudes (zero terms are exact), γ_k =
+# k u/(1 - k u). The exact data are uᵢ = |vᵢ| at the zero point and uᵢ = -sign(xᵢ) vᵢ for i ∈ J on a face, J of cnt entries, and
+# G(ℓ) = Σ_J (uᵢ - ℓ)₊; τ is the exact level (G(τ) = c), τ0e = (Σ_J uᵢ - c)/cnt the exact first level, and ρ(ℓ) the norm of the
+# residual formed at the level ℓ (uᵢ clipped at ℓ on J, vᵢ off J). No step assumes that the entries above a computed level are
+# the entries above the exact level: a count is the count above the level that is named, and the inequality that uses it holds for
+# that level.
+#   (1) Tools.
+#   (T1) Radius form. The distance from -v to the subgradients of radius r is 1-Lipschitz in r: scaling the subgradients by r′/r
+#       moves them by at most |r - r′| (their 2-norm is at most their 1-norm, r). The residual ρ(ℓ) is the exact residual of the
+#       radius G(ℓ) (ℓ is the level of that radius where G(ℓ) > 0, as G decreases strictly there, and the residual is u where
+#       G(ℓ) = 0), so |ρ(ℓ) - d| ≤ |G(ℓ) - c|. At the zero point the same with ℓ ≥ 0.
+#   (T2) Level form. For ℓ₁ ≤ ℓ₂, |ρ(ℓ₂) - ρ(ℓ₁)| ≤ √N (ℓ₂ - ℓ₁) with N = #{i ∈ J : uᵢ > ℓ₁} (only these residuals move, each by at
+#       most ℓ₂ - ℓ₁; triangle inequality). The N entries above ℓ₁ have residual ℓ₁, so √N |ℓ₁| ≤ ρ(ℓ₁).
+#   (T3) The first level. Σ_J uᵢ = Σ_J min(uᵢ, ℓ) + G(ℓ) at any level ℓ, so cnt τ0e = Σ_J min(uᵢ, ℓ) + (G(ℓ) - c). At ℓ = τ the
+#       sum is that of the residual entries, so √cnt |τ0e| ≤ ‖r_J‖₂ ≤ d. For a level ℓ with k entries above it and B = the
+#       other b = cnt - k entries of J (residual uᵢ ≤ ℓ), k (ℓ - τ0e) = (k/cnt) [Σ_B (ℓ - uᵢ) - (G(ℓ) - c)] ≤ (k/cnt) [b |ℓ| +
+#       √b ρ(ℓ)] + (k/cnt) |G(ℓ) - c| ≤ √(cnt/2) ρ(ℓ) + (k/cnt) |G(ℓ) - c|, by √k |ℓ| ≤ ρ(ℓ), ‖u_B‖₂ ≤ ρ(ℓ), and
+#       max over k of (√k b + k √b)/cnt = √(cnt/2).
+#   (T4) For τ0e ≤ ℓ ≤ τ and K = #{uᵢ > τ} ≥ 1 (c > 0): √K (τ - ℓ) ≤ d. If τ ≥ 0 and ℓ ≥ 0 then τ - ℓ ≤ τ and √K τ ≤ d. If τ ≥ 0 >
+#       ℓ then |ℓ| ≤ |τ0e| and the negative residual entries, which are not among the K, sum in magnitude to at least cnt |τ0e| + K τ
+#       (cnt τ0e = Σ_J rᵢ), so d² ≥ K τ² + (cnt |τ0e| + K τ)²/cnt ≥ K (τ + |τ0e|)². If τ < 0 then τ - ℓ ≤ |τ0e| and √K |τ0e| ≤ d.
+#   (2) The first level of a face. S = Σ_J uᵢ + e_S, |e_S| ≤ γ_{cnt-1} ‖u_J‖₁; fl(S - c) = S - c + δ₁, |δ₁| ≤ u |fl(S - c)|; τ0 =
+#       fl(S - c)/cnt + δ₂, |δ₂| ≤ u |τ0|. Then τ0e = τ0 - δ₂ - δ₁/cnt - e_S/cnt and |τ0 - τ0e| ≤ B0 = q |τ0| + γ_{cnt-1} ‖u_J‖₁/cnt,
+#       q = (2 + u) u. For N ≤ cnt, √N B0 ≤ q √N |τ0| + γ_{cnt-1} ‖u_J‖₂ (‖u_J‖₁ ≤ √cnt ‖u_J‖₂).
+#       The certificate. Let b̂ = fl(3u |τ0| + 2u cnt mv) ≥ 2.99 u |τ0| + 1.99 u cnt mv (three roundings, 3u and 2u are exact). If
+#       fl(τ0 + b̂) ≤ μ, then τ0 + b̂ ≤ μ + u mv (for z = τ0 + b̂ and ẑ = fl(z) ≤ μ: z ≤ ẑ + u |ẑ|, which is at most μ + u |μ| and
+#       |μ| ≤ mv). With B0 ≤ 2.01 u |τ0| + (4/3)(cnt - 1) u mv (cnt u ≤ 1/4; ‖u_J‖₁ ≤ cnt mv) this gives τ0 + B0 ≤ μ, so
+#       τ0e ≤ τ0 + B0 ≤ μ. Then G(τ0e) = Σ_J (uᵢ - τ0e) = c: the exact level is τ = τ0e, all the entries of J are above or at it,
+#       and the first level of the closed form is the exact level up to B0.
+#   (3) The zero point. The conditions of claim 5 (ii) hold: the |vᵢ| are finite and nonnegative (sv is finite), n ≥ 1, the start is
+#       (sv - c)/n with sv the sum of a pass over the magnitudes (error at most γ_{n-1} Σ|vᵢ|), 0 ≤ c < sv ≤ floatmax(W)/2 (the
+#       test sv ≤ c exits before, the range test is made before), so the start is nonnegative, the levels increase from it
+#       (claim 1) and the clamp at zero does not act. n u ≤ 1/4 is the one condition that the function does not check. Claim 5
+#       (ii) gives |ρ(τ̂) - D(c)| ≤ [(n + 3) ‖v‖₂ + (1.5 n + 0.5)(1 + u)² c] u/(1 - n u)² (D(c) = the distance from v to the ball
+#       of radius c), to first order (n + 3) u ‖v‖₂ + (1.5 n + 0.5) u c. Rounding λ to c moves d by at most u λ (T1). The
+#       exit sv ≤ c: the exact Σ|vᵢ| ≤ sv/(1 - γ_{n-1}) ≤ c/(1 - γ_{n-1}), so v scaled by c/Σ|vᵢ| is in the ball and d ≤ γ_{n-1} ‖v‖₂.
+#   (4) A face with the closed form certified. The residual of the closed form is τ0 on all the entries of J (they are at or above
+#       μ ≥ τ0 + b̂ - u mv, and τ0 ≤ μ), and that of the exact level τ0e is τ0e on them: ρ(τ0) - ρ(τ0e) ≤ √cnt |τ0 - τ0e| ≤
+#       √cnt B0 (T2) ≤ q √cnt |τ0| + γ_{cnt-1} ‖u_J‖₂ ≤ q ρ(τ0) + γ_{cnt-1} ‖u_J‖₂ (√cnt |τ0| is the face part of the residual). Solving
+#       for ρ(τ0): |ρ(τ0) - d| ≤ (q d + γ_{cnt-1} ‖u_J‖₂)/(1 - q) ≈ 2 u d + (cnt - 1) u ‖v‖₂.
+#   (5) A face with the certificate failed. σ = τ0 is the computed number, aᵢ = (uᵢ - σ)₊, L̂ᵢ = fl(aᵢ) = aᵢ (1 + ηᵢ), |ηᵢ| ≤ u, and 0
+#       off J. The kernel solves the problem of the L̂ᵢ, radius c, from the level 0, with g = h(t) = Σ (L̂ᵢ - t)₊; the returned level
+#       is t̂ ≥ 0 and τ̂ = fl(σ + t̂). The kernel statements used do not need 0 ≤ c < s: claim 1 (the levels increase from the
+#       start, so they are nonnegative), claim 3 (a) to (d) and the proofs of claims 2 and 3 for a step from any level (the starts
+#       of claim 2 and claim 5 (ii) are for the plain start from a sum, which this caller does not form); c > 0 is used by (c).
+#       (T5) Transfer. For t ≥ 0, G(σ + t) = Σ (aᵢ - t)₊ and |(a - t)₊ - (b - t)₊| ≤ |a - b|, which vanishes unless
+#       a > t⁻ = t/(1 + u): |G(σ + t) - h(t)| ≤ u Σ_{aᵢ > t⁻} aᵢ = u [G(σ + t⁻) + k t⁻], k = #{uᵢ > σ + t⁻}. The pass of
+#       the kernel at t counts k_L ≤ k entries (L̂ᵢ > t implies aᵢ > t⁻).
+#       Below, k is a count above the lowest level that enters, ℓ = min(τ̂, σ + t̂⁻), and the right sides use (T3) and (T4) at ℓ;
+#       replacing ℓ by τ̂ or σ + t̂ in a right side changes it by a term of the second order in n u. Put E_G = |G(τ̂) - c|.
+#       Each return of the iteration (claim 3):
+#       (b) at the first pass (r ≤ c at the level 0, τ̂ = σ). Either the exact level τ ≤ σ: then σ - τ ≤ σ - τ0e ≤ B0 (τ0e ≤ τ,
+#       G3), and with K = #{uᵢ > τ} (T2) gives |ρ(σ) - ρ(τ)| ≤ √K B0, which is bounded as in (4) (√K |τ0| ≤ √K |τ| + √K B0
+#       and √K |τ| ≤ ρ(τ) = d): the computed first level exceeds the exact level by its rounding (witness v = fill(-0.1, 3), x =
+#       ones(3), c = 2.0^-60). Or τ > σ: then G(σ) > c, and (P) gives (1 - k u) Σ L̂ᵢ ≤ r ≤ c, so G(σ) ≤ ΣL̂ᵢ/(1 - u) ≤
+#       c/((1 - k u)(1 - u)): E_G ≤ γ_{k+1} c, the radius form (T1), with no assumption on the set.
+#       (a) with no entry above the level at the first pass: all aᵢ vanish, σ ≥ every uᵢ, τ < σ, and the case τ ≤ σ above applies.
+#       (c) and (d), the radius form. By claim 3, |h(t̂) - c| ≤ E_c = (1.5 γ_k/(1 - k u) + u/2) c + k u t̂ + k δ at (c), and ≤ E_v ≈
+#       k u t̂ at (d). With (T5) and the rounding of σ + t̂ (G has the slope -k there),
+#           E_G ≤ (1.5 k + 1.5) u c + 2 k u t̂ + k u |τ̂|,   to first order.
+#       The term k u t̂ occurs twice: in the rounding of the kernel's last addition in the shifted units, and in the rounding of
+#       the L̂ᵢ. With t̂ = τ̂ - σ and σ = τ0e + O(B0), (T3) at ℓ = τ̂ gives k t̂ ≤ √(cnt/2) ρ(τ̂) + (k/cnt) E_G, and k |τ̂| ≤ √k ρ(τ̂).
+#       So |ρ(τ̂) - d| ≤ E_G ≤ (1.5 n + 1.5) u c + (√2 + 1) √n u d to first order.
+#       (b) after a step, and (a) after a step: the last pass is at the level t = fl(τ′ + (r′ - c)/k′) from a pass (r′, k′, g′) at τ′ ≥ 0.
+#       Below the root of the shifted problem, τ_L, the radius form gives E_G ≤ (k + 1) u c + k u t̂ + k u |τ̂|, which is smaller. At or
+#       above it, t̂ - τ_L ≤ t - τ_L ≤ e_N, the intermediate bound of the proof of claim 2 for a step: e_N = [γ_{k′} + (2u + u²)/(1 - k′ u)]
+#       g′/k′ + u t for g′ ≥ c, with the Newton point N = τ′ + (g′ - c)/k′ ≤ τ_L (G1), and e_N = (2 + 2u + u²) γ_{k′} g′/k′ + u t for
+#       g′ < c. The level form (T2) applies from the root: with K the count above the exact level of the radius c′ = G(σ + τ_L)
+#       (|c′ - c| ≤ u (c + k τ_L) by (T5), a radius change that costs at most that much in d by (T1)), g′/k′ ≤ (N - τ′) + c/k′ ≤
+#       (τ - τ̃′) + c/k′ with τ̃′ = σ + τ′ ≥ σ ≥ τ0e - B0, and (T4) gives √K (τ - τ̃′) ≤ d. So √K e_N ≤ (k′ + 2) u [d + √K c/k′] +
+#       u √K t, and √K t ≤ d by (T4) with ℓ = σ. Adding the transfer u (c + k t̂) with k t̂ ≤ √(cnt/2) d (T3), the rounding of σ + t̂
+#       (√K u |τ̂| ≤ u d, T2) and λ: the effect on d is at most (n + 4 + 0.71 √n) u d + (√n + 3) u c.
+#   (6) The residual is formed without rounding (a min, a sign change, or vᵢ). The sum of squares and the root: Q̂ = Σ rᵢ² (1 + θᵢ)
+#       with 1 - n u ≤ 1 + θᵢ ≤ 1/(1 - n u) (a product and at most n - 1 additions), and the root rounds once more: the norm has a
+#       relative error of at most (1 + u)/√(1 - n u) - 1 ≤ (0.62 n + 1) u, to first order (n/2 + 1) u. And d ≤ ‖v‖₂ + c, since -v
+#       is at distance d from a subgradient of 2-norm at most c; at the zero point ρ(τ̂) ≤ ‖v‖₂.
+#   (7) Totals, to first order, with d ≤ ‖v‖₂ + c, c = λ (1 + O(u)), and the rounding of λ (u λ) included:
+#         zero point                    (1.5 n + 4) u Λ    (‖v‖₂: n + 3 + n/2 + 1; c: 1.5 n + 0.5, and λ: 1);  the exit sv ≤ c: n u Λ;
+#         closed form certified         (1.5 n + 4) u Λ;
+#         shifted, first pass            (1.5 n + 4) u Λ;
+#         shifted, (c) and (d)           (2 n + 2.42 √n + 3.5) u Λ    (c: 1.5 n + 1.5 + n/2 + 1 + 2.42 √n, and λ: 1);
+#         shifted, (a) and (b) after a step  (1.5 n + 1.72 √n + 9) u Λ.
+#       The function's bound is (2 n + √n + 5) u Λ. The zero point and the closed form fit inside it. The shifted branch does not:
+#       its term 2 k u t̂ + k u |τ̂| at (c) is at most (√2 + 1) √n u d by the bounds k t̂ ≤ √(cnt/2) ρ and k |τ̂| ≤ √k ρ of (5), against the
+#       √n u Λ of the constant, and the proof gives (2 n + 2.5 √n + 4) u Λ for n ≥ 7 ((2 n + 2.5 √n + 9) u Λ for n ≤ 6, where the
+#       counts of (a) and (b) after a step are not sharp).
+#       Constants: the documented (2 n + √n + 5) is proved for the zero point and the closed form, and (2 n + 2.5 √n + 4) for the shifted branch.
+#       The proof is to first order in n u: the factors that it drops are those of claim 5 (ii) (at most (1 - n u)^-2 ≤ 16/9 on the
+#       terms with n, at n u = 1/4) and of (6) (0.62 against 0.5 on the term with n/2), and the second-order terms of the
+#       conversions of (5), of relative size n u. Without the first-order approximation the zero point has the coefficient (n + 3)(16/9) +
+#       0.62 n + 1.2 = 2.40 n + 6.5 on ‖v‖₂ and (16/9)(1.5 n + 0.5)(1 + u)² + 1 = 2.67 n + 1.9 on λ at n u = 1/4; the face
+#       cases are not carried out without it.
+#       The bound has no term for entries or terms near the subnormal range, where each adds up to the spacing of W. On a long
+#       sum of nearly equal values the error grows about linearly in n in practice (measured in units of u Λ, about 0.01 n on one
+#       entry far below the level and a bulk of equal entries, and up to about 0.3 n on random entries of that shape at n = 200000).
 
 # Entry reads with the sign: convert(W, v), and the same scaled by 2^-k (the scaled path).
 struct _ValRead{W} end

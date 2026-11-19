@@ -269,8 +269,8 @@ _value_fold_scale(α) = α
 # α splits as 2^k β, with β small or large enough that β times every level is a normal number, the
 # function folded with β is evaluated at x, and 2^k is applied last, to the significand of that value.
 #
-# `_fold_level(f, probe)` records the scale of a retained NormL1 level
-# instead of multiplying. For a level λ times the factors inside, in [2^q, 2^(q+1)), a shift s makes
+# `_level_shifts` reads the levels that `_fold_level` folds, with the factors of the `Scaled`
+# terms inside as a product a. For a level λ times those factors, in [2^q, 2^(q+1)), a shift s makes
 # β = a.m 2^s times it a normal number of the type T of the fold when q + s - 1 ≥ exponent(floatmin(T))
 # and q + s + 1 ≤ exponent(floatmax(T)). The product of the two significands is in [1/4, 1), so these
 # bounds are conservative by up to a binade at each end (and by one more at the top, where floatmax
@@ -279,39 +279,33 @@ _value_fold_scale(α) = α
 # value, so that the levels are normal there too. The window of several levels is the
 # intersection. It is empty when their exponents are too far apart, and for an infinite level,
 # which is refused; the partial fold then gives no value.
-mutable struct _ShiftWindow
-  lo::Int
-  hi::Int
+# The window w = (lo, hi) narrowed by the level λ, or nothing for a level that no shift folds. A zero
+# level folds as itself and leaves w unchanged. (emin, emax) is the exponent range of the type of the value.
+function _level_shift(w, λ, a::_ProjectionScale, emin, emax)
+  (w === nothing || iszero(λ)) && return w
+  v = float(λ)
+  T = promote_type(typeof(a.m), typeof(v))
+  (isfinite(v) && T <: Base.IEEEFloat) || return nothing
+  mλ, eλ = frexp(v)
+  _, e = frexp(convert(T, a.m) * convert(T, mλ))
+  q = a.e + Int(eλ) + Int(e) - 1
+  (max(w[1], max(exponent(floatmin(T)), emin) + 1 - q), min(w[2], min(exponent(floatmax(T)), emax) - 1 - q))
 end
-struct _LevelProbe{S}
-  w::_ShiftWindow
-  a::_ProjectionScale{S}   # the factors of the `Scaled` terms inside, as a product
-  emin::Int                # the exponent range of the type of the value
-  emax::Int
-end
-function _apply_scale(p::_LevelProbe, λ)
-  w = float(λ)
-  T = promote_type(typeof(p.a.m), typeof(w))
-  if !isfinite(w) || !(T <: Base.IEEEFloat)
-    p.w.lo = typemax(Int)
-    return w
-  end
-  mλ, eλ = frexp(w)
-  _, e = frexp(convert(T, p.a.m) * convert(T, mλ))
-  q = p.a.e + Int(eλ) + Int(e) - 1
-  p.w.lo = max(p.w.lo, max(exponent(floatmin(T)), p.emin) + 1 - q)
-  p.w.hi = min(p.w.hi, min(exponent(floatmax(T)), p.emax) - 1 - q)
-  w
-end
-function _projection_accumulate(p::_LevelProbe, b::Real)
-  c = _projection_accumulate(p.a, b)
-  c isa _ProjectionScale ? _LevelProbe(p.w, c, p.emin, p.emax) : c
+# One method per `_fold_level` method that takes any scale; a function without one has no window.
+_level_shifts(f, w, a, emin, emax) = nothing
+_level_shifts(f::Union{NormL1, NormL1Nonneg}, w, a, emin, emax) = _level_shift(w, f.λ0, a, emin, emax)
+# as `_elastic_folded`, an infinite level is kept as it is and does not narrow the window
+_level_shifts(f::ElasticNet, w, a, emin, emax) =
+  (w = isinf(f.λ1) ? w : _level_shift(w, f.λ1, a, emin, emax); isinf(f.λ2) ? w : _level_shift(w, f.λ2, a, emin, emax))
+# an infinite factor inside leaves no finite level to fold
+function _level_shifts(f::Scaled, w, a, emin, emax)
+  b = _projection_accumulate(a, f.α)
+  b isa _ProjectionScale ? _level_shifts(f.f, w, b, emin, emax) : nothing
 end
 # The shifts (lo, hi) at which every level of f folds into a normal number, or nothing.
 function _level_window(f, ::Type{S}, ::Type{V}) where {S, V}
-  w = _ShiftWindow(typemin(Int), typemax(Int))
-  g = _fold_level(f, _LevelProbe(w, _ProjectionScale(S(0.5), 1), exponent(floatmin(V)), exponent(floatmax(V))))
-  g === nothing || w.lo == typemin(Int) || w.hi == typemax(Int) || w.lo > w.hi ? nothing : (w.lo, w.hi)
+  w = _level_shifts(f, (typemin(Int), typemax(Int)), _ProjectionScale(S(0.5), 1), exponent(floatmin(V)), exponent(floatmax(V)))
+  w === nothing || w[1] == typemin(Int) || w[2] == typemax(Int) || w[1] > w[2] ? nothing : w
 end
 # The value of f folded with the shift s, when it is a finite normal number.
 function _shifted_fold_value(f, a::_ProjectionScale, s::Int, x)

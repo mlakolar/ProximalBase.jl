@@ -1097,6 +1097,7 @@ function _fold_level(f::NormLinf, α)
   c = _folded_level(f.λ, α)
   c === nothing ? nothing : NormLinf(c)
 end
+_level_shifts(f::NormLinf, w, a, emin, emax) = _level_shift(w, f.λ, a, emin, emax)
 # The fold of `_nested_step`, which passes the step reduced to its significand in [1/2, 1). The fold with the whole
 # exponent can fail where the fold with half the scale succeeds: the level then overflows with the whole exponent. The
 # result is the function with the half-scale level inside a factor 2: the leaf receives the step 2 mγ in [1, 2), a normal

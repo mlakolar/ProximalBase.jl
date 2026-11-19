@@ -5,6 +5,7 @@
 entry_parameters(::AbstractFunction) = ()
 entry_parameters(::SeparableFunction) = nothing
 _inner_functions(::AbstractFunction) = ()
+entry_parameters(::NormL0) = ()
 entry_parameters(f::NormL1) = (:w => f.w,)
 entry_parameters(f::ElasticNet) = (:w => f.w,)
 entry_parameters(f::NormL1Nonneg) = (:w => f.w,)

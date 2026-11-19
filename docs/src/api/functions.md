@@ -7,6 +7,7 @@ numerical examples and capability limits for the available concrete function typ
 
 ```@docs
 LeastSquaresLoss
+LogDetLoss
 SqrNormL2
 QuadraticFunction
 ZeroFunction

@@ -8,6 +8,9 @@ belong to quick; standard/thorough/full include that inventory.
 
 The preserved storage suites cover scalar/block/symmetric indexing, active
 zeros, copies, views, aliases, arbitrary block layouts, writes and products.
+`iterate_queries` checks `SparseCoordinates` sorting, display and array
+indexing against plain vectors for vector and matrix owners, including
+exception type parity and preservation of the working set on reads.
 `symmetric_iterate_interface` also checks finite and infinite `Scaled` gradients
 in Float32/64, including active-zero membership, IEEE activation of implicit
 zeros, retained finite exponent products, and validation before writes.

@@ -1,5 +1,5 @@
 module CIContractTest
-using Test, TOML
+using Test, TOML, LinearAlgebra
 const root=dirname(@__DIR__)
 const TT=Main.TestTiers
 workflow=read(joinpath(root,".github","workflows","CI.yml"),String)
@@ -96,7 +96,12 @@ end
         Core.eval(runner, :(include(path) = Base.include($runner, path)))
         mktemp() do _, output
             redirect_stdout(output) do
-                Base.include(runner, joinpath(@__DIR__, "runtests.jl"))
+                threads = BLAS.get_num_threads()
+                try
+                    Base.include(runner, joinpath(@__DIR__, "runtests.jl"))
+                finally
+                    BLAS.set_num_threads(threads)
+                end
             end
             seekstart(output)
             read(output, String)
@@ -106,12 +111,15 @@ end
     selected = filter(n -> startswith(n, "indball") || startswith(n, "kkt"),
                       TT.select(inv, "quick"))
     cases = ["--list", "--tier=quick", "indball", "indballl", "kkt"]
+    threads = BLAS.get_num_threads()
     for i in 1:2
         output = list_output([cases; "--shard=$i/2"])
         @test !occursin("PB_TEST_", output)
         @test split(last(split(chomp(output), '\n'))) == TT.shard_files(selected, i, 2; weights=inv.weights)
     end
+    @test BLAS.get_num_threads() == threads
     @test_throws "no test file matches no_matching_prefix" list_output([cases; "no_matching_prefix"])
+    @test BLAS.get_num_threads() == threads
 end
 @testset "manifest rejects unclassified tests" begin
     empty_catalog="[tiers]\nquick=[]\nstandard=[]\nthorough=[]\nfull=[]\n[not_tests]\nfiles=[]\n"

@@ -747,6 +747,80 @@ end
 end
 @inline _linf_certified_inside_ball(s, c, n) = false
 
+# Each positive excess is rounded once, then follows at most 64 additions
+# within a block, 64 within a tile, and cld(n, 4096) for the tile totals.
+# Bound the distance from the rounded mass to its exact value by 4Du times
+# the rounded mass, with D the depth and Du ≤ 1/4. Round the interval out
+# at each step. The exact level for this support is t + (mass - c) / k.
+function _linf_certified_ball_level(t::W, c::W, mass::W, k, lo::W, hi::W, depth) where {W}
+  rel = (2 * depth) * eps(W)
+  rel <= W(0.5) && isfinite(mass) || return nothing
+  error = nextfloat(rel * mass)
+  lower_mass = prevfloat(mass - error)
+  upper_mass = nextfloat(mass + error)
+  lower = prevfloat(t + prevfloat(prevfloat(lower_mass - c) / k))
+  upper = nextfloat(t + nextfloat(nextfloat(upper_mass - c) / k))
+  lo < lower && upper < hi || return nothing
+  t + (mass - c) / k
+end
+
+function _linf_ball_support(v, t::W, n, rd) where {W}
+  K = _int_type(W)
+  count = zero(K)
+  below = zero(K)
+  above = typemax(K)
+  mass = squares = zero(W)
+  for first in 1:4096:n
+    last = min(n, first + 4095)
+    tile_mass = tile_squares = zero(W)
+    for start in first:64:last
+      block_mass = block_squares = zero(W)
+      @inbounds @simd for i in start:min(last, start + 63)
+        y = rd(v[i])
+        active = y > t
+        bits = reinterpret(K, y)
+        count += active
+        below = max(below, ifelse(active, zero(K), bits))
+        above = min(above, ifelse(active, bits, typemax(K)))
+        block_mass += ifelse(active, y - t, zero(W))
+        block_squares += abs2(ifelse(active, zero(W), y))
+      end
+      tile_mass += block_mass
+      tile_squares += block_squares
+    end
+    mass += tile_mass
+    squares += tile_squares
+  end
+  mass, squares, Int(count), reinterpret(W, below), reinterpret(W, above)
+end
+
+@noinline function _linf_outside_ball_score(v, c::W, s::W, n) where {W<:Union{Float32, Float64}}
+  # Only try the ordinary, well-outside case. Sorting handles the boundary
+  # and the extreme range, with its existing exact-zero and scaled paths.
+  n >= 32 && n * eps(W) <= W(0.5) && c >= floatmin(W) &&
+    c < s / 2 && s <= floatmax(W) / 2 || return nothing
+  rd = _AbsRead{W}()
+  t = (s - c) / n
+  # A bounded series of shared excess passes proposes a support. The
+  # certificate below is independent of the accuracy of these passes.
+  for _ in 1:6
+    mass, k, hi = _l1ball_excess(v, n, t, rd)
+    k == 0 && return nothing
+    mass <= c && break
+    step = t + (mass - c) / k
+    step > t || break
+    t = step
+    t < hi && break
+  end
+  mass, squares, k, lo, hi = _linf_ball_support(v, t, n, rd)
+  k == 0 && return nothing
+  level = _linf_certified_ball_level(t, c, mass, k, lo, hi, 129 + cld(n, 4096))
+  level === nothing && return nothing
+  q = squares + k * abs2(level)
+  isfinite(q) && _squares_normal(q, n, W) ? sqrt(q) : nothing
+end
+@inline _linf_outside_ball_score(v, c, s, n) = nothing
+
 function _linf_point(c::W, v, x, ::Type{W}) where {W}
   sx, m = _linf_classify(x, _AbsRead{W}(), W)
   sv, mv = _linf_classify(v, _AbsRead{W}(), W)
@@ -758,6 +832,8 @@ function _linf_point(c::W, v, x, ::Type{W}) where {W}
   if iszero(m)
     n == 1 && return max(mv - c, zero(W))
     _linf_certified_inside_ball(sv, c, n) && return zero(W)
+    score = _linf_outside_ball_score(v, c, sv, n)
+    score === nothing || return score
     y = W[abs(W(v[i])) for i in 1:n]
     return _linf_sorted_distance!(y, c, true)
   end

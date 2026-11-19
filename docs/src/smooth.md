@@ -632,7 +632,9 @@ output overlaps reported by `Base.mightalias` with the input, other output,
 model arrays (including CSC values and indices) or scratch. An input predictor or
 coefficient vector must also be independent of the scratch.
 
-The scalar formulas preserve the small tail for saturated responses. A
+The scalar formulas preserve the small tail for saturated responses.
+For a response of one half and a predictor near zero, the derivative uses a
+centered expression to retain the slope before weighting. A
 zero-weight row contributes zero to the value and observation derivative, even
 at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
 give the logistic limit: zero loss for a matching binary response, and infinity

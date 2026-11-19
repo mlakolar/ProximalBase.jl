@@ -132,6 +132,33 @@ end
     @test isnan(g[1])
   end
 
+  @testset "Small predictors at a half response" begin
+    M, response = ones(T, 1, 1), T[0.5]
+    large = T === Float32 ? T(1e30) : T(1e300)
+    for (magnitude, weight) in ((T(1e-18), large), (T(1e-10), nothing),
+                               (eps(T) / 2, T(2)), (eps(T), large),
+                               (nextfloat(zero(T)), floatmax(T)),
+                               (prevfloat(T(0.0625)), nothing),
+                               (T(0.0625), nothing), (zero(T), large),
+                               (T(1e-18), zero(T))),
+        sign in (-one(T), one(T))
+      z = T[sign * magnitude]
+      w = weight === nothing ? ones(T, 1) : T[weight]
+      f = LogisticLoss(response, M; weights=weight === nothing ? nothing : w)
+      vref, dref, gref = logistic_reference(M, z, response, w)
+      grad = gradient(f, z)
+      v, fused = value_and_gradient(f, z)
+      g, d = similar(grad), similar(grad)
+      cached = logistic_fused!(g, d, f, z)
+      rtol = magnitude == T(0.0625) ? 64eps(T) : 8eps(T)
+      @test grad ≈ T.(gref) rtol=rtol
+      @test fused == g == grad
+      @test d ≈ T.(dref) rtol=rtol
+      @test v == cached == f(z)
+      @test v ≈ T(vref) rtol=8eps(T)
+    end
+  end
+
   @testset "Empty shapes" for (n, p) in ((0, 3), (2, 0), (0, 0)), design in (zeros(T, n, p), spzeros(T, n, p))
     f = LogisticLoss(zeros(T, n), design; offset=ones(T, n))
     empty_β, eta = zeros(T, p), ones(T, n)

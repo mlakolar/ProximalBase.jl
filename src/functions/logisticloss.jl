@@ -57,6 +57,14 @@ isconvex(::Type{<:LogisticLoss}) = true
   (((w * q) * q) * q) * q
 end
 
+# For y = 1/2, the slope magnitude is (1 - exp(-s)) / (2 * (1 + exp(-s))).
+@noinline function _logistic_midpoint_slope(w::T, s::T, e::T) where {T}
+  # Below eps(T), the relative error of the linear term s/4 is O(s^2).
+  # Apply the weight first so dividing a subnormal predictor retains its contribution.
+  s < eps(T) && return (w * s) / 4
+  w * (-expm1(-s) / (2 * (one(T) + e)))
+end
+
 @inline function _logistic_terms(η::T, y, w, ::Val{V}, ::Val{D}) where {T,V,D}
   iszero(w) && return (zero(T), zero(T))
   positive = η > zero(T)
@@ -81,6 +89,9 @@ end
     d = D ? (fused ? wc - tail : ifelse(positive, wc - tail, tail - wc)) : zero(T)
   else
     v = V ? w * (linear + log1p(e)) : zero(T)
+    if D && s < T(0.0625) && y == T(0.5) && !iszero(s)
+      return v, copysign(_logistic_midpoint_slope(w, s, e), η)
+    end
     q = e / (one(T) + e)
     d = D ? w * (fused ? c - q : ifelse(positive, c - q, q - c)) : zero(T)
   end

@@ -760,6 +760,21 @@ end
   end
 end
 
+@testset "an aggregate distance with a fractional-subnormal level ($T)" for T in TYPES
+  δ = nextfloat(zero(T))
+  n = 4096
+  x = ones(T, n)
+  @test kkt_violation(NormLinf(T(2047) * δ), zeros(T, n), x) === T(32) * δ
+
+  # Half the entries have u = δ, the rest zero. For the face, c = 4095δ
+  # makes all entries active with level -2047δ/n. For the ball, c = 1025δ
+  # leaves a residual of 1023δ/(n/2) at each of the positive entries.
+  v = [fill(-δ, n ÷ 2); zeros(T, n ÷ 2)]
+  @test kkt_violation(NormLinf(T(4095) * δ), v, x) === T(32) * δ
+  ref = T(big(1023) * big(δ) / sqrt(big(n ÷ 2)))
+  @test kkt_violation(NormLinf(T(1025) * δ), v, zeros(T, n)) === ref
+end
+
 @testset "a positive excess smaller than the spacing of the radius ($T)" for T in TYPES
   tiny = eps(T) / 8
   y = T[1, tiny]

@@ -840,15 +840,29 @@ function _linf_face_level(v, x, m::W, c::W, sv, rd) where {W}
 end
 
 function _linf_point(c::W, v, x, ::Type{W}) where {W}
-  n = length(x)
   sx, m = _linf_classify(x, _AbsRead{W}(), W)
   sv, mv = _linf_classify(v, _AbsRead{W}(), W)
   (isnan(sx) | isnan(sv)) && return W(NaN)
   (isinf(m) | isinf(mv)) && return W(Inf)
   isinf(c) && return iszero(m) ? zero(W) : W(Inf)
   iszero(c) && return _linf_finish(v, x, zero(W), W(Inf))
+  max(c, mv) < floatmin(W) && return _linf_subnormal(c, v, x, m, mv, sv)
+  _linf_finite(c, v, x, m, mv, sv)
+end
+
+# When both the radius and all the gradient entries are subnormal, dividing the
+# radius among a face can round the level to zero. The distance is homogeneous
+# in (c, v). Scale both by an exact power of two and undo it after taking the norm.
+@noinline function _linf_subnormal(c::W, v, x, m, mv, sv) where {W}
+  unit = floatmin(W)
+  factor = inv(unit)
+  scaled = _ScaledArray{W}(v, factor)
+  unit * _linf_finite(c * factor, scaled, x, m, mv * factor, sv * factor)
+end
+
+@inline function _linf_finite(c::W, v, x, m, mv, sv) where {W}
   zp = iszero(m)
-  _linf_in_range(sv, n, zp, W) || return _linf_scaled(c, v, x, m, mv, W)
+  _linf_in_range(sv, length(v), zp, W) || return _linf_scaled(c, v, x, m, mv, W)
   τ = zp ? _linf_ball_level(v, c, sv, _AbsRead{W}()) : _linf_face_level(v, x, m, c, sv, _ValRead{W}())
   isfinite(τ) || return _linf_scaled(c, v, x, m, mv, W)
   zp && iszero(τ) && return zero(W)

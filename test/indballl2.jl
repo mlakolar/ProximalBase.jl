@@ -1,6 +1,6 @@
 module IndBallL2Test
 
-using Test, ProximalBase, OffsetArrays, LinearAlgebra
+using Test, ProximalBase, OffsetArrays, LinearAlgebra, SparseArrays
 
 @testset "IndBallL2 constructor and tools" begin
   @test IndBallL2().r == 1
@@ -213,6 +213,16 @@ end
       @test isequal(value_and_prox!(z, f, x), f(z))
       @test isequal(Array(z), prox(f, x))
       @test isactive(z, 2)
+    end
+
+    for x in (SparseVector(4, [2, 3], T[-0.0, 3]),
+              SparseMatrixCSC(4, 1, [1, 3], [2, 3], T[-0.0, 3])), r in (T(Inf), one(T))
+      z = SparseIterate(T, size(x)...)
+      z[1] = T(7)
+      @test prox!(z, IndBallL2(r), x) === z
+      @test isequal(z[1], zero(T))
+      @test isequal(z[2], T(-0.0)) && isactive(z, 2)
+      @test z[3] == min(T(3), r)
     end
   end
 end

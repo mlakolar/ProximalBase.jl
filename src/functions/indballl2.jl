@@ -187,6 +187,25 @@ function _ball_l2_map!(op, y::SparseIterate, x::SparseIterate)
   y
 end
 
+function _ball_l2_map!(op, y::SparseIterate, x::SparseArrays.AbstractSparseMatrixCSC)
+  fill!(y, zero(eltype(y)))
+  rows, vals = rowvals(x), nonzeros(x)
+  n = size(x, 1)
+  @inbounds for j in axes(x, 2), p in nzrange(x, j)
+    _ball_l2_write!(y, op(vals[p]), (j - 1) * n + rows[p])
+  end
+  y
+end
+
+function _ball_l2_map!(op, y::SparseIterate, x::SparseVector)
+  fill!(y, zero(eltype(y)))
+  inds, vals = SparseArrays.nonzeroinds(x), nonzeros(x)
+  @inbounds for p in eachindex(vals)
+    _ball_l2_write!(y, op(vals[p]), inds[p])
+  end
+  y
+end
+
 Base.@propagate_inbounds _ball_l2_write!(y, v, i) = setindex!(y, v, i)
 
 Base.@propagate_inbounds function _ball_l2_write!(y::SparseIterate, v, i)

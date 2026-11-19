@@ -5,7 +5,7 @@ module NumericalRecoveryTest
 # branch of the kernel under test: an intermediate product, difference, square or partial sum leaves the
 # range of Float32/Float64 (or cancels) while the final value is representable; or an input is a genuine
 # NaN/Inf, an exact or signed zero, or a subnormal. The oracle is BigFloat evaluated directly from the
-# mathematical formula on the exact (Float32/Float64) data; the package never runs in BigFloat here.
+# mathematical formula on the exact (Float32/Float64) data.
 #
 # Accuracy is stated in units in the last place (ulp) of the correctly rounded reference, with the bound each
 # algorithm gives: a recomputation from significands rounds a handful of times (<= 2-4 ulp; the documented
@@ -1691,6 +1691,15 @@ setprecision(BigFloat, 2400) do
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers
   test_recorded_defects(T)   # recorded defects (see the audit document): @test_broken against the independent reference
 end
+end
+
+@testset "least-squares recovery at the BigFloat exponent limit" begin
+  setprecision(BigFloat, 256) do
+    f = LeastSquaresLoss(BigFloat[0], reshape([floatmax(BigFloat)], 1, 1))
+    β = BigFloat[4]
+    @test f(β) == BigFloat(Inf)
+    @test value_and_gradient!(similar(β), f, β) == BigFloat(Inf)
+  end
 end
 
 end

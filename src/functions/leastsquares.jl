@@ -240,7 +240,11 @@ end
 # 2^shift ‖x - y‖²/2 as a normalized significand and an exponent, for finite entries
 function _leastsquares_squares(x, y, shift = 0)
   s, k = _residual_squares(x, y, eltype(x))
-  _parts(s, 2k - 1 + shift)
+  m, e = _frexp(s)
+  ex = _exponent_sum(eltype(x), e, 2k - 1 + shift)
+  # _ExpSum stores an Int exponent. For these nonnegative terms, saturation
+  # keeps a BigFloat exponent outside Int on the same side of MPFR's range.
+  (m, Int(clamp(ex, typemin(Int), typemax(Int))))
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)

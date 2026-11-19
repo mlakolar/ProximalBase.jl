@@ -35,41 +35,65 @@ SCAD(λ::T, a::T) where {T<:Real} = SCAD{T}(λ, a)
 iszeropreserving(::SCAD) = true
 restrict(f::SCAD, ::AbstractVector{<:Integer}) = f
 
-@inline function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
+@inline value_entry(f::SCAD, v::Real, ::Integer) = _scad_value_entry(_scad_value, f, v)
+@inline _stored_value_entry(f::SCAD, v::Real, ::Integer) = _scad_value_entry(_scad_stored_value, f, v)
+
+@inline function _scad_value_entry(kernel::K, f::SCAD, v::T) where {K, T<:Real}
   S = float(T)
   iszero(f.λ) && return zero(S)
   R = _working_type(S, f.λ, f.a)
   λ, a, t = R(f.λ), R(f.a), abs(R(v))
-  S(_scad_value(λ, a, t))
+  S(kernel(λ, a, t))
 end
 
 @inline function _scad_value(λ, a, t)
   isinf(λ) && return iszero(t) ? zero(t) : λ * t
   linear = λ * t
   isinf(a) && return linear
-  # Integrate the linear slope from λ. In the middle piece the mean
-  # slope is between λ/2 and λ, and both terms are nonnegative.
-  d = t - λ
-  middle = fma(d, λ - (d / (a - 1)) / 2, λ * λ)
-  plateau = (((a + 1) / 2) * λ) * λ
-  ifelse(t > λ, ifelse(t < a * λ, middle, plateau), linear)
+  ifelse(t > λ, ifelse(t < a * λ, _scad_middle_value(λ, a, t), _scad_plateau(λ, a)), linear)
 end
+
+@inline function _scad_stored_value(λ, a, t)
+  isinf(λ) && return iszero(t) ? zero(t) : λ * t
+  (!(t > λ) || isinf(a)) && return λ * t
+  t < a * λ ? _scad_middle_value(λ, a, t) : _scad_plateau(λ, a)
+end
+
+@inline function _scad_middle_value(λ, a, t)
+  # Integrate the linear slope from λ. The mean slope in this piece
+  # is between λ/2 and λ, and both terms are nonnegative.
+  d = t - λ
+  fma(d, λ - (d * inv(a - 1)) / 2, λ * λ)
+end
+
+@inline _scad_plateau(λ, a) = (((a + 1) / 2) * λ) * λ
 
 @inline prox_block(f::SCAD, v::Real, ::Integer, γ::Real) = _scad_prox_entry(f, v, γ)
 
-@inline function prox_block(f::SCAD{T}, x::T, ::Integer, γ::T) where {T<:Union{Float32, Float64}}
-  λ, a = f.λ, f.a
+@inline prox_block(f::SCAD{T}, x::T, ::Integer, γ::T) where {T<:Union{Float32, Float64}} =
+  _scad_prox_ieee(f, x, γ)
+
+# The public default is the integer 1. Keep its existing Float64 working
+# precision, including for Float32 data and the promoted default shape.
+@inline prox_block(f::SCAD{P}, x::T, ::Integer, γ::Int) where {P<:Union{Float32, Float64}, T<:Union{Float32, Float64}} =
+  γ == 1 ? _scad_prox_ieee(f, x, 1.0) : _scad_prox_entry(f, x, γ)
+
+@inline prox_block(f::SCAD{Float64}, x::Float32, ::Integer, γ::Union{Float32, Float64}) =
+  _scad_prox_ieee(f, x, Float64(γ))
+
+@inline function _scad_prox_ieee(f::SCAD, x::T, γ::W) where {T, W}
+  λ, a = W(f.λ), W(f.a)
   iszero(λ) && return x
   curvature = (a - γ) - 1
   ratio = γ / curvature
-  if (λ >= floatmin(T) / eps(T)) & (curvature > 0) & (ratio > 0) & isfinite(a * λ)
+  if (λ >= floatmin(W) / eps(W)) & (curvature > 0) & (ratio > 0) & isfinite(a * λ)
     # The middle root is below soft in the first piece and above t in the
     # last piece. Clamp it against soft, t and zero to combine the pieces.
-    t = abs(x)
+    t = abs(W(x))
     soft = fma(-γ, λ, t)
     root = if ratio <= 1
       d = soft - λ
-      fma(ratio, ifelse(d > 0, d, zero(T)), soft)
+      fma(ratio, ifelse(d > 0, d, zero(W)), soft)
     else
       # Near the curvature transition, form the residual at the upper
       # join in one rounding to avoid amplifying rounding of soft.
@@ -77,7 +101,7 @@ end
       ifelse(middle > soft, middle, soft)
     end
     bounded = ifelse(root < t, root, t)
-    u = ifelse(bounded > 0, bounded, zero(T))
+    u = T(ifelse(bounded > 0, bounded, zero(W)))
     return ifelse(isfinite(x), copysign(u, x) + zero(T), x)
   end
   _scad_prox_entry(f, x, γ)
@@ -92,6 +116,29 @@ end
   R = _working_type(typeof(x), γ, λ, f.a)
   u = oftype(x, _scad_magnitude(abs(R(x)), R(λ), R(f.a), R(γ)))
   iszero(u) ? zero(x) : copysign(u, x)
+end
+
+Base.@propagate_inbounds function _prox_sep_entry(f::SCAD{T}, v::T, i, γ::Array{T}) where {T<:Union{Float32, Float64}}
+  step = γ[i]
+  # Short step buffers benefit from skipping the middle root on outer
+  # entries. For longer buffers the branchless kernel avoids unpredictable
+  # per-entry branches.
+  length(γ) > 1024 && return _scad_prox_ieee(f, v, step)
+  λ, a = f.λ, f.a
+  curvature = (a - step) - 1
+  if (λ >= floatmin(T) / eps(T)) & (step > 0) & (curvature > 0) & isfinite(a * λ)
+    t = abs(v)
+    upper = fma(-a, λ, t)
+    (upper >= 0 || isnan(t)) && return v
+    soft = fma(-step, λ, t)
+    if soft <= λ
+      soft <= 0 && return zero(T)
+      return copysign(soft, v)
+    end
+    u = clamp(fma(step / curvature, upper, t), λ, t)
+    return copysign(u, v)
+  end
+  _scad_prox_entry(f, v, step)
 end
 
 @inline _scad_magnitude(t, λ, a, γ) = _scad_prox(t, λ, a, γ)

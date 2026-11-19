@@ -91,6 +91,7 @@ end
 
 @testset "SCAD constructor and traits" begin
   @test SCAD(1).a === 3.7
+  @test SCAD(0.5f0) isa SCAD{Float64}
   @test SCAD(1f0, 3f0) isa SCAD{Float32}
   @test SCAD(1f0, 3.0) isa SCAD{Float64}
   @test SCAD(0, Inf).λ == 0
@@ -110,6 +111,24 @@ end
   @test restrict(f, [2, 1]) === f
   @test ProximalBase.entry_parameters(f) === ()
   @test ProximalBase.check_symmetric_parameters(f, SymmetricSparseIterate(2))
+end
+
+@testset "SCAD default calls" begin
+  for (f, T) in ((SCAD(0.5f0), Float32), (SCAD(0.5f0, 3.7f0), Float32), (SCAD(0.5), Float64))
+    x = T[-4, -1.3, -0.6, -0.0, 0.2, 1.1, 2.75, -Inf, Inf, NaN]
+    step = one(T)
+    expected = T[isfinite(v) ? scad_reference(f.λ, f.a, v, step)[1] : v for v in x]
+    for y in (prox(f, x), prox(f, x, step), prox!(similar(x), f, x), prox!(similar(x), f, x, step))
+      @test y isa Vector{T}
+      @test y[1:7] ≈ expected[1:7]
+      @test isequal(y[8:end], expected[8:end])
+      @test y[4] === zero(T)
+    end
+    y = copy(x)
+    @test isequal(value_and_prox!(y, f, y), f(y))
+    @test y[1:7] ≈ expected[1:7]
+    @test isequal(y[8:end], expected[8:end])
+  end
 end
 
 @testset "SCAD scalar correctness, $T" for T in (Float32, Float64)
@@ -308,6 +327,28 @@ Base.getindex(a::ReadSteps, i::Int) = (a.reads[i] += 1; a.data[i])
   repeated = view(T[7, 7], [1, 1, 2])
   @test value_and_prox!(repeated, f, T[2.5, 0.5, 4.75], u) === f(repeated)
   @test parent(repeated) == T[0, 4.75]
+
+  @testset "per-entry steps near the joins" begin
+    model = SCAD(T(0.6), T(3.7))
+    transition = model.a - 1
+    points, step_buffer = T[], T[]
+    for step in (prevfloat(transition), transition, nextfloat(transition))
+      for join in ((1 + step) * model.λ, model.a * model.λ)
+        for t in (prevfloat(join), join, nextfloat(join))
+          push!(points, -t, t)
+          push!(step_buffer, step, step)
+        end
+      end
+    end
+    out = prox(model, points, step_buffer)
+    for i in eachindex(out)
+      v, step = points[i], step_buffer[i]
+      _, best = scad_reference(model.λ, model.a, v, step)
+      @test abs(out[i]) <= abs(v)
+      @test scad_objective(model.λ, model.a, v, step, out[i]) <= best * (1 + 32eps(T))
+    end
+    @test value_and_prox!(out, model, points, step_buffer) === model(out)
+  end
 
   @testset "iterate storage and aliasing" begin
     sparse = SparseIterate(T, 8)

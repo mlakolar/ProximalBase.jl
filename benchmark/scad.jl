@@ -1,7 +1,8 @@
 # Paired SCAD benchmark for issue #953. Use one exclusive node and one Julia/BLAS thread.
 #
-# PB_ARCHIVE and PB_CANDIDATE point to separate clean worktrees. Activate the
-# candidate's instantiated benchmark environment:
+# PB_ARCHIVE and PB_CANDIDATE point to separate clean worktrees. Set PB_PREOPT
+# instead of PB_ARCHIVE to compare against the pre-optimization reference.
+# Activate the candidate's instantiated benchmark environment:
 #
 # PB_ARCHIVE=... PB_CANDIDATE=... PB_OUTPUT=... \
 #   julia --startup-file=no --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
@@ -14,17 +15,18 @@ using BenchmarkTools, Dates, LinearAlgebra, Random, SHA, Statistics
 Threads.nthreads() == 1 || error("one Julia thread required")
 BLAS.set_num_threads(1)
 
-const ARCHIVE = abspath(ENV["PB_ARCHIVE"])
+const COMPARISON = haskey(ENV, "PB_PREOPT") ? :preopt : :archive
+const REFERENCE = abspath(ENV[COMPARISON === :preopt ? "PB_PREOPT" : "PB_ARCHIVE"])
 const CANDIDATE = abspath(ENV["PB_CANDIDATE"])
 const REVERSED = get(ENV, "PB_REVERSE", "0") == "1"
 const SIZES = (8, 1024, 65536)
 const CHECK_ONLY = get(ENV, "PB_CHECK_ONLY", "0") == "1"
 
-module ArchivedSource end
+module ReferenceSource end
 module CandidateSource end
 module ControlSource end
 
-sources = ((ArchivedSource, ARCHIVE), (CandidateSource, CANDIDATE))
+sources = ((ReferenceSource, REFERENCE), (CandidateSource, CANDIDATE))
 for (m, root) in (REVERSED ? reverse(sources) : sources)
     Base.include(m, joinpath(root, "src", "ProximalBase.jl"))
 end
@@ -85,6 +87,19 @@ loop_case(kernel, out, f, x, γ) =
 prox_case(px, out, f, x, γ, snapshot) =
     (() -> (px(out, f, x, γ); nothing),
      () -> (px(out, f, x, γ); snapshot(out)))
+prox_case(px, out, f, x, snapshot) =
+    (() -> (px(out, f, x); nothing),
+     () -> (px(out, f, x); snapshot(out)))
+function allocating_prox_case(prox, f, x, steps...)
+    result = Ref{typeof(x)}()
+    run() = prox(f, x, steps...)
+    function check()
+        out = run()
+        typeof(out) === typeof(x) || error("allocating prox changed the array type")
+        out
+    end
+    (() -> (result[] = run(); nothing), check)
+end
 function value_case(f, x, ::Type{T}) where {T}
     result = Ref{T}()
     (() -> (result[] = f(x); nothing), () -> f(x))
@@ -97,7 +112,7 @@ end
 
 function make_probes(PB, norm_module, ::Type{T}, data) where {T}
     probes = NamedTuple[]
-    function add(id, n, kind, (op, check); comparison = :archive)
+    function add(id, n, kind, (op, check); comparison = COMPARISON)
         push!(probes, (; id = "$T/$id", n, kind, op, check, comparison))
     end
 
@@ -105,7 +120,9 @@ function make_probes(PB, norm_module, ::Type{T}, data) where {T}
     small, near, large = T(0.75), T(2.45), T(4)
     f = PB.SCAD(λ, a)
     zero_level = PB.SCAD(zero(T), a)
-    px, vp, pb = PB.prox!, PB.value_and_prox!, PB.prox_block
+    default_shape = ("default_shape", PB.SCAD(λ))
+    default_models = T === Float32 ? (default_shape, ("typed_shape", PB.SCAD(λ, T(3.7)))) : (default_shape,)
+    pa, px, vp, pb = PB.prox, PB.prox!, PB.value_and_prox!, PB.prox_block
     for n in SIZES
         d = data.dense[n]
         for (label, γ) in (("below", small), ("near", near), ("above", large))
@@ -120,6 +137,13 @@ function make_probes(PB, norm_module, ::Type{T}, data) where {T}
         for (label, γ) in (("entry_below", d.steps), ("entry_mixed", d.mixed))
             add("dense/prox/$label/n$n", n, :prox, prox_case(px, d.out, f, d.x, γ, copy))
             add("dense/fused/$label/n$n", n, :fused, fused_case(vp, d.out, f, d.x, γ, copy, T))
+        end
+        for (label, model) in default_models
+            id = "default_call/$label"
+            add("$id/alloc_prox/omitted/n$n", n, :prox, allocating_prox_case(pa, model, d.x))
+            add("$id/alloc_prox/typed_step/n$n", n, :prox, allocating_prox_case(pa, model, d.x, one(T)))
+            add("$id/prox/omitted/n$n", n, :prox, prox_case(px, d.out, model, d.x, copy))
+            add("$id/prox/typed_step/n$n", n, :prox, prox_case(px, d.out, model, d.x, one(T), copy))
         end
         if n == 1024
             # The reference role times current NormL1 here, for context only.
@@ -160,7 +184,7 @@ function build_suites()
     data = Dict(T => make_data(T) for T in types)
     filter_re = Regex(get(ENV, "PB_FILTER", ""))
     candidate = CandidateSource.ProximalBase
-    modules = (("reference", ArchivedSource.ProximalBase, candidate),
+    modules = (("reference", ReferenceSource.ProximalBase, candidate),
                ("candidate", candidate, candidate),
                ("control", ControlSource.ProximalBase, ControlSource.ProximalBase))
     suites = Dict(label => filter(p -> occursin(filter_re, p.id),
@@ -195,20 +219,20 @@ function check_outputs(suites)
     for (r, c, k) in zip(suites["reference"], suites["candidate"], suites["control"])
         out = c.check()
         isequal(out, k.check()) || error("A/A output mismatch for $(c.id)")
-        if r.comparison === :archive
-            agrees(r, out, r.check()) || error("archive output mismatch for $(r.id)")
+        if r.comparison === COMPARISON
+            agrees(r, out, r.check()) || error("$(COMPARISON) output mismatch for $(r.id)")
             compared += 1
         else
             r.check()
         end
     end
-    println("Differential checks passed for $compared archive cases and $(length(suites["candidate"])) A/A cases.")
+    println("Differential checks passed for $compared $(COMPARISON) cases and $(length(suites["candidate"])) A/A cases.")
 end
 
 function trial(p, samples)
     op = p.op
     # Batch tiny calls to limit timer overhead. Measure the already warmed
-    # operation in-place with a stable input and preallocated destination.
+    # operation with a stable input. Only alloc_prox cases allocate a result.
     evals = clamp(8192 ÷ p.n, 1, 512)
     b = @benchmarkable $op() evals = evals samples = samples seconds = 0.15 gctrial = false
     run(b)
@@ -231,7 +255,7 @@ function provenance(outdir)
             model = findfirst(l -> startswith(l, "model name"), readlines("/proc/cpuinfo"))
             model === nothing || println(io, readlines("/proc/cpuinfo")[model])
         end
-        for (role, path) in (("archive", ARCHIVE), ("candidate", CANDIDATE))
+        for (role, path) in ((string(COMPARISON), REFERENCE), ("candidate", CANDIDATE))
             sha, clean = revision(path)
             println(io, role, " SHA: ", sha, "\n", role, " clean: ", clean)
             !clean && get(ENV, "PB_ALLOW_DIRTY", "0") != "1" && error("$role worktree has tracked changes")

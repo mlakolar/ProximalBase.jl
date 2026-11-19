@@ -68,18 +68,20 @@ def main():
     args = parser.parse_args()
     results = [analyze(d) for d in args.directories]
     all_cases = set.union(*(set(result) for result in results))
-    print("\nRepeatable archive slowdown above 5% across the supplied runs "
+    print("\nRepeatable slowdown above 5% against the selected reference across the supplied runs "
           "(paired median and paired minimum ratios):")
     flagged = []
     for case in sorted(all_cases):
         if not all(case in result for result in results):
             continue
         records = [result[case] for result in results]
-        if not all(k == "archive" and cr > 1.05 and cm > 1.05 and n >= 5
+        reference = records[0][0]
+        if reference not in ("archive", "preopt") or not all(
+                   k == reference and cr > 1.05 and cm > 1.05 and n >= 5
                    for k, cr, aa, cm, n in records):
             continue
         flagged.append(case)
-        print(f"{case}: C/archive " + ", ".join(f"{r[1]:.3f}" for r in records)
+        print(f"{case}: C/{reference} " + ", ".join(f"{r[1]:.3f}" for r in records)
               + " | A/A " + ", ".join(f"{r[2]:.3f}" for r in records))
     print(f"{len(flagged)} flagged out of {len(all_cases)} cases "
           "(including contextual cases in the total).")

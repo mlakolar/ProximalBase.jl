@@ -542,6 +542,19 @@ julia --threads=1 --project=. benchmark/scad_correctness.jl 200000
 The timing harness warms every route, alternates measurement order and
 records six paired rounds by default. It writes allocation counts and
 paired times to `raw.csv`, individual samples to `samples.csv` and
-revision, hardware and environment details to `provenance.txt`. The
-independent correctness sweep uses 256-bit arithmetic for ordinary
+revision, hardware and environment details to `provenance.txt`.
+
+The `default_call` cases time `SCAD(0.5f0)`, `SCAD(0.5f0, 3.7f0)` and
+`SCAD(0.5)` on matching Float32 or Float64 vectors. They measure `prox`
+and `prox!` with the step omitted and with a typed step of one. The
+`alloc_prox` cases include the allocation of the returned array. Use
+`PB_FILTER='/default_call/'` for these cases alone.
+
+Set `PB_PREOPT` to a clean checkout at
+`2fd9cd416ab597ad05000cbad216a1db7b342308` to use the pre-optimization
+candidate as the reference. Run and summarize each reference separately,
+with independent forward and reverse output directories. The same A/A
+control runs in both comparisons.
+
+The independent correctness sweep uses 256-bit arithmetic for ordinary
 inputs and 4096-bit arithmetic over the wider exponent range.

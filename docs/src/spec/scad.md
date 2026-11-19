@@ -32,6 +32,9 @@ function because the parameters are shared across entries.
 Direct value and proximal oracles use the real, one-based dense array
 and iterate routes of [`SeparableFunction`](@ref SeparableFunction).
 The numerical targets are homogeneous CPU `Float32` and `Float64`.
+The one-argument constructor promotes the level with the `Float64`
+default shape. Pass both parameters and the step as `Float32` to use
+homogeneous `Float32` arithmetic.
 Array steps pair with coordinates by linear index on dense arrays,
 `SparseIterate` and `BlockIterate`. A `SymmetricSparseIterate` destination
 requires a scalar step.

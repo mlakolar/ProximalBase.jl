@@ -697,30 +697,37 @@ end
 #      zero point or a face by m, and the range is decided by sv.
 #
 # The ordinary path forms τ and the sum of squares in W. It uses no buffer, and allocates nothing for Array arguments of
-# Float32 or Float64.
-#   Zero point: sv ≤ c gives 0. Otherwise τ = max(level, 0), the level from `_l1ball_michelot` on v. Its preconditions
-#      (see there) are met by the values |vᵢ|, which are finite and nonnegative since sv is finite, by 0 ≤ c < sv ≤
-#      floatmax(W)/2 (the tests of this function), and by n eps(W) ≤ 1/2, which is not checked (as for the prox).
-#   Face: one pass for S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ, and τ0 = (S - c)/cnt, in floating point. If τ0 ≤ μ the entries of
-#      J are taken as all active and τ = τ0, which is negative when S < c: τ is not clamped on a face. Otherwise
-#      τ = τ0 + max(level, 0) with the level from `_l1ball_michelot` on Lᵢ = max(uᵢ - τ0, 0) for i ∈ J and 0 off J (the lazy
-#      _LinfShifted). In exact arithmetic τ0 is a lower bound of the level (it is the first level of Michelot's iteration on
-#      J), and for any σ ≤ τ, Σ_J (uᵢ - τ)₊ = Σ_J (max(uᵢ - σ, 0) - (τ - σ))₊, so the level of the Lᵢ for the radius c is τ - σ.
-#      The computed τ0 can exceed the exact level by its rounding; that case is (4b) below. The shift is by τ0 and not by μ:
-#      with the shift by μ each Lᵢ has the size of |μ| when one face entry is far below the level, and the level inherits an
-#      error of order a u |μ|. Preconditions: the Lᵢ are nonnegative and finite, and since τ0 > μ each is at most uᵢ - μ, so
-#      their sum is at most Σ_J (uᵢ - μ) ≤ (cnt + 1) Σ|vᵢ| (as Σ_J uᵢ ≤ Σ|vᵢ| and |μ| ≤ Σ|vᵢ|), with the exact Σ|vᵢ| at
-#      most 1.41 sv (a computed sum of nonnegative terms has a relative error of at most θ = 0.29 for n eps(W) ≤ 1/2). The
-#      ordinary path on a face requires (n + 1) sv ≤ floatmax(W)/4 (_linf_in_range), so the computed sum of the Lᵢ is at most
-#      1.29 · 1.41/4 floatmax(W) < floatmax(W)/2, as `_l1ball_michelot` needs. S is then finite, and τ0 is finite unless
-#      S - c overflows (c close to floatmax(W) and S negative), which the test isfinite(τ0) sends to the scaled path. With the
-#      exact τ0, Σ_J Lᵢ ≥ Σ_J (uᵢ - τ0) = c, which is the condition 0 ≤ c < sum of the routine up to the boundary below. In
-#      the other branch no routine runs.
-#   Where rounding makes the sum of the routine not exceed c (the computed τ0 is above the exact level, or its sum is formed in
-#   another order than the test), it returns a level that is at or below zero, or within rounding of zero, and max(level, 0)
-#   keeps a small positive level. The result is then τ0 on a face, and 0 at the zero point, each within rounding. That is the
-#   limit of the exact level: when Σ_J (uᵢ - τ0) = c the level is τ0 (the closed form, within its rounding), and sv = c puts v
-#   on the boundary of the ball, at distance 0.
+# Float32 or Float64. The level comes from `_l1ball_iterate`, the iteration of the threshold of the ℓ1 ball (its four returns
+# and claims 1 to 5 are in the header of that section), which reads nonnegative entries through a read.
+#   Zero point: sv ≤ c gives 0. Otherwise τ = max(level, 0), with the level from `_l1ball_iterate` on the magnitudes |vᵢ| from the
+#      plain first level (sv - c)/n of the sum sv of the classification pass (the handover of the prox starts the same way).
+#      The conditions of that routine hold: the |vᵢ| are finite and nonnegative since sv is finite, 0 ≤ c < sv ≤ floatmax(W)/2
+#      (the tests of this function), so the start is nonnegative and all the levels are, and n eps(W) ≤ 1/2, which is not
+#      checked (as for the prox).
+#   Face: one pass for S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ, and the first level τ0 = (S - c)/cnt, in floating point. The
+#      closed form is certified when τ0 + b ≤ μ, with b = 3u|τ0| + 2u cnt mv ≥ the error of the computed τ0 (u = eps(W)/2, mv
+#      the largest |vᵢ|; the proof is in the derivation below). The exact first level is then at most μ, all the face entries
+#      are active in exact arithmetic, the exact level is the exact first level, and τ = τ0, which is negative when S < c: τ
+#      is not clamped on a face. Otherwise the shifted values Lᵢ = max(uᵢ - τ0, 0) on J and 0 off J (the lazy _LinfShifted)
+#      go to `_l1ball_iterate` from the level 0, and τ = τ0 + level. Level 0 of the Lᵢ is the first level τ0, so the
+#      iteration continues Michelot's from there, with one pass less than a start from the sum of the Lᵢ, and no sum of them
+#      is formed. The levels are nonnegative (claim 1), so the entries off J, which are 0, are not above any level that is
+#      visited. For any σ ≤ τ, Σ_J (uᵢ - τ)₊ = Σ_J (max(uᵢ - σ, 0) - (τ - σ))₊, so the level of the Lᵢ for the radius c is τ - σ.
+#      The shift is by τ0 and not by μ: with the shift by μ each Lᵢ has the size of |μ| when one face entry is far below the
+#      level, and the level inherits an error of order a u |μ|. The computed τ0 can be above or below the exact first level
+#      and the exact level, the case that the certificate does not exclude: the derivation does not assume that the entries
+#      above the returned level are the entries above the exact level. The routine's condition 0 ≤ a < s is not established here
+#      (no sum of the Lᵢ is formed, and Σ_J Lᵢ ≤ c is possible when τ0 is above the exact level); the derivation uses only the
+#      statements of the kernel that do not need it (claims 1 and 3 and the forms of claim 5 in terms of a and the entries).
+#      Range: when the certificate fails, fl(τ0 + b) > μ ≥ -mv, so τ0 + b > -mv (fl is monotone and fl(-mv) = -mv); for τ0 < 0
+#      this gives |τ0| < (1 + 2.001 cnt u) mv/(1 - 3.001u) ≤ 1.6 mv (n u ≤ 1/4, the factor 1.001 covers the rounding of b).
+#      Hence each Lᵢ ≤ mv + max(-τ0, 0) ≤ 2.6 mv, their exact sum is at most 2.6 cnt mv ≤ 2.6 n sv (mv ≤ sv, a computed sum
+#      of nonnegative terms), and (n + 1) sv ≤ floatmax(W)/4 on the ordinary path (_linf_in_range) bounds it by
+#      0.65 floatmax(W). A pass sum at a level ≥ 0 is at most (1 + θ) times the exact sum of the computed Lᵢ (θ = (1 + u)^n - 1
+#      ≤ 0.29, and Lᵢ ≤ (1 + u) times its exact value), below 0.85 floatmax(W), and the step t ≤ C M with C = (1 + u)²/(1 -
+#      n u) ≤ 1.335 and M = max Lᵢ ≤ 2.6 mv ≤ 0.33 floatmax(W) (mv ≤ sv ≤ floatmax(W)/8) is finite, as in the Range
+#      paragraph of the kernel. The sum S is finite, and τ0 is finite unless S - c overflows (c close to floatmax(W) and S
+#      negative), which the test isfinite(τ0) sends to the scaled path.
 #   Squares: one loop for Q = Σ rᵢ², with rᵢ = min(|vᵢ|, τ) at the zero point (τ = Inf for c = 0, where rᵢ = |vᵢ|), and on a face
 #   uᵢ clipped at τ on J and vᵢ off J. sqrt(Q) is returned when Q is finite and not below n floatmin/eps (_squares_normal).
 #   Otherwise _linf_cold passes the lazy residual to `_residual_squares`, which scans it for its largest exponent and then sums
@@ -813,7 +820,7 @@ end
 @inline (g::_ScaledValRead{W})(v) where {W} = ldexp(convert(W, v), -g.k)
 
 # The values Lᵢ = max(uᵢ - σ, 0) for the face J = {i : |xᵢ| == m} and 0 off J, where uᵢ = -sign(xᵢ) rd(vᵢ), as a vector of
-# length(x) that `_l1ball_michelot` reads without a copy. rd is _ValRead{W}() or the scaled read, and the shift σ (the
+# length(x) that `_l1ball_iterate` reads without a copy. rd is _ValRead{W}() or the scaled read, and the shift σ (the
 # computed first level τ0 of the face) is in the units of rd.
 struct _LinfShifted{W, V, X, R} <: AbstractVector{W}
   v::V
@@ -902,6 +909,14 @@ end
   convert(W, _scaled_product(sqrt(s), one(R), k))
 end
 
+# Whether the closed form τ0 of a face of cnt entries is certified: τ0 + b ≤ μ with b = 3u|τ0| + 2u cnt mv ≥ the error of τ0 as a
+# number (see above), u = eps/2, μ the smallest face value and mv the largest magnitude of v in the units of the call. The
+# products are formed so that they do not overflow: cnt mv ≤ floatmax/4 in the range of the ordinary path.
+@inline function _linf_certified(τ0::W, cnt::Int, μ::W, mv::W) where {W}
+  u = eps(W) / 2
+  τ0 + (3u * abs(τ0) + 2u * (cnt * mv)) <= μ
+end
+
 # Whether the sum sv of the magnitudes of v is within the range of the ordinary path (see above)
 @inline _linf_in_range(sv::W, n::Int, zp::Bool, ::Type{W}) where {W} =
   zp ? sv <= floatmax(W) / 2 : convert(W, n + 1) * sv <= floatmax(W) / 4
@@ -919,15 +934,15 @@ function _linf_point(c::W, v, x, ::Type{W}) where {W}
   zp && sv <= c && return zero(W)
   _linf_in_range(sv, n, zp, W) || return _linf_scaled(c, v, x, m, mv, W)
   if zp
-    τ = max(_l1ball_michelot(v, c, _AbsRead{W}(), W), zero(W))
+    τ = max(_l1ball_iterate(v, n, c, _AbsRead{W}(), (sv - c) / n), zero(W))
     return _linf_finish(_linf_squares_zero(v, τ, W), v, x, m, τ)
   end
   S, cnt, μ = _linf_face_sums(v, x, m, _ValRead{W}(), W)
   τ0 = (S - c) / cnt
   isfinite(τ0) || return _linf_scaled(c, v, x, m, mv, W)
   τ = τ0
-  if τ0 > μ
-    τ = τ0 + max(_l1ball_michelot(_LinfShifted(v, x, _ValRead{W}(), m, τ0), c, _AbsRead{W}(), W), zero(W))
+  if !_linf_certified(τ0, cnt, μ, mv)
+    τ = τ0 + _l1ball_iterate(_LinfShifted(v, x, _ValRead{W}(), m, τ0), n, c, _AbsRead{W}(), zero(W))
   end
   _linf_finish(_linf_squares_face(v, x, m, τ, W), v, x, m, τ)
 end
@@ -935,12 +950,14 @@ end
 # The same out of the ordinary range, for finite entries and a finite positive c, in units of 2^k as `_linf_exceptional!` does
 # for the prox: v is read as 2^-k vᵢ (the scaled reads), the level is 2^-k c (`_linf_scaled_radius`, formed from the significand
 # and the exponent), and τ = 2^k τ′. k starts at ceil(log2 n) + 2, where the scaled magnitudes sum to at most floatmax/4 before
-# rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`). The loop ends: the scaled
+# rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`); the pass that forms the
+# scaled sum also gives the largest scaled magnitude mv′, which the certificate of the face needs. The loop ends: the scaled
 # entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because
 # `_level_point` has refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
 # units, with the same preconditions: the scaled sum is within the limits of `_linf_in_range`, c′ ≤ c/4 is finite (k ≥ 2, as
-# _linf_exponent(n) ≥ 2), S′ and the shifted values are finite, and τ0′ = (S′ - c′)/cnt is finite as
-# |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4. The scaling of an entry or of c can lose up to a subnormal spacing of W,
+# _linf_exponent(n) ≥ 2), S′ is finite, the zero point has 0 ≤ c′ < sv′ when it does not return, and τ0′ = (S′ - c′)/cnt is finite as
+# |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4; the range of the shifted values is as above, with mv′
+# in place of mv. The scaling of an entry or of c can lose up to a subnormal spacing of W,
 # as in the prox. τ is capped at the largest |vᵢ|, mv, which the exact τ does not exceed (it is below the largest uᵢ), so that
 # the rounding of 2^k τ′ does not overflow; a τ below -floatmax is -Inf, and the cold path then gives Inf, as the distance
 # is then above floatmax. A scaled level at least the scaled sum gives 0 at the zero point. This path sends the residual
@@ -949,16 +966,16 @@ end
   n = length(x)
   zp = iszero(m)
   k = _linf_exponent(n)
-  local sv′
+  local sv′, mv′
   while true
-    sv′ = _linf_sum(v, _ScaledAbsRead{W}(k), W)
+    sv′, mv′ = _linf_classify(v, _ScaledAbsRead{W}(k), W)
     _linf_in_range(sv′, n, zp, W) && break
     k += 1
   end
   c′ = _linf_scaled_radius(W, one(W), c, k)
   if zp
     c′ >= sv′ && return zero(W)
-    τ′ = max(_l1ball_michelot(v, c′, _ScaledAbsRead{W}(k), W), zero(W))
+    τ′ = max(_l1ball_iterate(v, n, c′, _ScaledAbsRead{W}(k), (sv′ - c′) / n), zero(W))
     τ = min(ldexp(τ′, k), mv)
     return _linf_cold(v, x, m, τ, W)
   end
@@ -966,8 +983,8 @@ end
   S′, cnt, μ′ = _linf_face_sums(v, x, m, rd, W)
   τ0′ = (S′ - c′) / cnt
   τ′ = τ0′
-  if τ0′ > μ′
-    τ′ = τ0′ + max(_l1ball_michelot(_LinfShifted(v, x, rd, m, τ0′), c′, _AbsRead{W}(), W), zero(W))
+  if !_linf_certified(τ0′, cnt, μ′, mv′)
+    τ′ = τ0′ + _l1ball_iterate(_LinfShifted(v, x, rd, m, τ0′), n, c′, _AbsRead{W}(), zero(W))
   end
   _linf_cold(v, x, m, min(ldexp(τ′, k), mv), W)
 end

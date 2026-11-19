@@ -391,7 +391,7 @@ It is implemented by `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`, `Linea
 implements it together with [`value_entry`](@ref).
 
 The vector form allocates a plain floating `Vector` of `length(u)` and calls
-[`prox_block!`](@ref). [`GroupNormL2`](@ref) interprets `k` as its group number
+[`prox_block!`](@ref). [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) interpret `k` as their group number
 and `u` in that group's order. Custom methods define their own layout and must
 validate it; the allocating wrapper adds no group, shape, parameter or overlap
 checks. A block method alone does not supply full-array operations or traits.
@@ -413,7 +413,7 @@ function prox_block end
     prox_block!(out, f, u, k, γ)
 
 Write the proximal point of compact block `k` into `out` and return `out`.
-[`GroupNormL2`](@ref) supplies the built-in implementation; custom functions
+[`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) supply the built-in implementations; custom functions
 can implement this hook. Buffers follow the selected group's ordered indices.
 
 A conforming method validates real one-based vectors, group bounds, exact
@@ -484,12 +484,24 @@ magnitude equals the largest one after conversion to the working type, with no t
 an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
 type (`Float16` from `n = 65519`) throws an `ArgumentError`.
 
-`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
-the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
+[`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
+screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
+group, the full-point form and the three-argument form throw an `ArgumentError`, and the four-argument and full-point forms have no method under `Scaled`.
+
+`LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
+`gradient!` in the function's scratch type `T` and reduce the residual in
+`float(promote_type(eltype(v), eltype(x), T))`. A `NaN` in either input takes precedence over an infinite entry, which
+returns `+Inf`. With finite inputs, ordinary gradient and residual arithmetic can still produce `NaN` or `Inf`.
+The call writes function-owned scratch and refuses overlap of either input with that scratch. Coordinate, group and
+`SymmetricSparseIterate` point forms throw `ArgumentError`. See [smooth stationarity scores](@ref smooth-kkt).
+
+`Scaled` with a finite positive factor `α` evaluates the existing score of its function on the lazy gradient `v/α`,
+with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
 of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where
 that gives a normal level. Where it does not, the three-argument form and a zero coordinate or group have a value, and a
-nonzero point and the full-point form throw an `ArgumentError`. So does an infinite factor at a nonzero point and in
+nonzero point and the full-point form throw an `ArgumentError`. The smooth pair also refuses the local forms.
+An infinite factor throws at a nonzero point and in
 the full-point form. A function of this package without a score gives a `MethodError` under `Scaled`. A function
 defined outside this package gets its three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
 unless it defines the method. Under `Scaled` it has its scaled three-argument value and that error also when it defines
@@ -735,6 +747,77 @@ end
 
 @noinline _kkt_symmetric_point_error(f) = throw(ArgumentError(
   "kkt_violation(f, v, x) is not defined for a SymmetricSparseIterate and $(nameof(typeof(f))): use the coordinate form kkt_violation(f, v, x, k)"))
+
+# Shared input and residual operations for smooth functions that call gradient! into their own scratch.
+@inline function _check_smooth_kkt_inputs(v, x)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  _checksize(v, x)
+end
+
+@inline function _check_smooth_kkt_alias(buf, v, x)
+  isempty(buf) && return nothing
+  (_smooth_kkt_overlap(buf, v) || _smooth_kkt_overlap(buf, x)) && _smooth_kkt_alias_error()
+  nothing
+end
+@inline function _smooth_kkt_overlap(buf, a)
+  Base.mightalias(buf, a) && return true
+  p = parent(a)
+  p !== a && p isa AbstractArray && _smooth_kkt_overlap(buf, p)
+end
+# Some structured matrices do not report their backing vectors to Base.mightalias.
+_smooth_kkt_overlap(buf, a::Diagonal) = _smooth_kkt_overlap(buf, a.diag)
+_smooth_kkt_overlap(buf, a::Union{Bidiagonal, SymTridiagonal}) =
+  _smooth_kkt_overlap(buf, a.dv) || _smooth_kkt_overlap(buf, a.ev)
+_smooth_kkt_overlap(buf, a::Tridiagonal) =
+  _smooth_kkt_overlap(buf, a.dl) || _smooth_kkt_overlap(buf, a.d) || _smooth_kkt_overlap(buf, a.du)
+@noinline _smooth_kkt_alias_error() =
+  throw(ArgumentError("kkt_violation(f, v, x) needs v and x to be independent of the function's scratch"))
+
+@inline function _smooth_kkt_allfinite(a)
+  finite = true
+  @inbounds @simd for i in eachindex(a)
+    finite &= isfinite(a[i])
+  end
+  finite
+end
+@inline _smooth_kkt_inputs_finite(v, x) = _smooth_kkt_allfinite(x) && _smooth_kkt_allfinite(v)
+@inline function _smooth_kkt_inputs_finite(v::Array{T}, x::Array{T}) where {T<:Union{Float32, Float64}}
+  finite = true
+  limit = floatmax(T)
+  @inbounds @simd for i in eachindex(x)
+    finite &= (abs(x[i]) <= limit) & (abs(v[i]) <= limit)
+  end
+  finite
+end
+@noinline _smooth_kkt_nonfinite(::Type{W}, v, x) where {W} =
+  any(isnan, v) || any(isnan, x) ? W(NaN) : W(Inf)
+
+@inline function _smooth_kkt_residual(::Type{W}, v, d) where {W}
+  r = zero(W)
+  @inbounds @simd for i in eachindex(v, d)
+    r = max(r, abs(convert(W, v[i]) + convert(W, d[i])))
+  end
+  r
+end
+
+# As in _maximum_abs, the sign-cleared bit patterns keep the order of the
+# magnitudes and put NaNs above infinity. The integer maximum can vectorize.
+@inline function _smooth_kkt_residual(::Type{W}, v, d) where {W<:Union{Float32, Float64}}
+  I = _int_type(W)
+  r = zero(I)
+  @inbounds @simd for i in eachindex(v, d)
+    s = convert(W, v[i]) + convert(W, d[i])
+    r = max(r, reinterpret(I, s) & typemax(I))
+  end
+  reinterpret(W, r)
+end
+
+@noinline _smooth_kkt_local_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) supports the full-point form kkt_violation(f, v, x) and has no coordinate or group form"))
+@noinline _smooth_kkt_symmetric_error(f) = throw(ArgumentError(
+  "kkt_violation(f, v, x) of $(nameof(typeof(f))) does not support SymmetricSparseIterate points"))
 
 # The methods of a function with the entry kernels above, for arrays, a BlockIterate and a SymmetricSparseIterate.
 macro _kkt_entrywise(F)

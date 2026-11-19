@@ -230,6 +230,7 @@ the parameters of the particular object.
 | `NormL2` | no | yes | no | yes | no |
 | `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |
+| `GroupNormLinf` | no | yes | no | yes | no |
 | `Scaled` | forwards | forwards | forwards | forwards | finite scale and zero-preserving inner function |
 
 ¹ Convexity of `QuadraticFunction` is not guaranteed by the type: it is convex

@@ -240,7 +240,7 @@ prox_block(g, 2.0, 1, 1.0)  # 1.5
 
 `value_entry(g,v,i)` evaluates the scalar contribution ``g_i(v)``
 where this operation is implemented (not for every mathematically
-separable function). `GroupNormL2` implements
+separable function). `GroupNormL2` and `GroupNormLinf` implement
 `prox_block!(out,g,u,k,γ)` on compact vector buffers; custom group functions
 can implement the same hook. These hooks
 compute mathematical answers; **they do not update an iterate's active
@@ -271,7 +271,7 @@ recomputed. The result is the raw score of the stationarity condition.
 |:--|:--|:--|
 | `kkt_violation(g,v,i)` | The screen of coordinate `i` **assumed zero**; it reads no `x` | Signed |
 | `kkt_violation(g,v,x,k)` | The score of the **actual** coordinate `k` of `x` (the group `k` for a `BlockIterate`) | The signed margin at a zero coordinate; a nonnegative mismatch at a nonzero one |
-| `kkt_violation(g,v,x)` | The full-point measure ``\max(0,\max_k s_k)`` over the entries of `x`, with ``s_k`` the score of entry ``k``; zero of the result type for an empty `x`. For `GroupNormL2`, `NormL2` and `NormLinf` see the table of block scores below | Nonnegative |
+| `kkt_violation(g,v,x)` | The full-point measure ``\max(0,\max_k s_k)`` over the entries of `x`, with ``s_k`` the score of entry ``k``; zero of the result type for an empty `x`. See below for block, norm and smooth-function scores | Nonnegative |
 
 The sign says the following.
 
@@ -314,10 +314,18 @@ full-point form and no form for a block:
 | `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
 | `NormLinf` | (no form for a block) | (no form for a block) | the 2-norm distance from ``-v`` to ``\partial g(x)`` for ``g(x)=\lambda\max_i\lvert x_i\rvert``: at ``x=0``, the distance from ``v`` to the ℓ₁ ball of radius ``\lambda`` (``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``); at ``x\ne0``, the distance with the face of the entries of largest magnitude, compared for equality after conversion to the working type |
 
+`GroupNormLinf` scores a group at zero with the margin ``\lVert v_G\rVert_1-c`` of its dual (ℓ₁) norm, with ``c=\lambda_0w_k``, and has no
+score at a nonzero group, no full-point form and no three-argument form (`ArgumentError`): see [the group ℓ∞ norm](group_penalty.md#group-linf-guide).
+
 The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
 `k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` and `NormLinf` have no form for an entry or
 a group (an `ArgumentError`); the value of `NormLinf` is a 2-norm distance to the subdifferential and not a maximum of scores,
-and its definition, ties and an example are in [the ℓ∞ norm guide](@ref norm-linf-kkt). `Scaled` of these functions and of the five above evaluates the score on `v/α` and multiplies it by `α`, with
+and its definition, ties and an example are in [the ℓ∞ norm guide](@ref norm-linf-kkt).
+`LeastSquaresLoss` and `QuadraticFunction` give the infinity norm of
+`v + ∇g(x)` in the full-point form, with the gradient stored in the function's
+type by `gradient!`. See
+[smooth stationarity scores](@ref smooth-kkt) for precision and scratch ownership.
+`Scaled` of the functions with a full-point score evaluates that score on `v/α` and multiplies it by `α`, with
 the limits and unsupported cases of the [scaling guide](@ref scaled-kkt).
 
 The worked example uses ``g=\lambda\|x\|_1`` with ``\lambda=0.5``, a point with

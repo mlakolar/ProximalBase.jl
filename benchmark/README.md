@@ -250,6 +250,30 @@ PB_FIRST=/tmp/pb-ref PB_SECOND="$PWD" PB_EXACT=1 PB_CHECK_ONLY=1 \
   julia --threads=1 --project=benchmark benchmark/l2_norms.jl
 ```
 
+## Group ℓ∞ norm harness
+
+`groupnormlinf.jl` times `GroupNormLinf` (issue #956) between two source trees that both define it, through its exported methods:
+the array `prox!` into a separate output, the in-place `prox!(x, f, x, γ)`, `value_and_prox!`, the value, and sweeps of the compact
+`prox_block!` over all groups, with an output that is not the input and in place, for Float32 and Float64, groups of 4, 32, 512 and 4096
+entries over 4096 entries (1024, 128, 8 and 1 groups), contiguous (range) and permuted index layouts. The two in-place cases destroy their
+argument: the BenchmarkTools `setup` restores it (the argument, or every working copy before a sweep) outside the timing, and each timed
+sample is one call (`evals = 1`) and up to 1600 samples are requested; the other cases request up to 100 samples of 16 calls.
+Each is subject to the time limit of 0.15 s. The
+weights give group `k` a radius that is 0.1, 0.4, 0.8 or 1.2 times its ℓ₁ norm (`k` modulo 4): with groups of 4, 32 and 512 entries three
+groups in four are clipped and one is zero (fraction 1.2); with 4096 entries there is one group, with fraction 0.1, which is clipped, and
+no group is zero. It has the design of `l2_norms.jl` (roles X, Y and
+the A/A control XC, alternating order, shared input and output arrays, `raw.csv` and `provenance.txt` summarized by
+`summarize_norml1_infinite_weight.py`). The frozen full tree at eff21b6d7d33c622313122f46c6ee71693c101ee (`legacy/full`) is the
+historical reference for X. `PB_CHECK_ONLY=1` requires agreement between X and Y to `8 (m + K) eps(T)` times the largest entry of an
+array (or relative to a value) for groups of `m` entries and `K` groups, and `isequal` outputs of X and XC; with `PB_EXACT=1` it
+requires equality of X and Y bit for bit.
+
+```sh
+mkdir -p /tmp/pb-legacy && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb-legacy
+PB_FIRST=/tmp/pb-legacy PB_SECOND="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --project=benchmark benchmark/groupnormlinf.jl
+```
+
 ## Cold-path harness
 
 `l2_cold_paths.jl` is a differential check and a paired benchmark of the exceptional paths of `NormL2` and
@@ -540,3 +564,43 @@ candidate/reference ratios within each round to the control/reference ratios.
 For an isolated compilation probe set `PB_FIRST_CALL=1` and select a single
 case with `PB_FILTER` in each fresh process. The time in `first-call.csv`
 includes the first invocation and its compilation, after loading source.
+
+## SCAD
+
+With separate clean worktrees for the candidate and `legacy/full`, run the
+SCAD differential and time both implementations in the same exclusive
+allocation. The candidate is also loaded under a second module for the A/A
+comparison. The inputs cover the ordinary thresholding rules and the large-step
+comparison away from switches where the two implementations differ.
+
+```sh
+julia scripts/instantiate.jl benchmark
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_OUTPUT=/tmp/scad-forward \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_OUTPUT=/tmp/scad-reverse PB_REVERSE=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+python3 benchmark/summarize_scad.py /tmp/scad-forward /tmp/scad-reverse
+julia --threads=1 --project=. benchmark/scad_correctness.jl 200000
+```
+
+The timing harness warms every route, alternates measurement order and
+records six paired rounds by default. It writes allocation counts and
+paired times to `raw.csv`, individual samples to `samples.csv` and
+revision, hardware and environment details to `provenance.txt`.
+
+The `default_call` cases time `SCAD(0.5f0)`, `SCAD(0.5f0, 3.7f0)` and
+`SCAD(0.5)` on matching Float32 or Float64 vectors. They measure `prox`
+and `prox!` with the step omitted and with a typed step of one. The
+`alloc_prox` cases include the allocation of the returned array. Use
+`PB_FILTER='/default_call/'` for these cases alone.
+
+Set `PB_PREOPT` to a clean checkout at
+`2fd9cd416ab597ad05000cbad216a1db7b342308` to use the pre-optimization
+candidate as the reference. Run and summarize each reference separately,
+with independent forward and reverse output directories. The same A/A
+control runs in both comparisons.
+
+The independent correctness sweep uses 256-bit arithmetic for ordinary
+inputs and 4096-bit arithmetic over the wider exponent range.

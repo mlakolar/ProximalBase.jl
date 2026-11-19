@@ -468,9 +468,9 @@ class UpstreamTests(unittest.TestCase):
               "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message, root=self.root)
         return m.git("rev-parse", "HEAD", root=self.root).strip()
 
-    def select(self, kind):
-        old = next(b for b in m.blocks(self.original, self.path) if b.kind == kind)
-        new = next(b for b in m.blocks(self.changed, self.path) if b.kind == kind)
+    def select(self, kind, marker=None):
+        old = next(b for b in m.blocks(self.original, self.path) if b.kind == kind and (marker is None or marker in b.text))
+        new = next(b for b in m.blocks(self.changed, self.path) if b.kind == kind and (marker is None or marker in b.text))
         self.baseline = [old]
         self.rows = m.initial_ledger(self.baseline)
         self.rows[0].update(action="upstream", dest_sha=new.sha, reviewer="fixture-reviewer@upstream")
@@ -753,6 +753,99 @@ class UpstreamTests(unittest.TestCase):
         errors, mappings = self.check()
         self.assertEqual(errors, [])
         self.assertEqual([block.line for block in mappings[self.baseline[0].id][1]], [block.line for block in pieces])
+
+    def table_fixture(self, variant=None):
+        self.path = "docs/src/api/coverage.md"
+        (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
+        old = ["| `First` | Original first rule. |", "| `Second` | Original second rule. |"]
+        new = [line.replace("Original", "Updated") for line in old]
+        if variant == "reordered":
+            new.reverse()
+        elif variant == "duplicate":
+            old[1], new[1] = old[1].replace("Second", "First"), new[1].replace("Second", "First")
+        elif variant == "renamed":
+            new[1] = new[1].replace("Second", "Third")
+        elif variant == "added":
+            new.append("| `Third` | An additional obligation. |")
+        elif variant == "deleted":
+            new.pop()
+        prefix = "# API\n\n| Name | Rule |\n|:--|:--|\n"
+        self.original, self.changed = prefix + "\n".join(old) + "\n", prefix + "\n".join(new) + "\n"
+        self.before = self.commit(self.original, "before adjacent table changes")
+        self.after = self.commit(self.changed, "upstream adjacent table changes")
+        self.select("table-row", marker="`First`")
+
+    def test_upstream_adjacent_table_rows_keep_separate_ownership(self):
+        self.table_fixture()
+        first, row, record = self.baseline[0], self.rows[0], self.record
+        self.select("table-row", marker="`Second`")
+        self.baseline.insert(0, first)
+        self.rows.insert(0, row)
+        self.save([record, self.record])
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(all(len(replacements) == 1 for _, replacements in mappings.values()))
+        self.assertNotEqual(mappings[first.id][1][0].sha, mappings[self.baseline[1].id][1][0].sha)
+
+    def test_upstream_table_row_cannot_claim_its_edited_neighbor(self):
+        self.table_fixture()
+        other = next(b for b in m.blocks(self.changed, self.path) if "`Second`" in b.text)
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = self.event["replacement_sha"] = other.sha
+        self.save()
+        self.assert_rejected("share a changed diff hunk")
+
+    def test_upstream_table_pairing_rejects_reordered_duplicate_renamed_and_added_keys(self):
+        for variant in ("reordered", "duplicate", "renamed", "added"):
+            with self.subTest(variant=variant):
+                self.table_fixture(variant)
+                self.assert_rejected("complete ordered changed span")
+
+    def test_upstream_deleted_table_row_cannot_reuse_surviving_destination(self):
+        self.table_fixture("deleted")
+        second = next(b for b in m.blocks(self.original, self.path) if "`Second`" in b.text)
+        row = m.initial_ledger([second])[0]
+        row.update(action="upstream", dest_sha=self.rows[0]["dest_sha"], reviewer=self.rows[0]["reviewer"])
+        event = self.make_event(self.before, self.after, second.sha, row["dest_sha"])
+        record = dict(block_id=second.id, baseline_sha=second.sha, dest=self.path,
+                      dest_sha=row["dest_sha"], reviewer=row["reviewer"], events=[event])
+        self.baseline.append(second)
+        self.rows.append(row)
+        self.save([self.record, record])
+        self.assertTrue(any("destination occurrence reused" in error for error in self.check()[0]))
+
+    def test_upstream_unchanged_neighbors_on_a_changed_line_keep_their_ownership(self):
+        self.path = "docs/src/numerics.md"
+        (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.original = "# Rules\n\nAn unchanged leading rule\ncontinues here. Original `0` rule. A retained trailing rule.\n"
+        self.changed = self.original.replace("Original `0`", "Original `1`")
+        self.before = self.commit(self.original, "before same-line edit")
+        self.after = self.commit(self.changed, "upstream same-line edit")
+        self.select("prose", marker="Original")
+        changed_row = self.rows[0]
+        self.baseline = list(m.blocks(self.original, self.path))
+        self.rows = [changed_row if row["block_id"] == changed_row["block_id"] else row
+                     for row in m.initial_ledger(self.baseline)]
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(mappings[changed_row["block_id"]][1]), 1)
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_upstream_character_mapping_cannot_hide_a_new_duplicate_split_piece(self):
+        self.path = "docs/src/numerics.md"
+        (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
+        for elsewhere in ("Repeated obligation.", "Repeated\nobligation."):
+            with self.subTest(elsewhere=elsewhere):
+                self.original = "# Rules\n\nOriginal combined rule. Unchanged neighbor.\n\n## Elsewhere\n\n" + elsewhere + "\n"
+                self.changed = self.original.replace("Original combined rule.", "First replacement rule. Repeated obligation.")
+                self.before = self.commit(self.original, "before same-line duplicated piece")
+                self.after = self.commit(self.changed, "upstream same-line duplicated piece")
+                self.select("prose")
+                self.assert_rejected("complete ordered changed span")
+                pieces = [b for b in m.blocks(self.changed, self.path) if b.kind == "prose"][:2]
+                del self.event["replacement_sha"]
+                self.set_split_hashes([block.sha for block in pieces])
+                self.assertEqual(self.check()[0], [])
 
 
 class RemovedLineTests(unittest.TestCase):

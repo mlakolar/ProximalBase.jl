@@ -97,13 +97,15 @@ end
 
 _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 
+Base.@propagate_inbounds _stored_value_entry(f, v, i) = value_entry(f, v, i)
+
 function _value_sep(f, x::SparseIterate)
   _checkparams(f, x)
   iszeropreserving(f) || return _value_dense(f, x)
   T = _valtype(x)
   s = zero(T)
   @inbounds for k in 1:x.nnz
-    s += convert(T, value_entry(f, x.nzval[k], x.nzval2ind[k]))
+    s += convert(T, _stored_value_entry(f, x.nzval[k], x.nzval2ind[k]))
   end
   s
 end
@@ -118,8 +120,8 @@ function _value_sep(f, x::SymmetricSparseIterate)
   @inbounds for k in 1:x.nnz
     r, c = tril_cartesian(p, x.nzval2ind[k])
     v = x.nzval[k]
-    s += convert(T, value_entry(f, v, (c - 1) * p + r))
-    r == c || (s += convert(T, value_entry(f, v, (r - 1) * p + c)))
+    s += convert(T, _stored_value_entry(f, v, (c - 1) * p + r))
+    r == c || (s += convert(T, _stored_value_entry(f, v, (r - 1) * p + c)))
   end
   s
 end
@@ -141,12 +143,14 @@ _prox_sep!(y::AbstractArray, f, x::AbstractArray, γ::Union{Real, AbstractArray}
 _checkwrite(::Union{typeof(prox!), typeof(value_and_prox!)}, f::SeparableFunction, y::_ArrayOrSymmetricIterate, x::_ArrayOrSymmetricIterate) =
   (_checkreal(f, x); _checkreal(f, y); _checksize(y, x); _checkparams(f, x); true)
 
+Base.@propagate_inbounds _prox_sep_entry(f, v, i, γ) = prox_block(f, v, i, _entry(γ, i))
+
 function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   T = eltype(y)
   @inbounds for i in eachindex(IndexLinear(), y, x)
-    y[i] = convert(T, prox_block(f, x[i], i, _entry(γ, i)))
+    y[i] = convert(T, _prox_sep_entry(f, x[i], i, γ))
   end
   y
 end
@@ -167,7 +171,7 @@ function _prox_sep!(y::SparseIterate, f, x::SparseIterate, γ::Union{Real, Abstr
   end
   @inbounds for k in 1:x.nnz
     i = x.nzval2ind[k]
-    _setstored!(y, convert(T, prox_block(f, x.nzval[k], i, _entry(γ, i))), i)
+    _setstored!(y, convert(T, _prox_sep_entry(f, x.nzval[k], i, γ)), i)
   end
   y
 end

@@ -18,29 +18,34 @@ reminders may repeat; detailed rules link to their owner.
 
 ## Family map
 
-The `NormL1` page is the first verbatim migration pilot. Other families remain
-at the existing locations below until their individual migration is reviewed.
-The shared numerical rules above apply alongside those locations.
+`NormL1` was the first verbatim migration pilot. The map distinguishes migrated
+families, newly authored contracts and families still at their existing owners.
+Thin constructors link to the family they wrap. The shared numerical rules above
+apply alongside each entry.
 
 | Family or operation | Current entry point | Migration state |
 |:--|:--|:--|
 | `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints) | Existing pages |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
-| `NormL1Nonneg` | [The nonnegative ℓ₁ penalty](../penalties.md#The-nonnegative-l1-penalty) | Existing pages |
+| `SCAD` | [Numerical contract](scad.md) | Authored contract |
+| `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
 | `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
-| `IndBallLinf` | [API entry](@ref IndBallLinf) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
 | `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `SqrNormL2` | [Squared Euclidean norm](@ref Squared-Euclidean-norm) | Existing pages |
 | `LeastSquaresLoss` | [Least-squares loss](@ref Least-squares-loss), including predictor and residual oracles | Existing pages |
+| `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |
+| `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Square-root least squares](../smooth.md#Square-root-least-squares-is-not-smooth) | Existing pages |
 | `QuadraticFunction` | [Quadratic function](@ref Quadratic-function) | Existing pages |
 | `LinearFunction` and `ZeroFunction` | [Linear function](@ref Linear-function) and [zero function](@ref Zero-function) | Existing pages |
 | `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
 | `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
 | `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
+| `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
 | `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |
 | `kkt_violation` | [Checking optimality with KKT conditions](../operations.md#Checking-optimality-with-KKT-conditions) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 
@@ -79,6 +84,13 @@ The [writing rules](../developer/writing_documentation.md) and
 ## Family-page schema
 
 Every family page uses these headings in this order:
+
+Use stable explicit IDs `spec-<family>-<section>` on all fourteen headings.
+The suffixes, in order, are `identity`, `definition`, `traits`, `arguments`,
+`preconditions`, `results`, `ordinary`, `range`, `endpoints`, `failures`,
+`limitations`, `elsewhere`, `evidence` and `history`. Preserve an existing
+explicit ID, such as `scad-endpoints`, when applying this convention to a
+published page.
 
 1. Identity.
 2. Definition and domain.

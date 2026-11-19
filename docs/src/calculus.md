@@ -60,7 +60,8 @@ prox(h,x,0.4)
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
 together. `f` is `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
-`GroupNormL2` or, for the full-point form, `NormL2` or `NormLinf`. For one wrapper with a finite positive factor, on the
+`GroupNormL2` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
+or `QuadraticFunction`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
 parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
 screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
@@ -138,7 +139,8 @@ remain `BigFloat`.
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
   nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
   these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
-  is zero and for an entry in no group of a `GroupNormL2`; for the smooth functions it is `α` times the score at `v = 0`.
+  is zero and for an entry in no group of a `GroupNormL2`; for smooth functions
+  with a local form it is `α` times the score at `v = 0`.
 * **A stack that nests an infinite factor with another `Scaled` wrapper.** `Scaled(f, α)` and `α * f` do not produce it,
   because they merge the infinite factor; a direct call of the parameterized constructor `Scaled{F,T}(f, α)` does. For such a stack the
   three-argument screen and the four-argument value at a zero coordinate or group are **unspecified**: they can differ from
@@ -150,8 +152,12 @@ remain `BigFloat`.
   and `ZeroFunction`, have ``\lvert v_i\rvert``). The three-argument screen of such a chain
   around `LinearFunction` and a centered `SqrNormL2` was incorrect before 0.6: it
   returned the screen of the function at the unscaled `v`.
-* **Functions without the forms.** The losses and `IndNonnegative` have no
-  four-argument or full-point score; the call on the `Scaled` function throws a `MethodError` (the call
+* **Least squares and quadratics.** The full-point form uses the leaf's
+  [smooth stationarity score](@ref smooth-kkt). Infinite factors and retained
+  chains whose factors do not fold throw `ArgumentError`. The coordinate and
+  group forms throw `ArgumentError`, including at zero.
+* **Functions without the forms.** `SqrtLeastSquaresLoss`, `IndNonnegative` and `GroupNormLinf` have no
+  four-argument or full-point score under `Scaled`; the call throws a `MethodError` (the call
   names the `Scaled` function). For a positive finite or infinite factor, `Scaled(f, α)` forwards the
   supported three-argument screen of an indicator `f` with the supplied gradient and returns its result
   unscaled. For `IndNonnegative` the result is `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
@@ -220,7 +226,8 @@ and of the ridge part, each recovered as for `NormL1` and `SqrNormL2` and
 rounded on its own, are added; the sum replaces that result if it is finite
 after conversion to its type, and the first result is kept otherwise. This is
 not a promise that arbitrary user-defined functions acquire numerical range
-recovery.
+recovery. `GroupNormLinf` has no fold of its level: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
+and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infinite-step exit gives `+0`; a group with a zero weight, or a zero level with a finite weight, keeps the identity, because those exits come first (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
 
 ## A zero scale can change the returned type
 

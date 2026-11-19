@@ -717,8 +717,8 @@ end
 #      level, and the level inherits an error of order a u |μ|. The computed τ0 can be above or below the exact first level
 #      and the exact level, the case that the certificate does not exclude: the derivation does not assume that the entries
 #      above the returned level are the entries above the exact level. The routine's condition 0 ≤ a < s is not established here
-#      (no sum of the Lᵢ is formed, and Σ_J Lᵢ ≤ c is possible when τ0 is above the exact level); the derivation uses only the
-#      statements of the kernel that do not need it (claims 1 and 3 and the forms of claim 5 in terms of a and the entries).
+#      (no sum of the Lᵢ is formed, and Σ_J Lᵢ ≤ c is possible when τ0 is above the exact level); the derivation uses the
+#      statements of the kernel that do not need it (claims 1 and 3, and the proofs of claims 2 and 3 for a step).
 #      Range: when the certificate fails, fl(τ0 + b) > μ ≥ -mv, so τ0 + b > -mv (fl is monotone and fl(-mv) = -mv); for τ0 < 0
 #      this gives |τ0| < (1 + 2.001 cnt u) mv/(1 - 3.001u) ≤ 1.6 mv (n u ≤ 1/4, the factor 1.001 covers the rounding of b).
 #      Hence each Lᵢ ≤ mv + max(-τ0, 0) ≤ 2.6 mv, their exact sum is at most 2.6 cnt mv ≤ 2.6 n sv (mv ≤ sv, a computed sum
@@ -749,8 +749,8 @@ end
 #       moves them by at most |r - r′| (their 2-norm is at most their 1-norm, r). The residual ρ(ℓ) is the exact residual of the
 #       radius G(ℓ) (ℓ is the level of that radius where G(ℓ) > 0, as G decreases strictly there, and the residual is u where
 #       G(ℓ) = 0), so |ρ(ℓ) - d| ≤ |G(ℓ) - c|. At the zero point the same with ℓ ≥ 0.
-#   (T2) Level form. For ℓ₁ ≤ ℓ₂, |ρ(ℓ₂) - ρ(ℓ₁)| ≤ √N (ℓ₂ - ℓ₁) with N = #{i ∈ J : uᵢ > ℓ₁} (only these residuals move, each by at
-#       most ℓ₂ - ℓ₁; triangle inequality). The N entries above ℓ₁ have residual ℓ₁, so √N |ℓ₁| ≤ ρ(ℓ₁).
+#   (T2) Level form. For ℓ₁ ≤ ℓ₂, |ρ(ℓ₂) - ρ(ℓ₁)| ≤ √N (ℓ₂ - ℓ₁) with N = #{i ∈ J : uᵢ > ℓ₁} (the residuals of the other entries do not
+#       change, and each of these changes by at most ℓ₂ - ℓ₁; triangle inequality). The N entries above ℓ₁ have residual ℓ₁, so √N |ℓ₁| ≤ ρ(ℓ₁).
 #   (T3) The first level. Σ_J uᵢ = Σ_J min(uᵢ, ℓ) + G(ℓ) at any level ℓ, so cnt τ0e = Σ_J min(uᵢ, ℓ) + (G(ℓ) - c). At ℓ = τ the
 #       sum is that of the residual entries, so √cnt |τ0e| ≤ ‖r_J‖₂ ≤ d. For a level ℓ with k entries above it and B = the
 #       other b = cnt - k entries of J (residual uᵢ ≤ ℓ), k (ℓ - τ0e) = (k/cnt) [Σ_B (ℓ - uᵢ) - (G(ℓ) - c)] ≤ (k/cnt) [b |ℓ| +
@@ -762,7 +762,7 @@ end
 #   (2) The first level of a face. S = Σ_J uᵢ + e_S, |e_S| ≤ γ_{cnt-1} ‖u_J‖₁; fl(S - c) = S - c + δ₁, |δ₁| ≤ u |fl(S - c)|; τ0 =
 #       fl(S - c)/cnt + δ₂, |δ₂| ≤ u |τ0|. Then τ0e = τ0 - δ₂ - δ₁/cnt - e_S/cnt and |τ0 - τ0e| ≤ B0 = q |τ0| + γ_{cnt-1} ‖u_J‖₁/cnt,
 #       q = (2 + u) u. For N ≤ cnt, √N B0 ≤ q √N |τ0| + γ_{cnt-1} ‖u_J‖₂ (‖u_J‖₁ ≤ √cnt ‖u_J‖₂).
-#       The certificate. Let b̂ = fl(3u |τ0| + 2u cnt mv) ≥ 2.99 u |τ0| + 1.99 u cnt mv (three roundings, 3u and 2u are exact). If
+#       The certificate. Let b̂ = fl(3u |τ0| + 2u cnt mv) ≥ 2.99 u |τ0| + 1.99 u cnt mv (four roundings; 3u and 2u are exact). If
 #       fl(τ0 + b̂) ≤ μ, then τ0 + b̂ ≤ μ + u mv (for z = τ0 + b̂ and ẑ = fl(z) ≤ μ: z ≤ ẑ + u |ẑ|, which is at most μ + u |μ| and
 #       |μ| ≤ mv). With B0 ≤ 2.01 u |τ0| + (4/3)(cnt - 1) u mv (cnt u ≤ 1/4; ‖u_J‖₁ ≤ cnt mv) this gives τ0 + B0 ≤ μ, so
 #       τ0e ≤ τ0 + B0 ≤ μ. Then G(τ0e) = Σ_J (uᵢ - τ0e) = c: the exact level is τ = τ0e, all the entries of J are above or at it,
@@ -794,7 +794,7 @@ end
 #       and √K |τ| ≤ ρ(τ) = d): the computed first level exceeds the exact level by its rounding (witness v = fill(-0.1, 3), x =
 #       ones(3), c = 2.0^-60). Or τ > σ: then G(σ) > c, and (P) gives (1 - k u) Σ L̂ᵢ ≤ r ≤ c, so G(σ) ≤ ΣL̂ᵢ/(1 - u) ≤
 #       c/((1 - k u)(1 - u)): E_G ≤ γ_{k+1} c, the radius form (T1), with no assumption on the set.
-#       (a) with no entry above the level at the first pass: all aᵢ vanish, σ ≥ every uᵢ, τ < σ, and the case τ ≤ σ above applies.
+#       (a) with no entry above the level at the first pass: all aᵢ vanish, σ ≥ uᵢ for each i ∈ J, τ < σ, and the case τ ≤ σ above applies.
 #       (c) and (d), the radius form. By claim 3, |h(t̂) - c| ≤ E_c = (1.5 γ_k/(1 - k u) + u/2) c + k u t̂ + k δ at (c), and ≤ E_v ≈
 #       k u t̂ at (d). With (T5) and the rounding of σ + t̂ (G has the slope -k there),
 #           E_G ≤ (1.5 k + 1.5) u c + 2 k u t̂ + k u |τ̂|,   to first order.

@@ -769,6 +769,32 @@ end
   end
 end
 
+@testset "non-finite least-squares SVD input" begin
+  # Issue #1012: this design can hang inside LAPACK on Julia 1.13.
+  X = Float32[Inf -1.7489041f-38 0.13196468 -7.771496f-39;
+              -1.2964501 -5.964602f-39 6.116676f37 3.1580375f9;
+              -0.79557085 1.0f-45 6.0f-45 3.41581;
+              -2.9219346 2.0102434f-38 2.5947837f9 1.7752538;
+              0.4075712 3.5274434 -1.0994859 0.0010812745;
+              1.4504884 0.0 6.0f-45 -1.189462f19]
+  err = ArgumentError("design matrix X must have finite entries in the SVD computation type")
+  f = LeastSquaresLoss(zeros(Float32, size(X, 1)), X)
+  v = ones(Float32, size(X, 2))
+  @test_throws err prox!(similar(v), f, v, 1f0)
+  @test !f.svd_ready
+
+  f_nan = LeastSquaresLoss([0f0], reshape([Float32(NaN)], 1, 1))
+  @test_throws err prox!(zeros(Float32, 1), f_nan, [1f0], 1f0)
+
+  # A finite Rational promotes with the response to Float32 and overflows on conversion.
+  X_overflow = reshape([typemax(UInt128) // UInt128(1)], 1, 1)
+  f_overflow = LeastSquaresLoss([0f0], X_overflow)
+  @test all(isfinite, X_overflow)
+  @test f_overflow isa LeastSquaresLoss{Float32}
+  @test Matrix{Float32}(X_overflow)[1] == Inf32
+  @test_throws err prox!(zeros(Float32, 1), f_overflow, [1f0], 1f0)
+end
+
 @testset "empty designs" begin
   for T in (Float32, Float64), α in (nothing, T(2), 3)
     # no observations

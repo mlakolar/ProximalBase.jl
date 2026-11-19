@@ -80,6 +80,11 @@ struct NormL1Nonneg{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunct
     _checknonneg("the weights", w)
     new{T, W}(λ0, w, NormL1(λ0, w))
   end
+
+  global function _with_folded_level(f::NormL1Nonneg, λ0::T) where {T<:Real}
+    w = f.w
+    new{T, typeof(w)}(λ0, w, _with_folded_level(f.l1, λ0))
+  end
 end
 NormL1Nonneg(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1Nonneg{typeof(λ0), typeof(w)}(λ0, w)
 

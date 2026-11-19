@@ -53,6 +53,12 @@ struct NormL1{T<:Real, W<:Union{Nothing, AbstractArray}} <: SeparableFunction
     _checknonneg("the weights", w)
     new{T, W}(λ0, w)
   end
+
+  # The scalar proximal fold supplies a checked level and reuses the source leaf's weight reference.
+  global function _with_folded_level(f::NormL1, λ0::T) where {T<:Real}
+    w = f.w
+    new{T, typeof(w)}(λ0, w)
+  end
 end
 NormL1(λ0::Real = 1, w::Union{Nothing, AbstractArray} = nothing) = NormL1{typeof(λ0), typeof(w)}(λ0, w)
 

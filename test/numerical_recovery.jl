@@ -1881,6 +1881,106 @@ function test_scaled_threshold_guards(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+struct FoldWeightReads{T} <: AbstractVector{T}
+  w::Vector{T}
+  reads::Vector{Int}
+end
+Base.size(w::FoldWeightReads) = size(w.w)
+Base.IndexStyle(::Type{<:FoldWeightReads}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(w::FoldWeightReads, i::Int)
+  w.reads[i] += 1
+  w.w[i]
+end
+
+function test_scaled_fold_weights(::Type{T}) where {T}
+  E = emax(T)
+  p = E ÷ 2 + 20
+  cases = (
+    (pow2(T, 20 - E), (pow2(T, p), pow2(T, p)), pow2(T, -30), pow2(T, -32)),
+    (T(1.5) * pow2(T, -8), (pow2(T, E - 2),), pow2(T, 10), pow2(T, -2 - E)),
+  )
+  @testset "scalar proximal folds reuse the leaf weights" begin
+    for (λ, factors, γ, wi) in cases, leaf in (NormL1, NormL1Nonneg)
+      for n in (10, 1000)
+        w = FoldWeightReads(fill(wi, n), zeros(Int, n))
+        s, _ = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+        source, _ = PB._scaled_chain(s)
+        fill!(w.reads, 0)
+        g, step, factor = PB._nested_step(s, γ)
+        @test factor === nothing && g.w === source.w === w
+        @test all(iszero, w.reads)
+        if leaf === NormL1Nonneg
+          @test g.l1.w === w && g.l1.λ0 === g.λ0
+          @test source.l1.w === w && source.l1.λ0 === λ
+        end
+        @test source.λ0 === λ
+        # Update the original array away from the first index. The folded leaf sees the live weights.
+        w.w[n] *= 2
+        expected = T(4 - chain_product(λ, factors, γ) * big(w.w[n]))
+        @test prox_block(g, T(4), n, step) === expected
+        fill!(w.reads, 0)
+        @test prox_block(s, T(4), n, γ) === expected
+        @test w.reads[n] == 1 && sum(w.reads) == 1
+      end
+
+      # A view and a sparse parameter array retain their identities when the level changes.
+      data = T[0, wi, 2wi, Inf, 0]
+      x = T[4, 5, 6, 7, 8]
+      for w in (view(data, :), sparsevec(data))
+        s, ts = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+        g, _, factor = PB._nested_step(s, γ)
+        @test factor === nothing && g.w === w
+        leaf === NormL1Nonneg && @test g.l1.w === w && g.l1.λ0 === g.λ0
+        want = T[refprox(x[i], ts[i], leaf === NormL1Nonneg) for i in eachindex(x)]
+        @test [prox_block(s, x[i], i, γ) for i in (1, 3, 5)] == want[[1, 3, 5]]
+        y = copy(x)
+        @test prox!(y, s, y, γ) == want
+        copyto!(y, x)
+        @test isequal(value_and_prox!(y, s, y, γ), s(want))
+        @test y == want
+        xs = SparseIterate(x)
+        ys = prox!(similar(xs), s, xs, γ)
+        @test collect(ys) == want && collect(xs) == x
+      end
+
+      # Off-diagonal weights use full-matrix linear indexing even with a symmetric owner.
+      w = T[wi 2wi; 2wi 0]
+      s, ts = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+      xs = SymmetricSparseIterate(T[4 5; 5 6])
+      x0 = Matrix(xs)
+      want = T.(refprox.(x0, ts, leaf === NormL1Nonneg))
+      ys = similar(xs)
+      @test Matrix(prox!(ys, s, xs, γ)) == want
+      @test Matrix(xs) == x0
+      @test value_and_prox!(xs, s, xs, γ) === s(ys)
+      @test Matrix(xs) == want
+    end
+
+    for leaf in (NormL1, NormL1Nonneg)
+      under = pow2(T, emin(T) + 8)
+      s = Scaled(leaf(one(T)), under)
+      g, _, factor = PB._nested_step(s, under)
+      @test factor === nothing && g.w === nothing
+      @test prox_block(s, T(4), 1, under) === T(4)
+
+      # This product is beyond the range of a normal level and step together.
+      f = leaf(floatmax(T), T[1])
+      large = pow2(T, E)
+      s = Scaled(Scaled(f, large), large)
+      g, step, factor = PB._nested_step(s, large)
+      @test g === f && step === T(Inf) && factor !== nothing
+      @test prox_block(s, T(4), 1, large) === zero(T)
+      @test prox!(ones(T, 1), s, T[4], large) == T[0]
+
+      @test_throws ArgumentError leaf(T(-1), T[1])
+      @test_throws ArgumentError leaf(T(NaN), T[1])
+      @test_throws ArgumentError leaf(one(T), T[1, -1])
+      @test_throws ArgumentError leaf(one(T), T[1, NaN])
+      @test_throws ArgumentError leaf{T, Vector{T}}(one(T), T[1, -1])
+    end
+  end
+end
+
 function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
   E = emax(T)
   @testset "recorded defect (see the audit document): @test_broken against the independent reference" begin
@@ -1919,6 +2019,7 @@ setprecision(BigFloat, 2400) do
   test_scaled_weighted_threshold(T)   # Scaled weighted ℓ1: the scalar-step threshold when the level cannot hold the factors and the step (#886)
   test_scaled_threshold_sweep(T)   # the same, a seeded sweep over the exponents of the factors, the step, the level and the weight
   test_scaled_threshold_guards(T)   # the same, cases that were already right and the endpoint rules
+  test_scaled_fold_weights(T)
   test_recorded_defects(T)   # a recorded defect (see the audit document): @test_broken against the independent reference
 end
 end

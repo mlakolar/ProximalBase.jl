@@ -243,6 +243,10 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # kernel is 1 for it as for zero. The folded function then lacks that ridge term, and its value is not
 # the value of the chain.
 _fold_level_step(f, α) = _fold_level(f, α)
+function _fold_level_step(f::Union{NormL1, NormL1Nonneg}, α)
+  c = _folded_level(f.λ0, α)
+  c === nothing ? nothing : _with_folded_level(f, c)
+end
 function _fold_level_step(f::ElasticNet, α)
   c1 = _elastic_folded(f.λ1, α)
   c = iszero(f.λ2) || isinf(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
@@ -664,7 +668,7 @@ end
   k = (e + _frexp(λ)[2]) >> 1
   step = ldexp(mγ, k)
   floatmin(T) <= step <= floatmax(T) || return nothing
-  g = _fold_level(f, _NormalScale(_ProjectionScale(ma, e - k)))
+  g = _fold_level_step(f, _NormalScale(_ProjectionScale(ma, e - k)))
   g === nothing ? nothing : (g, step)
 end
 

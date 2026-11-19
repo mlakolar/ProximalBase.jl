@@ -159,16 +159,18 @@ the value, which is why it is not merely listed as a limitation. D1, recorded he
 before, is fixed (#886); its entry follows.
 
 **D1 (fixed, #886): scalar-step prox of a `Scaled` factor or chain over a weighted
-`NormL1` or `NormL1Nonneg` lost the threshold when the level could not hold the
+`NormL1` or `NormL1Nonneg` could lose the threshold when the level could not hold the
 factors and the weights compensated.** `_nested_step` folded the factors and the
 exponent of the step into the level `λ0` only (`_fold_level_step`), with the step
 reduced to its significand `mγ`. The level that the fold stores, `α1 α2 2^eγ λ0`
-(that is, `α1 α2 γ λ0 / mγ`), was zero, a subnormal number that had lost bits, or an
-overflow, the last also where `α1 α2 γ λ0` itself is at most `floatmax`. A subnormal
-level was kept, with the step's significand, and the threshold carried its lost bits.
+(that is, `α1 α2 γ λ0 / mγ`), was zero, a subnormal number (which could have lost
+bits), or an overflow, the last also where `α1 α2 γ λ0` itself is at most `floatmax`. A
+subnormal level was kept, with the step's significand, and the threshold carried the bits
+that it had lost.
 For a zero or an overflowing level the fold was refused and the function was left
 with the step rounded (`step = α1 α2 γ`: zero, a subnormal number or Inf). The
-threshold was wrong in each case, even though `α1 α2 γ λ0 w` is representable. The *value* of the same chain
+threshold could be wrong in each case, even though `α1 α2 γ λ0 w` is representable
+(it was exact where the subnormal level or the rounded step happened to be exact). The *value* of the same chain
 recovers it through the partial fold (`_scaled_value_partial`), and the
 *array-step* route recovers it through `_shifted_fold`. `prox!`, `value_and_prox!`
 and `prox_block` take the scalar-step route.
@@ -208,9 +210,10 @@ s(T[1])                                          # value: 2.4214386f-9
 
 What remains of D1:
 
-- When `α1 α2 γ λ0` cannot be written as a normal level times a normal step (about the
-  square of the range of the type or beyond), the split is not available and the step is
-  passed rounded (zero, a subnormal number or Inf), as before.
+- When the step or the level of the split is not a normal number, which happens for
+  `α1 α2 γ λ0` near or beyond the square of a range limit of the type (`floatmin(T)^2`,
+  `floatmax(T)^2`), the split is not available and the step is passed rounded (zero, a
+  subnormal number or Inf), as before.
 - `ElasticNet` keeps the earlier route (`numerics.md` states the limit): its scalar
   step can lose the ℓ₁ threshold where the array step gives it (#567).
 - An infinite input beside a finite threshold: in the overflow-side example of the tests the

@@ -90,7 +90,7 @@ that execute the lines (from the coverage runs above, lines with a positive coun
 | `_norm2_scaled` for an owner: off-diagonal multiplicity 2, NaN/Inf coordinates, p = 1, 2, 3, Inf; block iterate | `sqrnorml2.jl`: `_norm2_scaled`; `sparse_iterate.jl`: `norm(::SymmetricSparseIterate)` | missing: owner loop never compiled (2/11 lines, array method only) | "norms: the symmetric owner multiplicity and the norm_diff scaled fallback" | covered |
 | `_ProjectionScale`, `_projection_accumulate`, `_scaled_chain`, retained exponent, `_apply_scale`, `_scale_inverse` | `scaled.jl` | missing: 0 of the accumulate and chain lines; `_apply_scale(::_ProjectionScale)` 0/5 | "Scaled values: ...", "Scaled oracles on factor chains: ...", "Scaled single factors, zero and infinite scales, aliases and nested wrappers" | covered (the `Real,Real` product accumulation and the non-IEEE `_LevelProbe` window are executed through rational/BigFloat factors) |
 | Scaled value recovery: fold into a normal level, partial fold with shifted window (and recentring near the range edge), fold into a subnormal level, Inf*0 at an infinite factor, parts | `scaled.jl`: `_folded_level`, `_fold_level`, `_value_fold_scale`, `_level_window`, `_shifted_fold_value`, `_scaled_value_partial`, `_scaled_value_recover`, `_recover_from_parts`, `_scaled_value_by`, `_scaled_nan_value`, `_exactly_zero_at(::NormL1)` | partial: `_scaled_value_recover` 8/14 lines and `_parts_wanted` 7/12, all through `Scaled(SqrNormL2, α)` (numerical_kernels, core_functions, minimal_math); `_folded_level`, `_level_window`, `_shifted_fold_value`, `_scaled_value_partial` (0/18), `_scaled_nan_value`, `_exactly_zero_at(::NormL1)` never executed | "Scaled values: overflow, underflow and exact zeros through the factor" (NormL1 fold, weights forcing the partial fold, window recentring, factor above one with zero/subnormal leaf, exact zero stays +0, infinite factor, NaN/Inf data, wrapper in wrapper), "Scaled single factors, ..." | covered; see S3 and S4 for documented limits |
-| Nested chains: value, gradient, fused value-and-gradient, scalar-step prox, `value_and_prox!`, `prox_block`, KKT, lipschitz | `scaled.jl`: `_value_chain`, `_gradient_chain!`, `_value_and_gradient_chain!`, `_scale!`, `_nested_step`, `_prox_chain!`, `_value_and_prox_chain!`, `_prox_block_nested`, `_nested_kkt`, `lipschitz`, `_value_parts_scaled(::Scaled)` | missing (0 executions; `_step_exceptional` and `_scaled_chain` only on ordinary calls, cache_and_blocks, minimal_math) | "Scaled oracles on factor chains: gradient, prox, fused and block forms" (SqrNormL2 and NormL1 leaves, symmetric-owner gradient, single-factor step out of range, infinite level, KKT with and without folded level) | covered except the recorded defect D1 and limits S1, S2 |
+| Nested chains: value, gradient, fused value-and-gradient, scalar-step prox, `value_and_prox!`, `prox_block`, KKT, lipschitz | `scaled.jl`: `_value_chain`, `_gradient_chain!`, `_value_and_gradient_chain!`, `_scale!`, `_nested_step`, `_prox_chain!`, `_value_and_prox_chain!`, `_prox_block_nested`, `_nested_kkt`, `lipschitz`, `_value_parts_scaled(::Scaled)` | missing (0 executions; `_step_exceptional` and `_scaled_chain` only on ordinary calls, cache_and_blocks, minimal_math) | "Scaled oracles on factor chains: gradient, prox, fused and block forms" (SqrNormL2 and NormL1 leaves, symmetric-owner gradient, single-factor step out of range, infinite level, KKT with and without folded level) | covered except limits S1, S2; D1 is fixed, its remaining limits are under "Defects found" |
 | Scaled array steps: factor in or outside the band, `:folded`, `:shifted`, `:rounded` routes, stored infinite level, infinite factor, `_scaled_value_overflow` | `scaled_array.jl`: `_array_route`, `_wide_scale`, `_array_fold`, `_shifted_fold`, `_prox_chain!`, `_value_and_prox_chain!`, `_scaled_value_overflow`; `array_steps.jl` | missing: no existing test passes an array step (only the `Scaled` method tables compile) | "Scaled array steps: folded, shifted and rounded routes", "Scaled single factors, ..." | covered for NormL1, a custom separable function and `ZeroFunction`; `SqrNormL2` has no array-step method (MethodError), so no recovery there |
 | Zero scale simplification and its refusals | `scaled.jl`: `_zero_scaled`, `_finite_zero`, `_finite_parameter` | missing (0 executions) | "Scaled single factors, zero and infinite scales, aliases and nested wrappers" | covered |
 | Ridge gradient `λ(x-y)`: halved difference when `x-y` overflows, repair pass, wide level (outside the model range), wide centers | `sqrnorml2.jl`: `_ridge_gradient!`, `_ridge_gradient_dense!`, `_ridge_gradient_repair!`, `_ridge_gradient_overflow`, `_ridge_gradient_wide` | tested: dense forms by ridge_precision, numerical_kernels, core_functions; owner output forms (`_ridge_gradient!(::SymmetricSparseIterate)`, `_ridge_gradient_coordinates!`, `_ridge_gradient_wide_coordinates!`) and the dense-from-owner method missing | "SqrNormL2 oracles: ridge weights, owners, wide levels and centers" | covered |
@@ -150,23 +150,45 @@ which is never called because the product of a chain is always a `_ProjectionSca
 
 ## Defects found
 
-Each is pinned with `@test_broken` against the independent reference in the
-testset "recorded defects ..." (5 broken assertions per type; they flip to
-an "Unexpected Pass" error when fixed). Both are **suspected** defects, not
+The one that remains (D2) is pinned with `@test_broken` against the independent reference in the
+testset "recorded defect ..." (2 broken assertions per type; they flip to
+an "Unexpected Pass" error when fixed). It is a **suspected** defect, not
 certain: the numerical page promises "practical safeguards, not exhaustive
-range recovery", but in each case a sibling route of the same function recovers
-the value, which is why they are not merely listed as limitations.
+range recovery", but a sibling route of the same function recovers
+the value, which is why it is not merely listed as a limitation. D1, recorded here
+before, is fixed (#886); its entry follows.
 
-**D1 (suspected): scalar-step prox of a nested `Scaled` chain over a weighted
-`NormL1` loses the threshold when the level cannot hold the factors and the
-weights compensate.** `_nested_step` folds the factors and the step significand
-into the level `λ0` only (`_fold_level_step`); if `α1 α2 γ λ0` is not a normal
-number (a zero, a subnormal level that has lost bits, or an overflow) the function is
-left with the step rounded (`step = α1 α2 γ`, 0 or Inf) and the threshold is
-wrong, even though `α1 α2 γ λ0 w` is representable. The *value* of the same chain
+**D1 (fixed, #886): scalar-step prox of a `Scaled` factor or chain over a weighted
+`NormL1` or `NormL1Nonneg` could lose the threshold when the level could not hold the
+factors and the weights compensated.** `_nested_step` folded the factors and the
+exponent of the step into the level `λ0` only (`_fold_level_step`), with the step
+reduced to its significand `mγ`. The level that the fold stores, `α1 α2 2^eγ λ0`
+(that is, `α1 α2 γ λ0 / mγ`), was zero, a subnormal number (which could have lost
+bits), or an overflow, the last also where `α1 α2 γ λ0` itself is at most `floatmax`. A
+subnormal level was kept, with the step's significand, and the threshold carried the bits
+that it had lost.
+For a zero or an overflowing level the fold was refused and the function was left
+with the step rounded (`step = α1 α2 γ`: zero, a subnormal number or Inf). The
+threshold could be wrong in each case, even though `α1 α2 γ λ0 w` is representable
+(it was exact where the subnormal level or the rounded step happened to be exact). The *value* of the same chain
 recovers it through the partial fold (`_scaled_value_partial`), and the
 *array-step* route recovers it through `_shifted_fold`. `prox!`, `value_and_prox!`
 and `prox_block` take the scalar-step route.
+
+Now, for a `NormL1` or `NormL1Nonneg` whose level is a positive finite IEEE number
+after `float`, when the level that the fold of the whole exponent would store is not a
+normal number (zero, subnormal or an overflow), `_nested_step` splits the exponent between
+the step and the level (`_split_level_step`): the step is `mγ 2^k` for the significand
+`mγ` of `γ`, and the level takes the exponent that is left, with `k` near half the sum of
+the exponent `e` of the factors and of `γ` and the exponent of `λ0`. The split is used if
+the step and the folded level are both normal numbers; the leaf then forms the threshold
+`α1 α2 γ λ0 wᵢ` of an entry from the step, the folded level and `wᵢ` (from the three
+significands with one exponent when the product of the step and the level is not a normal
+number, as the product of that product and `wᵢ` when it is). A chain whose fold into the
+level is a normal number takes the fold as before.
+The tests are the testsets "scalar-step threshold of Scaled weighted ℓ1 (#886)",
+"seeded sweep of exponents (#886)" and "scalar-step threshold of Scaled weighted ℓ1:
+unchanged cases (#886)" of `test/numerical_recovery.jl`.
 
 ```julia
 using ProximalBase
@@ -174,15 +196,34 @@ T = Float32; E = 127; p = E ÷ 2 + 20            # same shape in Float64 with E 
 f  = NormL1(T(1.3) * 2f0^20, T[2f0^(E - 10)])
 s  = Scaled(Scaled(f, 2f0^-p), 2f0^-p)           # α1 α2 = 2^-(E+39): not a normal number
 γ  = 2f0^-30
-x  = T[3 * 2f0^-50]                              # threshold t = α1 α2 γ λ0 w = 2.2551405e-18
-prox!(zeros(T, 1), s, x, γ)                      # Float32: [2.6645353e-15] (x unchanged)   expected [2.66228e-15]
-prox!(zeros(T, 1), s, x, T[γ])                   # array step: [2.66228e-15]  (correct)
-s(T[1])                                          # value: 2.4214387e-9 (correct)
-# Float64 (same construction): current 2.6623668547554047e-15, expected 2.662280118581606e-15
-#   (the level 1.3 * 2^-1072 is subnormal with two bits: a 4% error in the threshold)
+x  = T[3 * 2f0^-50]                              # threshold t = α1 α2 γ λ0 w = 2.2551404e-18 (Float64: 2.2551405187698493e-18)
+prox!(zeros(T, 1), s, x, γ)                      # [2.66228f-15]; before the fix [2.6645353f-15] (x unchanged)
+prox!(zeros(T, 1), s, x, T[γ])                   # array step: [2.66228f-15]
+s(T[1])                                          # value: 2.4214386f-9
+# Float64 (same construction): 2.662280118581606e-15; before the fix 2.6623668547554047e-15
+#   (the level that the fold stored, 5.0e-323, is 10 units of the smallest subnormal number where the
+#   exact level is 10.4 units: a 4% error in the threshold; in Float32 the fold was refused and the
+#   step rounded)
 # Overflow side: NormL1(1.3 * 2^(E-20), [2^(-(E-10)-20)]) under two factors 2^p, γ = 2^-30, x = 3 t:
-#   Float64: current 0.0, expected 1.1143689514737182e302     (Float32: 0.0 vs 2.1093705e32)
+#   Float64: 1.1143689514737182e302, Float32: 2.1093705f32; before the fix 0.0
 ```
+
+What remains of D1:
+
+- When the step or the level of the split is not a normal number, which happens for
+  `α1 α2 γ λ0` near or beyond the square of a range limit of the type (`floatmin(T)^2`,
+  `floatmax(T)^2`), the split is not available and the step is passed rounded (zero, a
+  subnormal number or Inf), as before.
+- `ElasticNet` keeps the earlier route (`numerics.md` states the limit): its scalar
+  step can lose the ℓ₁ threshold where the array step gives it (#567).
+- An infinite input beside a finite threshold: in the overflow-side example of the tests the
+  earlier route gave NaN (the step was rounded to Inf); `NormL1` now gives `±Inf` and
+  `NormL1Nonneg` gives `+Inf` for `+Inf` (and `+0` for `-Inf`) there, as the array step does.
+  In the tests, an entry whose own threshold overflows (a weight of one beside compensating
+  weights) still gives `0` for a finite input and NaN for `+Inf`.
+- A call on the new route builds the folded leaf once, as the earlier fold did, and the
+  `NormL1` constructor checks the weights: one `prox_block` call costs time proportional
+  to the number of weights.
 
 **D2 (suspected): a weighted `NormL1` value is NaN at an infinite entry when
 `λ0 * w` underflows**, while the same level without weights gives `Inf`
@@ -216,8 +257,9 @@ defect.
   `α γ` is `Inf` while `α γ λ = 2^(E-20)` is representable:
   `prox` gives `0.0` (Float64 and Float32), expected `3/(1 + 2^(E-20)) = 3.4997e-302`
   (Float64) / `1.8489e-32` (Float32). The same happens for two-factor chains over
-  `SqrNormL2`. For `NormL1` the level absorbs the product (and D1 below is the case
-  where it cannot).
+  `SqrNormL2`. For `NormL1` and `NormL1Nonneg` the level absorbs the product, or the
+  exponent is split between the step and the level where the level cannot absorb it and the
+  split is available (D1 above).
 - **S2. Gradients of `Scaled` are the leaf gradient times the factor.** If the leaf
   gradient overflows or underflows before the factor is applied, `Scaled` returns
   `Inf` or a flushed zero although the product is representable
@@ -275,8 +317,9 @@ that every branch is exercised; the points below are known holes.
 
 ## Results of this commit
 
-- `test/numerical_recovery.jl`: 7656 passing and 5 broken assertions in Float64,
-  7825 passing and 5 broken in Float32 (recorded defects D1, D2); about 55 s on one
-  core including compilation (23 s + 21 s of testsets).
-- Full suite, `julia scripts/test.jl`: 21 test files, all pass, in 3 m 48 s on one core
-  (broken counts live inside `numerical_recovery`: 10 in total, the recorded defects).
+- `test/numerical_recovery.jl`: 5014 passing and 2 broken assertions in Float64,
+  5040 passing and 2 broken in Float32 (the recorded defect D2); about 75 s including
+  compilation (33 s + 30 s of testsets).
+- Full suite, `julia scripts/test.jl` on Julia 1.13.4: 48 test files, all pass, in 15 m 32 s
+  (the broken assertions are those of `numerical_recovery`, 4 in total, and 4 in
+  `elasticnet_extremes`).

@@ -28,6 +28,7 @@ quick = [
   "linear_sparse_value",
   "linear_value_recovery",
   "logdet",
+  "logisticloss",
   "matrixview",
   "minimal_math",
   "norml0",
@@ -87,6 +88,7 @@ linear_shapes = 112.3
 linear_sparse_value = 17.7
 linear_value_recovery = 5.9
 logdet = 19.6
+logisticloss = 30.0
 matrixview = 8.7
 minimal_math = 23.1
 norml0 = 6.0
@@ -95,7 +97,7 @@ norml1nonneg_extremes = 17.3
 norml2 = 18.8
 normlinf = 63.7
 numerical_kernels = 66.4
-numerical_recovery = 124.1
+numerical_recovery = 140.0
 one_based_axes = 239.0
 quadratic_domain = 17.2
 real_iterates = 49.6

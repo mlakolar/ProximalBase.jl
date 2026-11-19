@@ -605,16 +605,28 @@ end
 # - A step that is not a finite positive number, which the function rejects or reads as a limit,
 #   is only multiplied.
 # - The product of the factors and γ goes into the step when it is a normal number.
+# - Otherwise, for a NormL1 or NormL1Nonneg whose level is a positive finite IEEE number after `float`,
+#   and when the level that the fold below would store (the product of the factors, the step and the
+#   level, divided by the significand of the step) is not a normal number (it is zero, it is subnormal,
+#   or it overflows, which can happen although the product of the factors, the step and the level is
+#   at most floatmax), the exponent is split between the step and the level (`_split_level_step`) if
+#   the step and the folded level are both normal numbers at the split, though their product need not
+#   be one. The kernel of the leaf then forms the threshold γλ0wᵢ from them: from the three
+#   significands with one exponent on its exceptional branch, as (γλ0)wᵢ on its ordinary one. The
+#   returned factor is `nothing`.
 # - Otherwise the exponent of the factors goes into the levels, with the step reduced to its
 #   significand, for the functions that fold a scale into their levels (`_fold_level`): the
-#   products of level and step are those of the plain chain, formed in range. The leaf then
-#   never sees a step or a level that is not representable while their product is.
-# - A function without levels to fold gets the step as rounded.
+#   products of level and step are those of the plain chain, formed in range. For a function that the
+#   split does not cover (ElasticNet, for one), the fold can store a subnormal level.
+# - A function without levels to fold, or a fold that is refused, gets the step as rounded.
 # The factor is the one that takes the value of the returned function to the value of the chain.
-# Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
-# `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
-# in a loop over `prox_block` are the ones that are not inlined (`_prox_block_nested`).
-function _nested_step(s::Scaled, γ::Real)
+# Marked `@inline`: the result is a union of tuples (folded or plain function, the step, and the
+# factor or `nothing`), which a call that is not inlined must box. Without the mark, Julia 1.10.13 did
+# not inline the call for some leaf types (NormL1Nonneg, for one) into `_prox_chain!`,
+# `_value_and_prox_chain!` and `_prox_block_nested`, and the chain routes allocated for the boxed
+# result. The callers that sit in a loop over `prox_block` call `_prox_block_nested`, which is not
+# inlined itself.
+@inline function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
   step = _apply_scale(a, γ)
@@ -628,10 +640,32 @@ function _nested_step(s::Scaled, γ::Real)
     h === nothing || return (h, convert(typeof(step), mγ), nothing)
   end
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  e = Int(ea + eγ)
+  h = _split_level_step(f, ma, e, convert(T, mγ))
+  h === nothing || return (h[1], h[2], nothing)
+  g = _fold_level_step(f, _ProjectionScale(ma, e))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
+end
+# The function and the step of the split of the exponent e (the exponent of the factors and of γ, whose
+# significand is mγ) between the step and the level, for a NormL1 or NormL1Nonneg whose level is a
+# positive finite IEEE number after `float` and that the fold of the whole exponent into the level
+# (`_nested_step`) would not leave a normal number: the step takes mγ 2^k and the level the exponent
+# e - k, with k near half the exponent of the product of the level and 2^e, so that each is a normal
+# number although their product need not be. `nothing` for the other functions and levels, when the
+# fold stores a normal level, and when the step or the folded level is not a normal number at that
+# split (for example when the product is beyond what a normal step and a normal level hold).
+@inline _split_level_step(f, ma, e::Int, mγ) = nothing
+@inline function _split_level_step(f::Union{NormL1, NormL1Nonneg}, ma, e::Int, mγ::T) where {T<:Base.IEEEFloat}
+  λ = float(f.λ0)
+  (λ isa Base.IEEEFloat && isfinite(λ) && λ > 0) || return nothing
+  _folded_level(f.λ0, _NormalScale(_ProjectionScale(ma, e))) === nothing || return nothing
+  k = (e + _frexp(λ)[2]) >> 1
+  step = ldexp(mγ, k)
+  floatmin(T) <= step <= floatmax(T) || return nothing
+  g = _fold_level(f, _NormalScale(_ProjectionScale(ma, e - k)))
+  g === nothing ? nothing : (g, step)
 end
 
 _prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain!(y, s, x, γ) :

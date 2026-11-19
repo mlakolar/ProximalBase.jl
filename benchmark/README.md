@@ -518,3 +518,25 @@ PB_BASE=/path/to/tree-before PB_ROUNDS=15 julia --threads=1 --project=benchmark 
 PB_BASE=/path/to/tree-before PB_REVERSE=1 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run-reversed.out
 python3 benchmark/summarize_kkt_local.py summary.tsv run.out run-reversed.out
 ```
+
+## Logistic-loss harness
+
+Use a dedicated single-thread allocation for both source roles and the
+independently compiled A/A control.
+
+```sh
+julia scripts/instantiate.jl benchmark
+PB_BASELINE=/path/to/master PB_OUTPUT=/path/to/results PB_ROUNDS=7 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/logisticloss.jl
+```
+
+The logistic comparator is a standalone finite-data implementation with the
+same design, coefficients, weights and offsets and one workspace. The
+least-squares comparator loads the existing master source. Both comparisons
+record paired medians, minima and warmed allocations in `raw.csv`, and the
+source heads and Julia/BLAS settings in `provenance.txt`. The case ID names the
+operation, precision, weighting/offset combination and shape. Compare the
+candidate/reference ratios within each round to the control/reference ratios.
+For an isolated compilation probe set `PB_FIRST_CALL=1` and select a single
+case with `PB_FILTER` in each fresh process. The time in `first-call.csv`
+includes the first invocation and its compilation, after loading source.

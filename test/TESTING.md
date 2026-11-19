@@ -235,12 +235,18 @@ The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
 
 The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
-time in seconds. The current snapshot uses medians of three measurements,
-rounded to one decimal second, from these Julia 1.13.4 GitHub Actions runs of the same
-50-file inventory.
+time in seconds. The initial snapshot uses medians of three measurements,
+rounded to one decimal second, from these Julia 1.13.4 GitHub Actions runs of
+the 50-file inventory.
 [44576422943](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44576422943/attempts/1),
 [44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
 and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578535495/attempts/1).
+
+The 51-file snapshot uses provisional weights of 30 seconds for
+`logisticloss` and 140 seconds for the expanded `numerical_recovery`.
+Both use a single observation rounded up to the next five seconds. The
+observed wall times were 27.848 and 135.210 seconds, respectively, on Julia
+1.13.4. [51-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44592628040/attempts/1)
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
@@ -263,3 +269,9 @@ The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are
 required by the existing PR verdict and merge gate. PR builds may warm
 independent Julia package caches for the three validation job types.
+
+`logisticloss` checks homogeneous Float32 and Float64 logistic regression with
+dense, strided-view and CSC designs. It covers binary and fractional responses,
+weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
+warmed allocations and product counts. Independent BigFloat and finite-difference
+references check the value and both gradient spaces, including weighted tails.

@@ -97,7 +97,7 @@ end
 
 _value_sep(f, x::AbstractArray) = (_checkparams(f, x); _value_dense(f, x))
 
-@inline _stored_value_entry(f, v, i) = value_entry(f, v, i)
+Base.@propagate_inbounds _stored_value_entry(f, v, i) = value_entry(f, v, i)
 
 function _value_sep(f, x::SparseIterate)
   _checkparams(f, x)

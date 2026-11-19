@@ -56,10 +56,10 @@ function brute(X, s)
   (best, Y, E)
 end
 
-# A symmetric matrix and two Symmetric views: the first matrix has exact
-# symmetry (a pair of zeros may have opposite signs), and each parent holds
-# 77 in the triangle that its view does not read. The logical lower entry of
-# the pair (i, j) is the same in all three.
+# A symmetric matrix and the two parents of a Symmetric(…, :L) and a Symmetric(…, :U):
+# the first matrix is symmetric in the sense of the symmetry check (a pair of zeros
+# may have opposite signs), and each parent holds 77 in the triangle that its view
+# does not read. The logical lower entry of the pair (i, j) is the same in all three.
 function make_input(rng, T, p, density, pool)
   Xm = zeros(T, p, p)
   PL = fill(T(77), p, p)
@@ -429,8 +429,43 @@ end
   end
 end
 
+# The expected output from a sort of the strict lower magnitudes by (-|x|, index):
+# every pair when E ≤ k, otherwise the first k of the sorted order.
+function sort_reference(A::Matrix{T}, s) where {T}
+  p = size(A, 1)
+  pairs = lower_pairs(p)
+  mags = [abs(A[i, j]) for (i, j) in pairs]
+  k = min(s ÷ 2, length(pairs))
+  order = sort(eachindex(mags); by = i -> (-mags[i], i))
+  keep = count(!iszero, mags) <= k ? collect(1:length(pairs)) : sort(order[1:k])
+  Yexp = zeros(T, p, p)
+  for c in 1:p
+    Yexp[c, c] = A[c, c]
+  end
+  for idx in keep
+    i, j = pairs[idx]
+    Yexp[i, j] = A[i, j]
+    Yexp[j, i] = A[i, j]
+  end
+  Yexp
+end
+
+# the matrix whose strict lower entries in column-major order are g(idx, n)
+function from_lower(::Type{T}, p, g) where {T}
+  n = p * (p - 1) ÷ 2
+  A = zeros(T, p, p)
+  idx = 0
+  for c in 1:p, r in c+1:p
+    idx += 1
+    A[r, c] = A[c, r] = g(idx, n)
+  end
+  for c in 1:p
+    A[c, c] = T(c)
+  end
+  A
+end
+
 @testset "selection on larger matrices" begin
-  # a ranking by the number of entries above each threshold, with many ties
   rng = Xoshiro(7)
   for T in (Float32, Float64), p in (6, 11, 25), pool in (T[1, 2], T[1, 2, 3, 4, 5, 6], T.(1:200))
     A = zeros(T, p, p)
@@ -439,25 +474,25 @@ end
       A[r, c] = v
       A[c, r] = v
     end
-    pairs = lower_pairs(p)
-    mags = [abs(A[i, j]) for (i, j) in pairs]
     for s in (0, 1, 2, 5, 10, 40, 100, p * (p - 1) - 2, p * (p - 1))
-      k = min(s ÷ 2, length(pairs))
-      f = IndBallL0(s; diagonal = false)
-      Y = prox(f, A)
-      # keep the k largest magnitudes, ties to the earlier entry; compare with a stable sort
-      order = sort(eachindex(mags); by = i -> (-mags[i], i))     # earlier index first among ties
-      keep = count(!iszero, mags) <= k ? collect(1:length(pairs)) : sort(order[1:k])
-      Yexp = zeros(T, p, p)
-      for c in 1:p
-        Yexp[c, c] = A[c, c]
-      end
-      for idx in keep
-        i, j = pairs[idx]
-        Yexp[i, j] = A[i, j]
-        Yexp[j, i] = A[i, j]
-      end
-      @test isequal(Y, Yexp)
+      @test isequal(prox(IndBallL0(s; diagonal = false), A), sort_reference(A, s))
+    end
+  end
+end
+
+@testset "selection on structured orderings" begin
+  for T in (Float32, Float64), p in (30, 47, 60)
+    inputs = (
+      "organ pipe" => from_lower(T, p, (i, n) -> T(min(i, n - i + 1))),
+      "ascending" => from_lower(T, p, (i, n) -> T(i)),
+      "descending" => from_lower(T, p, (i, n) -> T(n - i + 1)),
+      "alternating signs" => from_lower(T, p, (i, n) -> T(iseven(i) ? min(i, n - i + 1) : -min(i, n - i + 1))),
+      "Toeplitz" => T[0.5^abs(i - j) for i in 1:p, j in 1:p],
+      "distance" => T[abs(i - j) for i in 1:p, j in 1:p],
+      "distance with ties and zeros" => T[abs(i - j) % 4 for i in 1:p, j in 1:p])
+    for (name, A) in inputs, s in (0, 2, 10, 2p, 20p, p * (p - 1) - 2, p * (p - 1))
+      Y = prox(IndBallL0(s; diagonal = false), A)
+      @test isequal(Y, sort_reference(A, s))
     end
   end
 end
@@ -475,8 +510,9 @@ end
   @test hash(f) != hash(IndBallL0(2; diagonal = false))
   @test IndBallL0(big(2)^70; diagonal = false) == IndBallL0(typemax(Int); diagonal = false)
   @test Scaled(f, 0) === f
-  @test_throws Exception kkt_violation(f, zeros(3, 3), zeros(3, 3))
-  @test_throws Exception lipschitz(f)
+  @test_throws MethodError kkt_violation(f, zeros(3, 3), zeros(3, 3), 1)
+  @test_throws MethodError prox_block(f, zeros(3), 1, 1.0)
+  @test_throws ArgumentError lipschitz(f)
 end
 
 @testset "three-argument calls and returns" begin
@@ -512,7 +548,7 @@ end
     @test value_and_prox!(P, f, S, 1.0) === 0.0
     @test isequal(P, Y1)
   end
-  # the prox with an unequal output matrix and an aliased input that is already feasible
+  # an aliased input that is already feasible
   Z = copy(Y1)
   @test prox!(Z, f, Z) === Z
   @test isequal(Z, Y1)
@@ -552,8 +588,13 @@ end
   # a negative or NaN step
   @test_throws ArgumentError prox!(Yc, h, X, -1.0)
   @test_throws ArgumentError prox!(Yc, h, X, NaN)
-  # the value of a nested scale
+  # two factors with a normal product merge into one wrapper
   @test isequal(prox(Scaled(Scaled(f, 2.0), 3.0), X), Y1)
+  # a chain whose factor product overflows passes the step γ and projects
+  chain = Scaled(Scaled(f, floatmax()), 4.0)
+  @test isequal(prox!(fill!(Yc, 42), chain, X, 1.0), Y1)
+  @test value_and_prox!(fill!(Yc, 42), chain, X, 1.0) === 0.0
+  @test isequal(Yc, Y1)
   @test isequal(prox(Scaled(f, 2.0), Symmetric(X)), Y1)
 end
 

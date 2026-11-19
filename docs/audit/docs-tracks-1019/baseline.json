@@ -15,7 +15,21 @@
     "examples/symmetric_storage.jl": "4081c2fb0281631106f9c4452254e11f53e046d010c98903a5c71675d15fe9b6"
   },
   "issue": 1019,
+  "measurements": {
+    "authored_page_headings": 256,
+    "authored_page_words": 56362,
+    "cross_page_fragment_links": 98,
+    "example_script_assertion_lines": 92,
+    "example_script_count": 9,
+    "executed_page_example_fences": 96,
+    "explicit_page_anchor_ids": 40,
+    "page_and_source_doctest_fences": 31,
+    "page_assertion_lines": 266,
+    "page_ref_links": 93,
+    "source_numerics_citation_lines": 34
+  },
   "mode": "report-only",
+  "normalizer_version": 2,
   "rendered_pages": 54,
   "schema": 1
 }

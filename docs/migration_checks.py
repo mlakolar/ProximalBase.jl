@@ -3,14 +3,13 @@
 This is a provenance check, not a Markdown renderer or a semantic equivalence
 proof. Documenter owns rendering; independent reviewers own approved rewrites.
 """
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
 import csv
-import io
 import json
 import posixpath
 import re
@@ -19,6 +18,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = ROOT / "docs/audit/docs-tracks-1019"
 BASELINE = "7ae86e2093060eb124211e2f21f043c6379f97ae"
+NORMALIZER_VERSION = 2
 FIELDS = ("block_id", "sha", "kind", "action", "dest", "dest_sha", "clause_ids", "reviewer")
 ACTIONS = {"stay", "move", "split", "reword", "dedupe", "supersede", "archive"}
 REVIEWED = {"split", "reword", "dedupe", "supersede"}
@@ -31,6 +31,11 @@ FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 LIST = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+")
 LINK = re.compile(r"(\[[^\]\n]*\]\()([^\s)]+)(\))")
 PROTECTED = re.compile(r"`+[^`]*`+|https?://[^\s)]+|\[[^\]]*\]\([^)]*\)", re.S)
+INLINE_LITERAL = re.compile(
+    r"(?<!`)(`+)(?!`)(.*?)\1(?!`)"
+    r"|(?<!\\)\$\$.*?(?<!\\)\$\$"
+    r"|(?<!\\)\$(?!\$)[^\n$]*?(?<!\\)\$(?!\$)"
+    r"|\\\(.*?\\\)|\\\[.*?\\\]", re.S)
 
 
 def git(*args, root=ROOT):
@@ -58,9 +63,9 @@ def canonical_links(text, path):
     def replace(match):
         target = match[2]
         url = urlsplit(target)
-        if url.scheme or url.netloc or target.startswith(("@", "#", "/")):
+        if url.scheme or url.netloc or target.startswith(("@", "/")):
             return match[0]
-        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), url.path))
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), url.path)) if url.path else path
         return match[1] + urlunsplit(("", "", resolved, url.query, url.fragment)) + match[3]
     return LINK.sub(replace, text)
 
@@ -69,7 +74,40 @@ def normalized(text, path, kind="prose"):
     text = text.replace("\r\n", "\n").strip()
     if kind in {"code", "math"}:
         return text
-    return " ".join(canonical_links(text, path).split())
+    # Mask literals before either whitespace normalization or link rebasing.
+    # A Julia string containing spaces or Markdown-looking text is still code.
+    literals = []
+    marker = "\0literal:"
+    while marker in text:
+        marker += "_"
+
+    def protect(value):
+        literals.append(value)
+        return f"{marker}{len(literals) - 1}\0"
+
+    chunks, outside, fenced = [], [], []
+    opened = None
+    for line in text.splitlines(keepends=True):
+        fence = FENCE.match(line)
+        if opened is not None:
+            fenced.append(line)
+            if fence and fence[1][0] == opened[0] and len(fence[1]) >= len(opened) and not fence[2].strip():
+                chunks.append(protect("".join(fenced)))
+                fenced, opened = [], None
+        elif fence:
+            chunks.append("".join(outside))
+            outside, fenced, opened = [], [line], fence[1]
+        else:
+            outside.append(line)
+    if fenced:
+        # Keep malformed/unclosed fences literal too; Markdown lint owns errors.
+        chunks.append(protect("".join(fenced)))
+    chunks.append("".join(outside))
+    masked = INLINE_LITERAL.sub(lambda match: protect(match[0]), "".join(chunks))
+    result = " ".join(canonical_links(masked, path).split())
+    for index, literal in enumerate(literals):
+        result = result.replace(f"{marker}{index}\0", literal)
+    return result
 
 
 def digest(text):
@@ -83,8 +121,9 @@ def sentences(text):
     sides. The checker does not claim linguistic sentence understanding.
     """
     mask = list(text)
-    for match in PROTECTED.finditer(text):
-        mask[match.start():match.end()] = "x" * (match.end() - match.start())
+    for pattern in (PROTECTED, INLINE_LITERAL):
+        for match in pattern.finditer(text):
+            mask[match.start():match.end()] = "x" * (match.end() - match.start())
     start = 0
     for match in re.finditer(r"[.!?](?=\s+\S)", "".join(mask)):
         end = match.end()
@@ -229,6 +268,32 @@ def initial_ledger(base_blocks):
                  dest_sha=b.sha, clause_ids="", reviewer="mechanical") for b in base_blocks]
 
 
+def baseline_measurements(root=ROOT, baseline=BASELINE):
+    paths = git("ls-tree", "-r", "--name-only", baseline, root=root).splitlines()
+    page_paths = [p for p in baseline_paths(root, baseline) if p.startswith("docs/src/")]
+    pages = {p: git("show", baseline + ":" + p, root=root) for p in page_paths}
+    source = "\n".join(git("show", baseline + ":" + p, root=root)
+                       for p in paths if p.startswith("src/") and p.endswith(".jl"))
+    examples = [git("show", baseline + ":" + p, root=root)
+                for p in paths if p.startswith("examples/") and p.endswith(".jl")]
+    joined = "\n".join(pages.values())
+    return dict(
+        authored_page_words=sum(len(text.split()) for text in pages.values()),
+        authored_page_headings=sum(b.kind == "heading" for path, text in pages.items() for b in blocks(text, path)),
+        explicit_page_anchor_ids=len(re.findall(r"\(@id\s+[^)]+\)", joined)),
+        cross_page_fragment_links=len(re.findall(r"\]\([^)]*\.md#[^)]*\)", joined)),
+        page_ref_links=joined.count("(@ref"),
+        executed_page_example_fences=len(re.findall(r"^\s*```@example\b", joined, re.M)),
+        page_and_source_doctest_fences=len(re.findall(r"^\s*```jldoctest\b", joined + "\n" + source, re.M)),
+        page_assertion_lines=sum("@assert" in line for line in joined.splitlines()),
+        example_script_assertion_lines=sum("@assert" in line for text in examples for line in text.splitlines()),
+        example_script_count=len(examples),
+        source_numerics_citation_lines=sum("numerics.md" in line for p in paths
+            if p.startswith(("src/", "test/")) and p.endswith(".jl")
+            for line in git("show", baseline + ":" + p, root=root).splitlines()),
+    )
+
+
 def initialize(build, root=ROOT, audit=AUDIT, baseline=BASELINE):
     audit.mkdir(parents=True, exist_ok=True)
     baseline_data = baseline_blocks(root, baseline)
@@ -251,10 +316,10 @@ def initialize(build, root=ROOT, audit=AUDIT, baseline=BASELINE):
     write_tsv(audit / "anchors.tsv", ("page", "fragment"), anchor_rows, baseline)
     examples = {p: digest(git("show", baseline + ":" + p, root=root)) for p in all_paths
                 if p.startswith("examples/") and p.endswith(".jl")}
-    metadata = dict(schema=1, baseline=baseline, issue=1019, mode="report-only",
+    metadata = dict(schema=1, normalizer_version=NORMALIZER_VERSION, baseline=baseline, issue=1019, mode="report-only",
                     block_count=len(baseline_data), authored_pages=sum(p.startswith("docs/src/") for p in scope),
                     rendered_pages=len(pages), content_anchor_count=sum(map(len, pages.values())),
-                    example_scripts=examples)
+                    example_scripts=examples, measurements=baseline_measurements(root, baseline))
     (audit / "baseline.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     return metadata
 
@@ -276,7 +341,16 @@ def section_text(text, anchor):
     lines = text.splitlines()
     start = None
     level = 0
+    opened = None
     for i, line in enumerate(lines):
+        fence = FENCE.match(line)
+        if opened is not None:
+            if fence and fence[1][0] == opened[0] and len(fence[1]) >= len(opened) and not fence[2].strip():
+                opened = None
+            continue
+        if fence:
+            opened = fence[1]
+            continue
         heading = HEADING.match(line)
         if heading:
             explicit = re.search(r"\(@id\s+([^\s)]+)\)", heading[2])
@@ -309,8 +383,8 @@ def heading_titles(text):
 def protected_tokens(block):
     text = block.norm
     tokens = Counter()
-    for match in re.finditer(r"(`+)(.*?)\1", text, re.S):
-        tokens["span:" + match[2]] += 1
+    for match in INLINE_LITERAL.finditer(text):
+        tokens["literal:" + match[0]] += 1
     for pattern, prefix in ((r"(?<!\w)#\d+", "issue:"),
                             (r"(?<![\w.])(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?!\w)", "number:"),
                             (r"https?://[^\s)]+", "url:"),

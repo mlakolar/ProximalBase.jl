@@ -83,6 +83,10 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
+      - name: Check contract schema and migration-checker fixtures
+        run: |
+          python3 -B docs/check_contract_schema.py
+          python3 -B -m unittest discover -s docs -p 'test_migration_checks.py'
       - name: Check that source and test comments and testset names cite no numerical rule labels
         run: |
           julia --startup-file=no docs/check_source_labels.jl --self-test

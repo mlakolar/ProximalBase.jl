@@ -120,7 +120,7 @@ latter, at a finite level, keeps the finite-input restriction above at every ste
 | `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. See [the zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
 
-```@example numerical_endpoints
+```@example norml1_numerical_endpoints
 using ProximalBase
 @assert NormL1(0.0)([NaN,Inf]) == 0
 @assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]

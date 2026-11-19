@@ -304,9 +304,9 @@ for T in (Float32, Float64)
       # the low-level constructors check the stored arrays, the scratch included
       lsf = LeastSquaresLoss(w, M4 + 4I)
       check("LeastSquaresLoss low-level constructor, offset scratch, $kind",
-            () -> LeastSquaresLoss(lsf.Y, lsf.X, off(zeros(T, 4)), lsf.V, lsf.s2, lsf.XtY, lsf.sUtY, lsf.w, lsf.output, false))
+            () -> LeastSquaresLoss(lsf.Y, lsf.X, off(zeros(T, 4)), lsf.V, lsf.s2, lsf.sUtY, lsf.w, lsf.output, false))
       check("LeastSquaresLoss low-level constructor, offset response, $kind",
-            () -> LeastSquaresLoss(off(w), lsf.X, lsf.tmp, lsf.V, lsf.s2, lsf.XtY, lsf.sUtY, lsf.w, lsf.output, false))
+            () -> LeastSquaresLoss(off(w), lsf.X, lsf.tmp, lsf.V, lsf.s2, lsf.sUtY, lsf.w, lsf.output, false))
       qf = QuadraticFunction(A, w)
       check("QuadraticFunction low-level constructor, offset b, $kind",
             () -> QuadraticFunction(A, off(w), qf.c, qf.tmp, qf.Λ, qf.Q, qf.w))

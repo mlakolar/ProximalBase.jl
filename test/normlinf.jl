@@ -618,79 +618,279 @@ end
   @test allocs(prox!, ys, f, xs, T(0.3)) == 0
 end
 
-# ---- the exit of the threshold search when the count of entries above the level rises (#987) -------------------------------------
-# `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a level at or above a
-# large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below the previous one, the
-# count rises. The routine then returns the previous level. Returning the lower level instead would give a false zero threshold for
-# the score at the zero point and a clip of the tie at zero. The references are exact levels in BigFloat of a head entry y1 above m
-# equal entries y0 (no kernel of the package is called); the tolerance of a prox entry is 4 n u max|xᵢ| with u = eps(T)/2, four times
-# the absolute error u ‖x‖₁ ≤ n u max|xᵢ| of a level formed from a sum of n entries, which is far below the size of the entries of
-# these inputs, while the lower level is off by the whole entry. Whether an input below reaches that exit depends on the order in
-# which the sum of the ties is formed (the compilation mode and the loop that the compiler chooses): each input is a check of the
-# returned level where it reaches the exit and a check of accuracy where it does not.
-cluster_level(c, y1, y0, m) = setprecision(BigFloat, PREC) do
-  C, Y1, Y0 = big(c), big(y1), big(y0)
-  Y1 + m * Y0 <= C && return zero(BigFloat)
-  C <= Y1 - Y0 ? Y1 - C : (Y1 + m * Y0 - C) / (m + 1)
-end
-# the largest error of the entries of p against the clip of (y1, y0 × m) at the exact level for the radius c
-function cluster_prox_error(p, c, y1, y0, m)
+# ---- the threshold of the ℓ1 ball: the level equation and the bounds of its derivation (#1003, #987) ---------------------------
+# The tests below check the level that the threshold routines return against the exact level and against the bounds proved in the
+# header of `_l1ball_threshold!` (src/functions/normlinf.jl): for n entries of magnitude at most M in the type T, with u =
+# eps(T)/2, δ = nextfloat(zero(T)) and the hypothesis n u ≤ 1/4, the returned level τ̂ satisfies τ̂ - τ* ≤ the overshoot bound,
+# Σ (yᵢ - τ̂)₊ - a ≤ the excess bound of the exits, and |τ̂ - τ*| ≤ 4.5 n u M + 2 n δ (the exit-by-exit statements are checked
+# with the sums in sequential order, below). The references are BigFloat (no kernel of the package): the exact level from the
+# magnitudes sorted and grouped by value, with prefix sums, and the excess Σ (yᵢ - τ)₊ - a at a float level τ. Each testset says
+# which exit or path it reaches.
+#
+# ---- helpers: references, bounds and inputs ----
+# the magnitudes of x sorted decreasingly and grouped by value: the distinct values (BigFloat) and their counts
+function ref_groups(x)
+  p = sort!(abs.(x); rev = true)
+  vals, cnt = BigFloat[], Int[]
   setprecision(BigFloat, PREC) do
-    τ = cluster_level(c, y1, y0, m)
-    e1 = abs(big(p[1]) - min(big(y1), τ))
-    e0 = maximum(abs(big(q) - min(big(y0), τ)) for q in (p[2], p[end], p[(end + 2) ÷ 2]))
-    max(e1, e0), τ
+    i = 1
+    while i <= length(p)
+      j = i
+      while j < length(p) && p[j + 1] == p[i]
+        j += 1
+      end
+      push!(vals, big(p[i]))
+      push!(cnt, j - i + 1)
+      i = j + 1
+    end
+  end
+  vals, cnt
+end
+# the exact level of the groups at the radius a: τ with Σ (vᵢ - τ)₊ = a, 0 when a is at least the sum
+function ref_level_groups((vals, cnt), a)
+  setprecision(BigFloat, PREC) do
+    A = big(a)
+    S = big(0)
+    K = 0
+    for i in eachindex(vals)
+      S += vals[i] * cnt[i]
+      K += cnt[i]
+      τ = (S - A) / K
+      (i == length(vals) || τ >= vals[i + 1]) && return max(τ, big(0))
+    end
+    big(0)
+  end
+end
+# Σ (vᵢ - τ)₊ - a at a float level τ
+ref_excess_groups((vals, cnt), τ, a) = setprecision(BigFloat, PREC) do
+  t = big(τ)
+  s = big(0)
+  for i in eachindex(vals)
+    vals[i] > t && (s += (vals[i] - t) * cnt[i])
+  end
+  s - big(a)
+end
+
+# the arithmetic of a type: u = eps/2 and δ = nextfloat(zero) as BigFloat
+arith(::Type{T}) where {T} = setprecision(BigFloat, PREC) do
+  (u = big(eps(T)) / 2, δ = big(nextfloat(zero(T))))
+end
+γb(k, u) = k * u / (1 - k * u)
+# the bounds of the derivation as BigFloat: the overshoot bound (the larger of the bound of a start and of a step), and the
+# level bound 4.5 n u M + 2 n δ
+function tbounds(ar, n, M)
+  setprecision(BigFloat, PREC) do
+    u, δ, Mb = ar.u, ar.δ, big(M)
+    ζ = 2 * (1 + u)^2 * γb(n - 1, u) * Mb + δ
+    εstart = Mb * ((2u + u^2) + (1 + u)^2 * γb(n - 1, u)) + δ / 2
+    Γ = max(γb(n, u) + (2u + u^2) / (1 - n * u), (2 + 2u + u^2) * γb(n, u))
+    εstep = (Γ * (Mb + ζ) + u * Mb + δ / 2) / (1 - u)
+    (over = max(εstart, εstep), level = 9 * n * u * Mb / 2 + 2 * n * δ)
+  end
+end
+# the bound of the excess Σ (yᵢ - τ̂)₊ - a over the exits (k ≤ n entries above the level), at the level τ̂
+function excess_bound(ar, n, M, a, τ̂)
+  setprecision(BigFloat, PREC) do
+    u, δ, A, t = ar.u, ar.δ, big(a), abs(big(τ̂))
+    cert = (3 * γb(n, u) / (2 * (1 - n * u)) + u / 2) * A + n * u * t + n * δ
+    vanish = (1 + 2 * n * u) / (1 - n * u) * n * (u * t + δ / 2) / (1 - u)^2
+    max(cert, vanish, γb(n, u) * A)
+  end
+end
+# nothing when the level τ̂ of the n entries with the groups (largest entry M) is within the bounds, a message otherwise
+function level_msg(ar, groups, n, M, a, τ̂)
+  setprecision(BigFloat, PREC) do
+    τx = ref_level_groups(groups, a)
+    t = big(τ̂)
+    b = tbounds(ar, n, M)
+    t - τx > b.over && return "level $τ̂ is above the exact level $(Float64(τx)) by more than the overshoot bound $(Float64(b.over))"
+    abs(t - τx) > b.level && return "level $τ̂ differs from the exact level $(Float64(τx)) by more than $(Float64(b.level))"
+    g = ref_excess_groups(groups, τ̂, a)
+    eb = excess_bound(ar, n, M, a, τ̂)
+    g > eb && return "the excess $(Float64(g)) at the level $τ̂ is above its bound $(Float64(eb))"
+    nothing
+  end
+end
+
+# the output y of a prox of x at the radius a: the clip at its largest magnitude, and the level it implies against the bounds
+function output_msg(::Type{T}, x, groups, y, a) where {T}
+  n = length(x)
+  M = maximum(abs, x)
+  τ̂ = maximum(abs, y)
+  if iszero(τ̂)
+    (all(iszero, y) && all(!signbit, y)) || return "a zero level with a nonzero output"
+  else
+    all(i -> y[i] == clamp(x[i], -τ̂, τ̂), eachindex(x)) || return "the output is not the clip of the argument at its largest magnitude $τ̂"
+  end
+  level_msg(arith(T), groups, n, M, a, τ̂)
+end
+# the output of each entry point at the radius a = λ (step one) and of the wrapper with a power of two: the first message or nothing
+function prox_msg(::Type{T}, x, groups, λ; entry_points = true, scaled = true) where {T}
+  f = NormLinf(λ)
+  o = one(T)
+  outs = Pair{String, Any}["prox" => prox(f, x, o)]
+  if entry_points
+    y = similar(x); prox!(y, f, x, o); push!(outs, "prox!" => y)
+    y = copy(x); prox!(y, f, y, o); push!(outs, "prox! in place" => y)
+    y = similar(x); v = value_and_prox!(y, f, x, o); push!(outs, "value_and_prox!" => y)
+    v === f(y) || return "value_and_prox! returned a value that is not that of its output"
+    y = copy(x); value_and_prox!(y, f, y, o); push!(outs, "value_and_prox! in place" => y)
+  end
+  scaled && push!(outs, "Scaled" => prox(2 * NormLinf(λ / 2), x, o))
+  for (name, y) in outs
+    msg = output_msg(T, x, groups, y, λ)
+    msg === nothing || return "$name: $msg"
+  end
+  nothing
+end
+
+# a head of h entries H above m ties y0, in an entry order: heads first, last, in the middle, or last followed by zeros (the padding
+# keeps the number of candidates of Condat's pass below the handover, so that the pass runs alone)
+function place_input(ties::Vector{T}, heads::Vector{T}, order) where {T}
+  m = length(ties)
+  order === :first && return vcat(heads, ties)
+  order === :last && return vcat(ties, heads)
+  order === :middle && return vcat(ties[1:(m ÷ 2)], heads, ties[(m ÷ 2 + 1):end])
+  vcat(ties, heads, zeros(T, 8 * (m + length(heads)) + 16))              # :padded
+end
+tie_input(::Type{T}, y0, m, H, h, order) where {T} = place_input(fill(T(y0), m), fill(T(H), h), order)
+const ORDERS = (:first, :last, :middle, :padded)
+
+# the inputs of #1003, measured at the base: levels 0.17933007, 0.29999998, 0.8999997002396832 and 0.0027803732 where the levels
+# of the issue are about 0.5, 0.93, 0.9 and 0.5 (the last field of each tuple is that approximate target: the exact level of the
+# stored data of input 2 is 0.9300000429153442, and that of input 3 is 1 - BigFloat(0.1); each test compares with the exact
+# level of the data). Input 1: Condat's pass hands over to Michelot's iteration (10^5 candidates); input 2: the pass alone (the
+# zeros keep the candidates below the handover); inputs 3 and 4: Michelot's iteration after the handover.
+function issue1003_inputs()
+  y0, y1, y2 = 0.17933106f0, 0.8999997002398832, 0.0027806521f0
+  (("1", Float32, [fill(y0, 100_000); 1f0], 0.5f0, 0.5),
+   ("2", Float32, [fill(0.3f0, 100_000); fill(1.2f0, 10); zeros(Float32, 800_096)], 2.7f0, 0.93),
+   ("3", Float64, [fill(y1, 1_000_000); 1.0], 0.1, 0.9),
+   ("4", Float32, [fill(y2, 1_000_000); 1f0], 0.5f0, 0.5))
+end
+# the cases of #987 (large ties) as (type, x, radius)
+function large_tie_cases()
+  cases = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
+           (Float64, 1.8, 0.9, 10^6, 0.9000008))
+  [(T, [T(y1); fill(T(y0), m)], T(λ)) for (T, y1, y0, m, λ) in cases]
+end
+# one head 1 above m ties y0 = (1 - c)/(1 + ρ m² u) at the radius c. Before y0 is rounded to T, the exact level 1 - c lies above
+# the ties by ρ m² u y0; the parameter ρ sets this gap against a worst-case rounding scale of the sum of the ties, not against
+# the measured error of that sum. After the rounding the gap can differ, and can be zero (Float64, m = 10, c = 0.5, ρ = 0.003
+# gives y0 = 0.5); (m, c, ρ, order, x)
+function head_ties_cases(::Type{T}) where {T}
+  u = Float64(eps(T)) / 2
+  [(m, cf, ρ, order, tie_input(T, (1 - cf) / (1 + ρ * Float64(m)^2 * u), m, 1, 1, order))
+   for m in (T == Float32 ? (10, 1000, 10^4, 10^5) : (10, 1000, 10^5)), cf in (0.1, 0.5, 0.9), ρ in (0.003, 0.03, 0.25, 1.0), order in ORDERS]
+end
+# ---- end of the helpers ----
+
+# a reader that counts its calls: a pass over n entries makes n calls
+# (an atomic counter: a plain counter in a vectorized loop could lose increments)
+struct CountRead{T}
+  calls::Threads.Atomic{Int}
+end
+CountRead{T}() where {T} = CountRead{T}(Threads.Atomic{Int}(0))
+@inline (r::CountRead{T})(v) where {T} = (Threads.atomic_add!(r.calls, 1); abs(convert(T, v)))
+
+# the pass and the iteration of the threshold with the sums taken in sequential order (a copy of the iteration, to check the
+# bounds for an order of summation that the vectorized pass does not produce); the exit taken and the number of passes are returned
+function seq_pass(y::AbstractVector{T}, τ::T) where {T}
+  r = zero(T)
+  k = 0
+  hi = T(Inf)
+  for v in y
+    if v > τ
+      r += v - τ
+      k += 1
+      hi = min(hi, v)
+    end
+  end
+  r, k, hi
+end
+function seq_iterate(y::AbstractVector{T}, a::T, τ::T; certify_any_step = false) where {T}
+  passes = 0
+  while true
+    passes += 1
+    r, k, hi = seq_pass(y, τ)
+    k == 0 && return maximum(y), :top, k, passes
+    r <= a && return τ, :level, k, passes
+    t = τ + (r - a) / k
+    ((certify_any_step || r - a <= a / 2) && t < hi) && return t, :cert, k, passes
+    t > τ || return τ, :vanish, k, passes
+    τ = t
+  end
+end
+seq_michelot(y::AbstractVector{T}, a::T; kw...) where {T} = seq_iterate(y, a, (foldl(+, y) - a) / length(y); kw...)
+# the inequality of the derivation for the exit taken, with k the count of the last pass: nothing or a message
+function exit_msg(ar, groups, n, M, a, τ̂, exit, k)
+  msg = level_msg(ar, groups, n, M, a, τ̂)
+  msg === nothing || return "$exit: $msg"
+  setprecision(BigFloat, PREC) do
+    u, δ, A, t = ar.u, ar.δ, big(a), abs(big(τ̂))
+    g = ref_excess_groups(groups, τ̂, a)
+    if exit === :cert
+      abs(g) <= (3 * γb(k, u) / (2 * (1 - k * u)) + u / 2) * A + k * u * t + k * δ || return "the certified step: |excess| $(Float64(abs(g))) is above its bound"
+    elseif exit === :level
+      g <= γb(k, u) * A || return "the level of the pass: the excess $(Float64(g)) is above γ_k a"
+    elseif exit === :vanish
+      (0 < g <= (1 + 2 * k * u) / (1 - k * u) * k * (u * t + δ / 2) / (1 - u)^2) || return "the step vanished: the excess $(Float64(g)) is not in (0, its bound]"
+    else
+      g == -big(a) || return "no entry above the level: the excess is not -a"
+    end
+    nothing
+  end
+end
+
+@testset "the four inputs of #1003 through prox, prox!, value_and_prox! and Scaled" begin
+  # Entry points: prox, prox! (distinct output and in place), value_and_prox! (both) and the wrapper Scaled with a power of two.
+  # Paths: Condat's pass with the handover to Michelot's iteration (input 1), Condat's pass alone (input 2), and Michelot's iteration
+  # after the handover (inputs 3 and 4); the returns reached depend on the order of the vectorized sums, and the bounds hold for each.
+  for (name, T, x, λ, target) in issue1003_inputs()
+    groups = ref_groups(x)
+    @test abs(ref_level_groups(groups, λ) - big(target)) < 1e-6     # the target of the issue, to within 1e-6
+    @test prox_msg(T, x, groups, λ) === nothing
+    # the head first (inputs 1, 3 and 4): the level is then the level of the head alone, rounded, and the first level of the
+    # issue
+    if name != "2"
+      xf = [x[end]; x[1:(end - 1)]]
+      @test prox_msg(T, xf, groups, λ; scaled = false) === nothing
+    end
   end
 end
 
 @testset "the threshold search when the count rises: two entries ($T)" for T in (Float32, Float64)
+  # #987. y = (3, 1 + 3ε), radius 2 - 2ε. The sum 4 + 3ε rounds to 4 + 4ε, the plain level is 1 + 3ε (the second entry, not above
+  # it), and the pass at that level gives the excess 2 - 3ε ≤ r: the level of the pass, at the first pass. The exact level is
+  # 1 + 2.5ε, midway between the floats 1 + 2ε and 1 + 3ε; the routine returns the upper one (n = 2 fixes the order of the sum).
   ε = eps(T)
-  # y = (3, 1 + 3ε), radius 2 - 2ε. The sum 4 + 3ε rounds to 4 + 4ε, the first level is 1 + 3ε (the second entry, which is not above
-  # it), the next level is (3 - (2 - 2ε))/1 = 1 + 2ε, and the count rises from 1 to 2. The exact level is 1 + 2.5ε. The routine
-  # returns the previous level 1 + 3ε; the lower level 1 + 2ε would be returned if the rise of the count were not an exit.
   y = T[3, 1 + 3ε]
   r = T(2) - 2ε
-  @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
-  @test cluster_level(r, y[1], y[2], 1) == big(1) + 2.5 * big(ε)
-  p = prox(NormLinf(r), y, one(T))
-  err, τ = cluster_prox_error(p, r, y[1], y[2], 1)
-  @test err <= 4 * 2 * (ε / 2) * 3
-  # the score at the zero point is the norm of the proximal point: sqrt(2) times the level, within the bound of the function
-  s = kkt_violation(NormLinf(r), y, zeros(T, 2))
-  setprecision(BigFloat, PREC) do
-    ref = sqrt(2) * τ
-    @test abs(big(s) - ref) <= (2 * 2 + sqrt(2) + 5) * big(ε) / 2 * (sqrt(sum(abs2, big.(y))) + big(r))
-  end
+  τ = PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T)
+  groups = ref_groups(y)
+  @test ref_level_groups(groups, r) == big(1) + 2.5 * big(ε)
+  @test level_msg(arith(T), groups, 2, 3, r, τ) === nothing
+  @test τ == 1 + 3ε
+  @test prox_msg(T, y, groups, r) === nothing
 end
 
-@testset "large ties: the threshold of the prox is not a false zero" begin
-  # (type, y1, y0, m, λ): the radius λ puts the level just below the tie y0 (or at it) with m large
-  cases = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
-           (Float64, 1.8, 0.9, 10^6, 0.9000008))
-  for (T, y1, y0, m, λ) in cases
-    v = fill(T(y0), m + 1)
-    v[1] = T(y1)
-    f = NormLinf(T(λ))
-    p = prox(f, v, one(T))
-    err, τ = cluster_prox_error(p, T(λ), T(y1), T(y0), m)
-    @test err <= 4 * (m + 1) * (eps(T) / 2) * T(y1)
-    @test all(==(p[2]), view(p, 2:m + 1))
-    @test p[2] > T(y0) / 2                               # the tie is clipped at the level, not at zero
-    q = copy(v)
-    @test prox!(q, f, q, one(T)) === q                   # the same in place, and through value_and_prox!
-    @test q == p
-    w = similar(v)
-    @test value_and_prox!(w, f, v, one(T)) == f(w)
-    @test w == p
-    # the same through Scaled with a power of two
-    ps = prox(Scaled(NormLinf(T(λ) / 2), T(2)), v, one(T))
-    @test cluster_prox_error(ps, T(λ), T(y1), T(y0), m)[1] <= 4 * (m + 1) * (eps(T) / 2) * T(y1)
+@testset "large ties (#987): the level of the prox against the exact level, and the ties clipped at that level" begin
+  # the radius puts the level just below the tie y0 (or at it) with m large (the handover to Michelot's iteration, and the
+  # return of the level of the pass or of a certified step). At the base the level of these inputs is a false zero for some of
+  # them and a positive but inaccurate level for the others. Asserted: through each entry point and the wrapper the level is within
+  # the bounds of the exact level, the ties are clipped at the same level, and that level is above y0/2 (not zero)
+  for (T, v, λ) in large_tie_cases()
+    @test prox_msg(T, v, ref_groups(v), λ) === nothing
+    p = prox(NormLinf(λ), v, one(T))
+    @test all(==(p[2]), view(p, 2:length(v)))
+    @test p[2] > v[2] / 2
   end
 end
 
 @testset "a grid of clusters around the breakpoint: the prox against the exact level ($T)" for T in (Float32, Float64)
-  # the shape of the failures: one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of
-  # the rounding error of the sum of the entries (read from the sum that the kernel forms)
+  # one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of the rounding error of
+  # the sum of the entries (read from the sum that the kernel forms): Condat's pass hands over for m ≥ 1024, and the returns of
+  # Michelot's iteration are those near a tie
   bad = 0
   for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
     y0 = T(y0f)
@@ -704,14 +904,398 @@ end
     c = setprecision(BigFloat, PREC) do
       T(big(y1) - big(y0) + θ * abs(serr))
     end
-    p = prox(NormLinf(c), v, one(T))
-    τ = cluster_level(c, y1, y0, m)
-    setprecision(BigFloat, PREC) do
-      e = maximum(abs(big(q) - min(big(vi), τ)) for (q, vi) in zip(p, v))
-      bad += !(e <= 4 * (m + 1) * (eps(T) / 2) * big(y1))
-    end
+    bad += prox_msg(T, v, ref_groups(v), c; entry_points = false, scaled = false) !== nothing
   end
   @test bad == 0
+end
+
+@testset "head and ties where the first level lies within the rounding of the sum ($T)" for T in (Float32, Float64)
+  # heads first, last, in the middle and padded with zeros (Condat's pass alone); the inputs of #1003 are of this form (Float32,
+  # m ≥ 10^4). All entry points on the small inputs and on one radius of the large ones
+  bad = 0
+  ncase = 0
+  for (m, cf, ρ, order, x) in head_ties_cases(T)
+    msg = prox_msg(T, x, ref_groups(x), T(cf); entry_points = m <= 1000 || (ρ == 0.003 && cf == 0.5), scaled = m <= 10^4)
+    ncase += 1
+    if msg !== nothing
+      bad += 1
+      @info "head and ties" T m cf ρ order msg
+    end
+  end
+  @test ncase >= 100 && bad == 0
+end
+
+@testset "the four exits of the iteration, each reached by a constructed input ($T)" for T in (Float32, Float64)
+  # `_l1ball_michelot` reads the entries once for the sum and once per pass (and once more for the largest entry when no entry is
+  # above the level); a counting reader tells which exit was taken
+  ar = arith(T)
+  # the level of the pass, at the first pass: y = (2, 2, 2), a = 3. The plain level (6 - 3)/3 = 1 is exact, the pass gives the
+  # excess 3 ≤ a
+  c = CountRead{T}()
+  @test PB._l1ball_michelot(T[2, 2, 2], T(3), c, T) == 1
+  @test c.calls[] == 2 * 3
+  # the level of the pass after a large step: y = (1, 0, 0, 0), a = 1/4. The plain level is 3/16, the pass gives the excess 13/16
+  # with one entry above, which is 9/16 beyond a and above a/2: the step to 3/4 is taken and not returned (although no entry lies
+  # between the levels), and the next pass gives the excess 1/4 ≤ a
+  c = CountRead{T}()
+  @test PB._l1ball_michelot(T[1, 0, 0, 0], T(1) / 4, c, T) == T(3) / 4
+  @test c.calls[] == 3 * 4
+  # the certified step: ones(3) with a radius whose plain level rounds below the exact level, so that the pass gives an excess
+  # just above a and the step is returned without a second pass (two readings of the entries, a level other than the plain one)
+  found = false
+  for a in T.(0.02:0.001:0.98)
+    c = CountRead{T}()
+    τ = PB._l1ball_michelot(ones(T, 3), a, c, T)
+    if c.calls[] == 2 * 3 && τ != (T(3) - a) / 3
+      found = true
+      @test exit_msg(ar, ref_groups(ones(T, 3)), 3, 1, a, τ, :cert, 3) === nothing
+      break
+    end
+  end
+  @test found
+  # the step vanished: ones(4) with a = 1.25 eps = 2.5u. The sum less a, 4 - 2.5u, rounds to 4 - 4u, so the plain level is
+  # 1 - u = prevfloat(1); the pass gives the excess 4u, which is 1.5u beyond a and above a/2 = 1.25u, and the step 1.5u/4 is below
+  # half the spacing u of the floats below 1: the level does not move and is returned (the exact level is 1 - 0.625u)
+  a = T(1.25) * eps(T)
+  c = CountRead{T}()
+  τ = PB._l1ball_michelot(ones(T, 4), a, c, T)
+  @test τ == prevfloat(one(T)) && c.calls[] == 2 * 4
+  groups = ref_groups(ones(T, 4))
+  @test ref_excess_groups(groups, τ, a) > 0
+  @test exit_msg(ar, groups, 4, 1, a, τ, :vanish, 4) === nothing
+  # no entry above the level: ones(2001) with a below half the spacing of the sum, so that the sum less a rounds to 2001 and the
+  # plain level is 1: no entry is above it and the largest entry is returned (readings: the sum, the pass and the largest entry)
+  a0 = T == Float64 ? T(8e-14) : T(4.5e-5)
+  c = CountRead{T}()
+  @test PB._l1ball_michelot(ones(T, 2001), a0, c, T) == 1
+  @test c.calls[] == 3 * 2001
+end
+
+@testset "Condat's pass alone, with a restart and with the handover ($T)" for T in (Float32, Float64)
+  rd = PB._AbsRead{T}()
+  # the pass alone reads each entry once (the buffer is read through `identity`); the exact level of these three inputs is 3/2
+  # (the entries 3 and 2 are above it: 3/2 + 1/2 = 2 = a) and the pass returns it
+  for x in (T[3, 2, 1, 0.5], T[1, 3, 2, 0.5], T[1, 3, 2, 0.5, 0.25, 0.125, 0, 0])
+    # the second input restarts the candidates at the entry 3 (the test of the join, 1 > (3 - 2)·1, fails), and the third has
+    # entries that are discarded below the level of the candidates
+    c = CountRead{T}()
+    @test PB._l1ball_threshold!(Vector{T}(undef, length(x)), x, T(2), c) == T(3) / 2
+    @test c.calls[] == length(x)
+    length(x) == 4 && @test PB._l1ball_michelot(x, T(2), rd, T) == T(3) / 2    # the plain level 9/8 and one step: exact in binary
+    @test level_msg(arith(T), ref_groups(x), length(x), 3, T(2), PB._l1ball_michelot(x, T(2), rd, T)) === nothing
+  end
+  # the handover: more than max(1024, n ÷ 8) candidates (2001 equal entries) go to Michelot's iteration, which reads the argument
+  # again; the level is the entries' value, as the existing test of the Michelot fallback has it
+  a0 = T == Float64 ? T(8e-14) : T(4.5e-5)
+  c = CountRead{T}()
+  x = ones(T, 2001)
+  @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c) == 1
+  @test c.calls[] > 2001
+  # the callers give the sum of their own pass: the handover then starts at its level, and the pass that sums the entries is not
+  # made
+  c2 = CountRead{T}()
+  @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c2, PB._linf_sum(x, rd, T)) == 1
+  @test c.calls[] - c2.calls[] == 2001
+end
+
+@testset "the discard level of Condat's pass does not decrease (Float32)" begin
+  # the head 1.25 with the radius 1 puts the level at prevfloat(1/4) and the 4000 entries prevfloat(1/4) are discarded; the
+  # entry 1/4 then joins the candidates; the join value, before the monotone maximum, is below prevfloat(1/4) (the factor 1 -
+  # (nv + 4)u shortens it), and without the maximum it would lower the discard level below the 60 entries 1/4 - 15 2^-26, which
+  # must not be stored: the level is 1/4 (the excess of the head, 1.25 - 1/4 = 1 = a, is exact)
+  x = Float32[1.25; fill(prevfloat(0.25f0), 4000); 0.25f0; fill(0.25f0 - 15 * 2.0f0^-26, 60)]
+  c = CountRead{Float32}()
+  @test PB._l1ball_threshold!(Vector{Float32}(undef, length(x)), x, 1f0, c) == 0.25f0
+  @test c.calls[] == length(x)                                    # no handover
+  @test maximum(prox(NormLinf(1f0), x, 1f0)) == 0.25f0
+  @test prox_msg(Float32, x, ref_groups(x), 1f0) === nothing
+end
+
+@testset "a join value equal to the largest entry, in the subnormal range ($T)" for T in (Float32, Float64)
+  # x = [4δ, 4δ, 4δ], a = δ: at the first join the discard level is fl(fl(fl(8δ f) - δ)/2) = fl(3.5δ) = 4δ (a tie, rounded to even),
+  # f = 1 - 6u, so it equals the largest entry, which the third entry does not exceed: that entry is not stored. The largest stored
+  # entry is still the largest entry, and the result is the largest entry, 4δ, within the bounds of the exact level 11δ/3
+  δ = nextfloat(zero(T))
+  x = fill(4δ, 3)
+  τ = PB._l1ball_threshold!(Vector{T}(undef, 3), x, δ, PB._AbsRead{T}())
+  @test τ == 4δ
+  @test level_msg(arith(T), ref_groups(x), 3, 4δ, δ, τ) === nothing
+  @test prox(NormLinf(δ), x, one(T)) == x
+end
+
+@testset "the discard level at a negative numerator with a subnormal sum of the candidates ($T)" for T in (Float32, Float64)
+  # x = [δ (25 times), 1], a = 1/2: at each join the numerator of the join value is negative (the sum of the candidates is
+  # subnormal and a is normal, so the difference is not exact). The value is then at most zero, and not at most L_V + δ/2 with
+  # L_V = (Σ_V - a)/nv the exact level of the candidates: in Float32 the value at 25 candidates, -0.02f0, is above L_V + δ/2 by
+  # about 4.5e-10. The level that the routine returns is within the bounds of the exact level 1/2
+  δ = nextfloat(zero(T))
+  a = T(0.5)
+  x = [fill(δ, 25); one(T)]
+  buf = Vector{T}(undef, length(x))
+  buf[1] = δ
+  nt, nv, s, ρ = 0, 1, δ, prevfloat(δ - a)
+  for i in 2:25
+    nt, nv, s, ρ, _ = PB._condat_step!(buf, x[i], nt, nv, s, ρ, a, 1024, eps(T) / 2)
+  end
+  @test nv == 25 && s < floatmin(T) && ρ <= 0
+  T == Float32 && @test big(ρ) > (25 * big(δ) - big(a)) / 25 + big(δ) / 2
+  τ = PB._l1ball_threshold!(Vector{T}(undef, length(x)), x, a, PB._AbsRead{T}())
+  @test level_msg(arith(T), ref_groups(x), length(x), 1, a, τ) === nothing
+  @test prox_msg(T, x, ref_groups(x), a) === nothing
+end
+
+@testset "a certified return from a level above the exact root ($T)" for (T, n, a) in ((Float32, 5, 3.6192696f0), (Float64, 7, 4.428546679406913))
+  # ones(n) with a radius whose plain level lies above the exact level 1 - a/n: with the sums in sequential order the pass at
+  # that level gives an excess just above a, and the certified step t, which lies above the exact level too, is returned (no
+  # entry between the levels)
+  x = ones(T, n)
+  τ, exit, k, passes = seq_michelot(x, a)
+  g = ref_groups(x)
+  @test exit === :cert && k == n && big(τ) > ref_level_groups(g, a)
+  @test exit_msg(arith(T), g, n, 1, a, τ, exit, k) === nothing
+end
+
+@testset "the pass counts without wrapping ($T)" for T in (Float32, Float64)
+  # `_l1ball_excess` counts in the integer type of the width of the entries (Int32 for Float32) when n fits in it, and in Int
+  # otherwise (2^31 entries or more: 8 GiB in Float32, which these tests do not allocate). Tested: the selection at the boundary
+  # sizes, and that the two counters give the same count and smallest entry on a small input, and sums within the bound of (P)
+  # of each other (the two loops can be vectorized differently, which changes the order of the sum). Not tested: a pass over
+  # 2^31 entries
+  rd = PB._AbsRead{T}()
+  U = T == Float32 ? Int32 : Int64
+  @test PB._excess_narrow(T, 10) && PB._excess_narrow(T, Int(typemax(U)))
+  T == Float32 && @test !PB._excess_narrow(Float32, Int(typemax(Int32)) + 1)
+  x = abs.(randn(Xoshiro(7), T, 1000))
+  for τ in T[0.2, 0.7, 1.5]
+    r0, k0, h0 = PB._excess_loop(x, 1000, τ, rd, Int)
+    @test k0 > 0
+    for (r, k, h) in (PB._excess_wide(x, 1000, τ, rd), PB._excess_loop(x, 1000, τ, rd, U), PB._l1ball_excess(x, 1000, τ, rd))
+      @test k == k0 && h == h0
+      @test abs(r - r0) <= 2 * 1000 * eps(T) / 2 * 1.01 * max(r, r0)          # both within γ₁₀₀₀ of the exact sum
+    end
+  end
+end
+
+@testset "a certified step is not accepted after a large excess ($T)" for T in (Float32, Float64)
+  # a head 1, m ties y0 = 3/10 and 8m zeros, radius 0.4: the exact level is 0.6 (the head alone). The plain level is far below the
+  # ties, the pass there gives an excess of about 2667 and the step lands just below the ties; the sums of the pass in sequential
+  # order make it land at 0.29999757 in Float32. A rule that returned that step (nothing between the levels, so the set is the
+  # same) would return it, 0.3 where the level is 0.6; the condition on the excess of the pass sends the iteration on to the next passes
+  m = 10^4
+  y0, a = T(0.3), T(0.4)
+  x = [T(1); fill(y0, m); zeros(T, 8m)]
+  groups = ref_groups(x)
+  τ, exit, k, passes = seq_michelot(x, a)
+  @test exit_msg(arith(T), groups, length(x), 1, a, τ, exit, k) === nothing
+  @test passes >= 3                                                # the large step is followed by passes
+  @test abs(big(τ) - big(0.6)) < 1e-6
+  if T == Float32
+    τ0, exit0, _, _ = seq_michelot(x, a; certify_any_step = true)
+    @test exit0 === :cert && abs(τ0 - 0.6f0) > 0.1                # the rule without the condition returns about 0.2999976
+  end
+  @test prox_msg(T, x, groups, a) === nothing
+end
+
+@testset "the exits and their bounds with the sums in sequential order ($T)" for T in (Float32, Float64)
+  # the iteration with the sums of its passes (and of its start) taken in the order of the loop, which the vectorized passes do
+  # not produce: the inequality of the derivation for the exit taken, and each exit reached at least once
+  rng = Xoshiro(1006)
+  ar = arith(T)
+  seen = Dict{Symbol, Int}()
+  bad = 0
+  function check_seq(x, a)
+    a < foldl(+, x) || return
+    τ, exit, k, _ = seq_michelot(x, a)
+    seen[exit] = get(seen, exit, 0) + 1
+    msg = exit_msg(ar, ref_groups(x), length(x), maximum(x), a, τ, exit, k)
+    msg === nothing || (bad += 1; @info "sequential order" T length(x) a exit msg)
+  end
+  for (m, cf, ρ, order, x) in head_ties_cases(T)
+    m <= 10^4 && check_seq(x, T(cf))
+  end
+  for m in (10, 1000, 3 * 10^4), h in (1, 2, 10), order in ORDERS, f in (0.2, 0.95, 1.0, 1.05, 3.0)
+    check_seq(tie_input(T, 0.3, m, 1.0, h, order), T(f * h * 0.7))
+  end
+  for n in (10, 1000, 10^4), ord in (:up, :down, :shuffled), frac in (1e-6, 1e-3, 0.1, 0.5, 0.9, 0.999)
+    base = T.(range(1, 2; length = n))
+    x = ord === :up ? base : ord === :down ? reverse(base) : shuffle(rng, base)
+    check_seq(x, T(frac * sum(Float64, x)))
+  end
+  for n in (100, 10^4), f in (0.2, 0.999, 1.001, 2.0), order in ORDERS
+    y0 = T(0.7)
+    x = place_input(T[y0 + rand(rng, 0:8) * eps(y0) for _ in 1:(n - 3)], fill(T(1.2), 3), order)
+    check_seq(x, T(f * 3 * 0.5))
+  end
+  # the inputs of the testset of the exits
+  check_seq(T[2, 2, 2], T(3))
+  check_seq(T[1, 0, 0, 0], T(1) / 4)
+  check_seq(ones(T, 4), T(1.25) * eps(T))
+  check_seq(ones(T, 2001), T == Float64 ? T(8e-14) : T(4.5e-5))
+  for a in T.(0.02:0.001:0.98)
+    check_seq(ones(T, 3), a)
+    check_seq(ones(T, 7), a)
+  end
+  @test bad == 0
+  @test all(haskey(seen, e) for e in (:level, :cert, :vanish, :top))
+end
+
+@testset "deterministic families against the exact level, in four entry orders ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1003)
+  bad = 0
+  ncase = 0
+  report(tag, msg) = (ncase += 1; msg === nothing || (bad += 1; @info "family" T tag msg))
+  # equal entries with 1, 2 and 10 larger ones, n from 2 to 10^5, the radius around the breakpoint h (H - y0) where the level
+  # reaches the ties (H = y0 + 0.7 up to a rounding). Paths: Condat's pass alone when the ties are not candidates, or when the zeros
+  # of the padded order keep the candidates below the handover, and the handover to Michelot's iteration otherwise (m ≥ 1024)
+  for m in (1, 2, 9, 1000, 10^4), h in (1, 2, 10), y0f in (0.1, 0.3, 0.9), order in ORDERS, f in (0.2, 0.95, 1.0, 1.05, 3.0)
+    x = tie_input(T, y0f, m, y0f + 0.7, h, order)
+    a = T(f * h * 0.7)
+    report((m, h, y0f, order, f), prox_msg(T, x, ref_groups(x), a; entry_points = m <= 9, scaled = m <= 9))
+  end
+  # nearly equal entries, 0 to 8 spacings apart, with h larger entries placed in the four orders
+  for n in (2, 3, 10, 100, 1000, 10^4, 10^5), y0f in (0.1, 1.0, 0.7), h in (1, 3), f in (0.2, 0.9, 0.999, 1.001, 2.0, 50.0), order in ORDERS
+    n > h || continue
+    (n >= 10^4 && (f in (0.9, 1.001) || y0f == 0.7)) && continue
+    y0 = T(y0f)
+    ties = T[y0 + rand(rng, 0:8) * eps(y0) for _ in 1:(n - h)]
+    x = place_input(ties, fill(T(y0f + 0.5), h), order)
+    report((n, y0f, h, f, order), prox_msg(T, x, ref_groups(x), T(f * h * 0.5); entry_points = false, scaled = false))
+  end
+  # ramps, up, down and shuffled with a fixed seed, and shuffled with zeros appended; the radius is a fraction of the sum
+  for n in (2, 3, 10, 100, 1000, 10^4), ord in (:up, :down, :shuffled, :padded), frac in (1e-6, 1e-3, 0.1, 0.5, 0.9, 0.999)
+    base = T.(range(1, 2; length = n))
+    x = ord === :up ? base : ord === :down ? reverse(base) : shuffle(rng, base)
+    ord === :padded && (x = vcat(x, zeros(T, 8n)))
+    report((n, ord, frac), prox_msg(T, x, ref_groups(x), T(frac * sum(Float64, x)); entry_points = false, scaled = false))
+  end
+  x = shuffle(rng, T.(range(1, 2; length = 10^5)))
+  for frac in (1e-3, 0.5, 0.999)
+    report((10^5, :shuffled, frac), prox_msg(T, x, ref_groups(x), T(frac * sum(Float64, x)); entry_points = false, scaled = false))
+  end
+  @test ncase >= 1500 && bad == 0
+end
+
+@testset "a radius below the rounding of the sum, and a radius near the full sum ($T)" for T in (Float32, Float64)
+  rd = PB._AbsRead{T}()
+  bad = 0
+  # equal entries and a radius below the spacing of their sum: some radii round the plain level onto the entries, and the grid
+  # also has levels just below them (Michelot's iteration after the handover for n > 2000, Condat's pass alone below)
+  for n in (4, 100, 2001, 20_001), y0 in T[1, 0.3, 0.7], a in (eps(y0) / 4, eps(y0), 3 * eps(y0), T(1.25) * eps(T), eps(T) * n * y0 / 1000)
+    x = fill(y0, n)
+    bad += prox_msg(T, x, ref_groups(x), a; entry_points = n < 1000, scaled = n < 1000) !== nothing
+  end
+  @test bad == 0
+  # a radius within a few spacings of the sum (the level is near zero): through the public API the output is zero when the radius
+  # reaches the sum that the kernel forms, and a level within the bounds otherwise
+  for x in (fill(T(0.3), 1000), T.(range(1, 2; length = 1000)), [T(1); fill(T(0.1), 5000)])
+    groups = ref_groups(x)
+    s = PB._linf_sum(x, rd, T)
+    for d in (0, 1, 2, 4, 8, 64, 1000)
+      a = s
+      for _ in 1:d
+        a = prevfloat(a)
+      end
+      @test prox_msg(T, x, groups, a; entry_points = false, scaled = false) === nothing
+      d == 0 && @test all(iszero, prox(NormLinf(a), x, one(T)))        # a radius that reaches the sum gives the zero output
+    end
+    @test all(iszero, prox(NormLinf(2 * s), x, one(T)))
+  end
+end
+
+@testset "the scaled path: entries near floatmax ($T)" for T in (Float32, Float64)
+  # the sum of the magnitudes is approximately 0.9 floatmax (the normalization and the entries are rounded), above floatmax/2:
+  # the entries are read in units of a power of two; the level of the exceptional path is within the same bounds (the units of
+  # the subnormal losses are below these at these sizes)
+  bad = 0
+  u = Float64(eps(T)) / 2
+  for m in (10, 1000, 10^4), cf in (0.1, 0.5, 0.9), ρ in (0.06, 0.25, 1.0), order in (:first, :last, :padded)
+    y0 = (1 - cf) / (1 + ρ * Float64(m)^2 * u)
+    c = T(0.9) * floatmax(T) / T(1 + m * y0)
+    x = c .* tie_input(T, y0, m, 1, 1, order)
+    bad += prox_msg(T, x, ref_groups(x), T(cf) * c; entry_points = false, scaled = false) !== nothing
+  end
+  @test bad == 0
+end
+
+@testset "BigFloat and Float16 arguments reach the plain-loop pass" begin
+  # the pass for types other than Float32 and Float64 is a plain loop; the routines are called directly (the array methods of the
+  # package support Float32 and Float64). BigFloat at 64 bits of precision (the arithmetic of a BigFloat is at the global
+  # precision), Float16 with n eps ≤ 1/2
+  rng = Xoshiro(55)
+  for (T, n, bits) in ((BigFloat, 60, 64), (Float16, 100, 0), (Float16, 400, 0))
+    xs = [exp(2 * randn(rng)) for _ in 1:n]
+    ar = T === BigFloat ? (u = big(2.0)^-bits, δ = big(nextfloat(zero(BigFloat)))) : arith(T)
+    ok = true
+    run() = begin
+      x = T.(xs)
+      groups = ref_groups(x)
+      M = maximum(x)
+      for f in (1e-4, 0.01, 0.3, 0.9, 0.99)
+        a = T(f * Float64(sum(Float64, x)))
+        τ = PB._l1ball_threshold!(Vector{T}(undef, n), x, a, PB._AbsRead{T}())
+        τm = PB._l1ball_michelot(x, a, PB._AbsRead{T}(), T)
+        ok &= level_msg(ar, groups, n, M, a, τ) === nothing && level_msg(ar, groups, n, M, a, τm) === nothing
+      end
+    end
+    T === BigFloat ? setprecision(run, BigFloat, bits) : run()
+    @test ok
+  end
+end
+
+@testset "the routines end, and are bounded by the largest entry, outside their preconditions ($T)" for T in (Float32, Float64)
+  rd = PB._AbsRead{T}()
+  δ = nextfloat(zero(T))
+  x = T[0.5, 1, 2, 3]
+  s = sum(x)
+  # a at or above the sum: the level is (s - a)/n or below, at most the largest entry
+  for a in (s, nextfloat(s), 2s, 10s, floatmax(T) / 4)
+    τ = PB._l1ball_michelot(x, a, rd, T)
+    τc = PB._l1ball_threshold!(similar(x), x, a, rd)
+    @test isfinite(τ) && τ <= maximum(x) && isfinite(τc) && τc <= maximum(x)
+  end
+  # a tiny radius (the smallest subnormal) and a zero radius (a radius that underflowed): the level is the largest entry within the bounds
+  groups = ref_groups(x)
+  ar = arith(T)
+  for a in (δ, T(1e-30), zero(T))
+    τ = PB._l1ball_michelot(x, a, rd, T)
+    τc = PB._l1ball_threshold!(similar(x), x, a, rd)
+    @test level_msg(ar, groups, 4, 3, a, τ) === nothing && level_msg(ar, groups, 4, 3, a, τc) === nothing
+  end
+  @test prox(NormLinf(floatmin(T)), x, floatmin(T)) == x           # γλ underflows to zero: the clip changes nothing
+  # all entries equal, all zero, and n = 1
+  @test PB._l1ball_michelot(zeros(T, 5), zero(T), rd, T) == 0 && PB._l1ball_threshold!(zeros(T, 5), zeros(T, 5), zero(T), rd) == 0
+  for y in T[5, 0.3, 1e-3, 3e5], f in (0.1, 0.5, 0.999999)
+    a = T(f) * y
+    g1 = ref_groups([y])
+    @test level_msg(ar, g1, 1, y, a, PB._l1ball_michelot([y], a, rd, T)) === nothing
+    @test level_msg(ar, g1, 1, y, a, PB._l1ball_threshold!(T[0], [y], a, rd)) === nothing
+  end
+  # subnormal entries and radius: the arithmetic is exact except for the division, and the bounds carry the terms δ
+  for n in (3, 50), j in (1, n ÷ 2, 3n)
+    x = δ * T.(1:n)
+    a = j * δ
+    a < sum(x) || continue
+    g = ref_groups(x)
+    @test level_msg(ar, g, n, maximum(x), a, PB._l1ball_michelot(x, a, rd, T)) === nothing
+    @test level_msg(ar, g, n, maximum(x), a, PB._l1ball_threshold!(similar(x), x, a, rd)) === nothing
+  end
+end
+
+@testset "the threshold routines do not allocate ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1005)
+  rd = PB._AbsRead{T}()
+  # Condat's pass alone (random entries and ties with a head), the handover, and a start far below the level (several passes)
+  x1 = gen(rng, T, 1000, 1)
+  inputs = (("random", x1, T(0.3) * sum(abs, x1)),
+            ("heads and ties", tie_input(T, 0.3, 10^4, 1.0, 1, :padded), T(0.4)),
+            ("handover", ones(T, 5000), T(1.5)),
+            ("ramp", T.(range(1, 2; length = 3000)), T(100)))
+  for (name, x, a) in inputs
+    buf = Vector{T}(undef, length(x))
+    @test allocs(PB._l1ball_threshold!, buf, x, a, rd) == 0
+    @test allocs(PB._l1ball_threshold!, buf, x, a, rd, PB._linf_sum(x, rd, T)) == 0
+    @test allocs(PB._l1ball_michelot, x, a, rd, T) == 0
+  end
 end
 
 end

@@ -150,6 +150,8 @@ function _prox_sep_dense!(y::AbstractArray, f, x::AbstractArray, γ)
   end
   y
 end
+# that loop, also for an f that has a method of _prox_sep_dense! of its own (NormL1, ElasticNet)
+_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
 
 # on sparse iterates, only the stored entries when f preserves zeros; as for a
 # dense array, an entry stored in y stays stored, possibly as a zero
@@ -201,11 +203,9 @@ function _prox_sep!(y::SymmetricSparseIterate, f, x::Union{AbstractMatrix, Symme
   y
 end
 
-# the proximal operator, then the value at the result: two vectorized passes are
-# several times faster than one that stores and sums, which does not vectorize;
-# an indicator function is 0 at its projection
+# the proximal operator, then the value of f at the stored output
 _value_and_prox_sep!(y::_ArrayOrSymmetricIterate, f, x::_ArrayOrSymmetricIterate, γ::Union{Real, AbstractArray}) =
-  _isindicator(f) ? (_prox_sep!(y, f, x, γ); zero(_valtype(y))) : _value_sep(f, _prox_sep!(y, f, x, γ))
+  _value_sep(f, _prox_sep!(y, f, x, γ))
 
 _restrict_entries(w::Union{Nothing, Real}, ::AbstractVector{<:Integer}) = w
 _restrict_entries(w::AbstractArray, S::AbstractVector{<:Integer}) = w[S]

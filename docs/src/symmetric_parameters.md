@@ -30,6 +30,7 @@ certificate: a successful check says nothing about later mutation.
 | Function | Per-entry array |
 |:--|:--|
 | `NormL1` | weights w |
+| `NormL1Nonneg` | weights w |
 | `ElasticNet` | weights w |
 | `SqrNormL2` | center y |
 | `LinearFunction` | coefficients c |
@@ -135,13 +136,14 @@ The four-argument `kkt_violation(f,v,x,k)` on a symmetric iterate also reads the
 stored value of coordinate `k` of the lower triangle: for `NormL1`, `ElasticNet`,
 `ZeroFunction`, `LinearFunction` and `SqrNormL2` it is the signed screen when the
 value is zero and a nonnegative mismatch when it is not, formed from the symmetric
-gradient pair. The score is in matrix-entry units. For an off-diagonal coordinate with a
+gradient pair. For `NormL1Nonneg` it is formed from the symmetric gradient pair; see the
+[numerical contract](numerics.md). The score is in matrix-entry units. For an off-diagonal coordinate with a
 nonzero value it is half of the residual of the derivative in the independent parameter; with
 a zero value it is half of the signed margin in that parameter, and the positive part of
 that margin is the distance. For `NormL1(1.0)`, a zero point and a zero gradient, the score of an
 off-diagonal coordinate is `-1.0` while the distance is `0`. The score assumes
 symmetric parameters. The full-point form `kkt_violation(f,v,x)` throws an
-`ArgumentError` for these five functions on a symmetric iterate: use the coordinate form.
+`ArgumentError` for these functions and `NormL1Nonneg` on a symmetric iterate: use the coordinate form.
 `Scaled` over one of them evaluates the score of the function on `v/α` and multiplies it by `α` (an infinite
 factor throws an `ArgumentError` at a nonzero stored coordinate). `GroupNormL2`, `NormL2` and `NormLinf` have no
 symmetric form: the call throws an `ArgumentError`. A function defined outside the package

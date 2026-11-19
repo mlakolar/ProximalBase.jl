@@ -665,14 +665,11 @@ function test_normL1_values(::Type{T}) where {T<:AbstractFloat}
     @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[Inf, 1]) === T(Inf)
     @test isnan(NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[NaN, 1]))
     @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(zeros(T, 2)) === zero(T)
-    # the scaled sum with its compensated accumulation, and the dot of a coefficient array with scaled entries
+    # the scaled sum with its compensated accumulation
     xs = T[1, -2, 3] .* pow2(T, 40)
     sf = PB._power_factors(T, -40)
     @test PB._scaled_value_sum(xs, sf, abs) == T(6)
     @test PB._scaled_value_sum(T[1, 1e-8, -1], PB._power_factors(T, 0)) ≈ T(1e-8) rtol = 4 * eps(T)         # the small term survives the cancellation
-    @test PB._scaled_dot(T[1, 2, 3], T[4, 5, 6] .* pow2(T, 40), sf) == T(32)
-    @test PB._scaled_dot(2, T[4, 5, 6], PB._power_factors(T, 0)) == T(30)                    # an integer coefficient
-    @test_throws DimensionMismatch PB._scaled_dot(T[1, 2], T[1, 2, 3], sf)
   end
 end
 
@@ -1372,10 +1369,6 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test value_and_gradient!(SymmetricSparseIterate(T, p), fo, xo) === fo(xo)
       @test Matrix(go) == cm
     end
-    # the scaled dot of the stored entries of a sparse iterate: Σ cᵢ xᵢ 2^-k
-    sf = PB._power_factors(T, -(h + 4))
-    xsp3 = SparseIterate(T, 3); xsp3[1] = a; xsp3[3] = -a
-    @test within(PB._scaled_dot(T[1, 2, 3], xsp3, sf), (big(a) - 3 * big(a)) * big(2.0)^-(h + 4), 1)
   end
 end
 

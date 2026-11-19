@@ -37,6 +37,15 @@ Array steps are a distinct method family: generic separable and zero functions
 accept entry steps; `Scaled` forwards when its leaf supports them. Symmetric-iterate array
 steps are rejected before writes. No trait automatically supplies this dispatch.
 
+`NormL1Nonneg` overrides the public scalar-step `prox!` and `value_and_prox!` the same way and
+for the same reason, and takes the generic separable loops after the check; an array of steps is
+not read by it. Its value reaches the `NormL1` loops through the hook `_l1_value` and its stored
+`NormL1`, and a dense array without weights has a method of its own (`_value_dense`).
+
+`IndNonnegative` overrides the two public scalar-step methods in the same way, with a check of its own, and has no
+loop of its own: the generic separable loops compute its value and projection, and `value_and_prox!` ends in
+`_value_and_prox_sep!`, which evaluates the value at the stored output also for an indicator.
+
 `ElasticNet` overrides the public scalar-step `prox!` and `value_and_prox!` only to
 refuse a negative or `NaN` step before writes, then takes the checked separable route;
 its private routes (used by `Scaled`) and `prox_block` do not check the step. Its
@@ -78,13 +87,13 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 
 ## KKT and restrictions
 
-Retained scalar screens are explicitly implemented for `NormL1`, `ElasticNet`, `SqrNormL2`,
-`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, and `NormL2` and `NormLinf` a full-point form; `Scaled` forwards
+Retained scalar screens are explicitly implemented for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`,
+`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, `NormL2` and `NormLinf` a full-point form and `IndNonnegative` the three-argument screen only; `Scaled` forwards
 to them (below). The three-argument form is the signed
-screen of a coordinate assumed zero. For those five functions, the four-argument form on an
+screen of a coordinate assumed zero. For those six functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`
 evaluates the actual coordinate through one entry kernel per function, and the full-point form
-`kkt_violation(f,v,x)` makes a pass over an array point, possibly followed by a pass by entry for non-finite values; it is not provided for a
+`kkt_violation(f,v,x)` makes a pass over an array point, possibly followed by a pass by entry for non-finite values (for `NormL1Nonneg` also where the natural score of an entry is infinite or `NaN`, through its `_kkt_flag` method); it is not provided for a
 `SymmetricSparseIterate` (`ArgumentError`). For a function defined outside the package, the public
 four-argument methods read `x`: the three-argument value at a zero coordinate or group, and an
 `ArgumentError` at a nonzero one; a method of the function itself is used as defined, and there
@@ -101,7 +110,7 @@ for the distance to the subdifferential of the largest magnitude (the ℓ₁ bal
 largest entries of `x` elsewhere) and no block; its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite
 positive factor by evaluating the score of its function on `v/α` and multiplying it by `α`; a nested chain whose product of factors
 is not a normal number is scored through the function with the product applied to the gradient
-(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2`, `NormLinf`),
+(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2`, `NormL2`, `NormLinf`),
 and refuses the nonzero and full-point forms where there is no fold, as it does for an infinite
 factor (the [scaling guide](@ref scaled-kkt)). Dispatch does not
 turn a quadratic/least-squares loss into a scalar penalty screen. KKT is the raw first-order score

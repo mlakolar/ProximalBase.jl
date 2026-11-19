@@ -60,7 +60,7 @@ There is no automatic device registration or removed-family plugin layer.
 | `kkt_violation(g,v,block,k)`, `GroupNormL2` | Check group count, layout of group `k` and gradient length → block score: group norm minus penalty coefficient at a zero group, the mismatch `‖v_G + c x_G/‖x_G‖‖` at a nonzero one |
 | `kkt_violation(g,v,x)`, `GroupNormL2` and `NormL2` | Checked array point (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout) → block scores of the groups and `abs(v[i])` of the entries in no group (all of `x` is one block for `NormL2`) → `max(0, max score)` |
 | `kkt_violation(g,v,x)`, `NormLinf` | Checked array point → sums and largest magnitudes of `v` and `x`, with the rules for `NaN` and infinite entries → the level of the ℓ₁ ball (zero point) or of the face of the largest entries of `x` → the 2-norm of the residual, recomputed in units of a power of two outside the ordinary range |
-| `kkt_violation(g,v,x)`, entrywise function | Checked array point, `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → a pass over the entries, possibly followed by a pass that applies the rules for non-finite values by entry → `max(0, max score)` |
+| `kkt_violation(g,v,x)`, entrywise function | Checked array point, `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → a pass over the entries, possibly followed by a pass that applies the rules for non-finite values by entry → `max(0, max score)` |
 
 Traits describe mathematical properties and capabilities; Julia concrete
 methods determine supported signatures. `isseparable=true` alone neither

@@ -137,7 +137,7 @@ the group count and each group; for `NormL2` and `NormLinf` no parameter). It ma
 that applies the rules for non-finite values entry by entry can follow it, for
 instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.
 `NormLinf` makes several passes over `v` and `x` instead: one classification of each, the sums on the face,
-the search for the level, which repeats a pass while the count of entries above the level decreases, and the
+the search for the level, which makes one pass for each level that the iteration visits, and the
 sum of squares of the residual. The tests measure no allocation of this form for `NormLinf` on `Float32` or
 `Float64` arrays of one type with a level of a hardware float type; a `BigFloat` level can allocate.
 Dense `Float32` or `Float64` arrays of one type take the fast path of the other functions, where the tests

@@ -155,7 +155,18 @@ end
 # gives zero at every level and weight (an infinite one included); an infinite level, weight or m gives Inf. Otherwise
 # the product is formed in the working type R, as (λ0 w) m when λ0 w is a normal number and by the three-factor kernel
 # when it is not (zero, subnormal or overflowing), and converted to T.
-@inline function _linf_term(λ0, w, m, ::Type{T}) where {T}
+@inline _linf_term(λ0, w, m, ::Type{T}) where {T} = _linf_term_general(λ0, w, m, T)
+
+@inline function _linf_term(λ0::T, w::T, m::T, ::Type{T}) where {T<:Union{Float32, Float64}}
+  λw = λ0 * w
+  # With a normal product, multiplying by the magnitude also handles zero and Inf.
+  if floatmin(T) <= λw <= floatmax(T)
+    return isnan(m) ? T(NaN) : λw * m
+  end
+  _linf_term_general(λ0, w, m, T)
+end
+
+@inline function _linf_term_general(λ0, w, m, ::Type{T}) where {T}
   iszero(w) && return zero(T)
   (iszero(λ0) && !isinf(w)) && return zero(T)
   isnan(m) && return T(NaN)
@@ -231,7 +242,7 @@ function _linf_group_prox!(y, x, G, λ0, w, γ::Real, src, maxlen::Int)
   # _l1ball_threshold! (in _linf_group_level) needs finite nonnegative magnitudes, which s <= floatmax/2 certifies, and a
   # radius with 0 <= r < s: r is a product of positive finite factors, converted to T (a number, not NaN), and r >= s failed.
   # Its proof also assumes n eps(T) <= 1/2 for the n entries of the group, which is not checked here.
-  τ = _linf_group_level(src, T, maxlen, xv, r, _AbsRead{T}())
+  τ = _linf_group_level(src, T, maxlen, xv, r, _AbsRead{T}(), s)
   _linf_group_clip!(y, x, G, τ)
 end
 
@@ -270,15 +281,15 @@ end
   r′ >= s′ && return _linf_group_fill!(y, G, zero(T))
   # the conditions of _l1ball_threshold! hold for the scaled entries: they are finite and nonnegative because s′ is at most
   # floatmax/2, and 0 <= r′ < s′ as above
-  τ′ = _linf_group_level(src, T, maxlen, xv, r′, _ScaledAbsRead{T}(k))
+  τ′ = _linf_group_level(src, T, maxlen, xv, r′, _ScaledAbsRead{T}(k), s′)
   # τ′ is at most the largest scaled entry, 2^-k m rounded; 2^k τ′ is capped at m, which the rounding of the scaling can exceed
   _linf_group_clip!(y, x, G, min(ldexp(τ′, k), m))
 end
 
 # The clip level max(τ, 0) from the threshold of the ℓ1 ball of the magnitudes rd(xv[j]) at the radius r, as
-# _linf_threshold does for the whole argument. Under the conditions at _l1ball_threshold! the level is a number, not NaN.
-@inline function _linf_group_level(src, ::Type{T}, maxlen::Int, xv, r::T, rd) where {T}
-  max(_l1ball_threshold!(_linf_buffer(src, T, maxlen), xv, r, rd), zero(T))
+# _linf_threshold does for the whole argument. The handover reuses the caller's sum s in the same units as the read and radius.
+@inline function _linf_group_level(src, ::Type{T}, maxlen::Int, xv, r::T, rd, s::T) where {T}
+  max(_l1ball_threshold!(_linf_buffer(src, T, maxlen), xv, r, rd, s), zero(T))
 end
 # The buffer of the threshold: the scratch of the function at the length of its longest group, or an array that the caller gives.
 @inline _linf_buffer(sc::Scratch, ::Type{T}, maxlen::Int) where {T} = _array_buffer!(sc, T, (maxlen,))

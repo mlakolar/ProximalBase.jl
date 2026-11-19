@@ -387,8 +387,11 @@ end
 
 @testset "large ties through the shared threshold ($T)" for T in (Float32, Float64)
   # #987 puts the level just below a long tie. #1003 puts it above the tie, at the level of the head alone.
+  # The final case reaches the handover with the sum in scaled units.
+  M = floatmax(T)
   for (u, r, lower) in (([T(0.2); fill(T(0.1), 100_000)], T(0.3), T(0.09)),
-                       ([fill(T(0.17933106), 100_000); one(T)], T(0.5), T(0.49)))
+                       ([fill(T(0.17933106), 100_000); one(T)], T(0.5), T(0.49)),
+                       (fill(M / T(8), 4096), M, M / T(10)))
     n = length(u)
     f = GroupNormLinf(r, [1:n])
     ref, _ = ref_prox(u, f.groups, f.w, one(T), r)

@@ -121,6 +121,9 @@ function exceptional!(D::Data{T}, key, k) where {T}
     end
 end
 
+bindcall(fn, args...) = () -> (fn(args...); nothing)
+bindstore(out, fn, args...) = () -> (out[1] = fn(args...); nothing)
+
 # n = m², the size that the case ids carry. A probe is (id, work, build, atol, ref): work is a nominal size, about the
 # number of stored entries of the cell, used to choose evals (it is not a count of all the entries a call visits), build makes the role's operation and the reading of its result, atol is the tolerance of the
 # check, and ref is a BigFloat value with its bound for an exceptional cell (nothing otherwise).
@@ -177,17 +180,17 @@ function makeprobes(PB, ::Type{T}, m::Int, D::Data{T}, wanted) where {T}
         e10 = entries!(D, "d10pct_seq", k10, 0.0, false)
         atol = 8 * Float64(eps(T)) * sqrt(n) * 6 * (1.0 + sum(abs, C))
         add("value_and_gradient!/dense_output", length(e10.idx),
-            () -> (x = iterate_of(PB, T, m, e10); (() -> (out[1] = PB.value_and_gradient!(Out, f, x); nothing), () -> (out[1], copy(Out)))), atol)
+            () -> (x = iterate_of(PB, T, m, e10); (bindstore(out, PB.value_and_gradient!, Out, f, x), () -> (out[1], copy(Out)))), atol)
         add("value_and_prox!/dense_output", length(e10.idx),
-            () -> (x = iterate_of(PB, T, m, e10); (() -> (out[1] = PB.value_and_prox!(Out, f, x, γ); nothing), () -> (out[1], copy(Out)))), atol)
+            () -> (x = iterate_of(PB, T, m, e10); (bindstore(out, PB.value_and_prox!, Out, f, x, γ), () -> (out[1], copy(Out)))), atol)
         add("value_and_prox!/iterate_output", n,
             () -> (x = iterate_of(PB, T, m, e10); y = PB.SparseIterate(T, m, m);
-                   (() -> (out[1] = PB.value_and_prox!(y, f, x, γ); nothing), () -> (out[1], Matrix(y)))), atol)
+                   (bindstore(out, PB.value_and_prox!, y, f, x, γ), () -> (out[1], Matrix(y)))), atol)
         # controls: the code of these paths is unchanged
         add("control/gradient!_iterate_input", length(e10.idx),
-            () -> (x = iterate_of(PB, T, m, e10); (() -> (PB.gradient!(Out, f, x); nothing), () -> copy(Out))))
+            () -> (x = iterate_of(PB, T, m, e10); (bindcall(PB.gradient!, Out, f, x), () -> copy(Out))))
         add("control/prox!_iterate_input", length(e10.idx),
-            () -> (x = iterate_of(PB, T, m, e10); (() -> (PB.prox!(Out, f, x, γ); nothing), () -> copy(Out))))
+            () -> (x = iterate_of(PB, T, m, e10); (bindcall(PB.prox!, Out, f, x, γ), () -> copy(Out))))
     end
     # controls: dense matrix value, vector SparseIterate value, symmetric value
     add("control/dense_value", n, () -> (() -> (out[1] = f(X); nothing), () -> out[1]), 8 * Float64(eps(T)) * sqrt(n) * (1.0 + sum(abs, C) * 4))

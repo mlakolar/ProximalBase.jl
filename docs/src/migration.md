@@ -12,7 +12,7 @@ API. This development reduction is not a release announcement.
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf` and `GroupNormL2`, nonconvex penalties,
-logistic/Poisson/robust-loss families, constraints and indicators other than
+Poisson and robust-loss families, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
@@ -26,6 +26,14 @@ Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
+
+### Logistic regression
+
+`LogisticLoss(y, X; weights, offset)` is available as a standalone smooth loss.
+It requires finite responses in `[0, 1]`, including on zero-weight rows. The
+archived logistic constructor did not validate the response domain. The current
+constructor uses homogeneous strided `Float32` or `Float64` vectors and
+accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)
 
@@ -81,13 +89,13 @@ the block mismatch ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2``, which is ze
 | 3, 4 | zero | `-0.5` |
 
 The full-point value is the maximum of `0` and of the positive block scores, here about `0`; it is a
-maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` has the full-point form and no other.
+maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` and `NormLinf` have the full-point form and no other.
 
 What did not change, for the unscaled functions and for a single wrapper with a finite positive factor (nested wrappers
 with a product of factors that is not a normal number, and infinite factors, have the changes listed below):
 
 * Three-argument calls `kkt_violation(g,v,i)`, except the screen of a nested wrapper around `LinearFunction` and a
-  centered `SqrNormL2` (corrected below) and of `NormL2` (an `ArgumentError` below).
+  centered `SqrNormL2` (corrected below) and of `NormL2` and `NormLinf` (an `ArgumentError` below).
 * Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
   (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
@@ -122,22 +130,30 @@ What changed besides the values of the table:
   gave the type of `v`. The branches of the scaled forms are in the [numerical contract](numerics.md).
 * `NormL2` has the full-point form `kkt_violation(f,v,x)`. Its three-argument and four-argument
   forms, which were a `MethodError`, throw an `ArgumentError` that names the full-point form.
+* `NormLinf` has the full-point form `kkt_violation(f,v,x)`: the Euclidean distance from `-v` to the
+  subdifferential of `λ*maximum(abs, x)` at `x`, with the face of the largest entries decided by
+  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). In 0.5.4 the three-argument and four-argument calls were a `MethodError`; a call on a positive `Scaled`
+  was forwarded to the inner function, so that the error named `NormLinf`, and there was no full-point form of any function.
+  Now the full-point form
+  has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
+  four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a
+  `SymmetricSparseIterate` throws an `ArgumentError`.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the
   function (`Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)` at `v = [0.25]` was `1.25` and is `0.25`). Around
-  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
-  `GroupNormL2` or `NormL2` chain now scores with the folded level (a `GroupNormL2` chain at a zero group
+  `NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2` and `NormLinf` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
+  `GroupNormL2`, `NormL2` or `NormLinf` chain now scores with the folded level (for `NormLinf` the full-point form, which is its one form) (a `GroupNormL2` chain at a zero group
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
   three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero
   coordinate or group have the value of the definition at finite entries of `v` (`NaN` and infinite entries as the [scaling guide](@ref scaled-kkt) states), computed from the coefficient `a·λ·w`, with the exponents of the three applied in
   one last step for a positive finite `λ` and `w` (a zero weight gives the coefficient 0, an infinite weight or level gives `Inf`, and an
-  `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`); a nonzero coordinate or group and the
+  `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`). `NormLinf` has no screen: around a chain whose level does not fold it was a `MethodError` in the three-argument form and at a zero coordinate, and it is now an `ArgumentError` there and in the full-point form. A nonzero coordinate or group and the
   full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)). A stack that
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
   0.5, and the nonzero and full-point forms throw an `ArgumentError`.
-* `Scaled` over a function of the package without a score (`NormLinf`, the losses) throws a
+* `Scaled` over a function of the package without a score (the losses) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero

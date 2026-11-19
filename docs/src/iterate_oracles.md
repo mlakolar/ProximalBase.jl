@@ -76,8 +76,8 @@ them (below). `kkt_violation(g,v,x)` is the nonnegative full-point measure
 ``\max(0,\max_k s_k)`` of these functions on a one-based array,
 `SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the six scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
-group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` has the full-point
-form and no other.
+group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` and `NormLinf` have the
+full-point form and no other.
 
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
@@ -87,7 +87,7 @@ form and no other.
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
-| Any point, `NormL2` | No form for an entry or a group: `ArgumentError` that names the full-point form |
+| Any point, `NormL2` and `NormLinf` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument
 form for `NormL1` and `ElasticNet` reads `x[k]`, evaluates the score of a zero entry and that of a nonzero one, and selects
@@ -114,10 +114,15 @@ layout and `length(v) == length(x)`, then scores the group `Gₖ` with ``c=\lamb
 (see [the group penalty](group_penalty.md)). Its three-argument form throws `ArgumentError`
 because the penalty is not entrywise separable, as does a `SymmetricSparseIterate`
 point. `NormL2` takes the whole of `x` as one block and has the full-point form
-and no other: its three-argument and four-argument forms throw `ArgumentError`.
+and no other: its three-argument and four-argument forms throw `ArgumentError`. `NormLinf` is not a block
+score either: its full-point form is the Euclidean distance from ``-v`` to the subdifferential of
+``\lambda\max_i\lvert x_i\rvert`` at `x` (at ``x=0``, the distance from `v` to the ℓ₁ ball of radius ``\lambda``;
+at ``x\ne0``, with the face of the entries of largest magnitude, compared for equality after conversion to the
+working type; see [the ℓ∞ norm](@ref norm-linf-kkt)), and its three-argument and four-argument
+forms throw `ArgumentError`.
 
 `Scaled` with a finite positive factor `α` evaluates the score of its function on `v/α` and multiplies it by `α`,
-for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2` (the rounding and range limits
+for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2` and `NormLinf` (the rounding and range limits
 of that evaluation are in the [scaling guide](@ref scaled-kkt)).
 Nested wrappers whose factors do not multiply to a normal number, an infinite factor,
 and the functions without a score have unsupported cases, which are listed in
@@ -127,11 +132,15 @@ call on the `Scaled` function.
 The full-point form checks real element types, one-based axes (`ArgumentError`),
 `length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
 parameters (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout:
-the group count and each group; for `NormL2` no parameter). It makes a pass over the entries
+the group count and each group; for `NormL2` and `NormLinf` no parameter). It makes a pass over the entries
 (over the groups for `GroupNormL2`) and writes nothing. A second pass
 that applies the rules for non-finite values entry by entry can follow it, for
 instance when an entry of `v` or `x` is not finite or a score is `NaN` or infinite.
-Dense `Float32` or `Float64` arrays of one type take the fast path, where the tests
+`NormLinf` makes several passes over `v` and `x` instead: one classification of each, the sums on the face,
+the search for the level, which makes one pass for each level that the iteration visits, and the
+sum of squares of the residual. The tests measure no allocation of this form for `NormLinf` on `Float32` or
+`Float64` arrays of one type with a level of a hardware float type; a `BigFloat` level can allocate.
+Dense `Float32` or `Float64` arrays of one type take the fast path of the other functions, where the tests
 measure no allocation; other arrays, `SparseIterate` and `BlockIterate` included, are
 read by entry, and element types such as `BigFloat` can allocate in their arithmetic. The
 four-argument form on an array reads the parameters of entry `k`. The element

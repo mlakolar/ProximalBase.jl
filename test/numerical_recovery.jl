@@ -1776,37 +1776,264 @@ end
   end
 end
 
-function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
+# Scaled(…Scaled(leaf, α1)…, αm) over the leaf NormL1(λ0, w) (NormL1Nonneg(λ0, w) with nonneg), and the exact
+# thresholds γ α1⋯αm λ0 wᵢ of its scalar-step proximal operator, in BigFloat from the stored inputs
+function weighted_chain(λ0, w, αs, γ; nonneg = false)
+  s = nonneg ? NormL1Nonneg(λ0, w) : NormL1(λ0, w)
+  for α in αs
+    s = Scaled(s, α)
+  end
+  s, big(γ) * prod(big, αs) * big(λ0) .* big.(w)
+end
+# the exact product α1⋯αm γ λ0 that the level would have to hold
+chain_product(λ0, αs, γ) = big(γ) * prod(big, αs) * big(λ0)
+# How the level that holds the factors and the exponent of the step ends, from the exact product P = α1⋯αm γ λ0: the
+# level stored by the fold of the whole exponent is P / mγ for the significand mγ in [1/2, 1) of the step. It is zero,
+# a subnormal number, an overflow with P beyond floatmax (:overflow) or with P at most floatmax (:level_overflow), or normal.
+function fold_kind(::Type{T}, P::BigFloat, γ) where {T}
+  c = T(P / big(frexp(γ)[1]))
+  iszero(c) ? :zero : isinf(c) ? (isinf(T(P)) ? :overflow : :level_overflow) : abs(c) < floatmin(T) ? :subnormal : :normal
+end
+# a point near three thresholds where the threshold is a normal number, and a fixed one where it is not
+point_for(::Type{T}, t) where {T} = floatmin(T) <= t <= floatmax(T) / 8 ? T(3 * t) : T(3) * pow2(T, -50)
+refprox(x, t, nonneg) = nonneg ? max(big(x) - t, 0) : shrinkb(big(x), t)
+
+# The scalar-step entry points at x against the reference of every entry (4 ulps): prox!, prox_block, the point stored
+# by value_and_prox!, the call with the same input and output array, and a SparseIterate argument and output. An
+# array step of the same value agrees with them, when array_step.
+function test_scalar_routes(label, s, x::Vector{T}, γ, ts; nonneg = false, array_step = false) where {T}
+  n = length(x)
+  r = [refprox(x[i], ts[i], nonneg) for i in 1:n]
+  close(y) = all(i -> within(y[i], r[i], 4), 1:n)
+  @testset "$label" begin
+    @test close(prox!(zeros(T, n), s, x, γ))
+    @test all(i -> within(prox_block(s, x[i], i, γ), r[i], 4), 1:n)
+    y = zeros(T, n)
+    value_and_prox!(y, s, x, γ)
+    @test close(y)
+    xa = copy(x)
+    prox!(xa, s, xa, γ)
+    @test close(xa)
+    xs = SparseIterate(T, n)
+    for i in 1:n
+      xs[i] = x[i]
+    end
+    ys = SparseIterate(T, n)
+    prox!(ys, s, xs, γ)
+    @test close(ys)
+    array_step && @test close(prox!(zeros(T, n), s, x, fill(γ, n)))
+  end
+end
+
+# Scaled factors, a level and a step whose product leaves the range of the type, over weights that bring the
+# threshold γ α1⋯αm λ0 wᵢ back into it: the scalar step takes the same point as the array step and the reference
+# (#886). The three ways in which the level that holds the factors and the step is lost, on each side: the product is
+# zero or overflows, the level is a subnormal number, and the level overflows while the product does not.
+function test_scaled_weighted_threshold(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
-  δ = nextfloat(zero(T))
-  precT = precision(T)
-  rng = Xoshiro(1018)
-  @testset "recorded defects (see the audit document): @test_broken against the independent reference" begin
-    pp = E ÷ 2 + 20
-    # A suspected defect (docs/audit/numerical-kernels-file/recovery-coverage.md, "Defects found"): the prox of a nested
-    # chain over a weighted NormL1 loses the threshold when the level cannot hold α γ λ and the weights compensate. The value
-    # of the same chain recovers it (partial fold) and so does the array-step route (_shifted_fold).
-    # Underflow side: α1 α2 γ λ0 is below the range (zero, or a subnormal level with a few bits), α1 α2 γ λ0 w is representable.
-    f = NormL1(T(1.3) * pow2(T, 20), T[pow2(T, E - 10)])
-    s = Scaled(Scaled(f, pow2(T, -pp)), pow2(T, -pp))
-    γ = pow2(T, -30)
-    t = big(pow2(T, -pp))^2 * big(γ) * big(f.λ0) * big(f.w[1])
-    x = T[3 * pow2(T, -50)]
-    @test floatmin(T) < T(t) < x[1]
-    @test within(s(T[1]), big(pow2(T, -pp))^2 * l1val(f.λ0, f.w, T[1]), 2)                                 # the value is right
-    @test_broken within(prox!(zeros(T, 1), s, x, γ)[1], shrinkb(big(x[1]), t), 4)
-    @test_broken within(prox_block(s, x[1], 1, γ), shrinkb(big(x[1]), t), 4)
-    @test within(prox!(zeros(T, 1), s, x, T[γ])[1], shrinkb(big(x[1]), t), 4)                              # the array step is right
-    # Overflow side: the chain factor and the step multiply to a number beyond the range, the weight brings it back.
-    fo = NormL1(T(1.3) * pow2(T, E - 20), T[pow2(T, -(E - 10) - 20)])
-    so = Scaled(Scaled(fo, pow2(T, pp)), pow2(T, pp))
-    γo = pow2(T, -30)
-    to = big(pow2(T, pp))^2 * big(γo) * big(fo.λ0) * big(fo.w[1])
-    xo = T[3 * T(to)]
-    @test isfinite(T(to)) && isfinite(xo[1])
-    @test_broken within(prox!(zeros(T, 1), so, xo, γo)[1], shrinkb(big(xo[1]), to), 4)
-    # A second suspected defect (same document): an infinite entry under a weighted level whose product underflows is NaN,
-    # where the unweighted value (and the exact product of the positive finite factors with +Inf) is +Inf
+  smin = e0 - precision(T) + 1          # the exponent of the smallest subnormal number
+  p = E ÷ 2 + 20
+  @testset "scalar-step threshold of Scaled weighted ℓ1 (#886)" begin
+    cases = Pair{String, Any}[]
+    # the example of the issue: a level 1.3 2^20, a weight 2^(E-10) and two factors 2^-p, at the step 2^-30
+    push!(cases, "two factors below the range" =>
+      (T(1.3) * pow2(T, 20), T[pow2(T, E - 10)], (pow2(T, -p), pow2(T, -p)), pow2(T, -30), (:zero, :subnormal)))
+    # the factors and the step exceed the range, the weight is a subnormal number
+    push!(cases, "two factors above the range" =>
+      (T(1.3) * pow2(T, E - 20), T[pow2(T, -(E - 10) - 20)], (pow2(T, p), pow2(T, p)), pow2(T, -30), (:overflow,)))
+    # the product of the factors and the step is zero: a level that cannot hold it
+    qa = -e0 + precision(T) + 12
+    push!(cases, "zero product" =>
+      (T(1.7) * pow2(T, 20), T[pow2(T, E - 10)], (T(1.1) * pow2(T, -(qa ÷ 2)), T(1.3) * pow2(T, -(qa - qa ÷ 2))),
+       T(1.9) * pow2(T, -30), (:zero,)))
+    # the level that holds it is a subnormal number with a few bits
+    qb = -smin - 11
+    push!(cases, "subnormal level" =>
+      (T(1.7) * pow2(T, 20), T[pow2(T, E - 10)], (T(1.1) * pow2(T, -(qb ÷ 2)), T(1.3) * pow2(T, -(qb - qb ÷ 2))),
+       T(1.9) * pow2(T, -30), (:subnormal,)))
+    # the product of the factors and the step overflows, the weight is a normal number
+    qo = E + 36
+    push!(cases, "overflowing product" =>
+      (T(1.7) * pow2(T, E - 20), T[pow2(T, 4 - E)], (T(1.1) * pow2(T, qo ÷ 2), T(1.3) * pow2(T, qo - qo ÷ 2)),
+       T(1.9) * pow2(T, -30), (:overflow,)))
+    # the product α γ λ0 is at most floatmax, the level α 2^eγ λ0 (the product divided by the significand of the step)
+    # overflows
+    push!(cases, "level overflows, product does not (one factor)" =>
+      (T(1.5) * pow2(T, -8), T[pow2(T, -4)], (pow2(T, E - 2),), pow2(T, 10), (:level_overflow,)))
+    push!(cases, "level overflows, product does not (two factors)" =>
+      (T(1.5) * pow2(T, -8), T[pow2(T, -4)], (pow2(T, E ÷ 2 + 30), pow2(T, E - E ÷ 2 - 10)), pow2(T, -12), (:level_overflow,)))
+    # one factor whose product with the step leaves the range, on both sides, and a subnormal factor
+    push!(cases, "one factor, product with the step below the range" =>
+      (T(1.3), T[pow2(T, E - 4)], (T(1.1) * pow2(T, -(E - 5)),), T(1.9) * pow2(T, -70), (:zero,)))
+    push!(cases, "one factor, product with the step above the range" =>
+      (T(1.3) * pow2(T, E - 20), T[pow2(T, 4 - E)], (pow2(T, E - 5),), pow2(T, 15), (:overflow,)))
+    push!(cases, "one subnormal factor" =>
+      (T(1.3), T[pow2(T, E - 23)], (pow2(T, smin + 14),), one(T), (:subnormal,)))
+    # an Int level is converted by the fold: the level 1 and one factor, at the step 2^-551, with the weight 2^1003
+    T === Float64 && push!(cases, "Int level" => (1, [2.0^1003], (2.0^-551,), 2.0^-551, (:zero,)))
+    for (label, (λ0, w, αs, γ, kinds)) in cases
+      @testset "$label" begin
+        @test fold_kind(T, chain_product(λ0, αs, γ), γ) in kinds
+        for nonneg in (false, true)
+          s, ts = weighted_chain(λ0, w, αs, γ; nonneg)
+          @test all(t -> floatmin(T) <= t <= floatmax(T) / 8, ts)
+          x = T[point_for(T, t) for t in ts]
+          test_scalar_routes("$label, $(nonneg ? "NormL1Nonneg" : "NormL1")", s, x, γ, ts; nonneg, array_step = true)
+          nonneg || test_scalar_routes("$label, negative input", s, -x, γ, ts)
+        end
+      end
+    end
+    # the input of the issue, 3 2^-50, which is far above the threshold of the first case
+    s, ts = weighted_chain(T(1.3) * pow2(T, 20), T[pow2(T, E - 10)], (pow2(T, -p), pow2(T, -p)), pow2(T, -30))
+    @test floatmin(T) < T(ts[1]) < 3 * pow2(T, -50)
+    test_scalar_routes("input of the issue", s, T[3 * pow2(T, -50)], pow2(T, -30), ts; array_step = true)
+    # weights of different sizes in one call: each entry has its own threshold, and an entry whose threshold is below
+    # the range (the weight 1) keeps its input
+    λu, αu, γu = T(1.3) * pow2(T, 20), (pow2(T, -p), pow2(T, -p)), pow2(T, -30)
+    wu = T[pow2(T, E - 10), pow2(T, E - 40), 1, pow2(T, E - 4)]
+    for nonneg in (false, true)
+      s, ts = weighted_chain(λu, wu, αu, γu; nonneg)
+      @test ts[3] < floatmin(T) && all(t -> floatmin(T) <= t <= floatmax(T) / 8, ts[[1, 2, 4]])
+      test_scalar_routes("weights of different sizes below the range", s, T[point_for(T, t) for t in ts], γu, ts; nonneg, array_step = true)
+    end
+    # above the range: the last weight gives a threshold beyond floatmax, which leaves a finite input at zero
+    λo, αo = T(1.3) * pow2(T, E - 20), (pow2(T, p), pow2(T, p))
+    wo = T[pow2(T, -(E - 10) - 20), pow2(T, 4 - E), 1]
+    for nonneg in (false, true)
+      s, ts = weighted_chain(λo, wo, αo, γu; nonneg)
+      @test ts[3] > floatmax(T) && all(t -> floatmin(T) <= t <= floatmax(T) / 8, ts[1:2])
+      test_scalar_routes("weights of different sizes above the range", s, T[point_for(T, t) for t in ts], γu, ts; nonneg, array_step = true)
+    end
+    # an infinite input has the infinite point where the threshold is a finite number (the endpoint rule of the array
+    # step, which the scalar step takes here); NormL1Nonneg maps -Inf to zero
+    for ((λ0, w, αs, γ), side) in (((λu, wu[1:1], αu, γu), "below"), ((λo, wo[1:1], αo, γu), "above"))
+      s, _ = weighted_chain(λ0, w, αs, γ)
+      sn, _ = weighted_chain(λ0, w, αs, γ; nonneg = true)
+      @testset "infinite inputs, factors $side the range" begin
+        for (g, v, want) in ((s, T(Inf), T(Inf)), (s, T(-Inf), T(-Inf)), (sn, T(Inf), T(Inf)), (sn, T(-Inf), zero(T)))
+          @test prox!(zeros(T, 1), g, T[v], γ)[1] === want
+          @test prox_block(g, v, 1, γ) === want
+          @test prox!(zeros(T, 1), g, T[v], T[γ])[1] === want
+        end
+      end
+    end
+  end
+end
+
+# A seeded sweep over the exponents of two factors, the step, the level and the weight, with random significands, for
+# the chain of two Scaled factors over NormL1(λ0, [w]): every draw whose exact threshold t = α1 α2 γ λ0 w is a normal
+# number (at most floatmax / 8) and whose exact product P = α1 α2 γ λ0 lies between 2^(2 emin + 6) and 2^(2 emax - 6)
+# is checked at the point near 3t, for prox! and prox_block, against the reference. The filter is computed from the
+# exact inputs. The draws may differ between Julia versions, so the number of checked draws is asserted too.
+function test_scaled_threshold_sweep(::Type{T}) where {T<:AbstractFloat}
+  E, e0 = emax(T), emin(T)
+  smin = e0 - precision(T) + 1
+  rng = Xoshiro(886)
+  draw() = abs(signif(rng, T, rand(rng, (smin + 1):E)))
+  lo, hi = ldexp(big(1.0), 2 * e0 + 6), ldexp(big(1.0), 2 * E - 6)
+  @testset "seeded sweep of exponents (#886)" begin
+    checked, lost, bad = 0, 0, []
+    for _ in 1:6000
+      α1, α2, γ, λ0, w = draw(), draw(), draw(), draw(), draw()
+      P = chain_product(λ0, (α1, α2), γ)
+      t = P * big(w)
+      (floatmin(T) <= t <= floatmax(T) / 8 && lo <= P <= hi) || continue
+      checked += 1
+      lost += fold_kind(T, P, γ) !== :normal
+      s, _ = weighted_chain(λ0, [w], (α1, α2), γ)
+      x = T(big(2.5 + rand(rng)) * t)
+      r = shrinkb(big(x), t)
+      within(prox!(zeros(T, 1), s, [x], γ)[1], r, 4) && within(prox_block(s, x, 1, γ), r, 4) ||
+        push!(bad, (α1 = α1, α2 = α2, γ = γ, λ0 = λ0, w = w, x = x))
+    end
+    isempty(bad) || @info "draws beyond 4 ulps" T count = length(bad) first_draws = bad[1:min(end, 5)]
+    @test isempty(bad)
+    # the draws in which the level that holds the factors and the step is zero, a subnormal number or an overflow
+    @test checked >= 1000 && lost >= 150
+  end
+end
+
+# What holds without the change of the route as well, and must keep holding: the chains whose fold into the level is a
+# normal number, an ordinary single factor, the value of the chain and the value that value_and_prox! returns, and the
+# endpoint rules of the weights zero, infinite and one.
+function test_scaled_threshold_guards(::Type{T}) where {T<:AbstractFloat}
+  E, e0 = emax(T), emin(T)
+  p = E ÷ 2 + 20
+  smin = e0 - precision(T) + 1
+  @testset "scalar-step threshold of Scaled weighted ℓ1: unchanged cases (#886)" begin
+    # a chain whose level holds the factors and the step as a normal number: below and above the range of the factors
+    for (label, (λ0, w, αs, γ)) in (
+        "level that holds the product, factors below the range" =>
+          (pow2(T, E - 40), T[1, 3], (pow2(T, -p), pow2(T, -p)), pow2(T, 30)),
+        "level that holds the product, factors above the range" =>
+          (pow2(T, 20 - E), T[1, 3], (pow2(T, p), pow2(T, p)), pow2(T, -30)),
+        "one factor in the ordinary range" =>
+          (T(1.3) * pow2(T, -10), T[1, 3, 1000], (T(0.75),), T(2.5)))
+      @testset "$label" begin
+        for nonneg in (false, true)
+          s, ts = weighted_chain(λ0, w, αs, γ; nonneg)
+          @test fold_kind(T, chain_product(λ0, αs, γ), γ) === :normal
+          x = T[point_for(T, t) for t in ts]
+          test_scalar_routes("$label, $(nonneg ? "NormL1Nonneg" : "NormL1")", s, x, γ, ts; nonneg, array_step = true)
+          n = length(x)
+          scalar, array = prox!(zeros(T, n), s, x, γ), prox!(zeros(T, n), s, x, fill(γ, n))
+          @test all(i -> within(scalar[i], big(array[i]), 4), 1:n)
+          y = zeros(T, n)
+          @test value_and_prox!(y, s, x, γ) === s(y)
+        end
+      end
+    end
+    # the value of the chain at a point is right in the cases that the fix changes, and the value that value_and_prox!
+    # returns is the value of the stored point
+    for (λ0, w, αs, γ) in (
+        (T(1.3) * pow2(T, 20), T[pow2(T, E - 10)], (pow2(T, -p), pow2(T, -p)), pow2(T, -30)),
+        (T(1.3) * pow2(T, E - 20), T[pow2(T, -(E - 10) - 20)], (pow2(T, p), pow2(T, p)), pow2(T, -30)),
+        (T(1.5) * pow2(T, -8), T[pow2(T, -4)], (pow2(T, E - 2),), pow2(T, 10)),
+        (T(1.3), T[pow2(T, E - 23)], (pow2(T, smin + 14),), one(T)))
+      s, ts = weighted_chain(λ0, w, αs, γ)
+      @test within(s(T[1]), prod(big, αs) * l1val(λ0, w, T[1]), 2)
+      y = zeros(T, 1)
+      @test value_and_prox!(y, s, T[point_for(T, ts[1])], γ) === s(y)
+    end
+    # the first two chains of the cases above with the weights zero, infinite and one: a zero weight leaves the entry,
+    # an infinite weight gives zero for a finite input, a weight of one has a threshold below the range (the entry is
+    # left) or beyond floatmax (zero for a finite input, NaN for +Inf), a NaN input is NaN, and NormL1Nonneg maps a
+    # negative input and -Inf to +0
+    for (λ0, αs, side) in ((T(1.3) * pow2(T, 20), (pow2(T, -p), pow2(T, -p)), "below"),
+                           (T(1.3) * pow2(T, E - 20), (pow2(T, p), pow2(T, p)), "above"))
+      γ = pow2(T, -30)
+      w = T[0, Inf, 1]
+      v = T[7, 7, 7]
+      for nonneg in (false, true)
+        s, _ = weighted_chain(λ0, w, αs, γ; nonneg)
+        @testset "weights zero, infinite and one, factors $side the range, $(nonneg ? "NormL1Nonneg" : "NormL1")" begin
+          y = prox!(zeros(T, 3), s, v, γ)
+          @test y[1] === T(7) && y[2] === zero(T)
+          @test prox_block(s, T(7), 1, γ) === T(7) && prox_block(s, T(7), 2, γ) === zero(T)
+          # a weight of one: the threshold is below the range on one side and beyond floatmax on the other
+          if side == "below"
+            @test y[3] === T(7)
+          else
+            @test y[3] === zero(T) && isnan(prox_block(s, T(Inf), 3, γ))
+          end
+          @test isnan(prox_block(s, T(NaN), 3, γ)) && isnan(prox!(zeros(T, 3), s, T[NaN, NaN, NaN], γ)[3])
+        end
+      end
+      sn, _ = weighted_chain(λ0, T[pow2(T, E - 10)], αs, γ; nonneg = true)
+      @testset "NormL1Nonneg at a negative input, factors $side the range" begin
+        @test prox!(zeros(T, 1), sn, T[-3], γ)[1] === zero(T) && prox!(zeros(T, 1), sn, T[-Inf], γ)[1] === zero(T)
+        @test prox_block(sn, T(-3), 1, γ) === zero(T) && prox_block(sn, T(-Inf), 1, γ) === zero(T)
+      end
+    end
+  end
+end
+
+function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
+  E = emax(T)
+  @testset "recorded defect (see the audit document): @test_broken against the independent reference" begin
+    # A suspected defect (docs/audit/numerical-kernels-file/recovery-coverage.md, "Defects found"): an infinite entry under a
+    # weighted level whose product underflows is NaN, where the unweighted value (and the exact product of the positive finite
+    # factors with +Inf) is +Inf
     fu = NormL1(pow2(T, -(E ÷ 2)), T[pow2(T, -(E - 5))])
     @test NormL1(pow2(T, -(E ÷ 2)))(T[Inf]) === T(Inf)
     @test_broken fu(T[Inf]) === T(Inf)
@@ -1837,7 +2064,10 @@ setprecision(BigFloat, 2400) do
   test_symmetric_part(T)   # symmetric part of an asymmetric argument: the mean and the tiny-α product
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers
   test_scaled_fused_small_values(T)
-  test_recorded_defects(T)   # recorded defects (see the audit document): @test_broken against the independent reference
+  test_scaled_weighted_threshold(T)   # Scaled weighted ℓ1: the scalar-step threshold when the level cannot hold the factors and the step (#886)
+  test_scaled_threshold_sweep(T)   # the same, a seeded sweep over the exponents of the factors, the step, the level and the weight
+  test_scaled_threshold_guards(T)   # the same, cases that were already right and the endpoint rules
+  test_recorded_defects(T)   # a recorded defect (see the audit document): @test_broken against the independent reference
 end
 end
 

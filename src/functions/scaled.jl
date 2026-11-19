@@ -555,10 +555,26 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
-# a symmetric iterate gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
-# that are not zero
-_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
-_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
+# Finite scales preserve the active set, including explicitly stored zeros.
+# Non-finite scales can turn an implicit zero into NaN and activate it.
+function _scale!(g::SymmetricSparseIterate, α)
+  if isfinite(α)
+    v = activevalues(g)
+    v .*= α
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
+function _scale!(g::SymmetricSparseIterate, α::_ProjectionScale)
+  if isfinite(α)
+    v = activevalues(g)
+    v .= _apply_scale.(α, v)
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
@@ -608,16 +624,28 @@ end
 # - A step that is not a finite positive number, which the function rejects or reads as a limit,
 #   is only multiplied.
 # - The product of the factors and γ goes into the step when it is a normal number.
+# - Otherwise, for a NormL1 or NormL1Nonneg whose level is a positive finite IEEE number after `float`,
+#   and when the level that the fold below would store (the product of the factors, the step and the
+#   level, divided by the significand of the step) is not a normal number (it is zero, it is subnormal,
+#   or it overflows, which can happen although the product of the factors, the step and the level is
+#   at most floatmax), the exponent is split between the step and the level (`_split_level_step`) if
+#   the step and the folded level are both normal numbers at the split, though their product need not
+#   be one. The kernel of the leaf then forms the threshold γλ0wᵢ from them: from the three
+#   significands with one exponent on its exceptional branch, as (γλ0)wᵢ on its ordinary one. The
+#   returned factor is `nothing`.
 # - Otherwise the exponent of the factors goes into the levels, with the step reduced to its
 #   significand, for the functions that fold a scale into their levels (`_fold_level`): the
-#   products of level and step are those of the plain chain, formed in range. The leaf then
-#   never sees a step or a level that is not representable while their product is.
-# - A function without levels to fold gets the step as rounded.
+#   products of level and step are those of the plain chain, formed in range. For a function that the
+#   split does not cover (ElasticNet, for one), the fold can store a subnormal level.
+# - A function without levels to fold, or a fold that is refused, gets the step as rounded.
 # The factor is the one that takes the value of the returned function to the value of the chain.
-# Not marked `@noinline`: the result is a union of tuples (folded or plain function, and the factor or
-# `nothing`), which a call that is not inlined must box (144 bytes per call). The callers that sit
-# in a loop over `prox_block` are the ones that are not inlined (`_prox_block_nested`).
-function _nested_step(s::Scaled, γ::Real)
+# Marked `@inline`: the result is a union of tuples (folded or plain function, the step, and the
+# factor or `nothing`), which a call that is not inlined must box. Without the mark, Julia 1.10.13 did
+# not inline the call for some leaf types (NormL1Nonneg, for one) into `_prox_chain!`,
+# `_value_and_prox_chain!` and `_prox_block_nested`, and the chain routes allocated for the boxed
+# result. The callers that sit in a loop over `prox_block` call `_prox_block_nested`, which is not
+# inlined itself.
+@inline function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
   _isindicator(f) && return (f, γ, a)
   step = _apply_scale(a, γ)
@@ -631,10 +659,32 @@ function _nested_step(s::Scaled, γ::Real)
     h === nothing || return (h, convert(typeof(step), mγ), nothing)
   end
   ma, ea = _projection_scale_parts(a)
-  g = _fold_level_step(f, _ProjectionScale(ma, Int(ea + eγ)))
+  e = Int(ea + eγ)
+  h = _split_level_step(f, ma, e, convert(T, mγ))
+  h === nothing || return (h[1], h[2], nothing)
+  g = _fold_level_step(f, _ProjectionScale(ma, e))
   # g carries the levels without the ridge that may have been dropped: it is not the chain, and
   # its value is not the value of the chain (`nothing` marks this)
   g === nothing ? (f, step, a) : (g, convert(typeof(step), mγ), nothing)
+end
+# The function and the step of the split of the exponent e (the exponent of the factors and of γ, whose
+# significand is mγ) between the step and the level, for a NormL1 or NormL1Nonneg whose level is a
+# positive finite IEEE number after `float` and that the fold of the whole exponent into the level
+# (`_nested_step`) would not leave a normal number: the step takes mγ 2^k and the level the exponent
+# e - k, with k near half the exponent of the product of the level and 2^e, so that each is a normal
+# number although their product need not be. `nothing` for the other functions and levels, when the
+# fold stores a normal level, and when the step or the folded level is not a normal number at that
+# split (for example when the product is beyond what a normal step and a normal level hold).
+@inline _split_level_step(f, ma, e::Int, mγ) = nothing
+@inline function _split_level_step(f::Union{NormL1, NormL1Nonneg}, ma, e::Int, mγ::T) where {T<:Base.IEEEFloat}
+  λ = float(f.λ0)
+  (λ isa Base.IEEEFloat && isfinite(λ) && λ > 0) || return nothing
+  _folded_level(f.λ0, _NormalScale(_ProjectionScale(ma, e))) === nothing || return nothing
+  k = (e + _frexp(λ)[2]) >> 1
+  step = ldexp(mγ, k)
+  floatmin(T) <= step <= floatmax(T) || return nothing
+  g = _fold_level(f, _NormalScale(_ProjectionScale(ma, e - k)))
+  g === nothing ? nothing : (g, step)
 end
 
 _prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain!(y, s, x, γ) :
@@ -699,14 +749,15 @@ kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
 
 # ---- the point-aware scores of a scaled function ----
 # Which leaves have the four-argument and full-point scores: _KktScore for the functions of this package that have them
-# (NormL2 has the full-point form and throws an ArgumentError in the others), _KktNone for the other functions of this
-# package, _KktCustom for a function defined outside it. The class of a Scaled is that of the function under all its
-# wrappers. The class is a singleton type chosen by dispatch, or by the module of the type, which inference folds.
+# (NormL2 and NormLinf have the full-point form and throw an ArgumentError in the others), _KktNone for the other
+# functions of this package, _KktCustom for a function defined outside it. The class of a Scaled is that of the function
+# under all its wrappers. The class is a singleton type chosen by dispatch, or by the module of the type, which inference
+# folds.
 struct _KktScore end
 struct _KktNone end
 struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
-_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2}}) = _KktScore()
+_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
@@ -744,13 +795,15 @@ _kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
 #   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
 #   NormL1, NormL1Nonneg, ElasticNet
 #                                the function with the folded levels (_fold_level);
-#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel).
+#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel);
+#   NormLinf                     the full-point kernel with the level folded by _folded_level (_KktLevel).
 # Levels that do not fold to a normal number, and a function defined outside the package, have none.
 _kkt_resolve(f::ZeroFunction, a) = f
 _kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
 _kkt_resolve(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a) = _fold_level(f, a)
 _kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f::NormLinf, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f, a) = nothing
 
 # |vᵢ + a dᵢ| with dᵢ the entry of the gradient of f at x, multiplied by a as the gradient of the chain multiplies it
@@ -823,7 +876,7 @@ end
   W = promote_type(float(promote_type(eltype(v), eltype(x))), _kkt_factor_type(λ.a))
   _l2_zero_score(_chain_coefficient(W, λ.λ, w, λ.a), true, v, G, W)
 end
-# a GroupNormL2 or NormL2 with the level λ that the chain folds into it
+# a GroupNormL2, NormL2 or NormLinf with the level λ that the chain folds into it
 struct _KktLevel{F, T}
   f::F
   λ::T
@@ -1028,7 +1081,10 @@ function _kkt_chain_point(s::Scaled, v, x)
   _kkt_full(h, v, x)
 end
 kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
-  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_point_error(s) : throw(MethodError(kkt_violation, (s, v, x)))
+  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_scaled_error(s, _kkt_innermost(s)) : throw(MethodError(kkt_violation, (s, v, x)))
+# the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
+_kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
+_kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,

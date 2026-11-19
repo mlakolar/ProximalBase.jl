@@ -158,13 +158,21 @@ prox!(y::_ArrayOrSymmetricIterate, f::SCAD, x::_ArrayOrSymmetricIterate, γ::Rea
 value_and_prox!(y::_ArrayOrSymmetricIterate, f::SCAD, x::_ArrayOrSymmetricIterate, γ::Real) =
   (_checknonneg("γ", γ); invoke(value_and_prox!, _SeparableScalarStep, y, f, x, γ))
 
+_check_scad_steps(γ::AbstractArray) = _checknonneg("γ", γ)
+function _check_scad_steps(γ::Array{T}) where {T<:Union{Float32, Float64}}
+  # Check even inactive coordinates. A Boolean reduction vectorizes
+  # the pass over a dense step buffer before a stored-entry traversal.
+  mapreduce(>=(zero(T)), &, γ; init = true) ||
+    throw(ArgumentError("γ must be nonnegative"))
+end
+
 function prox!(y::AbstractArray, f::SCAD, x::AbstractArray, γ::AbstractArray)
   _check_oracle_arrays(prox!, f, y, x, γ)
-  _checknonneg("γ", γ)
+  _check_scad_steps(γ)
   _prox_sep!(y, f, x, γ)
 end
 function value_and_prox!(y::AbstractArray, f::SCAD, x::AbstractArray, γ::AbstractArray)
   _check_oracle_arrays(value_and_prox!, f, y, x, γ)
-  _checknonneg("γ", γ)
+  _check_scad_steps(γ)
   _value_and_prox_sep!(y, f, x, γ)
 end

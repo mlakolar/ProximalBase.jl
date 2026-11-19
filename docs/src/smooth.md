@@ -633,8 +633,8 @@ model arrays (including CSC values and indices) or scratch. An input predictor o
 coefficient vector must also be independent of the scratch.
 
 The scalar formulas preserve the small tail for saturated responses.
-For a response of one half and a predictor near zero, the derivative uses a
-centered expression to retain the slope before weighting. A
+For a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a
+centered expression to retain the slope through weighting. A
 zero-weight row contributes zero to the value and observation derivative, even
 at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
 give the logistic limit: zero loss for a matching binary response, and infinity

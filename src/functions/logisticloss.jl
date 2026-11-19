@@ -60,8 +60,11 @@ end
 # For y = 1/2, the slope magnitude is (1 - exp(-s)) / (2 * (1 + exp(-s))).
 @noinline function _logistic_midpoint_slope(w::T, s::T, e::T) where {T}
   # Below eps(T), the relative error of the linear term s/4 is O(s^2).
-  # Apply the weight first so dividing a subnormal predictor retains its contribution.
-  s < eps(T) && return (w * s) / 4
+  if s < eps(T)
+    # Scale the predictor if its quarter is normal, or scale the weight.
+    # If both quarters are subnormal, the final product rounds to zero.
+    return s >= 4 * floatmin(T) ? w * (s / 4) : (w / 4) * s
+  end
   w * (-expm1(-s) / (2 * (one(T) + e)))
 end
 
@@ -89,7 +92,7 @@ end
     d = D ? (fused ? wc - tail : ifelse(positive, wc - tail, tail - wc)) : zero(T)
   else
     v = V ? w * (linear + log1p(e)) : zero(T)
-    if D && s < T(0.0625) && y == T(0.5) && !iszero(s)
+    if D && ((s < T(1 / 1024)) & (y == T(0.5)) & !iszero(s))
       return v, copysign(_logistic_midpoint_slope(w, s, e), η)
     end
     q = e / (one(T) + e)

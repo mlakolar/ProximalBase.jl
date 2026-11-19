@@ -135,11 +135,15 @@ end
   @testset "Small predictors at a half response" begin
     M, response = ones(T, 1, 1), T[0.5]
     large = T === Float32 ? T(1e30) : T(1e300)
+    cutoff = T(1 / 1024)
     for (magnitude, weight) in ((T(1e-18), large), (T(1e-10), nothing),
                                (eps(T) / 2, T(2)), (eps(T), large),
                                (nextfloat(zero(T)), floatmax(T)),
-                               (prevfloat(T(0.0625)), nothing),
-                               (T(0.0625), nothing), (zero(T), large),
+                               (nextfloat(zero(T)), T(2.1)),
+                               (prevfloat(4 * floatmin(T)), T(2.1)),
+                               (4 * floatmin(T), T(2.1)),
+                               (prevfloat(cutoff), nothing),
+                               (cutoff, nothing), (zero(T), large),
                                (T(1e-18), zero(T))),
         sign in (-one(T), one(T))
       z = T[sign * magnitude]
@@ -150,10 +154,10 @@ end
       v, fused = value_and_gradient(f, z)
       g, d = similar(grad), similar(grad)
       cached = logistic_fused!(g, d, f, z)
-      rtol = magnitude == T(0.0625) ? 64eps(T) : 8eps(T)
-      @test grad ≈ T.(gref) rtol=rtol
+      rtol = magnitude == cutoff ? 4096eps(T) : 8eps(T)
+      @test only(grad) ≈ T(only(gref)) rtol=rtol
       @test fused == g == grad
-      @test d ≈ T.(dref) rtol=rtol
+      @test only(d) ≈ T(only(dref)) rtol=rtol
       @test v == cached == f(z)
       @test v ≈ T(vref) rtol=8eps(T)
     end

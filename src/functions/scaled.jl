@@ -44,6 +44,7 @@ _ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N,
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
+_smooth_kkt_overlap(buf, a::_ScaledArray) = _smooth_kkt_overlap(buf, a.g)
 
 # the entries of g times a factor that is not a normal number, with the exponent applied last
 struct _ExpScaledArray{T, N, A<:AbstractArray, S<:_ProjectionScale} <: AbstractArray{T, N}
@@ -223,6 +224,11 @@ function _fold_level(f::NormL1, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1(c, f.w)
 end
+# A normal folded level can recover a rounded leaf value of NormL2.
+function _fold_level(f::NormL2, α::_NormalScale)
+  c = _folded_level(f.λ, α)
+  c === nothing ? nothing : NormL2(c)
+end
 function _fold_level(f::NormL1Nonneg, α)
   c = _folded_level(f.λ0, α)
   c === nothing ? nothing : NormL1Nonneg(c, f.w)
@@ -365,11 +371,26 @@ end
 # gradient already written, which the parts must not read in place of a parameter. A NaN product at
 # a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
 # f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
-# The recoveries read the entries of the argument: a symmetric iterate is read as the matrix that it represents, which
-# counts an off-diagonal coordinate at both of its positions
-@noinline _scaled_value_recover(f, α, x::SymmetricSparseIterate, v, r, out = nothing) =
-  _scaled_value_recover(f, α, matrixview(x), v, r, out)
+# The stored-entry sum for a small NormL1 value applies both scales before rounding the result.
+# A symmetric iterate contributes each stored off-diagonal at both of its matrix positions.
+@inline _stored_l1_small(f, α, x, v) = false
+@inline _stored_l1_small(::NormL1{T,<:Union{Nothing, AbstractArray{T}}}, α::T,
+                       ::_StoredIterate{T}, v::T) where {T<:Union{Float32, Float64}} =
+  _scaled_small(v) && α > 1 && isfinite(α)
+function _scaled_stored_l1_value(f, α, x, r::T) where {T}
+  λ = f.λ0
+  (λ > 0 && isfinite(λ)) || return r
+  iszero(r) && _all_zero(x) && return r
+  acc = _l1_weighted_abs(_expsum_start(Float64), f.w, x)
+  m = acc.s + acc.c
+  iszero(m) && return zero(T)
+  scale = _projection_accumulate(_scale_start(Float64(α)), Float64(λ))
+  convert(T, _apply_parts(scale, m, acc.ex))
+end
+
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
+  _stored_l1_small(f, α, x, v) && return _scaled_stored_l1_value(f, α, x, r)
+  x isa SymmetricSparseIterate && return _scaled_value_recover(f, α, matrixview(x), v, r, out)
   g = _fold_level(f, _value_fold_scale(α))
   g === nothing || return convert(typeof(r), _value_unchecked(g, x))
   a, d = _partial_plan(α, v)
@@ -399,8 +420,7 @@ _scaled_small(v) = iszero(v) || (v isa AbstractFloat && abs(v) < floatmin(v))
 # recomputed. The terms of both parts at the entries that y stores are added in one exponent-sum accumulator
 # (`_elastic_expsum`, under the precondition with which the ElasticNet value recomputes a sum below 2 floatmin: both
 # levels positive and finite, so that a NaN or ±Inf entry makes v non-finite and never reaches it), and α multiplies
-# the sum before its single rounding (`_expsum_value`). This reads the stored entries of y once. Other functions, a
-# zero level, a zero leaf value and other factors keep the value of their route (`_fused_small_case` is false).
+# the sum before its single rounding (`_expsum_value`). This reads the stored entries of y once.
 _fused_small_case(f, α, v) = false
 @inline _fused_small_case(f::ElasticNet, α, v) =
   α isa Real && v isa AbstractFloat && !iszero(v) && abs(v) < floatmin(v) && α > 1 && isfinite(α) &&
@@ -675,11 +695,30 @@ _prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain
   g, step, _ = _nested_step(s, γ)
   _prox_unchecked!(y, g, x, step)
 end
+# Along with the leaf value, return whether its kernel certified an exact zero.
+@inline _scaled_leaf_value_and_prox!(y, f, x, γ) = (_value_and_prox_unchecked!(y, f, x, γ), false)
+@inline _scaled_leaf_value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
+  _norml2_value_and_prox!(y, f, x, γ)
+@inline function _scaled_leaf_value_and_prox!(y::_HostArray, f::NormL1{T,<:Union{Nothing, AbstractArray{T}}},
+                                              x::_HostArray, γ::Union{Real, AbstractArray}) where {T<:Union{Float32, Float64}}
+  if eltype(y) === T && eltype(x) === T
+    _prox_sep!(y, f, x, γ)
+    return _l1_dense_result(f, y)
+  end
+  _value_and_prox_unchecked!(y, f, x, γ), false
+end
+
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ));
-   _value_at(_fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) : _scaled_value(s, y, v, isinf(s.α)), y))
+function _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real)
+  _nested_route(s, γ) && return _value_and_prox_chain!(y, s, x, γ)
+  _checkwrite(value_and_prox!, s, y, x)
+  v, exact_zero = _scaled_leaf_value_and_prox!(y, s.f, x, _scaled_step(s, γ))
+  exact_zero && isfinite(s.α) && return _value_at(v, y)
+  r = _fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) :
+      _scaled_value(s, y, v, s.f isa Union{NormL1, NormL2} || isinf(s.α))
+  _value_at(r, y)
+end
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)
@@ -721,6 +760,7 @@ struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
 _kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
+_kkt_class(::Type{<:_SmoothKktFunction}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
 _kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
@@ -1047,6 +1087,7 @@ kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
 # the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
 _kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
 _kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
+_kkt_symmetric_scaled_error(s, f::_SmoothKktFunction) = _smooth_kkt_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,

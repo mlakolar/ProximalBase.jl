@@ -470,3 +470,23 @@ r = restrict(h, [3, 1])
 s = Scaled(h, 2.0)
 @assert s([1.0, 1.0, 1.0]) == 2.0 * h([1.0, 1.0, 1.0])
 ```
+
+## SCAD penalty
+
+`SCAD(λ, a=3.7)` sums a penalty that increases linearly near zero and
+levels off at magnitude `a*λ`. The scalar proximal operator minimizes the
+complete objective. For a step below `a-1` it uses the three-piece
+thresholding rule. At larger steps it compares the competing magnitudes.
+
+```@example scad
+using ProximalBase
+f = SCAD(1.0, 3.0)
+@assert prox(f, [1.5, 4.0, 4.5], 1.0) == [0.5, 4.0, 4.5]
+@assert prox(f, [1.5, 4.0, 4.5], 4.0) == [0.0, 0.0, 4.5]
+nothing # hide
+```
+
+At step four, magnitudes zero and four have the same objective for an
+input of four, and the proximal operator chooses zero. See the
+[SCAD numerical contract](@ref spec-scad) for the penalty formula,
+supported storage and endpoint rules.

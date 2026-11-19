@@ -116,6 +116,12 @@ four-argument form), a head above large ties (up to `10^6` entries) with a level
 at the zero point, on a face of all the entries and on a face with entries off it, through `Scaled` (one factor, and a chain that folds) and
 on the scaled path, a grid of such clusters around the breakpoint, a two-entry input, the closed form of a face inside its range and faces of
 nearly equal entries at its boundary, against exact distances in BigFloat, and the absence of ambiguities.
+`kkt_smooth` tests full-point `kkt_violation` for `LeastSquaresLoss` and
+`QuadraticFunction` in Float32/64. It checks analytic and BigFloat references,
+bit parity with the gradient oracle, vector and multiresponse layouts, sparse
+and structured products, exceptional and invalid inputs, scratch aliases,
+cold and warm allocations, subsequent value, gradient and prox calls, and
+the `Scaled` and custom dispatch routes.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous
@@ -242,11 +248,17 @@ the 50-file inventory.
 [44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
 and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578535495/attempts/1).
 
-The 51-file snapshot uses provisional weights of 30 seconds for
+The 51-file snapshot used provisional weights of 30 seconds for
 `logisticloss` and 140 seconds for the expanded `numerical_recovery`.
 Both use a single observation rounded up to the next five seconds. The
 observed wall times were 27.848 and 135.210 seconds, respectively, on Julia
 1.13.4. [51-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44592628040/attempts/1)
+
+The 53-file snapshot adds provisional weights of 80 seconds for
+`kkt_smooth` and 15 seconds for `scad`, and refreshes the provisional
+`numerical_recovery` weight to 145 seconds. Each rounds one observation
+up to the next five seconds. The measured times were 78.011, 13.374,
+and 142.804 seconds on Julia 1.13.4. [53-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44604834492/attempts/1)
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
@@ -275,3 +287,10 @@ dense, strided-view and CSC designs. It covers binary and fractional responses,
 weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
 warmed allocations and product counts. Independent BigFloat and finite-difference
 references check the value and both gradient spaces, including weighted tails.
+
+## SCAD coverage
+
+`scad` checks the globally minimizing scalar prox against independent BigFloat objectives
+and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
+and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.

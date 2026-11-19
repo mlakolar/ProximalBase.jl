@@ -33,7 +33,7 @@ julia> gradient(f, [3.0, 1.0])
 # Edge cases
 - `X` and `Y` are retained by reference. After same-shape changes, call
   [`reset_cache!`](@ref) before another prox; reconstruct after dimension changes.
-- Values, gradients and prox reuse private scratch: synchronize concurrent calls
+- Values, gradients, prox and full-point [`kkt_violation`](@ref) reuse private scratch. Synchronize concurrent calls
   on one loss. Supplied-predictor oracles have separate ownership rules.
 - No symmetric-iterate or scalar-coordinate prox is provided.
 - Value range recovery does not guarantee recovery of matrix products or SVDs.
@@ -51,7 +51,7 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   s2::Vector{T}
   sUtY::Array{T, N}       # Diagonal(s) U'Y, the right-hand side in the V basis
   w::Array{T, N}
-  output::Scratch         # dense output for a non-strided destination
+  output::Scratch         # coefficient-sized output for prox or the full-point KKT score
   svd_ready::Bool
 
   function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
@@ -252,6 +252,37 @@ function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMa
   mul!(f.tmp, f.X, β)
   _leastsquares_residual_gradient!(g, f.tmp, f.X, f.tmp, f.Y)
 end
+
+function kkt_violation(f::LeastSquaresLoss{T, Ty, Tx, N}, v::AbstractArray, x::AbstractArray) where {T, Ty, Tx, N}
+  _check_smooth_kkt_inputs(v, x)
+  size(f.tmp) == size(f.Y) && size(f.X, 1) == size(f.Y, 1) ||
+    throw(DimensionMismatch("the design and response must match the loss's residual scratch"))
+  dims = N == 1 ? (size(f.X, 2),) : (size(f.X, 2), size(f.Y, 2))
+  size(x) == dims || _size_mismatch(size(x), dims)
+  _check_smooth_kkt_alias(f.tmp, v, x)
+  buf = f.output.buf
+  if buf isa Array{T, N} && size(buf) == dims
+    _check_smooth_kkt_alias(buf, v, x)
+  end
+  W = float(promote_type(eltype(v), eltype(x), T))
+  isempty(x) && return zero(W)
+  _smooth_kkt_inputs_finite(v, x) || return _smooth_kkt_nonfinite(W, v, x)
+  d = _array_buffer!(f.output, T, dims)
+  gradient!(d, f, x)
+  _smooth_kkt_residual(W, v, d)
+end
+
+const _SmoothKktFunction = Union{LeastSquaresLoss, QuadraticFunction}
+
+function kkt_violation(f::_SmoothKktFunction, v::AbstractArray, i::Integer)
+  _check_one_based(v)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  _smooth_kkt_local_error(f)
+end
+_kkt_violation(f::_SmoothKktFunction, ::AbstractArray, ::AbstractArray, ::Integer) = _smooth_kkt_local_error(f)
+_kkt_violation(f::_SmoothKktFunction, ::AbstractArray, ::BlockIterate, ::Integer) = _smooth_kkt_local_error(f)
+_kkt_violation(f::_SmoothKktFunction, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) = _smooth_kkt_local_error(f)
+kkt_violation(f::_SmoothKktFunction, ::AbstractArray, ::SymmetricSparseIterate) = _smooth_kkt_symmetric_error(f)
 
 function _checkwrite(::Union{typeof(gradient!), typeof(value_and_gradient!)}, f::LeastSquaresLoss, g::AbstractVecOrMat, β::AbstractVecOrMat)
   _check_one_based(g, β)

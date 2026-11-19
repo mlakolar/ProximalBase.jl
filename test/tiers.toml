@@ -23,6 +23,7 @@ quick = [
   "kkt_block",
   "kkt_linf",
   "kkt_point",
+  "kkt_smooth",
   "leastsquares_predictor",
   "linear_shapes",
   "linear_sparse_value",
@@ -42,6 +43,7 @@ quick = [
   "quadratic_domain",
   "real_iterates",
   "ridge_precision",
+  "scad",
   "sparse_iterate",
   "sparse_iterate_basics",
   "sparse_iterate_basics_grids",
@@ -83,6 +85,7 @@ iterate_writes = 19.3
 kkt_block = 99.5
 kkt_linf = 42.4
 kkt_point = 43.8
+kkt_smooth = 80.0
 leastsquares_predictor = 44.9
 linear_shapes = 112.3
 linear_sparse_value = 17.7
@@ -97,11 +100,12 @@ norml1nonneg_extremes = 17.3
 norml2 = 18.8
 normlinf = 63.7
 numerical_kernels = 66.4
-numerical_recovery = 140.0
+numerical_recovery = 145.0
 one_based_axes = 239.0
 quadratic_domain = 17.2
 real_iterates = 49.6
 ridge_precision = 8.5
+scad = 15.0
 sparse_iterate = 68.9
 sparse_iterate_basics = 26.0
 sparse_iterate_basics_grids = 7.2

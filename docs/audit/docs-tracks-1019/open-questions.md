@@ -12,12 +12,28 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-## Required owner review
+## Owner review and next gates
 
-The supplied migration plan, Phase 2 step 3, requires the owner to review the
-`NormL1` pilot before the other thirteen families are migrated. That review is
-pending. The reviewable result is the family page, its common-rule links,
-fourteen-section structure, retained endpoint distinctions and forwarding URLs.
+The owner completed the pilot review required by Phase 2 step 3 on
+18 November 2026, reviewing PR #1021 at `1e35bcf` against master at `2a55362`.
+The fourteen-section layout and shared-rule links are approved for the
+remaining verbatim family moves. The five requested pilot corrections and
+the inspected source revision are recorded in `review.md`.
+
+Before the next family, record how unrelated merged pull requests change
+pinned documentation, refine the three remaining family guides to sentence
+units with original-block provenance, and replace the two uncited runtime
+admonition hashes with exact page/category/title comparisons. Keep original
+heading IDs and forwarding paragraphs. The next pages must label pointer-only
+sections and use specific shared-rule anchors; verbatim duplicates stay until
+their separately reviewed clause conversion.
+
+Clause conversion is held until token and example checks also protect
+`reword` and `split` rows, with exact recorded allowances for intentional
+token changes and regression fixtures for missing numbers and assertions.
+The migration ledger and six temporary checks are retired after the final
+Phase 5 blocking acceptance; the frozen audit and ordinary documentation gates
+remain. The preparation work is tracked in #1019.
 
 Clause conversion, the remaining families, numerical routine pages, lessons,
 figures, the agent entry file and the final blocking-mode switch remain tracked

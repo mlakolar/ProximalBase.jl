@@ -114,3 +114,59 @@ That exact comparison loses no original page or fragment. All six preservation
 checks pass with the local profile against the final local build, and with the
 CI profile against that final CI build. The profile correction changes no
 authored documentation page or numerical behavior.
+
+## Owner review of the pilot
+
+Mladen reviewed PR #1021 at `1e35bcf` against master at `2a55362` on
+18 November 2026. The review confirmed that no numerical statement was lost
+or altered and approved the fourteen-section layout for the remaining
+verbatim family moves, with the stated adjustments. Merge approval is
+conditional on the five fixes listed in that review; clause conversion
+remains held until the preservation-checker gap is closed.
+
+The three documentation fixes from that review are applied here: the
+import-only block in `numerics.md` uses `@setup numerical_endpoints`, the
+five forwarding rows become one family row, and the contract page's one
+source link and seven test links follow `blob/master`. The five original
+numerical endpoint rows remain verbatim on `spec/norml1.md`. The import-only
+block was added during the migration, so making it hidden setup removes no
+baseline example or assertion. The earlier local acceptance counts above
+record the checkpoint before this rendering repair.
+
+The original source and evidence inspection was at
+`7ae86e2093060eb124211e2f21f043c6379f97ae` (`7ae86e2`). It covered
+`src/functions/norml1.jl` and the seven files named in the evidence table:
+`test/core_functions.jl`, `test/minimal_math.jl`, `test/infinite_weights.jl`,
+`test/numerical_recovery.jl`, `test/kkt_point.jl`, `test/one_based_axes.jl`,
+and `test/symmetric_parameters.jl`. This immutable inspection provenance
+belongs to the audit; the rendered manual links to the current files.
+
+The two CI corrections use a depth-one checkout and fetch the exact frozen
+baseline commit. A change to `ledger.tsv` activates a blocking source/test
+scope check on any branch. The comparison is the tested PR merge tree against
+its first parent, or an entire push against its `before` revision; only that
+exact comparison commit is fetched when missing. Benchmark and deployment
+history settings are unchanged. The six preservation checks remain report-only.
+
+The corrected local strict build passes all nine isolated examples, executable
+manual examples, doctests and API coverage. All 30 preservation-checker fixtures
+pass, and the six checks pass in blocking mode with the local anchor profile.
+The rendered checker finds 56 pages, 5,633 internal links/assets, 135 repository
+source/edit links, and no broken links or orphan pages. The original 54 pages
+and 621 content anchors still pass exact comparison. No baseline ledger row,
+source file, test file or example script changes in these five fixes.
+
+The reviewed-row token/example exemption remains a known preparation gap.
+The pilot's sole `reword` row was independently confirmed to change only its
+example sandbox name. Clause conversion must not use that exemption; the
+required accounting fix and regression cases are tracked in #1019.
+
+The independent `plan_consistency` review confirmed all five corrections in
+the source and rendered output. Workflow validation parsed YAML, checked shell
+syntax, and exercised nine cases with the exact extracted workflow scripts.
+A separate real depth-one Git fixture began with only a PR merge commit:
+the baseline and comparison commits were initially absent. The scripts fetched
+only those two exact commits at depth one, retained a shallow repository with
+three commit objects, and could read the frozen baseline with `git show`.
+A docs-only migration passed despite unrelated upstream source changes;
+a migration that added its own source change failed the scope guard.

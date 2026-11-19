@@ -75,8 +75,45 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The migration ledger reads its frozen documentation baseline.
-          fetch-depth: 0
+          fetch-depth: 1
+      - name: Fetch the frozen documentation baseline
+        run: |
+          set -euo pipefail
+          baseline="$(python3 -c 'import json; print(json.load(open("docs/audit/docs-tracks-1019/baseline.json"))["baseline"])')"
+          [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$baseline"
+      - name: Check source scope when the migration ledger changes
+        env:
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # Compare the tested PR merge tree with its exact base parent. For a
+          # master push, compare the whole push, including multiple commits.
+          scope_base="$(python3 - <<'PY'
+          import os, subprocess
+          if os.environ["GITHUB_EVENT_NAME"] == "push":
+              base = os.environ["PUSH_BEFORE_SHA"]
+          else:
+              header = subprocess.check_output(["git", "cat-file", "commit", "HEAD"], text=True).split("\n\n", 1)[0]
+              parents = [line.split()[1] for line in header.splitlines() if line.startswith("parent ")]
+              if os.environ["GITHUB_EVENT_NAME"] == "pull_request" and len(parents) != 2:
+                  raise SystemExit("Expected the checked-out pull-request merge commit")
+              base = parents[0] if parents else "0" * 40
+          print(base)
+          PY
+          )"
+          [[ "$scope_base" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$scope_base" == 0000000000000000000000000000000000000000 ]]; then
+            scope_base="$(git mktree < /dev/null)"
+          elif ! git cat-file -e "${scope_base}^{tree}" 2>/dev/null; then
+            # This one comparison tree is separate from the frozen docs
+            # baseline; no unrelated history is needed for either check.
+            git fetch --no-tags --depth=1 origin "$scope_base"
+          fi
+          if ! git diff --quiet "$scope_base" HEAD -- docs/audit/docs-tracks-1019/ledger.tsv; then
+            git diff --exit-code "$scope_base" HEAD -- src test
+            printf 'PB_DOCS_SCOPE_BASE=%s\n' "$scope_base" >> "$GITHUB_ENV"
+          fi
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
@@ -110,8 +147,8 @@ jobs:
         run: |
           set -o pipefail
           scope_args=()
-          if [[ "${GITHUB_HEAD_REF:-}" == docs/reader-tracks* ]]; then
-            scope_args=(--scope-base HEAD^1)
+          if [[ -n "${PB_DOCS_SCOPE_BASE:-}" ]]; then
+            scope_args=(--scope-base "$PB_DOCS_SCOPE_BASE")
           fi
           python3 -B docs/check_migration.py --check all --anchor-profile ci --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
       - name: Preserve rendered documentation

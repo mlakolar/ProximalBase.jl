@@ -14,10 +14,9 @@ Constructors and API help: [`NormL1`](@ref).
 The [`NormL1` row in the API coverage matrix](../api/coverage.md) lists the
 retained interface.
 
-The source checked for this pilot is
-[`src/functions/norml1.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/src/functions/norml1.jl) at
-`7ae86e2093060eb124211e2f21f043c6379f97ae`. The [evidence section](@ref spec-norml1-evidence)
-maps the numerical text to retained test files.
+Source: [`src/functions/norml1.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml1.jl).
+The [evidence section](@ref spec-norml1-evidence) maps the numerical text to
+retained test files.
 
 ## [Definition and domain](@id spec-norml1-definition)
 
@@ -184,18 +183,18 @@ These shared statements remain at their current owners during the pilot.
 
 ## [Evidence](@id spec-norml1-evidence)
 
-The files below were inspected at `7ae86e2093060eb124211e2f21f043c6379f97ae`.
-They identify tested domains and reference methods, not new numerical guarantees.
+The files below identify tested domains and reference methods, not new
+numerical guarantees.
 
 | Test file | Reference or coverage relevant to this page |
 |:--|:--|
-| [`test/core_functions.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/core_functions.jl) | Entrywise soft-threshold formulas, array steps, exact input/output identity and fused values at stored outputs |
-| [`test/minimal_math.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/minimal_math.jl) | Direct soft-threshold formulas and dense representations of sparse, block and symmetric iterate calculations |
-| [`test/infinite_weights.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/infinite_weights.jl) | Independently classified endpoint cases and a `BigFloat` threshold reference; guaranteed, characterized and deferred cases are distinguished in the test |
-| [`test/numerical_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/numerical_recovery.jl) | Direct `BigFloat` weighted absolute-value sums and soft-threshold references, including subnormal products and stored-output values |
-| [`test/kkt_point.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/kkt_point.jl) | Point-aware scores from their mathematical definitions in `BigFloat`, plus explicit non-finite rules |
-| [`test/one_based_axes.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/one_based_axes.jl) | Unsupported axes and public-boundary validation |
-| [`test/symmetric_parameters.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/7ae86e2093060eb124211e2f21f043c6379f97ae/test/symmetric_parameters.jl) | Explicit symmetry checks, parameter shapes and constructor validation |
+| [`test/core_functions.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/core_functions.jl) | Entrywise soft-threshold formulas, array steps, exact input/output identity and fused values at stored outputs |
+| [`test/minimal_math.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/minimal_math.jl) | Direct soft-threshold formulas and dense representations of sparse, block and symmetric iterate calculations |
+| [`test/infinite_weights.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/infinite_weights.jl) | Independently classified endpoint cases and a `BigFloat` threshold reference; guaranteed, characterized and deferred cases are distinguished in the test |
+| [`test/numerical_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_recovery.jl) | Direct `BigFloat` weighted absolute-value sums and soft-threshold references, including subnormal products and stored-output values |
+| [`test/kkt_point.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_point.jl) | Point-aware scores from their mathematical definitions in `BigFloat`, plus explicit non-finite rules |
+| [`test/one_based_axes.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/one_based_axes.jl) | Unsupported axes and public-boundary validation |
+| [`test/symmetric_parameters.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/symmetric_parameters.jl) | Explicit symmetry checks, parameter shapes and constructor validation |
 
 The [endpoint example](@ref spec-norml1-endpoints) is executed by the strict
 documentation build.

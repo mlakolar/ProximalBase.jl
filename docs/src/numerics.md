@@ -287,11 +287,7 @@ all-NaN result or a particular exception.
 | Case | Retained behavior |
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
-| Unweighted `NormL1`, zero level | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
-| `NormL1`, zero weight | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
-| `NormL1`, infinite weight | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
-| `NormL1`, infinite level, nonnegative step | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
-| `NormL1`, finite factors whose product overflows | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
+| `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
 | `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
@@ -329,7 +325,7 @@ all-NaN result or a particular exception.
 The `NormL1` assertions are retained in its
 [executed endpoint example](@ref spec-norml1-endpoints).
 
-```@example numerical_endpoints
+```@setup numerical_endpoints
 using ProximalBase
 ```
 

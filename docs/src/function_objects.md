@@ -225,6 +225,7 @@ the parameters of the particular object.
 | `ElasticNet` | no | yes | yes | yes | yes |
 | `IndBox` | no | yes | yes | yes | every interval contains zero |
 | `IndNonnegative` | no | yes | yes | yes | yes |
+| `IndBallL2` | no | yes | no | yes | no |
 | `NormL2` | no | yes | no | yes | no |
 | `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |

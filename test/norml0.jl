@@ -126,6 +126,10 @@ end
       y = copy(x)
       @test value_and_prox!(y, f, y, γ) === f(want)
       @test isequal(y, want)
+      sparse = SparseIterate(x)
+      sparse_want = reference_prox.(Array(sparse), λ, γ)
+      @test value_and_prox!(sparse, f, sparse, γ) === f(sparse_want)
+      @test isequal(Array(sparse), sparse_want)
     end
     f = NormL0(T(0.5))
     parent = T[7, 7]

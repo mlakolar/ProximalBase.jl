@@ -85,12 +85,13 @@ end
   shift >= 0 ? (p << shift) > q : p > (q << -shift)
 end
 
-# On a long array with a scalar step, certify the largest representable
+# With enough entries and a scalar step, certify the largest representable
 # magnitude at or below the threshold before entering the separable loop.
 # Comparing magnitudes to that cutoff also keeps NaN and both infinities.
 struct _L0Cutoff{T} <: SeparableFunction
   cutoff::T
 end
+iszeropreserving(::_L0Cutoff) = true
 @inline prox_block(g::_L0Cutoff{T}, v::T, ::Integer, ::Real) where {T<:AbstractFloat} =
   ifelse(abs(v) <= g.cutoff, zero(v), v)
 
@@ -111,6 +112,11 @@ end
 function _prox_sep_dense!(y::AbstractArray, f::NormL0{T}, x::AbstractArray{T}, γ::T) where {T<:Union{Float32, Float64}}
   g = length(x) < 64 ? f : _l0_cutoff(f, γ)
   _prox_entries!(y, g, x, γ)
+end
+
+function _prox_sep!(y::SparseIterate, f::NormL0{T}, x::SparseIterate{T}, γ::T) where {T<:Union{Float32, Float64}}
+  g = x.nnz < 64 ? f : _l0_cutoff(f, γ)
+  _prox_stored!(y, g, x, γ)
 end
 
 prox!(y::_ArrayOrSymmetricIterate, f::NormL0, x::_ArrayOrSymmetricIterate, γ::Real) =

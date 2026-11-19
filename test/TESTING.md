@@ -106,8 +106,7 @@ of `NaN` and infinite entries, ranges (a residual far below the level, a level n
 points with a zero residual), matrices, `SparseIterate` and `BlockIterate` points, the refusal of the three-argument and four-argument forms and of a
 `SymmetricSparseIterate`, no mutation of `v`, `x` or the buffer of the object (also a buffer populated by a proximal call), zero allocations for same-type `Float32` and `Float64` arrays with a level of a hardware float type, and inference, `Scaled` (one
 factor, the forms of the leaf, an infinite factor, retained chains that fold and that do not, a symmetric point, whose message does not advise the
-four-argument form), the threshold search when the count of entries above a level rises (a deterministic two-entry input that asserts the level of
-`_l1ball_michelot`, large ties with a level near them at the zero point, on a face, through `Scaled` and on the scaled path, and a grid of
+four-argument form), the shared threshold search (a two-entry breakpoint, the Float32 long-tie regression and positive excess below the spacing of the radius, large ties with a level near them at the zero point, on a face, through `Scaled` and on the scaled path, and a grid of
 clusters around the breakpoint, against exact distances in BigFloat) and the absence of ambiguities.
 `normlinf` also tests the same threshold search through the proximal operator (`#987`): the two-entry input, large ties of `10^4` to `10^6` entries
 that the clip must keep near the exact level (tolerance `4 n u max|xᵢ|`), in place and through `value_and_prox!` and `Scaled`, and a grid of

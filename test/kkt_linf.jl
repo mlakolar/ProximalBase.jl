@@ -11,7 +11,7 @@ module KktLinfTest
 # a ProximalBase kernel. Besides them, the zero point is compared with the norm of the proximal point, stationary points
 # are built from the proximal operator, and the distance is checked as the steepest descent rate of v + ∂f at x.
 # A value is accepted within (2n + √n + 5) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W)) of its reference (linf_bound), u = eps(W)/2, where the reference
-# is in the range of W: the bound of the ordinary path, plus the subnormal spacing. A reference above floatmax(W) must
+# is in the range of W. This is a regression tolerance, including the subnormal spacing. A reference above floatmax(W) must
 # overflow to Inf, and the band of relative width 100 eps(W) around floatmax(W) is not decided.
 #
 # Which tests fail at the base (13891ccf): the checks of valid inputs, of the new NormLinf methods and of the refusals that they
@@ -81,9 +81,9 @@ function branch(λ, v, x)
     (sum(u) - big(λ)) / length(u) <= minimum(u) ? :closed : :threshold
   end
 end
-# the constant of the accuracy bound of the ordinary path, in units of u (‖v‖₂ + λ)
+# the coefficient of the regression tolerance, in units of u (‖v‖₂ + λ)
 linf_bound(n) = 2n + sqrt(n) + 5
-# the accuracy bound of the ordinary path, plus the subnormal spacing of the type
+# the regression tolerance plus the subnormal spacing of the type
 function tol(n, ::Type{W}, v, λ; slack = 1) where {W}
   u = eps(W) / 2
   bigprec() do
@@ -665,18 +665,8 @@ end
 # One face entry lies far below the level and the others (a bulk of a = n - 1 equal entries) are above it: x = ones(n), u = -v =
 # (-1, w, ..., w) with w = fl(1/√a + λ/a). The level is w - λ/a and the distance sqrt(a (w - λ/a)² + 1), from the stored w and λ. The
 # level of the face is found on the face values shifted by a lower bound of the level (the mean of the face entries minus λ/n);
-# a shift by the smallest entry instead gives each shifted value the size of |u₁| and a level whose error grows with the number of
-# entries. Measured in units of u (‖v‖₂ + λ) with default compilation, --check-bounds=yes and optimization level 0 (scalar loops: the LLVM IR of
-# the reductions has no vector instructions at level 0 and has 4 and 8 lanes otherwise), on Julia 1.10.13 and 1.13.4, on znver2 and znver3 nodes
-# (and, for n = 200001, on a skylake-avx512 node), for the kernel with that shift (old) and for this kernel (new):
-#   Float32, n = 2000001, λ = 3:    old 1.56e6 to 1.57e6,  new at most 6.3e4 (guard 3e5)
-#   Float32, n = 2000001, λ = 0.3:  old 4.0e6 to 4.1e6,    new at most 1.6e5 (guard 8e5)
-#   Float64, n = 200001, λ = 0.3:   old 2.8e5 to 1.9e6,    new at most 1.3e4 (guard 6e4)
-#   Float64, n = 200001, λ = 3:     old 8.4e4 to 3.1e6,    new at most 4.8e3 (guard 2e4)
-#   Float64, n = 2000001, λ = 3:    old 8.7e6 to 2.2e7,    new at most 1.0e5 (guard 1e6)
-# Each guard is at least 4.2 times the largest new error and at least 4.2 times below the smallest old error. The stated bound
-# (about 4e5 for n = 200001 and 4e6 for n = 2000001) does not separate old from new in all of these runs, which is why the
-# guards are given.
+# a shift by the smallest entry can give each shifted value the size of |u₁|. The
+# thresholds below retain the original regression guards against that loss.
 function bulk_error(::Type{W}, a, λ) where {W}
   w = one(W) / sqrt(W(a)) + λ / a
   v = fill(-w, a + 1)
@@ -721,16 +711,8 @@ end
 end
 
 # ---- 11c. a large tie and a level near it (#987) ---------------------------------------------------------------------------------------------
-# The threshold search `_l1ball_michelot` computes each level from the entries above the level before it. When rounding puts a
-# level at or above a large tie, the tie leaves the set, the next level is computed from the few entries left and lies far below
-# the previous one, and the count of entries above it rises. The routine then returns the previous level; returning the lower
-# level would give a false zero score at the zero point (and a clip of the tie at zero in the prox, tested in normlinf.jl).
-# The inputs are a head entry y1 above m equal entries y0 with a radius c near the breakpoint y1 - y0, where the exact level is at or
-# just below y0. The reference is the exact distance in BigFloat from the stored entries and level (the levels of a head and a tie
-# have a closed form; no kernel of the package is called). The sum of the ties is rounded in an order that depends on the
-# compilation mode (and on the loop that the compiler chooses), so an input reaches that exit in some modes and not in others: each
-# is a check of the returned level and distance where it does, and a check of accuracy where it does not. The lower level gives
-# the whole distance as error (31.6 for the first input of the list below, against a bound of 0.4).
+# A large tie near a breakpoint tests the returned distance across changes in
+# the active set. The reference uses closed forms for the two distinct values.
 # the exact distance for the head y1 and the tie (y0, m): at the zero point the distance to the ball of radius c (0 inside), on a
 # face (all entries on the face, u = (y1, y0, ..., y0)) the distance to the simplex, whose level can be negative
 function cluster_dist(c, y1, y0, m; face = false)
@@ -759,15 +741,31 @@ end
 const TIE_CASES = ((Float32, 0.2, 0.1, 10^5, 0.3), (Float32, 1.0, 0.1, 10^5, 1.2), (Float32, 0.2, 0.1, 10^4, 0.102),
                    (Float64, 1.8, 0.9, 10^6, 0.9000008), (Float32, 0.2, 0.1, 10^6, 1.0))
 
-@testset "the threshold search when the count rises: two entries ($T)" for T in TYPES
+@testset "a two-entry breakpoint ($T)" for T in TYPES
   ε = eps(T)
-  # y = (3, 1 + 3ε), radius 2 - 2ε: the sum 4 + 3ε rounds up to 4 + 4ε, the first level is 1 + 3ε (the second entry is not above
-  # it), the next level is 1 + 2ε and the count rises from 1 to 2. The routine returns 1 + 3ε; the exact level is 1 + 2.5ε.
   y = T[3, 1 + 3ε]
   r = T(2) - 2ε
-  @test PB._l1ball_michelot(y, r, PB._AbsRead{T}(), T) == 1 + 3ε
   @test cluster_ok(kkt_violation(NormLinf(r), y, zeros(T, 2)), r, y[1], y[2], 1, T)
   @test cluster_ok(kkt_violation(NormLinf(r), -y, ones(T, 2)), r, y[1], y[2], 1, T; face = true)
+end
+
+@testset "a unit entry above a long Float32 tie" begin
+  n = 100_000
+  y = fill(0.009486833f0, n + 1)
+  y[end] = 1
+  c = 0.1f0
+  ref = Float32(cluster_dist(c, y[end], y[1], n))
+  for x in (zeros(Float32, n + 1), -ones(Float32, n + 1))
+    @test abs(kkt_violation(NormLinf(c), y, x) - ref) <= 4eps(ref)
+  end
+end
+
+@testset "a positive excess smaller than the spacing of the radius ($T)" for T in TYPES
+  tiny = eps(T) / 8
+  y = T[1, tiny]
+  for x in (zeros(T, 2), -ones(T, 2))
+    @test kkt_violation(NormLinf(one(T)), y, x) ≈ tiny / sqrt(T(2)) rtol = 4eps(T)
+  end
 end
 
 @testset "large ties against the exact distance" begin

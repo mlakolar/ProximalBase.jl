@@ -22,6 +22,8 @@ Base.include(First, joinpath(first_root, "src", "ProximalBase.jl"))
 Base.include(Second, joinpath(second_root, "src", "ProximalBase.jl"))
 Base.include(FirstControl, joinpath(first_root, "src", "ProximalBase.jl"))
 
+bindcall(fn, args...) = () -> (fn(args...); nothing)
+
 function makeprobes(PB, ::Type{T}, n::Int) where {T}
     rng = Random.MersenneTwister(373 + n)
     e0 = exponent(floatmin(T))
@@ -45,19 +47,19 @@ function makeprobes(PB, ::Type{T}, n::Int) where {T}
     add("dense/unweighted", val(f0, x)...)
     add("dense/view_weighted", val(f1, view(x, :))...)
     add("dense/underflow", val(fu, xu)...)
-    add("dense/value_and_prox", () -> (PB.value_and_prox!(out, f1, x, γ); nothing), () -> (PB.value_and_prox!(out, f1, x, γ), copy(out)))
-    add("dense/value_and_prox_zero", () -> (PB.value_and_prox!(out, fz, x, γ); nothing), () -> (PB.value_and_prox!(out, fz, x, γ), copy(out)))
+    add("dense/value_and_prox", bindcall(PB.value_and_prox!, out, f1, x, γ), () -> (PB.value_and_prox!(out, f1, x, γ), copy(out)))
+    add("dense/value_and_prox_zero", bindcall(PB.value_and_prox!, out, fz, x, γ), () -> (PB.value_and_prox!(out, fz, x, γ), copy(out)))
     # stored-entry loops: 1/8 of the entries stored
     xsp = copy(x); xsp[mod.(1:n, 8) .!= 1] .= zero(T)
     sp = PB.SparseIterate(xsp); spout = copy(sp)
     add("sparse/weighted", val(f1, sp)...)
     add("sparse/unweighted", val(f0, sp)...)
-    add("sparse/value_and_prox", () -> (PB.value_and_prox!(spout, f1, sp, γ); nothing), () -> (PB.value_and_prox!(spout, f1, sp, γ), Vector(spout)))
+    add("sparse/value_and_prox", bindcall(PB.value_and_prox!, spout, f1, sp, γ), () -> (PB.value_and_prox!(spout, f1, sp, γ), Vector(spout)))
     add("sparse/underflow", val(fu, PB.SparseIterate(xu))...)
     groups = [collect(1:2:n), collect(2:2:n)]
     bl = PB.BlockIterate(copy(x), groups); blout = copy(bl)
     add("block/weighted", val(f1, bl)...)
-    add("block/value_and_prox", () -> (PB.value_and_prox!(blout, f1, bl, γ); nothing), () -> (PB.value_and_prox!(blout, f1, bl, γ), Vector(blout)))
+    add("block/value_and_prox", bindcall(PB.value_and_prox!, blout, f1, bl, γ), () -> (PB.value_and_prox!(blout, f1, bl, γ), Vector(blout)))
     # a symmetric iterate of the same number of matrix entries, one lower-triangle coordinate in eight stored
     p = isqrt(n)
     W = T(0.5) .+ rand(rng, T, p, p); W = (W + W') / 2
@@ -69,7 +71,7 @@ function makeprobes(PB, ::Type{T}, n::Int) where {T}
     Sout = copy(S)
     fs = PB.NormL1(λ, W)
     add("symmetric/weighted", val(fs, S)...)
-    add("symmetric/value_and_prox", () -> (PB.value_and_prox!(Sout, fs, S, γ); nothing), () -> (PB.value_and_prox!(Sout, fs, S, γ), Matrix(PB.matrixview(Sout))))
+    add("symmetric/value_and_prox", bindcall(PB.value_and_prox!, Sout, fs, S, γ), () -> (PB.value_and_prox!(Sout, fs, S, γ), Matrix(PB.matrixview(Sout))))
     Su = PB.SymmetricSparseIterate(T, p)
     for c in 1:p, r in c:p
         Su[r, c] = xu[1]

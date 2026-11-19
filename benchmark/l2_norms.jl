@@ -63,7 +63,6 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
     x, y, U, outs, γ = d.x, d.y, d.U, d.outs, d.γ
     K = length(U)
     add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x)))
-    T = eltype(x)
     compact_buffers = if layout === :range       # the compact kernel does not see the layout
         k1 = findfirst(u -> any(!iszero, u), U)
         buffers = Ref((U[k1], outs[k1]))
@@ -94,6 +93,7 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
         xb = B(copy(x), d.groups)
         x0 = copy(xb)
         g = d.g
+        step = eltype(x)(0.5)
         Uu, Ou = [similar(u) for u in U], [similar(u) for u in U]   # own scratch: U stays as the other probes use it
         add("block_update_sweep", () -> begin
             copyto!(xb, x0)
@@ -106,7 +106,7 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
                 end
                 @inbounds for a in eachindex(trial)
                     i = indices[a]
-                    trial[a] = xb[i] - T(0.5) * g[i]
+                    trial[a] = xb[i] - step * g[i]
                 end
                 prox_block!(result, f, trial, k, γ)
                 copyto!(blockview(xb, k), result)

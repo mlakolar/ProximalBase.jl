@@ -58,7 +58,6 @@ magnitudes at a common level. Entries at or below that level become `+0`.
 ## [Range clauses](@id spec-indballl1-range)
 
 **Implementation notes (not guarantees).**
-
 Finite sums above `floatmax(T)/2` are compared in power-of-two units. The
 shared ℓ₁-ball threshold from `NormLinf` selects the soft-threshold level.
 A tiny radius can be lost when that level rounds to the largest magnitude.

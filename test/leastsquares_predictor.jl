@@ -45,14 +45,20 @@ end
 # the round-to-nearest overflow threshold and e = (n + 8) eps(T) the relative error bound:
 #   (a) |ref| (1 + e) <= floatmax: finite and within e |ref| (plus two units of the smallest subnormal where
 #       |ref| < floatmin);
-#   (d) between that margin and thr: finite within e |ref|, or not finite (as before the exception below);
-#   (b) thr <= |ref| <= thr (1 + e), the boundary region: not finite, or finite within e |ref|;
-#   (c) above that region: not finite.
-# Region (b) is the maintainer-approved exception to the rule that an overflowing reference must give a non-finite
+#   (d) between that margin and thr: finite within e |ref|, or +Inf;
+#   (b) thr <= |ref| <= thr (1 + e), the boundary region: +Inf, or finite within e |ref|;
+#   (c) above that region: +Inf.
+# Region (b) is the maintainer-approved exception to the rule that an overflowing reference must give an infinite
 # result: the recomputation shared with SqrNormL2 does not decide on which side of thr the value lies within the
-# relative error bound of thr (docs/src/numerics.md), so a reference that rounds to Inf may give floatmax there. The
-# other classes keep their assertions.
+# relative error bound of thr (docs/src/numerics.md), so a reference that rounds to Inf may give floatmax there.
 function value_ok(v, ref, ::Type{T}, n) where {T}
+  # For the supported positive-scale losses, the reference is nonnegative.
+  if isnan(ref)
+    return isnan(v)
+  elseif isinf(ref)
+    return v == T(Inf)
+  end
+  v >= zero(T) || return false
   with256() do
     m, fm, e = abs(ref), big(floatmax(T)), (n + 8) * big(eps(T))
     thr = fm + (fm - big(prevfloat(floatmax(T)))) / 2
@@ -69,9 +75,48 @@ function value_ok(v, ref, ::Type{T}, n) where {T}
   end
 end
 
+@testset "value_ok reference classes" begin
+  with256() do
+    for T in (Float32, Float64)
+      nan, inf = T(NaN), T(Inf)
+      @test value_ok(one(T), BigFloat(1), T, 1)
+      for v in (nan, inf, -inf, -one(T))
+        @test !value_ok(v, BigFloat(1), T, 1)
+      end
+
+      fm = BigFloat(floatmax(T))
+      @test value_ok(inf, 2 * fm, T, 1)
+      for v in (nan, -inf, floatmax(T))
+        @test !value_ok(v, 2 * fm, T, 1)
+      end
+
+      @test value_ok(inf, BigFloat(Inf), T, 1)
+      @test value_ok(nan, BigFloat(NaN), T, 1)
+      for v in (nan, -inf, one(T))
+        @test !value_ok(v, BigFloat(Inf), T, 1)
+      end
+      for v in (inf, -inf, one(T))
+        @test !value_ok(v, BigFloat(NaN), T, 1)
+      end
+
+      below = BigFloat(prevfloat(floatmax(T)))
+      thr = fm + (fm - below) / 2
+      for ref in (below, thr)
+        @test value_ok(floatmax(T), ref, T, 1)
+        @test value_ok(inf, ref, T, 1)
+        @test !value_ok(nan, ref, T, 1)
+        @test !value_ok(-inf, ref, T, 1)
+      end
+
+      tiny = nextfloat(zero(T))
+      @test value_ok(3 * tiny, BigFloat(tiny), T, 1)
+      @test !value_ok(4 * tiny, BigFloat(tiny), T, 1)
+    end
+  end
+end
+
 # The class of the value of α Σ rᵢ² / 2 with a finite α > 0, for the entries r: NaN where an entry is NaN, +Inf where an
-# entry is infinite and none is NaN, and nonnegative (not NaN) where all entries are finite. value_ok alone accepts any
-# non-finite value beyond the overflow region and for a non-finite reference.
+# entry is infinite and none is NaN, and nonnegative (not NaN) where all entries are finite.
 value_class_ok(v, r) = any(isnan, r) ? isnan(v) : any(isinf, r) ? v == Inf : v >= 0
 
 # The gradient g against α Xᵀ(z - Y) componentwise within (n + 8) eps α (|X|ᵀ|z - Y|)ⱼ + 2 nextfloat(0), where
@@ -254,9 +299,10 @@ end
     _, Y, z = make_case(rng, T, kind, 64, 3)
     for λ in (one(T), T(0.3), floatmin(T), floatmax(T) / 8)
       # with a second operand both entry points form the sum over the differences, in loops compiled at two call sites that
-      # may add in different orders: each value satisfies value_ok against the reference λ ‖z - Y‖² / 2 (the accuracy bound
-      # where the reference is in the range of T, a class where it overflows). The data and λ are finite and positive, so
-      # each value is also nonnegative and not NaN; value_ok alone accepts NaN and -Inf beyond the overflow region.
+      # may add in different orders. Each value satisfies value_ok against the reference λ ‖z - Y‖² / 2, with the
+      # finite error bound for abs(ref) * (1 + e) <= floatmax(T), including its subnormal allowance. Close to the
+      # overflow threshold, even just below it, an accurate finite value or +Inf is allowed.
+      # The data are finite and λ is finite and positive, so each value is nonnegative.
       va, vb = PB._square_value(λ, z, Y), PB._square_value_wide(λ, z, Y)
       @test va isa T && vb isa T
       refλ = ref_value(λ, z, Y)
@@ -425,18 +471,21 @@ end
     for bad in (T(NaN), T(Inf), -T(Inf)), i in (1, n)
       z = copy(z0)
       z[i] = bad
-      @test !isfinite(PB.value_from_predictor(f, z))
-      @test !isfinite(PB.value_from_residual(f, z))
+      vp = PB.value_from_predictor(f, z)
+      vr = PB.value_from_residual(f, z)
       g, d = zeros(T, p), zeros(T, n)
-      @test !isfinite(PB.value_and_gradient_from_predictor!(g, d, f, z))
+      vg = PB.value_and_gradient_from_predictor!(g, d, f, z)
+      for v in (vp, vr, vg)
+        @test isnan(bad) ? isnan(v) : v == T(Inf)
+      end
       @test !all(isfinite, g)
     end
-    # a non-finite entry of Y gives a non-finite value
+    # a NaN response gives NaN and an infinite response gives +Inf
     Yb = copy(Y)
     Yb[2] = T(NaN)
     @test isnan(PB.value_from_predictor(mkloss(Yb, X, α), z0))
     Yb[2] = T(Inf)
-    @test !isfinite(PB.value_from_predictor(mkloss(Yb, X, α), z0))
+    @test PB.value_from_predictor(mkloss(Yb, X, α), z0) == T(Inf)
     # a non-finite entry of the design reaches the gradient components it multiplies and not the value
     Xb = copy(X)
     Xb[3, 2] = T(NaN)
@@ -934,8 +983,9 @@ end
   # floatmin(T)/eps(T) and α s / 2 finite) and recomputation on s. The inputs below put s near n floatmin(T)/eps(T)
   # and K (squares of rounded square roots and their neighbours, which bracket the two bounds without hitting them
   # exactly in every case), near floatmax, and make it Inf or NaN. The values of the three oracles on each of them
-  # satisfy value_ok against the 256-bit reference (the accuracy bound where the reference is in the range of T, a class
-  # where it overflows or is not finite), have the type T, and have the class of value_class_ok (NaN, +Inf, or
+  # satisfy value_ok against the 256-bit reference (the finite error bound for abs(ref) * (1 + e) <= floatmax(T), with
+  # its subnormal allowance, and the class rules otherwise, including finite or +Inf close to the overflow threshold).
+  # They have type T and the class of value_class_ok (NaN, +Inf, or
   # nonnegative). Where at most two entries are nonzero (NaN and ±Inf are nonzero), the sum has at most one addition
   # that is not with +0, so the order of the additions does not change it (for the two-entry inputs below it is also
   # the same with a fused multiply-add), and the oracles must also agree under isequal with the kernel's result on the

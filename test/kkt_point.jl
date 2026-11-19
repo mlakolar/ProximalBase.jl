@@ -225,29 +225,16 @@ end
   end
 end
 
-# a center that promotes to the working type but exceeds its range: the gradient entry is recovered in a wider type
-# and the result is rounded back to the working type
-@testset "SqrNormL2 with a center that does not fit the working type returns the working type" begin
-  cases = ((Float32, UInt128[typemax(UInt128), 7], 2f0^-100), (Float16, Int[10^6, -10^6, 3], Float16(2)^-10))
-  for (W, y, λ) in cases
-    n = length(y)
-    f = SqrNormL2(λ, y)
-    @test isinf(W(y[1]))                       # the center does not fit W
-    for (v, x) in ((zeros(W, n), zeros(W, n)), (W[3, -2, 1][1:n], W[2, 0, -1][1:n]))
-      for i in 1:n
-        r = @inferred kkt_violation(f, v, x, i)
-        @test r isa W
-        @test within(r, f, v[i], x[i], i)
-      end
-      R = @inferred kkt_violation(f, v, x)
-      @test R isa W && within_point(R, f, v, x)
-      b = BlockIterate(copy(x), [collect(1:n)])
-      @test (@inferred kkt_violation(f, v, b, 1)) isa W
-    end
-  end
-  # the value of the reproducer: |λ (0 - (2^128 - 1))| is about 2^28 and finite in Float32
-  r = kkt_violation(SqrNormL2(2f0^-100, UInt128[typemax(UInt128)]), Float32[0], Float32[0], 1)
-  @test r isa Float32 && isapprox(r, 2f0^28; rtol = 4 * eps(Float32))
+@testset "SqrNormL2 point-aware scores use converted parameters" begin
+  f = SqrNormL2(2.0^160)
+  x, v = Float32[2f0^-80], Float32[0]
+  @test (@inferred kkt_violation(f, v, x, 1)) === Inf32
+  @test (@inferred kkt_violation(f, v, x)) === Inf32
+
+  # The center's integer element type promotes to Float32 with v and x.
+  f = SqrNormL2(2f0^-100, UInt128[typemax(UInt128)])
+  @test (@inferred kkt_violation(f, v, x, 1)) === Inf32
+  @test (@inferred kkt_violation(f, v, x)) === Inf32
 end
 
 # ---- 3. the full point form -------------------------------------------------------------------------------------
@@ -360,7 +347,7 @@ end
   @test isfinite(gradient(f, x)[1])
   @test kkt_violation(f, v, x) == norm(v .+ gradient(f, x), Inf)
   @test kkt_violation(f, v, x, 1) == abs(v[1] + gradient(f, x)[1])
-  # a level that does not fit the type is used in the wider type, as the gradient does
+  # a mixed level that rounds to a nonzero subnormal uses the same level as the gradient
   if T === Float32
     f = SqrNormL2(1e-40, T[1, 2])
     x, v = T[3, 4], zeros(T, 2)

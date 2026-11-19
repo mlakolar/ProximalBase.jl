@@ -728,8 +728,9 @@ end
 #      n u) ≤ 1.335 and M = max Lᵢ ≤ 2.6 mv ≤ 0.33 floatmax(W) (mv ≤ sv ≤ floatmax(W)/8) is finite, as in the Range
 #      paragraph of the kernel. The sum S is finite, and τ0 is finite unless S - c overflows (c close to floatmax(W) and S
 #      negative), which the test isfinite(τ0) sends to the scaled path.
-#   Squares: one loop for Q = Σ rᵢ², with rᵢ = min(|vᵢ|, τ) at the zero point (τ = Inf for c = 0, where rᵢ = |vᵢ|), and on a face
-#   uᵢ clipped at τ on J and vᵢ off J. sqrt(Q) is returned when Q is finite and not below n floatmin/eps (_squares_normal).
+#   Squares: Q = Σ rᵢ², with rᵢ = min(|vᵢ|, τ) at the zero point (τ = Inf for c = 0, where rᵢ = |vᵢ|), and on a face
+#   uᵢ clipped at τ on J and vᵢ off J. Long Float32 and Float64 reductions sum small blocks pairwise. sqrt(Q) is returned
+#   when Q is finite and not below n floatmin/eps (_squares_normal).
 #   Otherwise _linf_cold passes the lazy residual to `_residual_squares`, which scans it for its largest exponent and then sums
 #   the squares scaled by it (as _l2_score_cold). It gives zero when all the residual entries are zero, and Inf for an entry
 #   that is not finite.
@@ -898,22 +899,39 @@ end
   S, cnt, μ
 end
 
-# the sums of squares of the three residuals, for the ordinary path
-@inline function _linf_squares_zero(v, τ::W, ::Type{W}) where {W}
+# Keep the single vectorizing loop for short residuals. On long residuals
+# each term goes through at most 31 additions in its block and logarithmically
+# many between blocks, including when SIMD is disabled.
+@inline function _linf_square_block(square::F, lo::Int, hi::Int, ::Type{W}) where {F, W}
   Q = zero(W)
-  @inbounds @simd for i in 1:length(v)
-    Q += abs2(min(abs(convert(W, v[i])), τ))
+  @simd for i in lo:hi
+    Q += square(i)
   end
   Q
 end
-@inline function _linf_squares_face(v, x, m::W, τ::W, ::Type{W}) where {W}
-  Q = zero(W)
-  @inbounds @simd for i in 1:length(x)
-    xi = convert(W, x[i])
-    vi = convert(W, v[i])
-    Q += abs2(ifelse(abs(xi) == m, min(ifelse(xi > 0, -vi, vi), τ), vi))
+@noinline function _linf_pairwise_squares(square::F, lo::Int, hi::Int, ::Type{W}) where {F, W}
+  hi - lo < 32 && return _linf_square_block(square, lo, hi, W)
+  mid = lo + (hi - lo) ÷ 2
+  _linf_pairwise_squares(square, lo, mid, W) + _linf_pairwise_squares(square, mid + 1, hi, W)
+end
+@inline function _linf_squares(square::F, n::Int, ::Type{W}) where {F, W}
+  if W <: Union{Float32, Float64} && n > 1024
+    return _linf_pairwise_squares(square, 1, n, W)
   end
-  Q
+  _linf_square_block(square, 1, n, W)
+end
+
+@inline function _linf_squares_zero(v, τ::W, ::Type{W}) where {W}
+  _linf_squares(length(v), W) do i
+    @inbounds abs2(min(abs(convert(W, v[i])), τ))
+  end
+end
+@inline function _linf_squares_face(v, x, m::W, τ::W, ::Type{W}) where {W}
+  _linf_squares(length(x), W) do i
+    xi = convert(W, @inbounds x[i])
+    vi = convert(W, @inbounds v[i])
+    abs2(ifelse(abs(xi) == m, min(ifelse(xi > 0, -vi, vi), τ), vi))
+  end
 end
 
 # sqrt(Q) when Q is finite and normal in the sense of _squares_normal, and the recomputation otherwise

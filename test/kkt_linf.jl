@@ -545,6 +545,45 @@ end
   @test ok(kkt_violation(NormLinf(one(T)), T[1.5, -1, 0.25], T[nextfloat(zero(T)), 0, 0]), one(T), T[1.5, -1, 0.25], T[nextfloat(zero(T)), 0, 0])
 end
 
+@testset "$T long residual norms" for T in TYPES
+  n = T === Float32 ? 1 << 22 : 1 << 20
+  tail = sqrt(T(0.69) * (eps(T) / 2))
+  v, x = fill(tail, n), zeros(T, n)
+  v[1] = one(T)
+  # The repeated squares add up even when each is below half a spacing at one.
+  expected = bigprec(() -> T(sqrt(1 + (n - 1) * big(tail)^2)))
+  rtol = 8 * eps(T)
+  @test kkt_violation(NormLinf(zero(T)), v, x) ≈ expected rtol = rtol
+  @test allocs(kkt_violation, NormLinf(zero(T)), v, x) == 0
+
+  # The first entry alone receives mass, leaving its residual exactly one.
+  v[1] = T(1.25)
+  @test kkt_violation(NormLinf(T(0.25)), v, x) ≈ expected rtol = rtol
+
+  # An exactly canceled singleton contributes zero. The rest is off the face.
+  v[1], v[end], x[end] = one(T), one(T), -one(T)
+  expected = bigprec(() -> T(sqrt(1 + (n - 2) * big(tail)^2)))
+  @test kkt_violation(NormLinf(one(T)), v, x) ≈ expected rtol = rtol
+  @test kkt_violation(Scaled(NormLinf(T(0.5)), T(2)), v, x) ≈ expected rtol = rtol
+  @test allocs(kkt_violation, NormLinf(one(T)), v, x) == 0
+
+  # Both maximal entries leave a residual of magnitude one on the signed face.
+  v[1], x[1], v[end] = T(-1.25), one(T), T(1.25)
+  expected = bigprec(() -> T(sqrt(2 + (n - 2) * big(tail)^2)))
+  @test kkt_violation(NormLinf(T(0.5)), v, x) ≈ expected rtol = rtol
+
+  # The existing scaled reduction also handles long residuals when their
+  # unscaled squares are out of range.
+  v[1], v[end] = one(T), tail
+  expected = bigprec(() -> T(sqrt(1 + (n - 1) * big(tail)^2)))
+  k = T === Float32 ? 100 : 650
+  v .*= ldexp(one(T), k)
+  @test kkt_violation(NormLinf(zero(T)), v, x) ≈ ldexp(expected, k) rtol = rtol
+  v .*= ldexp(one(T), -k)
+  v .*= ldexp(one(T), -k)
+  @test kkt_violation(NormLinf(zero(T)), v, x) ≈ ldexp(expected, -k) rtol = rtol
+end
+
 # ---- 9. other shapes of the arguments --------------------------------------------------------------------------------------------
 @testset "$T matrices and iterates" for T in TYPES
   rng = MersenneTwister(975)

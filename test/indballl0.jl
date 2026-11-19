@@ -11,7 +11,7 @@ const Rat = Rational{BigInt}
 # the strict lower pairs in column-major order
 lower_pairs(p) = [(i, j) for j in 1:p for i in j+1:p]
 
-# The squared error ‖Y - X‖² over all entries, exactly. X may be a Symmetric.
+# The squared error ‖Y - X‖² over all entries, in exact rational arithmetic. X may be a Symmetric.
 function exact_error(Y, X)
   err = zero(Rat)
   for j in axes(X, 2), i in axes(X, 1)
@@ -21,7 +21,7 @@ function exact_error(Y, X)
 end
 
 # For every subset of the pairs with at most k members, the squared error of
-# keeping exactly that subset (and the diagonal). Returns the minimum error, the
+# keeping that subset (and the diagonal). Returns the minimum error, the
 # expected output, and E. Among subsets with the minimum error and k members the
 # one with the lexicographically smallest sorted indices is the one with the
 # earliest tied entries.
@@ -212,7 +212,7 @@ end
     @test f(T[NaN 0; 0 NaN]) === zero(T)
     @test f(Symmetric(T[1 2 3; 99 1 4; 98 97 1], :U)) === T(Inf)
     @test f(Symmetric(T[1 2 0; 99 1 0; 98 97 1], :U)) === zero(T)
-    # not exactly symmetric
+    # not symmetric
     @test_throws ArgumentError f(T[1 2; 3 4])
     @test_throws ArgumentError f(T[1 0; 1e-30 1])
     @test_throws DimensionMismatch f(zeros(T, 2, 3))
@@ -249,7 +249,7 @@ end
     @test isequal(prox!(Y, f, X, γ), [5.0 0 -3; 0 7 0; -3 0 9])
   end
 
-  # not exactly symmetric
+  # not symmetric
   Xn = [1.0 2 3; 2.5 1 4; 3 4 1]
   refused(ArgumentError, Y, f, Xn)
   refused(ArgumentError, Y, IndBallL0(typemax(Int); diagonal = false), Xn)

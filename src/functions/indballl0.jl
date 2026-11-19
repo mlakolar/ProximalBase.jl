@@ -84,9 +84,15 @@ precede the first write of `prox!`.
 
 # Cost and buffer
 
-(cost text to be measured) The object uses one buffer of `n`
-magnitudes of the element type, allocated at the first call that needs it. A repeated call with the same size and element type
-does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task whose
+The projection takes `O(p²)` operations when `E ≤ k`. When `E > k`, the `k`-th
+largest magnitude is found by an in-place quickselect whose pivots come from a
+pseudo-random sequence that depends only on `n`; with random pivots its expected cost
+is `O(p²)`. Because the sequence is fixed for a given `p`, an input built against it can
+still cost a number of operations quadratic in the number of pairs, `O(p⁴)`. Organ-pipe,
+ascending, descending, Toeplitz and distance orderings were timed at about the cost of
+unstructured input. The object uses one buffer of `n` magnitudes of the element type,
+allocated at the first call that needs it. A repeated call with the same size and
+element type does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task whose
 calls may run at the same time, since the buffer belongs to the object.
 
 The proximal operator, `value_and_prox!` and the value have no `SymmetricSparseIterate`
@@ -222,8 +228,8 @@ end
 
 # The k-th largest of the finite magnitudes b, 0 ≤ k ≤ length(b), by an in-place
 # quickselect with a three-way partition and the median of three entries at
-# positions from a local xorshift generator (a fixed seed, so the result and the
-# permutation of b are the same in every run). The entries equal to the pivot leave
+# positions from a local xorshift generator (seeded by length(b), so the result and
+# the permutation of b are the same for the same input). The entries equal to the pivot leave
 # the range of the later rounds. The order of b is not kept. For k = 0 nothing is
 # kept: the threshold is infinite.
 @inline function _l0_xorshift(x::UInt64)

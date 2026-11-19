@@ -428,7 +428,7 @@ A finite positive step gives firm thresholding when `γ < a < Inf`
 and soft thresholding when `a = Inf`. For `γ ≥ a` with finite positive
 parameters the operator keeps a finite entry when its squared magnitude
 exceeds `aγλ²`. This comparison uses the exact products of the represented
-homogeneous Float32 or Float64 inputs. Mathematical ties give positive
+homogeneous `Float32` or `Float64` inputs. Mathematical ties give positive
 zero. Interior firm points and values are computed with floating-point
 rounding. A nonzero firm or soft optimum that rounds to zero retains its
 sign. Within a few ulps of the value's overflow boundary, rounding in

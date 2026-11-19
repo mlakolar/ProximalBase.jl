@@ -35,10 +35,15 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
-## Cardinality and minimax concave penalties
+## Cardinality penalty
 
 ```@docs
 NormL0
+```
+
+## Minimax concave penalty
+
+```@docs
 MCP
 ```
 

@@ -14,11 +14,6 @@ zeros, retained finite exponent products, and validation before writes.
 `ridge_precision` preserves the frozen independent BigFloat ridge tests and
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64.
-`mcp` checks the minimax concave penalty and its global proximal operator in
-Float32/64 against a BigFloat evaluation of the full objective on each region
-and a separate numerical search. It covers ties and adjacent inputs, parameter
-and step endpoints, overflow and subnormals, stored-output fused values, and
-pre-write validation for arrays and iterates.
 `numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
 (bounded products, halved residuals, squared residuals, two-term exponent sums) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
@@ -203,6 +198,12 @@ callbacks, offset axes and live block views after whole-iterate replacement.
 block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and
 frozen storage bookkeeping checks, with no packaged Testing extension.
+
+`mcp` checks the minimax concave penalty and its global proximal operator
+against a `BigFloat` evaluation of the full objective on each region and a
+separate numerical search. It covers `Float32` and `Float64` ties and adjacent
+inputs, parameter and step endpoints, overflow and subnormals, stored-output
+fused values, and pre-write validation for arrays and iterates.
 
 This is the complete minimal suite, not the historical package full suite.
 The removed historical catalog is preserved at the frozen baseline and

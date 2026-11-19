@@ -257,67 +257,13 @@ xh = [2.0, -3.0, 0.25]
 
 ### Weights, shapes and representations
 
-The array `w` has one weight per entry of the argument, paired by Julia's
-linear index, and is stored by reference. `ElasticNet` accepts real dense
-vectors and matrices (views included), `SparseIterate`, `BlockIterate` and
-`SymmetricSparseIterate`, with a scalar step or, except as noted below, an
-array of per-entry steps. On a `SparseIterate` or a
-`SymmetricSparseIterate` the value reads the stored entries only, and so
-does the proximal operator from such an iterate into an iterate of the same
-kind; with a dense destination it writes, and reads the weights of, every
-entry. This is the traversal of the entries: a value whose two parts are
-recomputed together (above) also reads every entry of a weight array whose
-element type is not concrete, such as a `Vector{Real}`, to choose the type of
-its accumulator. An entry stored in an iterate destination stays stored, possibly as
-a zero, and a zero result does not activate an absent entry. On a
-`SymmetricSparseIterate` the weights
-are a `p × p` matrix read at both positions of an off-diagonal
-coordinate, and the value counts such a coordinate twice, as the matrix
-it represents does. The weights must then be exactly symmetric, a
-precondition that the oracles assume and `check_symmetric_parameters`
-validates (see [Symmetric parameters](symmetric_parameters.md)).
-
-Not supported: an array of steps with a `SymmetricSparseIterate`
-destination (an `ArgumentError` before any write), or with a dense
-destination and a `SymmetricSparseIterate` argument (a `MethodError`);
-the vector form of `prox_block`; complex arguments or weights.
+The weights, shapes, supported representations and unsupported combinations now live in
+[Supported arguments](@ref spec-elasticnet-arguments).
 
 ### [Steps and endpoint rules](@id elastic-net-steps)
 
-`prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a
-negative or `NaN` scalar step before anything is written. The entries of
-an array of steps are not checked: they must be nonnegative, a documented
-precondition. `prox_block` does not check its step, and `Scaled` keeps its own step rule.
-
-The optimized array-step loop and the general loop store the same results,
-bit for bit. See the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#elastic-net-step-traversal)
-for branch-selection conditions and the reason array-step validation remains a
-caller precondition.
-
-```@example library_l1
-y = [7.0, 7.0, 7.0]
-refused = try prox!(y, h, x, -1.0); false catch e; e isa ArgumentError end
-@assert refused && y == [7.0, 7.0, 7.0]
-```
-
-An infinite ridge level makes `g` the indicator of ``\{0\}``: at every
-step ``\gamma\geq0``, ``\gamma=0`` included, each entry of the proximal
-point is `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the
-zero vector, `NaN` if an entry is `NaN`, and `Inf` otherwise; and
-the screen `kkt_violation(g, v, i)` is `-Inf`, as is `kkt_violation(g, v, x, i)`
-at a zero entry of `x` with a finite `v[i]`, while that form is `Inf` at a nonzero
-entry of `x` with finite `v[i]`. An infinite `λ1` and infinite weights follow
-the [ℓ₁ endpoint rules](@ref l1-endpoints), and a threshold that overflows from
-finite factors keeps their documented limitation for infinite inputs.
-
-```@example library_l1
-hard = ElasticNet(1.0, Inf)
-@assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]
-@assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf
-@assert kkt_violation(hard, [5.0], 1) == -Inf
-@assert kkt_violation(hard, [5.0], [0.0], 1) == -Inf
-@assert kkt_violation(hard, [5.0], [1.0], 1) == Inf
-```
+The scalar-step validation, endpoint rules and executed examples now live in
+[Endpoint clauses](@ref spec-elasticnet-endpoints).
 
 ## [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty)
 

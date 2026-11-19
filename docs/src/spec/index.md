@@ -30,7 +30,7 @@ apply alongside each entry.
 | `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
-| `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
+| `ElasticNet` | [Numerical contract](elasticnet.md) | Verbatim migration |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |

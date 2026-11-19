@@ -1629,6 +1629,153 @@ function test_scaled_single_factors(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+function test_scaled_fused_small_values(::Type{T}) where {T<:AbstractFloat}
+  @testset "Scaled fused value recovers a small norm at the stored output" begin
+    a, l, z, t = T === Float32 ? (29, -100, -50, -50) : (200, -1000, -100, -500)
+    α, λ = pow2(T, a), pow2(T, l)
+    x, γ = T[pow2(T, z)], pow2(T, t)
+    f = NormL1(λ)
+    @test !PB._array_route(Scaled(f, α), x, [γ])
+    for (norm, steps) in ((f, (γ, [γ])), (NormL2(λ), (γ,))), step in steps
+      h = Scaled(norm, α)
+      y = similar(x)
+      v = value_and_prox!(y, h, x, step)
+      @test y == prox!(similar(x), h, x, step) == x
+      @test norm(y) === zero(T)
+      r = big(α) * big(λ) * abs(big(only(y)))  # either norm of a one-entry vector
+      @test r == pow2(T, a + l + z)
+      @test v === T(r) && h(y) === T(r)
+
+      alias = copy(x)
+      @test value_and_prox!(alias, h, alias, step) === T(r)
+      @test alias == y
+    end
+
+    # The 3δ/2 leaf value rounds to 2δ. Scaling before rounding also
+    # recovers δ/2 and agrees across the normal boundary at floatmin(T).
+    δ = nextfloat(zero(T))
+    α = pow2(T, precision(T) + 2)
+    λ = T(0.5)
+    h = Scaled(NormL1(λ), α)
+    for (entry, inner) in ((δ, zero(T)), (T(3) * δ, T(2) * δ),
+                           (T(2) * prevfloat(floatmin(T)), prevfloat(floatmin(T))),
+                           (T(2) * floatmin(T), floatmin(T))),
+        step in (zero(T), zeros(T, 1))
+      x = T[entry]
+      y = similar(x)
+      v = value_and_prox!(y, h, x, step)
+      @test y == prox!(similar(x), h, x, step) == x
+      @test h.f(y) === inner
+      r = big(α) * l1val(λ, nothing, y)
+      @test v === T(r) && h(y) === T(r)
+    end
+  end
+
+  @testset "Weighted Scaled distinguishes exact zero from rounded zero" begin
+    function strided_copy(a)
+      x = view(zeros(T, 2length(a)), 1:2:2length(a))
+      copyto!(x, a)
+    end
+    δ = nextfloat(zero(T))
+    large_factor = pow2(T, precision(T) + 2)
+    for wrap in (copy, strided_copy), (input, weights, α, γ, inner, zero_certified) in (
+        (T[-3, 4], T[1, 2], T(2), T(4), zero(T), true),
+        (T[3, 1], T[0, 1], T(2), T(2), zero(T), true),
+        (T[δ, 3], T[1, 0], large_factor, zero(T), zero(T), false),
+        (T[3δ, 3], T[1, 0], large_factor, zero(T), T(2) * δ, false))
+      λ = T(0.5)
+      f = NormL1(λ, wrap(weights))
+      h = Scaled(f, α)
+      for step in (γ, wrap(fill(γ, length(input))))
+        x = wrap(input)
+        y = wrap(zeros(T, length(x)))
+        leaf_step = step isa Real ? α * step : PB._ScaledArray(step, α)
+        leaf_value, exact_zero = PB._scaled_leaf_value_and_prox!(y, f, x, leaf_step)
+        @test leaf_value === inner && exact_zero === zero_certified
+        r = T(big(α) * l1val(λ, weights, y))
+        @test iszero(r) == zero_certified
+        @test value_and_prox!(y, h, x, step) === r && h(y) === r
+        @test y == prox!(wrap(zeros(T, length(x))), h, x, step)
+        alias = wrap(input)
+        @test value_and_prox!(alias, h, alias, step) === r
+        @test alias == y
+      end
+    end
+  end
+
+  @testset "Scaled fused norm endpoints and ordinary values" begin
+    x = T[3, -4]
+    α = T(2)
+    for (f, input, γ, expected) in (
+        (NormL1(one(T)), x, T(0.5), T(10)),
+        (NormL1(one(T)), x, T(4), zero(T)),
+        (NormL1(one(T)), zeros(T, 2), T(0.5), zero(T)),
+        (NormL1(zero(T)), x, T(0.5), zero(T)),
+        (NormL1(one(T), zeros(T, 2)), x, T(0.5), zero(T)),
+        (ZeroFunction(), x, T(0.5), zero(T)),
+        (NormL1(T(Inf)), T[NaN, Inf], zero(T), zero(T)),
+        (NormL1(one(T)), T[NaN, 3], T(0.5), T(NaN)),
+        (NormL1(one(T)), T[Inf, 3], T(0.5), T(Inf)))
+      h = Scaled(f, α)
+      for step in (γ, fill(γ, length(input)))
+        y = similar(input)
+        @test isequal(value_and_prox!(y, h, input, step), expected)
+        @test isequal(y, prox!(similar(y), h, input, step))
+        @test isequal(h(y), expected)
+      end
+    end
+
+    h = Scaled(NormL1(one(T)), T(Inf))
+    for step in (one(T), ones(T, 2))
+      y = similar(x)
+      @test value_and_prox!(y, h, x, step) === h(y) === zero(T)
+      @test y == prox!(similar(y), h, x, step) == zeros(T, 2)
+    end
+
+    for (λ, γ, expected) in ((one(T), T(0.5), T(8)), (one(T), T(4), zero(T)),
+                             (zero(T), one(T), zero(T)), (T(Inf), zero(T), zero(T)))
+      h = Scaled(NormL2(λ), α)
+      y = similar(x)
+      v = value_and_prox!(y, h, x, γ)
+      @test y == prox!(similar(y), h, x, γ)
+      @test v ≈ expected rtol = 2eps(T)
+      @test h(y) ≈ expected rtol = 2eps(T)
+      for step in (-one(T), T(NaN))
+        out = copy(x)
+        @test_throws ArgumentError value_and_prox!(out, h, x, step)
+        @test out == x
+      end
+    end
+
+    h = Scaled(NormL2(one(T)), T(Inf))
+    y = similar(x)
+    @test isnan(value_and_prox!(y, h, x, one(T))) && isnan(h(y))
+    @test y == prox!(similar(y), h, x, one(T)) == zeros(T, 2)
+  end
+end
+
+@testset "Scaled fused values for tiny Float64 norm levels" begin
+  setprecision(BigFloat, 512) do
+    for (norm, λ, α, x, γ, magnitude) in (
+        (NormL2, 1.8542864676817134e-301, 7.361520265230996e224,
+         [-4.300482185090916e-193], 4.7304910869299796e-231, y -> sqrt(sum(abs2, big.(y)))),
+        (NormL1, 1e-300, 1e300, [1e-200], 1e-300, y -> sum(abs, big.(y))))
+      f = norm(λ)
+      h = Scaled(f, α)
+      for aliased in (false, true)
+        y = aliased ? copy(x) : similar(x)
+        input = aliased ? y : x
+        v = value_and_prox!(y, h, input, γ)
+        @test y == prox!(similar(x), h, x, γ) == x
+        @test f(y) === 0.0
+        r = big(α) * big(λ) * magnitude(y)
+        @test within(v, r, 2)
+        @test within(h(y), r, 2)
+      end
+    end
+  end
+end
+
 # Scaled(…Scaled(leaf, α1)…, αm) over the leaf NormL1(λ0, w) (NormL1Nonneg(λ0, w) with nonneg), and the exact
 # thresholds γ α1⋯αm λ0 wᵢ of its scalar-step proximal operator, in BigFloat from the stored inputs
 function weighted_chain(λ0, w, αs, γ; nonneg = false)
@@ -1916,6 +2063,7 @@ setprecision(BigFloat, 2400) do
   test_sparse_products(T)   # sparse and symmetric matrix products: overflowing terms, cancellation and non-finite factors
   test_symmetric_part(T)   # symmetric part of an asymmetric argument: the mean and the tiny-α product
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers
+  test_scaled_fused_small_values(T)
   test_scaled_weighted_threshold(T)   # Scaled weighted ℓ1: the scalar-step threshold when the level cannot hold the factors and the step (#886)
   test_scaled_threshold_sweep(T)   # the same, a seeded sweep over the exponents of the factors, the step, the level and the weight
   test_scaled_threshold_guards(T)   # the same, cases that were already right and the endpoint rules

@@ -2,7 +2,7 @@ module SparseValueCostTest
 using Test, ProximalBase, LinearAlgebra
 const PB = ProximalBase
 
-# Two families of tests, with the counting element type C, the counters and the iterate builders below.
+# The tests count implicit zeros of the element type C and reads from parameter arrays.
 #
 # #808: the NormL2 value visits only the stored entries of a matrix SparseIterate and of a
 # SymmetricSparseIterate, also on its recovery path. Ported from the historical
@@ -326,6 +326,58 @@ end
       @test Set(reads!(r)) == Set(1:p^2)
     end
   end
+end
+
+
+@testset "Scaled NormL1 recovery reads stored weights" for T in (Float32, Float64)
+  n = 256
+  i = 7
+  γ = T(3)
+  δ = nextfloat(zero(T))
+  α = ldexp(one(T), precision(T) + 2)
+  λ = T(0.5)
+  x = SparseIterate(T, n)
+  w = ReadingVector(ones(T, n))
+  h = Scaled(NormL1(λ, w), α)
+  for step in (γ, fill(γ, n))
+    y = copy(x)
+    reads!(w)
+    @test value_and_prox!(y, h, y, step) === zero(T)
+    @test isempty(reads!(w))
+
+    y[i] = one(T)
+    @test value_and_prox!(y, h, y, step) === zero(T) && y[i] === zero(T)
+    @test all(==(i), reads!(w))
+  end
+  for entry in (δ, T(3) * δ), step in (zero(T), zeros(T, n))
+    y = copy(x)
+    y[i] = entry
+    v = value_and_prox!(y, h, y, step)
+    @test y[i] === entry
+    @test all(==(i), reads!(w))
+    ref = T(big(α) * big(λ) * abs(big(y[i])))
+    @test v === ref && h(y) === ref
+    @test all(==(i), reads!(w))
+  end
+  y = copy(x)
+  y[i] = one(T)
+  w.a[i] = zero(T)
+  @test value_and_prox!(y, h, y, γ) === zero(T) && y[i] === one(T)
+  @test all(==(i), reads!(w))
+
+  p = 16
+  w = Reading(ones(T, p, p))
+  x = SymmetricSparseIterate(T, p)
+  h = Scaled(NormL1(λ, w), α)
+  x[7, 2] = δ
+  reads!(w)
+  v = value_and_prox!(x, h, x, zero(T))
+  @test x[7, 2] === δ
+  indices = (linear(p, 7, 2), linear(p, 2, 7))
+  @test all(in(indices), reads!(w))
+  ref = T(big(α) * big(λ) * 2abs(big(x[7, 2])))
+  @test v === ref && h(x) === ref
+  @test all(in(indices), reads!(w))
 end
 
 end

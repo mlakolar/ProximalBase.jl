@@ -49,6 +49,11 @@ end
 
 @inline _l0_keeps(x::R, γ::R, λ::R) where {R<:AbstractFloat} = abs2(x) > (2γ) * λ
 
+# Two Float32 significands have at most 48 product bits, and their
+# product exponents fit the normal Float64 range, including subnormal inputs.
+@inline _l0_keeps(x::Float32, γ::Float32, λ::Float32) =
+  abs2(Float64(x)) > (2 * Float64(γ)) * Float64(λ)
+
 @inline function _l0_keeps(x::R, γ::R, λ::R) where {R<:Base.IEEEFloat}
   p = abs2(x)
   q = (2γ) * λ
@@ -78,6 +83,34 @@ end
   q = widemul(sg, sl)
   # At most 106 product bits and two shift bits are needed for Float64.
   shift >= 0 ? (p << shift) > q : p > (q << -shift)
+end
+
+# On a long array with a scalar step, certify the largest representable
+# magnitude at or below the threshold before entering the separable loop.
+# Comparing magnitudes to that cutoff also keeps NaN and both infinities.
+struct _L0Cutoff{T} <: SeparableFunction
+  cutoff::T
+end
+@inline prox_block(g::_L0Cutoff{T}, v::T, ::Integer, ::Real) where {T<:AbstractFloat} =
+  ifelse(abs(v) <= g.cutoff, zero(v), v)
+
+function _l0_cutoff(f::NormL0{T}, γ::T) where {T<:Union{Float32, Float64}}
+  q = (2γ) * f.λ
+  floatmin(T) <= q <= floatmax(T) || return f
+  t = sqrt(q)
+  if _l0_keeps(t, γ, f.λ)
+    t = prevfloat(t)
+    _l0_keeps(t, γ, f.λ) && return f
+  elseif !_l0_keeps(nextfloat(t), γ, f.λ)
+    t = nextfloat(t)
+    _l0_keeps(nextfloat(t), γ, f.λ) || return f
+  end
+  _L0Cutoff(t)
+end
+
+function _prox_sep_dense!(y::AbstractArray, f::NormL0{T}, x::AbstractArray{T}, γ::T) where {T<:Union{Float32, Float64}}
+  g = length(x) < 64 ? f : _l0_cutoff(f, γ)
+  _prox_entries!(y, g, x, γ)
 end
 
 prox!(y::_ArrayOrSymmetricIterate, f::NormL0, x::_ArrayOrSymmetricIterate, γ::Real) =

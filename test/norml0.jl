@@ -110,6 +110,25 @@ end
     @test narrowed == Float32[0, 2]
   end
 
+  @testset "prepared scalar step" begin
+    for (λ, γ) in ((T(0.5), u), (T(0.1), u), (T(0.3), u), (T(0.5), prevfloat(prevfloat(u))),
+                   (floatmax(T), floatmax(T)), (nextfloat(z), floatmin(T)),
+                   (z, T(Inf)), (T(Inf), z), (u, T(Inf)))
+      f = NormL0(λ)
+      root = sqrt((2γ) * λ)
+      # Special-value and near-threshold entries mixed with both signs.
+      v = isfinite(root) ? root : u
+      cases = T[NaN, Inf, -Inf, -z, z, floatmax(T), nextfloat(z),
+                v, -v, prevfloat(v), -prevfloat(v), nextfloat(v), -nextfloat(v)]
+      x = repeat(cases, 16)
+      want = reference_prox.(x, λ, γ)
+      @test isequal(prox(f, x, γ), want)
+      y = copy(x)
+      @test value_and_prox!(y, f, y, γ) === f(want)
+      @test isequal(y, want)
+    end
+  end
+
   @testset "iterate cardinality and stored values" begin
     f = NormL0(T(0.5))
     sp = SparseIterate(T, 6)

@@ -526,6 +526,68 @@ end
   end
 end
 
+@testset "scaled gradients into symmetric storage, $T" for T in (Float32, Float64)
+  ridge = SqrNormL2(one(T))
+  infscale = Scaled(ridge, T(Inf))
+  X = T[0.25 -2 0; -2 0 0; 0 0 0]
+  linear = Scaled(LinearFunction(copy(X), zero(T)), T(Inf))
+
+  @testset "coordinate values and storage" begin
+    # The retained product overflows in T, but multiplying 0.25 by it is finite.
+    factor = ldexp(one(T), (exponent(floatmax(T)) + 1) ÷ 2)
+    chain = Scaled(Scaled(ridge, factor), factor)
+    @test isinf(factor * factor)
+    @test chain.f isa Scaled
+    finite_cases = [(Scaled(ridge, a), X, a .* X, [1, 2, 4])
+                    for a in (T(2), nextfloat(zero(T)), floatmax(T))]
+    retained = T.(BigFloat(factor)^2 .* BigFloat.(X))
+    @test isfinite(retained[1, 1])
+    cases = ((infscale, zeros(T, 2, 2), T(Inf) .* zeros(T, 2, 2), [1, 2, 3]),
+             (infscale, X, T(Inf) .* X, collect(1:6)),
+             (linear, X, T(Inf) .* X, collect(1:6)),
+             (infscale, zeros(T, 0, 0), zeros(T, 0, 0), Int[]),
+             finite_cases..., (chain, X, retained, [1, 2, 4]))
+    for (f, input, expected, ids) in cases
+      p = size(input, 1)
+      expected_coords = [expected[r, c] for (r, c) in lower_positions(p)]
+      @test isequal(gradient(f, input), expected)
+      for x in (input, SymmetricSparseIterate(input)), op in (gradient!, value_and_gradient!)
+        before = x isa SymmetricSparseIterate ? state(x) : copy(x)
+        g = SymmetricSparseIterate(T, p)
+        p == 3 && activate!(g, 4)       # a zero is stored here; coordinates 3, 5 and 6 start absent
+        result = op(g, f, x)
+        if op === value_and_gradient!
+          @test isequal(result, f(x))
+        end
+        @test isequal(collect(coordinates(g)), expected_coords)
+        @test isequal(Matrix(g), expected)
+        @test nactive(g) == length(ids)
+        slots = collect(activecoordinates(g))
+        @test sort(slots) == ids
+        @test findall(k -> isactive(g, k), eachindex(expected_coords)) == ids
+        @test isequal(collect(activevalues(g)), expected_coords[slots])
+        @test g.ind2nzval[slots] == eachindex(slots)
+        @test isequal(x isa SymmetricSparseIterate ? state(x) : x, before)
+      end
+    end
+  end
+
+  @testset "validation precedes scaling and gradient writes" begin
+    g = SymmetricSparseIterate(X)
+    activate!(g, 4)
+    before = state(g)
+    badcenter = Scaled(SqrNormL2(one(T), zeros(T, 2, 2)), T(Inf))
+    invalid_calls = ((DimensionMismatch, infscale, zeros(T, 2, 2)),
+                     (DimensionMismatch, badcenter, X),
+                     (ArgumentError, infscale, g),
+                     (ArgumentError, infscale, matrixview(g)))
+    for op in (gradient!, value_and_gradient!), (error_type, f, x) in invalid_calls
+      @test_throws error_type op(g, f, x)
+      @test isequal(state(g), before)
+    end
+  end
+end
+
 @testset "show" begin
   @testset "two arguments: a short line, not the storage" begin
     p = 4

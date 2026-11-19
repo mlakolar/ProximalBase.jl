@@ -200,6 +200,61 @@ end
     end
   end
 
+  @testset "long arrays with variable steps" begin
+    hard = T[0.25, -0.25, 3, -4, 0, -0.0, Inf, -Inf, NaN]
+    firm = T[0.25, -0.25, 0.5, -nextfloat(T(0.5)), prevfloat(u), u, nextfloat(u),
+             0, -0.0, Inf, -Inf, NaN]
+    t = nextfloat(T(2))
+    # The rounded squares agree, but the exact input square is larger.
+    hard_boundary = [T[t, -t, prevfloat(T(2)), 2, t]; fill(T(3), 251)]
+    boundary_steps = [fill(2 * (t * t), 2); fill(T(8), 254)]
+    x = [repeat(firm, 22)[1:256]; repeat(hard, 29)[1:256];
+         hard_boundary;
+         T[prevfloat(T(2)), 2, nextfloat(T(2)), -2, -nextfloat(T(2)), -0.0, Inf, -Inf,
+           δ, -δ, M, -M, 0.75, 3]]
+    γ = [repeat(T[u, prevfloat(a)], 128); repeat(T[8, 6], 128);
+         boundary_steps;
+         T[8, 8, 8, 8, 8, 0, Inf, 1, δ, 8, 8, 1, 1, 8]]
+    expected = T[mcp_reference(λ, a, v, s) for (v, s) in zip(x, γ)]
+    @test expected[513:514] == T[t, -t]
+    for shape in ((length(x),), (2, length(x) ÷ 2))
+      point, steps = reshape(x, shape), reshape(γ, shape)
+      y = similar(point)
+      @test prox!(y, f, point, steps) === y
+      for i in eachindex(y)
+        if steps[i] >= a || iszero(expected[i]) || !isfinite(expected[i])
+          @test isequal(y[i], expected[i])
+        else
+          @test signbit(y[i]) == signbit(expected[i])
+          @test agrees(y[i], expected[i])
+        end
+      end
+      zpoint = copy(point)
+      @test isequal(value_and_prox!(zpoint, f, zpoint, steps), f(zpoint))
+      @test isequal(zpoint, y)
+      for bad in (-u, T(NaN)), op in (prox!, value_and_prox!)
+        badsteps = copy(steps)
+        badsteps[end] = bad
+        zpoint = copy(point)
+        @test_throws ArgumentError op(zpoint, f, zpoint, badsteps)
+        @test isequal(zpoint, point)
+      end
+    end
+  end
+
+  @testset "prepared dense and block values" begin
+    for g in (f, MCP(z, a), MCP(T(Inf), a), MCP(λ, T(Inf)), MCP(δ, a), MCP(T(1.125), M))
+      x = T[-3, -u, -0.0, 0, δ, 0.5, u, Inf, -Inf]
+      for entries in (x, [x; T(NaN)])
+        blocks = BlockIterate(entries, [collect(j:2:length(entries)) for j in 1:2])
+        for point in (entries, blocks)
+          want = sum(value_entry(g, v, i) for (i, v) in enumerate(entries))
+          @test isequal(g(point), want) || agrees(g(point), want)
+        end
+      end
+    end
+  end
+
   @testset "iterate storage and failure safety" begin
     sparse = SparseIterate(T, 6)
     sparse[2], sparse[3], sparse[5] = T(-2), T(0.5), T(3)

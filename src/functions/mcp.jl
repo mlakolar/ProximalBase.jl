@@ -70,6 +70,39 @@ end
   _scale_value((ml * ml) * ma, _power_factors(T, 2el + ea - 1))
 end
 
+struct _MCPOrdinaryValue{T} <: SeparableFunction
+  λ::T
+  a::T
+  kink::T
+  plateau::T
+end
+
+iszeropreserving(::_MCPOrdinaryValue) = true
+@inline function value_entry(f::_MCPOrdinaryValue{T}, v::T, ::Integer) where {T}
+  t = abs(v)
+  p = t * (f.λ - (t / f.a) / 2)
+  ifelse(isnan(v), v, ifelse(t < f.kink, p, f.plateau))
+end
+
+@inline function _mcp_ordinary_value(f::MCP{T}) where {T}
+  k = f.a * f.λ
+  half = k / 2
+  floatmin(T) <= half < T(Inf) || return nothing
+  _MCPOrdinaryValue(f.λ, f.a, k, f.λ * half)
+end
+
+function _value_dense(f::MCP{T}, x::Array{T}) where {T<:Union{Float32,Float64}}
+  g = _mcp_ordinary_value(f)
+  g === nothing && return _sum_entries(value_entry, f, x, T)
+  _sum_entries(value_entry, g, x, T)
+end
+
+function _value_sep(f::MCP{T}, x::BlockIterate{T}) where {T<:Union{Float32,Float64}}
+  g = _mcp_ordinary_value(f)
+  g === nothing && return invoke(_value_sep, Tuple{Any,BlockIterate}, f, x)
+  _value_sep(g, x)
+end
+
 @inline function prox_block(f::MCP, v::T, ::Integer, γ::Real) where {T<:Real}
   S = float(T)
   x = S(v)
@@ -219,6 +252,8 @@ struct _MCPFirmThresholds{T} <: SeparableFunction
   gain::T
 end
 
+@inline _mcp_firm_product_min(::Type{T}) where {T} = ldexp(floatmin(T), precision(T) + 1)
+
 @inline function prox_block(f::_MCPFirmThresholds{T}, v::T, ::Integer, ::Real) where {T}
   t = abs(v)
   u = ((t - f.low) + f.correction) * f.gain
@@ -231,7 +266,7 @@ function _mcp_firm_thresholds(f::MCP{T}, γ::T) where {T}
   low, k = γ * λ, a * λ
   # A product of two p-bit significands has at most 2p bits. At this
   # magnitude its low bit is representable even in a subnormal residual.
-  ldexp(floatmin(T), precision(T) + 1) <= low <= k <= floatmax(T) || return f
+  _mcp_firm_product_min(T) <= low <= k <= floatmax(T) || return f
   correction = fma(-γ, λ, low)
   upper = fma(a, λ, -k) > 0 ? nextfloat(k) : k
   # Near low, t - low is exact by Sterbenz's lemma. Adding the product
@@ -245,6 +280,82 @@ function _prox_sep_dense!(y::AbstractArray, f::MCP{T}, x::AbstractArray{T}, γ::
     return _prox_entries!(y, g, x, γ)
   end
   _prox_entries!(y, f, x, γ)
+end
+
+# Certify and write one block at a time so the step and input data stay hot.
+# The public route has already checked the entire step array before any write.
+function _prox_sep_dense!(y::Array{T}, f::MCP{T}, x::Array{T}, γ::Array{T}) where {T<:Union{Float32,Float64}}
+  k = f.a * f.λ
+  length(x) >= 64 && _mcp_firm_product_min(T) <= k <= floatmax(T) ||
+    return _prox_entries!(y, f, x, γ)
+  _checkwrite(prox!, f, y, x)
+  _checkparam(γ, x)
+  _mcp_steps!(y, f, x, γ, k)
+end
+
+@noinline function _mcp_steps!(y, f::MCP{T}, x, γ, k) where {T}
+  a, λ = f.a, f.λ
+  upper = fma(a, λ, -k) > 0 ? nextfloat(k) : k
+  ll = λ * λ
+  n = length(x)
+  for first in 1:256:n
+    inds = first:(first + min(255, n - first))
+    firm = @inbounds γ[first] < a
+    if firm && _mcp_firm_steps(γ, λ, a, inds)
+      _mcp_write_firm_steps!(y, x, γ, λ, a, upper, inds)
+    elseif !firm && floatmin(T) <= ll < T(Inf) && _mcp_hard_steps(x, γ, a, ll, inds)
+      _mcp_write_hard_steps!(y, x, γ, a, ll, inds)
+    else
+      @inbounds for i in inds
+        y[i] = prox_block(f, x[i], i, γ[i])
+      end
+    end
+  end
+  y
+end
+
+@inline function _mcp_firm_steps(γ, λ::T, a, inds) where {T}
+  ordinary = true
+  @inbounds @simd for i in inds
+    s = γ[i]
+    ordinary &= (s < a) & (s * λ >= _mcp_firm_product_min(T))
+  end
+  ordinary
+end
+
+@inline function _mcp_write_firm_steps!(y, x, γ, λ, a, upper, inds)
+  @inbounds @simd for i in inds
+    v, s = x[i], γ[i]
+    t = abs(v)
+    # The product bound keeps the exact residual's low bit representable.
+    r = fma(-s, λ, t)
+    u = r * (a / (a - s))
+    y[i] = ifelse((t >= upper) | isnan(v), v,
+                  ifelse(u > 0, copysign(min(t, u), v), zero(v)))
+  end
+end
+
+@inline function _mcp_hard_steps(x, γ, a::T, ll, inds) where {T}
+  ordinary = true
+  @inbounds @simd for i in inds
+    s, v = γ[i], x[i]
+    aa, p = a * s, v * v
+    q = aa * ll
+    # Same error margin as the scalar comparison with normal products.
+    separated = (floatmin(T) <= p) & (p < T(Inf)) & (floatmin(T) <= q) &
+                (q < T(Inf)) & (floatmin(T) <= aa) &
+                (abs(p - q) > (8eps(T)) * max(p, q))
+    ordinary &= (a <= s) & (s < T(Inf)) & (separated | iszero(v) | !isfinite(v))
+  end
+  ordinary
+end
+
+@inline function _mcp_write_hard_steps!(y, x, γ, a, ll, inds)
+  @inbounds @simd for i in inds
+    v = x[i]
+    p, q = v * v, (a * γ[i]) * ll
+    y[i] = ifelse(!isfinite(v) | (p > q), v, zero(v))
+  end
 end
 
 prox!(y::_ArrayOrSymmetricIterate, f::MCP, x::_ArrayOrSymmetricIterate, γ::Real) =

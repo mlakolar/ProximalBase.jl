@@ -105,6 +105,7 @@ makedocs(;
             "How to read the contracts" => "spec/index.md",
             "Array and precision conventions" => "numerical_usage.md",
             "Range, non-finite values and sparse products" => "numerics.md",
+            "MCP" => "spec/mcp.md",
             "NormL1" => "spec/norml1.md",
             "NormL1Nonneg" => "spec/norml1nonneg.md",
             "ElasticNet" => "spec/elasticnet.md",

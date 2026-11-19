@@ -27,6 +27,7 @@ apply alongside each entry.
 |:--|:--|:--|
 | `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints) | Existing pages |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
+| `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
 | `ElasticNet` | [Numerical contract](elasticnet.md) | Verbatim migration |

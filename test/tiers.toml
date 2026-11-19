@@ -32,6 +32,7 @@ quick = [
   "logdet",
   "logisticloss",
   "matrixview",
+  "mcp",
   "minimal_math",
   "norml0",
   "norml1nonneg",
@@ -60,4 +61,4 @@ thorough = []
 full = []
 
 [not_tests]
-files = ["runtests", "tiers", "testutils"]
+files = ["mcp_reference", "runtests", "tiers", "testutils"]

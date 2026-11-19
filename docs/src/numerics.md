@@ -402,6 +402,11 @@ omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
 
+### [Minimax concave penalty](@id spec-mcp)
+
+See the [MCP numerical contract](@ref mcp-contract) for step rules,
+value endpoints and the supported array and iterate routes.
+
 ### SCAD endpoints
 
 See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and

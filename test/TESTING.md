@@ -233,6 +233,12 @@ block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and
 frozen storage bookkeeping checks, with no packaged Testing extension.
 
+`mcp` checks the minimax concave penalty and its global proximal operator
+against a `BigFloat` evaluation of the full objective on each region and a
+separate numerical search. It covers `Float32` and `Float64` ties and adjacent
+inputs, parameter and step endpoints, overflow and subnormals, stored-output
+fused values, and pre-write validation for arrays and iterates.
+
 This is the complete minimal suite, not the historical package full suite.
 The removed historical catalog is preserved at the frozen baseline and
 legacy/full. No retained failure is skipped to accommodate the reduction.

@@ -22,12 +22,10 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. Eight receipts now cover fifteen transitions
-from PRs #1020, #1022, #1023, #1024, #1026, #1025 and #1027. These include the original
-heading's renames, a sentence that became three, the later `IndBallLinf`
-inventory changes, the least-squares test description and the scaled-indicator
-screen rule, and the `IndBallL1` API addition. No baseline identity is replaced. Reconcile pending external
-changes to an all-pass six-check report before starting a migration change.
+provenance and independent review. The current reconciliation through `c54241b`
+has 59 receipts covering 93 transitions, retaining every earlier event and all
+2,162 original block identities. Reconcile pending external changes to an
+all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
 
@@ -38,9 +36,11 @@ valid retirements use the same data record and validations, without a Python
 whitelist change. Phase 5 removes the temporary writing-guide instruction to
 record these in the migration audit, retaining the durable forwarding rule.
 
-Before the next family, refine the three remaining family guides to sentence
-units with original-block provenance, and replace the three uncited runtime
-admonition hashes with exact page/category/title comparisons. Keep original
+Before partial-paragraph moves from `smooth.md`, `group_penalty.md` or
+`calculus.md`, refine their units with original-block provenance. This does not
+block the whole numerical subsections of `NormL1Nonneg` and `ElasticNet`.
+Replacing the three uncited runtime admonition hashes with exact
+page/category/title comparisons remains separate preparation. Keep original
 explicit heading IDs and forwarding paragraphs for authored link/citation targets.
 The next pages must label pointer-only
 sections and use specific shared-rule anchors; verbatim duplicates stay until
@@ -53,17 +53,22 @@ The migration ledger and six temporary checks are retired after the final
 Phase 5 blocking acceptance; the frozen audit and ordinary documentation gates
 remain. The preparation work is tracked in #1019.
 
-New function families must now place their numerical rules directly in
-`docs/src/spec/<family>.md` using the fourteen-section schema. The four restores
-already merged into the numerical hub increase the existing-page backlog from
-13 to 17 families/operations. The fourth, `IndBallLinf`, is now in the family
-map with its existing hub location. Named inventory blocks retain upstream receipts:
+New function families must place their numerical rules directly in
+`docs/src/spec/<family>.md` using the fourteen-section schema and stable section
+IDs. Algorithm steps and path-selection thresholds belong in a paragraph
+labelled implementation notes, not guarantees. Thin constructors such as
+`IndBallLinf` have a family-map row linking to their underlying owner, without a
+separate contract page. The map now also includes the later `LogDetLoss`,
+`LogisticLoss` and `GroupNormLinf` restores at their current guide owners.
+It has 18 existing-page family/operation entries after the `NormL1Nonneg` move;
+`ElasticNet` is next. Named inventory blocks retain upstream receipts:
 the API coverage check verifies presence, not their descriptive claims.
 Batch several external changes when practical, before the next migration starts.
 
-The later `IndBallL1` restore already has its own fourteen-section contract page
-and family-map/navigation entries. It therefore adds no existing-page migration
-backlog. Its merge is reconciled separately in the API inventory receipt.
+The later `IndBallL1` and `SCAD` restores already have fourteen-section contract
+pages and family-map/navigation entries. They add no existing-page migration
+backlog. Existing explicit endpoint IDs remain unchanged when the other section
+IDs are added.
 
 Clause conversion, the remaining families, numerical routine pages, lessons,
 figures, the agent entry file and the final blocking-mode switch remain tracked

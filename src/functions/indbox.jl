@@ -119,6 +119,30 @@ prox!(y::_ArrayOrSymmetricIterate, f::IndBox, x::_ArrayOrSymmetricIterate, γ::R
 value_and_prox!(y::_ArrayOrSymmetricIterate, f::IndBox, x::_ArrayOrSymmetricIterate, γ::Real) =
   (_check_indbox_step(γ); invoke(value_and_prox!, _SeparableScalarStep, y, f, x, γ))
 
+"""
+    IndBallLinf(r)
+
+Construct the [`IndBox`](@ref) with scalar bounds `-r` and `r`, the
+indicator of `maxᵢ |xᵢ| ≤ r` over the entries of a vector or matrix.
+Negative, `NaN` and positive unsigned radii throw `ArgumentError`.
+Zero gives the singleton box and `Inf` admits both infinite endpoints.
+Value evaluation, projection, and supported steps and iterates follow
+the `IndBox` contract.
+
+```jldoctest
+julia> prox(IndBallLinf(1.0), [-3.0, 0.5], 0.0)
+2-element Vector{Float64}:
+ -1.0
+  0.5
+```
+"""
+function IndBallLinf(r::Real)
+  _checknonneg("r", r)
+  r isa Unsigned && !iszero(r) &&
+    throw(ArgumentError("IndBallLinf requires a radius with a representable negation, got $r"))
+  IndBox(-r, r)
+end
+
 function restrict(f::IndBox, S::AbstractVector{<:Integer})
   if !iszeropreserving(f)
     bounds = f.l isa AbstractArray ? f.l : f.u

@@ -165,49 +165,11 @@ a nonzero coordinate is not an instruction to set it to zero. See
 
 ## [Supported inputs and numerical considerations](@id l1-endpoints)
 
-`NormL1` acts on real vector or matrix entries. When weights are given,
-they must have the same total number of entries as the argument, paired
-in Julia's linear indexing order. The function also has explicitly
-supported sparse and symmetric iterate operations; for symmetric matrix
-storage, matching off-diagonal weights must agree: this is a precondition that the
-oracles assume and `check_symmetric_parameters` validates. See
-[Symmetric parameters](symmetric_parameters.md).
-
-`prox!` writes to a supplied destination; `value_and_prox!` writes
-the proximal point and returns `g` evaluated at that stored output.
-Exact input/output identity is supported, but partially overlapping
-views are not. Weights are stored by reference, so modifying them also
-changes the function.
-
-Infinite parameters, NaNs, zeros, overflow and sparse active-zero
-semantics require extra care. A zero weight leaves an entry unpenalized.
-An infinite weight sets the proximal output to zero for a **finite input value**, including at zero
-level and zero step. For non-finite inputs (`NaN`, `±Inf`) with finite level,
-there is **no fixed-zero guarantee**: ordinary soft-threshold arithmetic can
-return `NaN` ([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)).
-A genuinely infinite overall level `λ0 = Inf` separately fixes every
-positive-weight entry at `+0` at any nonnegative step, including non-finite
-inputs, also at zero step. See the canonical
-[infinite-penalty rule](@ref infinite-penalty-at-zero-step) for its interpretation.
-Zero-weight entries stay free:
-
-```julia
-prox(NormL1(Inf, [1.0, 0.0, 2.0]), [3.0, 4.0, 5.0], 0.0)  # [0.0, 4.0, 0.0]
-prox(NormL1(Inf), [1.0, 2.0], 0.0)                         # [0.0, 0.0]
-prox(NormL1(1.0), [1.0, 2.0], 0.0)                         # [1.0, 2.0]: finite level
-```
-
-The infinite overall level and an infinite coordinate weight are distinct: the
-latter, at a finite level, keeps the finite-input restriction above at every step.
-
-A threshold formed from entirely finite factors may itself overflow to `Inf`.
-For an input of `±Inf` this can also return `NaN`, even though the mathematical
-threshold is finite. This is a **documented, deferred limitation**
-([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)), not an
-approved change to the proximal kernel. The decision preserves performance
-of normal `Float32`/`Float64` weighted operations; the measured cost of extra
-checks is recorded in the [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md).
-See also [Array and precision conventions](numerical_usage.md).
+The supported arguments, ownership rules and numerical endpoints now live in
+the [NormL1 numerical contract](spec/norml1.md).
+See its [supported arguments](@ref spec-norml1-arguments),
+[results](@ref spec-norml1-results), [endpoint clauses](@ref spec-norml1-endpoints)
+and [limitations](@ref spec-norml1-limitations).
 
 ## [The elastic-net penalty](@id The-elastic-net-penalty)
 

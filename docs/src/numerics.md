@@ -110,21 +110,8 @@ recovery of a dense argument and in the recovery of the `LinearFunction` value a
 `d` beside a dot that cancels exactly is returned as `d` when the compensated sum of the
 products cancels to zero, which is not guaranteed for products of very different sizes.
 
-`NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
-subnormal range, which loses accuracy even when the total is normal
-([#373](https://github.com/mlakolar/ProximalBase.jl/issues/373)). Each such
-rounding loses at most half the smallest subnormal spacing,
-`eps(T)*floatmin(T)/2`, so an ordinary sum `s ≥ n*floatmin(T)` of `n` terms
-loses at most `eps(T)/2` relative to `s` and is returned from the unchanged
-vectorized loop. A smaller sum, a zero one included, is recomputed: the
-products `w[i]*abs(x[i])` are accumulated with their exponents, and `λ0` is
-applied before the single conversion to `T`. This holds for dense arrays and
-for the stored entries of `SparseIterate`, `BlockIterate` and
-`SymmetricSparseIterate`, and for `value_and_prox!` at its stored output.
-Zero and infinite levels, infinite weights and NaN/Inf entries keep the rules
-below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
-as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
-rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
+For `NormL1` value recovery, including subnormal terms, see the
+[NormL1 range clauses](@ref spec-norml1-range).
 
 `NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
 term of a negative entry; the rules for `NaN` and `Inf` entries are in the table below, and at a
@@ -195,39 +182,8 @@ rounding of the projection puts the stored point outside the computed
 boundary. A positive finite radius projects a NaN input to an all-NaN output,
 including implicit zeros of a `SparseIterate`.
 
-For `IndBallL1`, the value and projection compare the computed sum of
-magnitudes with the radius rounded to the floating type `T` of the argument.
-There is no feasibility tolerance. Rounding can decide a point at the
-boundary. For example, the computed sum for `[1.0, 2.0^-54]` equals `1.0`,
-and the projection at radius `1.0` copies that point.
-
-Finite sums above `floatmax(T)/2` are compared in power-of-two units. The
-shared ℓ₁-ball threshold from `NormLinf` selects the soft-threshold level.
-A tiny radius can be lost when that level rounds to the largest magnitude.
-The fallback sorts the magnitudes and forms the output directly from their
-gaps at `O(n log n)` cost. The exceptional path is selected when the
-radius is at most `64 eps(T)` times the computed sum in the working units
-or when a level search is needed at a subnormal radius. A radius tiny
-relative to the largest magnitude goes directly to the fallback. The
-other cases on this path check the tentative projected mass before writing.
-On the sorted path for a subnormal radius, the gaps and remaining radius
-are combined in scaled units and rounded back when storing the output.
-With `M = floatmax(Float64)` and radius `1`, the projection of `[M, -M]`
-is `[0.5, -0.5]`.
-
-For an exact normal threshold, rounding the threshold alone changes the
-projected mass by at most `u S/(1-u)`, where `u = eps(T)/2` and `S` is the
-exact sum of the magnitudes in the working units. The displacement is at
-most `u` times the exact threshold per affected coordinate, and each
-affected magnitude exceeds the smaller of the two thresholds.
-Outside the mass screen, this contribution relative to the radius is bounded
-by `(S/s)/(128(1-u))` for the computed sum `s`. The bound isolates threshold
-rounding. The selector's absolute error, sum rounding, and subnormal
-rounding retain their own effects.
-
-`value_and_prox!` evaluates the stored point. Its value can be `Inf` when
-rounding puts that point outside the computed boundary. For example, with
-`δ = nextfloat(0.0)`, radius `3δ` projects `[M, -M]` to `[2δ, -2δ]`.
+See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball
+feasibility, power-of-two scaling, and tiny-radius projection.
 
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
@@ -344,11 +300,7 @@ all-NaN result or a particular exception.
 | Case | Retained behavior |
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
-| Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
-| `NormL1`, zero weight | Unpenalized entry at every level |
-| `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
-| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. See [the zero-step rule](@ref infinite-penalty-at-zero-step) |
-| `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
+| `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
 | `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
@@ -363,9 +315,10 @@ all-NaN result or a particular exception.
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
 | `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a caller precondition, a documented exception to [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)'s preflight rule. `prox_block` and `Scaled` routes do not check. The historical reasoning is in [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md) |
 | `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
+| `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |
 | `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
 | `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
-| `IndBallL1` | The same step, radius and nonfinite rules as `IndBallL2`: any nonnegative scalar step projects, a negative or NaN step throws before writes (including through scalar `Scaled`), a NaN entry gives value NaN, zero radius projects to positive zeros, infinite radius copies the input, and at positive finite radius a single infinite entry gives the signed radius there and zeros elsewhere, while multiple infinite entries or any NaN give an all-NaN projection. A feasible point is copied with its signed zeros. Entries at or below the threshold level become `+0`. |
+| `IndBallL1` | See [ℓ₁-ball endpoint rules](@ref spec-indballl1-endpoints). |
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
 | `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
@@ -386,21 +339,11 @@ all-NaN result or a particular exception.
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
-```@example numerical_endpoints
+The `NormL1` assertions are retained in its
+[executed endpoint example](@ref spec-norml1-endpoints).
+
+```@setup numerical_endpoints
 using ProximalBase
-@assert NormL1(0.0)([NaN,Inf]) == 0
-@assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
-@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)
-@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])
-@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold
-@assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
-@assert isnan(shrink(NaN,1.0))
-@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero
-@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step
-@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)
-@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
-@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
-prox(NormL1(Inf),[NaN,Inf],1.0)
 ```
 
 ```@example numerical_endpoints
@@ -421,16 +364,8 @@ prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
 prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)
 ```
 
-**Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
-coordinate weight maps a *finite input value* to zero, even at zero level and step.
-For inputs of `NaN` or `±Inf` with finite level, that fixed-zero guarantee is
-intentionally not extended: retained soft-threshold arithmetic may return
-`NaN`. Separately, a threshold made from *finite* factors can overflow to
-`Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
-though the mathematical threshold is finite. These examples characterize
-present behavior, not additional non-finite-output guarantees. A genuinely
-infinite **level** at any nonnegative step retains its distinct fixed-zero rule
-for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
+The decision on `NormL1` non-finite inputs is retained with the
+[NormL1 endpoint clauses](@ref spec-norml1-endpoints).
 
 ### Cardinality penalty endpoints
 

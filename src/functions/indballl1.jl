@@ -40,7 +40,7 @@ julia> prox(IndBallL1(3.0), [3.0, -1.0])
  -0.5
 ```
 
-See [the numerical contract](@ref numerics) for large sums, tiny radii and
+See [the numerical contract](@ref spec-indballl1) for large sums, tiny radii and
 the value returned by [`value_and_prox!`](@ref).
 """
 struct IndBallL1{T<:Real} <: AbstractFunction

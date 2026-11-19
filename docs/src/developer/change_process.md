@@ -95,6 +95,12 @@ rules in coding-agent and reviewer handoffs.
    substantive review. Report implementation defects/ambiguous contracts separately
    during documentation work rather than changing code to fit an example.
 
+For a new function family, create its numerical entry page under
+`docs/src/spec/<family>.md` and follow the
+[new-family documentation rules](writing_documentation.md#New-function-families).
+Use the fourteen-section schema, link shared owners by anchor, and update the
+family map and navigation alongside the API entries.
+
 ## Historical acceptance records
 
 The archived [iterate-family acceptance](https://github.com/mlakolar/ProximalBase.jl/blob/eff21b6d7d33c622313122f46c6ee71693c101ee/docs/design/iterate-family-0.6-acceptance.md)

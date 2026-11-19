@@ -116,6 +116,12 @@ four-argument form), a head above large ties (up to `10^6` entries) with a level
 at the zero point, on a face of all the entries and on a face with entries off it, through `Scaled` (one factor, and a chain that folds) and
 on the scaled path, a grid of such clusters around the breakpoint, a two-entry input, the closed form of a face inside its range and faces of
 nearly equal entries at its boundary, against exact distances in BigFloat, and the absence of ambiguities.
+`kkt_smooth` tests full-point `kkt_violation` for `LeastSquaresLoss` and
+`QuadraticFunction` in Float32/64. It checks analytic and BigFloat references,
+bit parity with the gradient oracle, vector and multiresponse layouts, sparse
+and structured products, exceptional and invalid inputs, scratch aliases,
+cold and warm allocations, subsequent value, gradient and prox calls, and
+the `Scaled` and custom dispatch routes.
 `groupnorml2` checks `GroupNormL2` against independent BigFloat evaluations of
 its value, group soft thresholding and group KKT screen in Float32/64: analytical
 and threshold cases, singleton groups against weighted `NormL1`, noncontiguous

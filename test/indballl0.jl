@@ -557,8 +557,11 @@ end
   @test isequal(prox(Scaled(f, 2.0), Symmetric(X)), Y1)
 end
 
-# a function of its arguments, so that the compiler measures one call
-alloc_prox(Y, f, X) = @allocated prox!(Y, f, X, 1.0)
+# Each helper calls once before it measures, so that the buffer of the object and the compiled methods exist.
+function alloc_prox(Y, f, X)
+  prox!(Y, f, X, 1.0)
+  @allocated prox!(Y, f, X, 1.0)
+end
 function alloc_inplace(P, P0, f, uplo)
   S = Symmetric(P, uplo)
   copyto!(P, P0)
@@ -572,7 +575,10 @@ function alloc_matrix_inplace(P, P0, f)
   copyto!(P, P0)
   @allocated prox!(P, f, P, 1.0)
 end
-alloc_value(f, X) = @allocated f(X)
+function alloc_value(f, X)
+  f(X)
+  @allocated f(X)
+end
 
 @testset "no allocation in repeated calls" begin
   rng = Xoshiro(99)
@@ -592,7 +598,6 @@ alloc_value(f, X) = @allocated f(X)
       f = IndBallL0(s; diagonal = false)
       Y = zeros(T, p, p)
       for X in (A, Symmetric(PL, :L), Symmetric(PU, :U))
-        @test alloc_prox(Y, f, X) == 0
         @test alloc_prox(Y, f, X) == 0
         @test alloc_value(f, X) == 0
       end

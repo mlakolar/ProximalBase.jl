@@ -26,6 +26,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/sqrt_leastsquares.jl` | Convex nonsmooth square-root residual-norm loss, its value evaluation and shared norm kernel |
 | `src/functions/leastsquares_predictor.jl` | Shared qualified predictor/residual value oracles for both least-squares losses, and gradient oracle for `LeastSquaresLoss` |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
+| `src/functions/scad.jl` | SCAD entry values and global scalar proximal minimization |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |
 | `src/functions/norml2.jl` | Euclidean/Frobenius norm and scalar-step proximal map |

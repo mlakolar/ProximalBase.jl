@@ -261,3 +261,10 @@ dense, strided-view and CSC designs. It covers binary and fractional responses,
 weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
 warmed allocations and product counts. Independent BigFloat and finite-difference
 references check the value and both gradient spaces, including weighted tails.
+
+## SCAD coverage
+
+`scad` checks the globally minimizing scalar prox against independent BigFloat objectives
+and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
+and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.

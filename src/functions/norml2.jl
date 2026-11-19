@@ -77,12 +77,16 @@ end
 
 prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
   (_check_l2_arrays(f, y, x, γ); _l2_shrink!(y, x, Base.OneTo(length(x)), f.λ, true, γ); y)
-function value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real)
+value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = first(_norml2_value_and_prox!(y, f, x, γ))
+@inline function _norml2_value_and_prox!(y, f, x, γ)
   _check_l2_arrays(f, y, x, γ)
   G = Base.OneTo(length(x))
   s = _l2_shrink!(y, x, G, f.λ, true, γ)
-  # a recomputed value reads y as the value does: its stored entries only for a sparse iterate
-  s == _L2_RECOMPUTE ? _l2_value(f.λ, y) : _l2_fused_term(f.λ, true, y, G, s, _valtype(y))
+  # The zero code from shrinkage certifies an exactly zero group.
+  s == _L2_ZERO && return zero(_valtype(y)), true
+  # A recomputed value reads y as the value does, visiting the stored entries of a sparse iterate.
+  v = s == _L2_RECOMPUTE ? _l2_value(f.λ, y) : _l2_fused_term(f.λ, true, y, G, s, _valtype(y))
+  v, false
 end
 # routes of wrappers such as Scaled, which preflight with _checkwrite first
 _value_and_prox_unchecked!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) = value_and_prox!(y, f, x, γ)

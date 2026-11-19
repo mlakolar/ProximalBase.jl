@@ -644,13 +644,28 @@ _prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _prox_chain
   g, step, _ = _nested_step(s, γ)
   _prox_unchecked!(y, g, x, step)
 end
+# Along with the leaf value, return whether its kernel certified an exact zero.
+@inline _scaled_leaf_value_and_prox!(y, f, x, γ) = (_value_and_prox_unchecked!(y, f, x, γ), false)
+@inline _scaled_leaf_value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
+  _norml2_value_and_prox!(y, f, x, γ)
+@inline function _scaled_leaf_value_and_prox!(y::Array{T}, f::NormL1{T, Nothing}, x::Array{T},
+                                              γ::Union{Real, AbstractArray}) where {T<:Union{Float32, Float64}}
+  _prox_sep!(y, f, x, γ)
+  s = invoke(_value_dense, Tuple{Any, AbstractArray}, f, y)
+  _sum_kept(s, length(y)) ? (s, false) : _l1_underflow_result(f, y, s)
+end
+
 value_and_prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::Real) = _nested_route(s, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-  (_checkwrite(value_and_prox!, s, y, x); v = _value_and_prox_unchecked!(y, s.f, x, _scaled_step(s, γ));
-   r = _fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) :
-       _scaled_value(s, y, v, s.f isa Union{NormL1, NormL2} || isinf(s.α));
-   _value_at(r, y))
+function _value_and_prox_unchecked!(y, s::Scaled, x, γ::Real)
+  _nested_route(s, γ) && return _value_and_prox_chain!(y, s, x, γ)
+  _checkwrite(value_and_prox!, s, y, x)
+  v, exact_zero = _scaled_leaf_value_and_prox!(y, s.f, x, _scaled_step(s, γ))
+  exact_zero && isfinite(s.α) && return _value_at(v, y)
+  r = _fused_small_case(s.f, s.α, v) ? _fused_small_value(s.f, s.α, y, s.α * v) :
+      _scaled_value(s, y, v, s.f isa Union{NormL1, NormL2} || isinf(s.α))
+  _value_at(r, y)
+end
 @noinline function _value_and_prox_chain!(y, s, x, γ::Real)
   _checkwrite(value_and_prox!, s, y, x)
   g, step, a = _nested_step(s, γ)

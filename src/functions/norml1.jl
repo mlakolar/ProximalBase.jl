@@ -265,12 +265,16 @@ end
 # exact zero, which a scan of the stored values (`_all_zero`) decides before the recomputation. The result is
 # in the type of s also where the accumulator type is known only at run time (abstract factor arrays), so that
 # the callers stay inferred.
-@noinline function _l1_underflow_value(f::NormL1, x, s::T)::T where {T}
+@inline _l1_underflow_value(f::NormL1, x, s::T) where {T} = first(_l1_underflow_result(f, x, s))::T
+
+# The flag records the exact-zero test for callers that will scale the result.
+@noinline function _l1_underflow_result(f::NormL1, x, s::T)::Tuple{T, Bool} where {T}
   λ = f.λ0
-  (λ > 0 && isfinite(λ)) || return s
-  iszero(s) && _all_zero(_stored_values(x)) && return s
+  (λ > 0 && isfinite(λ)) || return s, false
+  iszero(s) && _all_zero(_stored_values(x)) && return s, true
   R = promote_type(T, Float64, _factor_type(λ), _l1_factor_type(f.w), _l1_factor_type(_stored_values(x)))
-  _expsum_value(T, _l1_weighted_abs(_expsum_start(R), f.w, x), λ)
+  v = _expsum_value(T, _l1_weighted_abs(_expsum_start(R), f.w, x), λ)::T
+  v, false
 end
 
 # The floating type that holds every entry of a factor array without narrowing it: from the element type, or,

@@ -4,9 +4,13 @@ _prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
   (_checkparams(s, x); _array_route(s, x, γ) ? _prox_chain!(y, s, x, γ) : _prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α)))
 value_and_prox!(y, s::Scaled, x, γ::AbstractArray) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(value_and_prox!, s, y, x, γ); _value_and_prox_unchecked!(y, s, x, γ))
-_value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray) =
-  (_checkparams(s, x); _array_route(s, x, γ) ? _value_and_prox_chain!(y, s, x, γ) :
-   _value_at(_scaled_value_overflow(s.f, s.α, y, _value_and_prox_unchecked!(y, s.f, x, _ScaledArray(γ, s.α))), y))
+function _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray)
+  _checkparams(s, x)
+  _array_route(s, x, γ) && return _value_and_prox_chain!(y, s, x, γ)
+  v, exact_zero = _scaled_leaf_value_and_prox!(y, s.f, x, _ScaledArray(γ, s.α))
+  exact_zero && isfinite(s.α) && return _value_at(v, y)
+  _value_at(_scaled_value_overflow(s.f, s.α, y, v), y)
+end
 # With an array step and a factor inside the band, recover an overflow with α < 1 or a
 # zero or subnormal NormL1 leaf value with α > 1 by recomputing at the stored output.
 # ElasticNet keeps its separate nonzero subnormal recovery. An indicator ignores its scale

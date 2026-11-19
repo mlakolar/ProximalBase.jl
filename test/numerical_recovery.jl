@@ -1700,8 +1700,8 @@ function test_scaled_fused_small_values(::Type{T}) where {T<:AbstractFloat}
       @test y == prox!(similar(y), h, x, step) == zeros(T, 2)
     end
 
-    for (λ, γ, expected) in ((one(T), T(0.5), T(8)), (zero(T), one(T), zero(T)),
-                             (T(Inf), zero(T), zero(T)))
+    for (λ, γ, expected) in ((one(T), T(0.5), T(8)), (one(T), T(4), zero(T)),
+                             (zero(T), one(T), zero(T)), (T(Inf), zero(T), zero(T)))
       h = Scaled(NormL2(λ), α)
       y = similar(x)
       v = value_and_prox!(y, h, x, γ)
@@ -1714,6 +1714,11 @@ function test_scaled_fused_small_values(::Type{T}) where {T<:AbstractFloat}
         @test out == x
       end
     end
+
+    h = Scaled(NormL2(one(T)), T(Inf))
+    y = similar(x)
+    @test isnan(value_and_prox!(y, h, x, one(T))) && isnan(h(y))
+    @test y == prox!(similar(y), h, x, one(T)) == zeros(T, 2)
   end
 end
 

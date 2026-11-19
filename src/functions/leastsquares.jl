@@ -287,7 +287,9 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
       f.svd_ready = true
       return f
     end
-    F = svd(Matrix{T}(f.X))
+    A = Matrix{T}(f.X)
+    all(isfinite, A) || throw(ArgumentError("design matrix X must have finite entries in the SVD computation type"))
+    F = svd(A)
     f.V = F.V
     f.s2 = F.S .^ 2
     f.sUtY = Array{T, N}(transpose(F.U) * f.Y)

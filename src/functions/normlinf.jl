@@ -745,18 +745,18 @@ end
 # the entries above the exact level: a count is the count above the level that is named, and the inequality that uses it holds for
 # that level.
 #   (1) Tools.
-#   (T1) Radius form. The distance from -v to the subgradients of radius r is 1-Lipschitz in r: scaling the subgradients by r′/r
+#   Radius form. The distance from -v to the subgradients of radius r is 1-Lipschitz in r: scaling the subgradients by r′/r
 #       moves them by at most |r - r′| (their 2-norm is at most their 1-norm, r). The residual ρ(ℓ) is the exact residual of the
 #       radius G(ℓ) (ℓ is the level of that radius where G(ℓ) > 0, as G decreases strictly there, and the residual is u where
 #       G(ℓ) = 0), so |ρ(ℓ) - d| ≤ |G(ℓ) - c|. At the zero point the same with ℓ ≥ 0.
-#   (T2) Level form. For ℓ₁ ≤ ℓ₂, |ρ(ℓ₂) - ρ(ℓ₁)| ≤ √N (ℓ₂ - ℓ₁) with N = #{i ∈ J : uᵢ > ℓ₁} (the residuals of the other entries do not
+#   Level form. For ℓ₁ ≤ ℓ₂, |ρ(ℓ₂) - ρ(ℓ₁)| ≤ √N (ℓ₂ - ℓ₁) with N = #{i ∈ J : uᵢ > ℓ₁} (the residuals of the other entries do not
 #       change, and each of these changes by at most ℓ₂ - ℓ₁; triangle inequality). The N entries above ℓ₁ have residual ℓ₁, so √N |ℓ₁| ≤ ρ(ℓ₁).
-#   (T3) The first level. Σ_J uᵢ = Σ_J min(uᵢ, ℓ) + G(ℓ) at any level ℓ, so cnt τ0e = Σ_J min(uᵢ, ℓ) + (G(ℓ) - c). At ℓ = τ the
+#   Mean identity (the first level). Σ_J uᵢ = Σ_J min(uᵢ, ℓ) + G(ℓ) at any level ℓ, so cnt τ0e = Σ_J min(uᵢ, ℓ) + (G(ℓ) - c). At ℓ = τ the
 #       sum is that of the residual entries, so √cnt |τ0e| ≤ ‖r_J‖₂ ≤ d. For a level ℓ with k entries above it and B = the
 #       other b = cnt - k entries of J (residual uᵢ ≤ ℓ), k (ℓ - τ0e) = (k/cnt) [Σ_B (ℓ - uᵢ) - (G(ℓ) - c)] ≤ (k/cnt) [b |ℓ| +
 #       √b ρ(ℓ)] + (k/cnt) |G(ℓ) - c| ≤ √(cnt/2) ρ(ℓ) + (k/cnt) |G(ℓ) - c|, by √k |ℓ| ≤ ρ(ℓ), ‖u_B‖₂ ≤ ρ(ℓ), and
 #       max over k of (√k b + k √b)/cnt = √(cnt/2).
-#   (T4) For τ0e ≤ ℓ ≤ τ and K = #{uᵢ > τ} ≥ 1 (c > 0): √K (τ - ℓ) ≤ d. If τ ≥ 0 and ℓ ≥ 0 then τ - ℓ ≤ τ and √K τ ≤ d. If τ ≥ 0 >
+#   Level lemma. For τ0e ≤ ℓ ≤ τ and K = #{uᵢ > τ} ≥ 1 (c > 0): √K (τ - ℓ) ≤ d. If τ ≥ 0 and ℓ ≥ 0 then τ - ℓ ≤ τ and √K τ ≤ d. If τ ≥ 0 >
 #       ℓ then |ℓ| ≤ |τ0e| and the negative residual entries, which are not among the K, sum in magnitude to at least cnt |τ0e| + K τ
 #       (cnt τ0e = Σ_J rᵢ), so d² ≥ K τ² + (cnt |τ0e| + K τ)²/cnt ≥ K (τ + |τ0e|)². If τ < 0 then τ - ℓ ≤ |τ0e| and √K |τ0e| ≤ d.
 #   (2) The first level of a face. S = Σ_J uᵢ + e_S, |e_S| ≤ γ_{cnt-1} ‖u_J‖₁; fl(S - c) = S - c + δ₁, |δ₁| ≤ u |fl(S - c)|; τ0 =
@@ -772,44 +772,44 @@ end
 #       test sv ≤ c exits before, the range test is made before), so the start is nonnegative, the levels increase from it
 #       (claim 1) and the clamp at zero does not act. n u ≤ 1/4 is the one condition that the function does not check. Claim 5
 #       (ii) gives |ρ(τ̂) - D(c)| ≤ [(n + 3) ‖v‖₂ + (1.5 n + 0.5)(1 + u)² c] u/(1 - n u)² (D(c) = the distance from v to the ball
-#       of radius c), to first order (n + 3) u ‖v‖₂ + (1.5 n + 0.5) u c. Rounding λ to c moves d by at most u λ (T1). The
+#       of radius c), to first order (n + 3) u ‖v‖₂ + (1.5 n + 0.5) u c. Rounding λ to c moves d by at most u λ (radius form). The
 #       exit sv ≤ c: the exact Σ|vᵢ| ≤ sv/(1 - γ_{n-1}) ≤ c/(1 - γ_{n-1}), so v scaled by c/Σ|vᵢ| is in the ball and d ≤ γ_{n-1} ‖v‖₂.
 #   (4) A face with the closed form certified. The residual of the closed form is τ0 on all the entries of J (they are at or above
 #       μ ≥ τ0 + b̂ - u mv, and τ0 ≤ μ), and that of the exact level τ0e is τ0e on them: ρ(τ0) - ρ(τ0e) ≤ √cnt |τ0 - τ0e| ≤
-#       √cnt B0 (T2) ≤ q √cnt |τ0| + γ_{cnt-1} ‖u_J‖₂ ≤ q ρ(τ0) + γ_{cnt-1} ‖u_J‖₂ (√cnt |τ0| is the face part of the residual). Solving
+#       √cnt B0 (level form) ≤ q √cnt |τ0| + γ_{cnt-1} ‖u_J‖₂ ≤ q ρ(τ0) + γ_{cnt-1} ‖u_J‖₂ (√cnt |τ0| is the face part of the residual). Solving
 #       for ρ(τ0): |ρ(τ0) - d| ≤ (q d + γ_{cnt-1} ‖u_J‖₂)/(1 - q) ≈ 2 u d + (cnt - 1) u ‖v‖₂.
 #   (5) A face with the certificate failed. σ = τ0 is the computed number, aᵢ = (uᵢ - σ)₊, L̂ᵢ = fl(aᵢ) = aᵢ (1 + ηᵢ), |ηᵢ| ≤ u, and 0
 #       off J. The kernel solves the problem of the L̂ᵢ, radius c, from the level 0, with g = h(t) = Σ (L̂ᵢ - t)₊; the returned level
 #       is t̂ ≥ 0 and τ̂ = fl(σ + t̂). The kernel statements used do not need 0 ≤ c < s: claim 1 (the levels increase from the
 #       start, so they are nonnegative), claim 3 (a) to (d) and the proofs of claims 2 and 3 for a step from any level (the starts
 #       of claim 2 and claim 5 (ii) are for the plain start from a sum, which this caller does not form); c > 0 is used by (c).
-#       (T5) Transfer. For t ≥ 0, G(σ + t) = Σ (aᵢ - t)₊ and |(a - t)₊ - (b - t)₊| ≤ |a - b|, which vanishes unless
+#       Transfer. For t ≥ 0, G(σ + t) = Σ (aᵢ - t)₊ and |(a - t)₊ - (b - t)₊| ≤ |a - b|, which vanishes unless
 #       a > t⁻ = t/(1 + u): |G(σ + t) - h(t)| ≤ u Σ_{aᵢ > t⁻} aᵢ = u [G(σ + t⁻) + k t⁻], k = #{uᵢ > σ + t⁻}. The pass of
 #       the kernel at t counts k_L ≤ k entries (L̂ᵢ > t implies aᵢ > t⁻).
-#       Below, k is a count above the lowest level that enters, ℓ = min(τ̂, σ + t̂⁻), and the right sides use (T3) and (T4) at ℓ;
+#       Below, k is a count above the lowest level that enters, ℓ = min(τ̂, σ + t̂⁻), and the right sides use (mean identity) and (level lemma) at ℓ;
 #       replacing ℓ by τ̂ or σ + t̂ in a right side changes it by a term of the second order in n u. Put E_G = |G(τ̂) - c|.
 #       Each return of the iteration (claim 3):
 #       (b) at the first pass (r ≤ c at the level 0, τ̂ = σ). Either the exact level τ ≤ σ: then σ - τ ≤ σ - τ0e ≤ B0 (τ0e ≤ τ,
-#       G3), and with K = #{uᵢ > τ} (T2) gives |ρ(σ) - ρ(τ)| ≤ √K B0, which is bounded as in (4) (√K |τ0| ≤ √K |τ| + √K B0
+#       G3), and with K = #{uᵢ > τ} (level form) gives |ρ(σ) - ρ(τ)| ≤ √K B0, which is bounded as in (4) (√K |τ0| ≤ √K |τ| + √K B0
 #       and √K |τ| ≤ ρ(τ) = d): the computed first level exceeds the exact level by its rounding (witness v = fill(-0.1, 3), x =
 #       ones(3), c = 2.0^-60). Or τ > σ: then G(σ) > c, and (P) gives (1 - k u) Σ L̂ᵢ ≤ r ≤ c, so G(σ) ≤ ΣL̂ᵢ/(1 - u) ≤
-#       c/((1 - k u)(1 - u)): E_G ≤ γ_{k+1} c, the radius form (T1), with no assumption on the set.
+#       c/((1 - k u)(1 - u)): E_G ≤ γ_{k+1} c, the radius form, with no assumption on the set.
 #       (a) with no entry above the level at the first pass: all aᵢ vanish, σ ≥ uᵢ for each i ∈ J, τ < σ, and the case τ ≤ σ above applies.
 #       (c) and (d), the radius form. By claim 3, |h(t̂) - c| ≤ E_c = (1.5 γ_k/(1 - k u) + u/2) c + k u t̂ + k δ at (c), and ≤ E_v ≈
-#       k u t̂ at (d). With (T5) and the rounding of σ + t̂ (G has the slope -k there),
+#       k u t̂ at (d). With (transfer) and the rounding of σ + t̂ (G has the slope -k there),
 #           E_G ≤ (1.5 k + 1.5) u c + 2 k u t̂ + k u |τ̂|,   to first order.
 #       The term k u t̂ occurs twice: in the rounding of the kernel's last addition in the shifted units, and in the rounding of
-#       the L̂ᵢ. With t̂ = τ̂ - σ and σ = τ0e + O(B0), (T3) at ℓ = τ̂ gives k t̂ ≤ √(cnt/2) ρ(τ̂) + (k/cnt) E_G, and k |τ̂| ≤ √k ρ(τ̂).
+#       the L̂ᵢ. With t̂ = τ̂ - σ and σ = τ0e + O(B0), (mean identity) at ℓ = τ̂ gives k t̂ ≤ √(cnt/2) ρ(τ̂) + (k/cnt) E_G, and k |τ̂| ≤ √k ρ(τ̂).
 #       So |ρ(τ̂) - d| ≤ E_G ≤ (1.5 n + 1.5) u c + (√2 + 1) √n u d to first order.
 #       (b) after a step, and (a) after a step: the last pass is at the level t = fl(τ′ + (r′ - c)/k′) from a pass (r′, k′, g′) at τ′ ≥ 0.
 #       Below the root of the shifted problem, τ_L, the radius form gives E_G ≤ (k + 1) u c + k u t̂ + k u |τ̂|, which is smaller. At or
 #       above it, t̂ - τ_L ≤ t - τ_L ≤ e_N, the intermediate bound of the proof of claim 2 for a step: e_N = [γ_{k′} + (2u + u²)/(1 - k′ u)]
 #       g′/k′ + u t for g′ ≥ c, with the Newton point N = τ′ + (g′ - c)/k′ ≤ τ_L (G1), and e_N = (2 + 2u + u²) γ_{k′} g′/k′ + u t for
-#       g′ < c. The level form (T2) applies from the root: with K the count above the exact level of the radius c′ = G(σ + τ_L)
-#       (|c′ - c| ≤ u (c + k τ_L) by (T5), a radius change that costs at most that much in d by (T1)), g′/k′ ≤ (N - τ′) + c/k′ ≤
-#       (τ - τ̃′) + c/k′ with τ̃′ = σ + τ′ ≥ σ ≥ τ0e - B0, and (T4) gives √K (τ - τ̃′) ≤ d. So √K e_N ≤ (k′ + 2) u [d + √K c/k′] +
-#       u √K t, and √K t ≤ d by (T4) with ℓ = σ. Adding the transfer u (c + k t̂) with k t̂ ≤ √(cnt/2) d (T3), the rounding of σ + t̂
-#       (√K u |τ̂| ≤ u d, T2) and λ: the effect on d is at most (n + 4 + 0.71 √n) u d + (√n + 3) u c.
+#       g′ < c. The level form (level form) applies from the root: with K the count above the exact level of the radius c′ = G(σ + τ_L)
+#       (|c′ - c| ≤ u (c + k τ_L) by (transfer), a radius change that costs at most that much in d by (radius form)), g′/k′ ≤ (N - τ′) + c/k′ ≤
+#       (τ - τ̃′) + c/k′ with τ̃′ = σ + τ′ ≥ σ ≥ τ0e - B0, and (level lemma) gives √K (τ - τ̃′) ≤ d. So √K e_N ≤ (k′ + 2) u [d + √K c/k′] +
+#       u √K t, and √K t ≤ d by (level lemma) with ℓ = σ. Adding the transfer u (c + k t̂) with k t̂ ≤ √(cnt/2) d (mean identity), the rounding of σ + t̂
+#       (√K u |τ̂| ≤ u d, level form) and λ: the effect on d is at most (n + 4 + 0.71 √n) u d + (√n + 3) u c.
 #   (6) The residual is formed without rounding (a min, a sign change, or vᵢ). The sum of squares and the root: Q̂ = Σ rᵢ² (1 + θᵢ)
 #       with 1 - n u ≤ 1 + θᵢ ≤ 1/(1 - n u) (a product and at most n - 1 additions), and the root rounds once more: the norm has a
 #       relative error of at most (1 + u)/√(1 - n u) - 1 ≤ (0.62 n + 1) u, to first order (n/2 + 1) u. And d ≤ ‖v‖₂ + c, since -v
@@ -830,9 +830,9 @@ end
 #       conversions of (5), of relative size n u. Without the first-order approximation the zero point has the coefficient (n + 3)(16/9) +
 #       0.62 n + 1.2 = 2.40 n + 6.5 on ‖v‖₂ and (16/9)(1.5 n + 0.5)(1 + u)² + 1 = 2.67 n + 1.9 on λ at n u = 1/4; the face
 #       cases are not carried out without it.
-#       The bound has no term for entries or terms near the subnormal range, where each adds up to the spacing of W. On a long
-#       sum of nearly equal values the error grows about linearly in n in practice (measured in units of u Λ, about 0.01 n on one
-#       entry far below the level and a bulk of equal entries, and up to about 0.3 n on random entries of that shape at n = 200000).
+#       The bound has no term for entries or terms near the subnormal range, where each adds up to the spacing of W. On one face
+#       entry far below the level and a bulk of equal entries the measured error is between 0.001 n and 0.08 n units of u Λ (n =
+#       200001 to 2000001, Float32 and Float64, with default compilation, --check-bounds=yes and optimization level 0), inside the bound.
 
 # Entry reads with the sign: convert(W, v), and the same scaled by 2^-k (the scaled path).
 struct _ValRead{W} end

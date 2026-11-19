@@ -49,6 +49,72 @@ end
   end
 end
 
+@testset "IndBallL2 stored feasibility for four dense coefficients" begin
+  for (T, a) in ((Float32, 1), (Float64, 3))
+    x = T[a, 11, 0, 0]
+    f = IndBallL2(one(T))
+    for (input, r) in ((x, one(T)), (-T(8) .* x, T(0.125)))
+      g = IndBallL2(r)
+      saved = copy(input)
+      expected = prox(g, input)
+      setprecision(BigFloat, 256) do
+        w = BigFloat.(input)
+        ref = w .* (BigFloat(r) / sqrt(sum(abs2, w)))
+        @test sum(abs2, BigFloat.(expected)) <= BigFloat(r)^2
+        @test all(isapprox(expected[i], T(ref[i]); rtol = 8eps(T)) for i in eachindex(ref))
+      end
+      @test g(expected) === zero(T)
+      @test signbit(expected[4]) == signbit(input[4])
+      for h in (g, Scaled(g, T(0.5))), γ in (zero(T), one(T), T(Inf)), alias in (false, true)
+        source = copy(input)
+        y = alias ? source : similar(input)
+        @test prox!(y, h, source, γ) === y
+        @test isequal(y, expected)
+        @test alias || isequal(source, saved)
+        copyto!(source, saved)
+        value = value_and_prox!(y, h, source, γ)
+        @test value === h(y) === zero(T)
+        @test isequal(y, expected)
+        @test alias || isequal(source, saved)
+      end
+      @test isequal(input, saved)
+    end
+    for b in (T(4), T(-4))
+      control = T[3, b, 0, -0.0]
+      for (r, expected) in ((T(2.5), control .* T(0.5)), (T(5), control), (T(6), control))
+        y = copy(control)
+        g = IndBallL2(r)
+        value = value_and_prox!(y, g, y)
+        @test value === g(y) === zero(T)
+        @test isequal(y, expected)
+        @test isequal(prox(g, control), expected)
+      end
+    end
+    @test f(T[0, nextfloat(one(T)), 0, 0]) === T(Inf)
+    for γ in (T(-1), T(NaN))
+      @test_throws ArgumentError prox(f, x, γ)
+    end
+    for op in (prox!, value_and_prox!), γ in (T(-1), T(NaN))
+      y = copy(x)
+      @test_throws ArgumentError op(y, f, y, γ)
+      @test isequal(y, x)
+    end
+    for n in (2, 3, 5, 32)
+      input = zeros(T, n)
+      input[1], input[2] = T(a), T(11)
+      expected = input .* (one(T) / sqrt(sum(abs2, input)))
+      @test isequal(prox(f, input), expected)
+      for alias in (false, true)
+        source = copy(input)
+        y = alias ? source : similar(input)
+        value = value_and_prox!(y, f, source, one(T))
+        @test isequal(y, expected)
+        @test value === f(y)
+      end
+    end
+  end
+end
+
 @testset "IndBallL2 stable finite range and stored value" begin
   for T in (Float32, Float64)
     δ = nextfloat(zero(T))

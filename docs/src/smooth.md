@@ -587,7 +587,7 @@ x = [2.0, 1]
 prox(f,x,0.5)
 ```
 
-## [Logistic regression](@id Logistic-regression)
+## [Logistic regression](@id Logistic-regression-loss)
 
 Construct `f = LogisticLoss(y, X; weights=nothing, offset=nothing)` for an
 unnormalized logistic objective. For an ``n\times p`` design and a length-``p``

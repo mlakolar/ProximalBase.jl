@@ -404,7 +404,7 @@ for step-size safety; use an independently valid bound or backtracking.
 predictor. `ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`
 also writes its observation-space derivative and coefficient gradient. For
 [`LogisticLoss`](@ref), the predictor includes the offset. See
-[logistic regression](smooth.md#Logistic-regression) and
+[logistic regression](smooth.md#Logistic-regression-loss) and
 [least-squares predictor and residual operations](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 
 ## Invalidating cached calculations

@@ -33,7 +33,7 @@ ProximalSolvers migration is separate; this documentation does not change it.
 It requires finite responses in `[0, 1]`, including on zero-weight rows. The
 archived logistic constructor did not validate the response domain. The current
 constructor uses homogeneous strided `Float32` or `Float64` vectors and
-accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression).
+accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)
 

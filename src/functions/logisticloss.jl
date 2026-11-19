@@ -15,7 +15,7 @@ The loss implements [`gradient!`](@ref) and [`value_and_gradient!`](@ref),
 with no proximal operator. For caller-held predictors use
 [`ProximalBase.value_from_predictor`](@ref) or
 [`ProximalBase.value_and_gradient_from_predictor!`](@ref).
-See [logistic regression](@ref Logistic-regression) for ownership,
+See [logistic regression](@ref Logistic-regression-loss) for ownership,
 scaling and numerical limits.
 """
 struct LogisticLoss{T,Y,X,W,O} <: AbstractFunction

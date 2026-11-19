@@ -71,7 +71,7 @@ and converted full matrix indices for symmetric-iterate variables. Symmetric val
 both mirrored entry terms. A declared zero-preserving function can skip inactive
 zeros. No kernel reads parameter entries to compare mirrored pairs.
 
-Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and
+Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and `GroupNormLinf` and
 available to custom functions. The default allocating method supplies an independent
 floating `Vector` and delegates. For `GroupNormL2`, the index is its group number
 and the compact vectors follow that group's order; custom methods define their
@@ -88,8 +88,8 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 ## KKT and restrictions
 
 Retained scalar screens are explicitly implemented for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`,
-`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, `NormL2` and `NormLinf` a full-point form and `IndNonnegative` the three-argument screen only; `Scaled` forwards
-to them (below). The three-argument form is the signed
+`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, `NormL2` and `NormLinf` a full-point form and
+`IndNonnegative` the three-argument screen only. `Scaled` forwards to these functions as described below. The three-argument form is the signed
 screen of a coordinate assumed zero. For those six functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`
 evaluates the actual coordinate through one entry kernel per function, and the full-point form
@@ -104,7 +104,9 @@ throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `S
 `GroupNormL2` supplies a native block score instead (one block kernel, `_l2_score`), checking the
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws
-because it is not entrywise separable. `NormL2` has the full-point form, the kernel with all of `x`
+because it is not entrywise separable. `GroupNormLinf` uses the layout checks of `GroupNormL2` and
+returns a dual-norm margin at a zero group. Its four-argument and full-point forms have no method under
+`Scaled`. `NormL2` has the full-point form, the kernel with all of `x`
 as one block, and its other forms throw `ArgumentError`. `NormLinf` has the full-point form too, with a kernel of its own
 for the distance to the subdifferential of the largest magnitude (the ℓ₁ ball at the zero point, and the face of the
 largest entries of `x` elsewhere) and no block; its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite

@@ -133,6 +133,14 @@ overflow threshold, the class and accuracy of the BigFloat value; within it, `fl
 or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups near
 `floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
 storage.
+`groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
+equal to `NormLinf` and singleton groups equal to `NormL1` (the proximal outputs bit for bit, the values within a tolerance), irregular range and permuted
+partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
+against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
+underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
+`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
+refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of
+`prox_block!` over groups of different sizes).
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate
@@ -254,11 +262,18 @@ Both use a single observation rounded up to the next five seconds. The
 observed wall times were 27.848 and 135.210 seconds, respectively, on Julia
 1.13.4. [51-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44592628040/attempts/1)
 
-The 53-file snapshot adds provisional weights of 80 seconds for
-`kkt_smooth` and 15 seconds for `scad`, and refreshes the provisional
-`numerical_recovery` weight to 145 seconds. Each rounds one observation
+The 53-file snapshot used provisional weights of 80 seconds for
+`kkt_smooth`, 15 seconds for `scad`, and 145 seconds for the expanded
+`numerical_recovery`. Each rounded one observation
 up to the next five seconds. The measured times were 78.011, 13.374,
 and 142.804 seconds on Julia 1.13.4. [53-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44604834492/attempts/1)
+
+The 54-file snapshot uses provisional weights of 35 seconds for
+`groupnormlinf`, 85 for `kkt_smooth`, 15 for `scad`, and 150 for
+`numerical_recovery`. Each rounds one observation from the successor
+checkout up to the next five seconds. The measured times were 33.898,
+84.136, 14.302, and 149.517 seconds on Julia 1.13.4.
+[54-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44615346170/attempts/1)
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

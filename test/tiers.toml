@@ -11,6 +11,7 @@ quick = [
   "elasticnet",
   "elasticnet_extremes",
   "groupnorml2",
+  "groupnormlinf",
   "indballl1",
   "indballl2",
   "indballlinf",
@@ -73,6 +74,7 @@ dropzeros_compaction = 4.0
 elasticnet = 28.9
 elasticnet_extremes = 40.5
 groupnorml2 = 25.9
+groupnormlinf = 35.0
 indballl1 = 24.9
 indballl2 = 16.8
 indballlinf = 4.8
@@ -85,7 +87,7 @@ iterate_writes = 19.3
 kkt_block = 99.5
 kkt_linf = 42.4
 kkt_point = 43.8
-kkt_smooth = 80.0
+kkt_smooth = 85.0
 leastsquares_predictor = 44.9
 linear_shapes = 112.3
 linear_sparse_value = 17.7
@@ -100,7 +102,7 @@ norml1nonneg_extremes = 17.3
 norml2 = 18.8
 normlinf = 63.7
 numerical_kernels = 66.4
-numerical_recovery = 145.0
+numerical_recovery = 150.0
 one_based_axes = 239.0
 quadratic_domain = 17.2
 real_iterates = 49.6

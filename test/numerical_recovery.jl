@@ -2020,6 +2020,18 @@ setprecision(BigFloat, 2400) do
 end
 end
 
+@testset "Scaled fused value with a folded level outside Float32 range" begin
+  for (λ, α, x, step, expected) in (
+      (2.0^20, 2f0^110, Float32[nextfloat(0f0)], 0f0, 2f0^-19),
+      (2.0^-160, 2f0, Float32[2f0^33], Float32[0], 2f0^-126))
+    h = Scaled(NormL1(λ), α)
+    y = similar(x)
+    @test value_and_prox!(y, h, x, step) === expected
+    @test y == x
+    @test h(y) === expected
+  end
+end
+
 @testset "least-squares recovery at the BigFloat exponent limit" begin
   setprecision(BigFloat, 256) do
     f = LeastSquaresLoss(BigFloat[0], reshape([floatmax(BigFloat)], 1, 1))

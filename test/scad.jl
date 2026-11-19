@@ -350,6 +350,16 @@ Base.getindex(a::ReadSteps, i::Int) = (a.reads[i] += 1; a.data[i])
     @test value_and_prox!(out, model, points, step_buffer) === model(out)
   end
 
+  @testset "symmetric value addition order" begin
+    point = SymmetricSparseIterate(T, 2)
+    point[1, 1] = u
+    point[2, 1] = eps(T) / T(2)
+    # Each off-diagonal addition rounds back to one. Doubling the term
+    # before adding it would increase the sum by one unit in the last place.
+    @test f(point) === u
+    @test value_and_prox!(point, f, point, z) === u
+  end
+
   @testset "iterate storage and aliasing" begin
     sparse = SparseIterate(T, 8)
     sparse[2], sparse[4], sparse[6], sparse[8] = T(-3.75), T(0.5), T(2.5), T(4)

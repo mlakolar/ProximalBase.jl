@@ -68,6 +68,20 @@ end
 
 @inline _scad_plateau(λ, a) = (((a + 1) / 2) * λ) * λ
 
+function _value_sep(f::SCAD{T}, x::SymmetricSparseIterate{T}) where {T<:Union{Float32, Float64}}
+  _checkparams(f, x)
+  p = x.p
+  s = zero(T)
+  @inbounds for (i, v) in zip(activecoordinates(x), activevalues(x))
+    r, c = tril_cartesian(p, i)
+    q = _stored_value_entry(f, v, i)
+    # SCAD is position independent. Keep both additions in storage order.
+    s += q
+    r == c || (s += q)
+  end
+  s
+end
+
 @inline prox_block(f::SCAD, v::Real, ::Integer, γ::Real) = _scad_prox_entry(f, v, γ)
 
 @inline prox_block(f::SCAD{T}, x::T, ::Integer, γ::T) where {T<:Union{Float32, Float64}} =

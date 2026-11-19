@@ -433,6 +433,11 @@ omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
 
+### SCAD endpoints
+
+See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and
+value rules at zero and infinite levels, steps and shape.
+
 ### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
 
 For `NormL1(Inf, w)`, the `γ = 0` endpoint is `lim_{γ→0+} prox_{γf}(x)` with the

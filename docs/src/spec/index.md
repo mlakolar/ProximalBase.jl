@@ -26,6 +26,7 @@ The shared numerical rules above apply alongside those locations.
 |:--|:--|:--|
 | `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints) | Existing pages |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
+| `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [The nonnegative ℓ₁ penalty](../penalties.md#The-nonnegative-l1-penalty) | Existing pages |
 | `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |

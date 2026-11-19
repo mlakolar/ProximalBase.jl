@@ -1,12 +1,13 @@
 """
     IndBallL0(s; diagonal = false)
 
-Indicator of the exactly symmetric `p × p` matrices (`p ≥ 1`) with at most `s`
-nonzero off-diagonal entries, `#{(i, j) : i ≠ j, Xᵢⱼ ≠ 0} ≤ s`. Each nonzero
-off-diagonal pair `{i, j}` counts two entries. The diagonal is not counted and
-may be anything. The set is nonconvex, so `isconvex` is `false`. The budget `s`
-is a nonnegative integer; one above `typemax(Int)` is stored as `typemax(Int)`,
-and `IndBallL0(s)` allows `s ÷ 2` nonzero pairs.
+Indicator of the symmetric `p × p` matrices (`p ≥ 1`) with at most `s` nonzero
+off-diagonal entries, `#{(i, j) : i ≠ j, Xᵢⱼ ≠ 0} ≤ s`. Each nonzero off-diagonal
+pair `{i, j}` counts two entries. The diagonal is not counted and may be
+anything. Symmetric means `Xᵢⱼ == Xⱼᵢ` as the symmetry check of the package reads
+it: `0.0` and `-0.0` are equal, and `NaN` matches `NaN`. The set is nonconvex, so
+`isconvex` is `false`. The budget `s` is a nonnegative integer that allows `s ÷ 2`
+nonzero pairs; one above `typemax(Int)` is stored as `typemax(Int)`.
 
 Only `diagonal = false` is accepted. The archived function counted the diagonal
 by default (`diagonal = true`); that form and its default are refused with an
@@ -21,8 +22,8 @@ The arguments are a `Matrix{T}` or a `Symmetric{T, Matrix{T}}` with
 [`SymmetricSparseIterate`](@ref), mixed `Float32` and `Float64`, and array
 steps. A non-square matrix, or an output of another size, throws a
 `DimensionMismatch`. A `0 × 0` matrix throws an `ArgumentError`. A `Matrix`
-that is not exactly symmetric throws an `ArgumentError` from the symmetry check
-of the package, in the value and in the proximal operator; pass
+that is not symmetric in this sense throws an `ArgumentError` from the symmetry
+check of the package, in the value and in the proximal operator; pass
 `Symmetric(X, :L)` to use its lower triangle. A `Symmetric(A, :U)` argument
 reads the upper triangle of `A`.
 
@@ -38,13 +39,13 @@ zeros of either sign count as zero. The diagonal is not read for the count.
 set. Let `n = p(p - 1) ÷ 2`, `k = min(s ÷ 2, n)`, and let `E` be the number of
 nonzero strict lower entries of `X`. If `E ≤ k`, every pair is kept. Otherwise
 the `k` strict lower entries of largest magnitude are kept and every other
-off-diagonal entry becomes `+0`, a `-0` input included. Keeping the pair `{i, j}`
-of an exactly symmetric `X` saves `2 Xᵢⱼ²` of the squared error, so the `k`
-largest magnitudes are optimal. Ties in magnitude go to the entry earlier in the
+off-diagonal entry becomes `+0`, a `-0` input included. For a finite symmetric
+`X`, keeping the pair `{i, j}` saves `2 Xᵢⱼ²` of the squared error, so the `k`
+largest magnitudes give the minimum error. Ties in magnitude go to the entry earlier in the
 strict lower triangle read by columns, `(2, 1), (3, 1), …, (p, 1), (3, 2), …`,
 so that the output does not depend on the selection algorithm. Magnitudes are
-compared with `abs`, without squaring, and are ranked correctly across the full
-exponent range of `Float32` and `Float64`.
+compared with `abs`, without squaring, so that magnitudes near `floatmax` and
+subnormal magnitudes are ranked as they are.
 
 For the matrix `[5 1 -3; 1 7 2; -3 2 9]` and `s = 2` or `s = 3`, `k = 1` and the
 pair `(3, 1)` with value `-3` is kept: the projection is `[5 0 -3; 0 7 0; -3 0 9]`.
@@ -73,7 +74,8 @@ is `f`).
 
 The proximal operator refuses an input with a nonfinite entry on the diagonal or in
 the strict lower triangle: it throws an `ArgumentError` before anything is written.
-The check and every other check of the arguments precede the first write.
+The checks of the shapes, the step, the symmetry and the finiteness of the entries
+precede the first write of `prox!`.
 
 [`value_and_prox!`](@ref) returns `f(Y)` read from the stored output.
 
@@ -174,7 +176,7 @@ function prox!(Y::Matrix{T}, f::IndBallL0, X::_L0Input{T}, γ::Real) where {T<:_
   Y
 end
 
-# The value of the stored output, which is feasible by construction.
+# The value of the stored output, which is feasible for the finite input that prox! accepts.
 function value_and_prox!(Y::Matrix{T}, f::IndBallL0, X::_L0Input{T}, γ::Real) where {T<:_L0Float}
   prox!(Y, f, X, γ)
   f(Y)
@@ -182,8 +184,8 @@ end
 _value_and_prox_unchecked!(Y::Matrix{T}, f::IndBallL0, X::_L0Input{T}, γ::Real) where {T<:_L0Float} =
   value_and_prox!(Y, f, X, γ)
 
-# the number of nonzero strict lower entries; every diagonal and strict lower
-# entry must be finite
+# the number of nonzero strict lower entries; throws if a diagonal or strict lower
+# entry is not finite
 function _l0_count(X, p)
   E = 0
   @inbounds for c in 1:p
@@ -217,8 +219,8 @@ function _l0_count_above(b, τ)
 end
 
 # The k-th largest of the finite magnitudes b, 1 ≤ k ≤ length(b), by an in-place
-# quickselect with a three-way partition and a median-of-three pivot. A value
-# equal to the pivot ends the search, so repeated magnitudes cost no extra rounds.
+# quickselect with a three-way partition and a median-of-three pivot. The entries
+# equal to the pivot leave the range of the later rounds.
 # The order of b is not kept. For k = 0 nothing is kept: the threshold is infinite.
 function _l0_kth_largest!(b::Vector{T}, k::Int) where {T}
   k >= 1 || return T(Inf)
@@ -260,7 +262,7 @@ end
 # entry is kept when |v| > τ, or when |v| == τ and a place of the quota is left
 # (the quota counts the tied entries to keep, in column-major order); other
 # off-diagonal entries become +0. Each read precedes the writes to its two slots
-# and no later read touches them, so Y may be X or parent(X).
+# and no later read touches them, so Y may be X (a Matrix) or parent(X) (a Symmetric).
 function _l0_write!(Y, X, p, τ::T, quota::Int, keepall::Bool) where {T}
   @inbounds for c in 1:p
     Y[c, c] = X[c, c]

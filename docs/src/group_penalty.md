@@ -54,7 +54,8 @@ the sparse and block iterates, and a `SymmetricSparseIterate` argument or output
 anything is written. The endpoint rules (a zero or infinite level or step, `NaN` and infinite entries, overflow of
 ``\gamma\lambda``) are in the [numerical contract](numerics.md). A `NormLinf` object may keep a buffer of its own, so
 that it must not be used from several tasks at once: construct a fresh `NormLinf(f.λ)` for each task, or synchronize
-the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
+the calls ([ownership](numerical_usage.md#Ownership-and-aliases)); the full-point `kkt_violation` below does not
+use that buffer.
 
 ```@example group_penalty
 hinf = NormLinf(1.0)
@@ -65,6 +66,74 @@ hinf = NormLinf(1.0)
 @assert prox(NormLinf(1.0), [5.0], 2.0) == prox(NormL1(1.0), [5.0], 2.0)   # one entry: soft thresholding
 prox(hinf, [3.0, -1.0], 1.0)
 ```
+
+### [Optimality score](@id norm-linf-kkt)
+
+For a smooth part `h` with gradient `v = ∇h(x)`, the point `x` is stationary for `h + g`, with
+`g = NormLinf(λ)`, when ``-v\in\partial g(x)``. `kkt_violation(g, v, x)` is the Euclidean distance
+from ``-v`` to ``\partial g(x)``. It is nonnegative, and it is zero when ``-v`` is a subgradient (in
+floating point, zero to rounding). With ``J=\{i:\lvert x_i\rvert=\max_j\lvert x_j\rvert\}``, the subdifferential is
+the set of ``s`` with ``\lVert s\rVert_1\le\lambda`` at ``x=0``. At ``x\ne0`` it is the set of ``s`` that vanish off ``J``,
+satisfy ``s_i\operatorname{sign}(x_i)\ge0`` on ``J`` and have ``\sum_{i\in J}\lvert s_i\rvert=\lambda``.
+With ``u_i=-\operatorname{sign}(x_i)\,v_i``, the value is the following.
+
+| Point | Value | Level ``\tau`` |
+|:--|:--|:--|
+| ``x=0`` | ``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``; otherwise ``\bigl(\sum_i\min(\lvert v_i\rvert,\tau)^2\bigr)^{1/2}``, the norm of `prox(g, v, 1)` | ``\tau\ge0`` with ``\sum_i(\lvert v_i\rvert-\tau)_+=\lambda`` |
+| ``x\ne0`` | ``\bigl(\sum_{i\notin J}v_i^2+\sum_{i\in J}\min(u_i,\tau)^2\bigr)^{1/2}`` | ``\tau`` with ``\sum_{i\in J}(u_i-\tau)_+=\lambda``; it can be negative |
+
+The face ``J`` is the set of entries whose magnitude equals the largest one after conversion to the
+working type of the call, compared for equality, with no tolerance. An entry one unit in the last place below
+the largest is not on the face, so for a positive finite level an exact tie can make the value discontinuous in `x`
+(for finite entries of `v` and `x`, the value is ``\lVert v\rVert_2`` when ``\lambda=0`` and `Inf` at a nonzero `x` when the
+level is infinite, ties or not). Where the
+clip of `prox!` is active (a positive finite level and step with ``\gamma\lambda<\lVert x\rVert_1``), it writes the
+same level ``\tau``, with the sign of the entry, into each clipped entry. The clipped entries of such a point
+have the same magnitude and belong to the maximal face, and entries already at that magnitude belong to it as well
+(`prox(NormLinf(1.0), [3.0, 2.0, 1.0], 1.0)` is `[2.0, 2.0, 1.0]`): this is the case the equality rule is made for. For
+an exact proximal point `y = prox(g, z, γ)` and `v = (y - z)/γ`, the vector ``-v`` belongs to the subdifferential at `y`.
+With the computed proximal point and difference, the score is checked against a rounding tolerance, as in the example, which
+scores such a point and then the same `v` at a point where one clipped entry is one unit in the last place below the other:
+
+```@example group_penalty
+fl = NormLinf(1.0)
+# the zero point: inside the ℓ1 ball of radius 1 (value 0), and outside it
+@assert kkt_violation(fl, [0.3, -0.5], [0.0, 0.0]) == 0.0
+@assert kkt_violation(fl, [3.0, 1.0], [0.0, 0.0]) ≈ sqrt(5.0)               # τ = 2: residual (2, 1)
+@assert kkt_violation(fl, [3.0, 1.0], [0.0, 0.0]) ≈ norm(prox(fl, [3.0, 1.0], 1.0))
+# a face of one entry: |v₁ + λ| there (τ = -0.6), and v₂ off it
+@assert kkt_violation(fl, [-0.4, 0.3], [2.0, 1.0]) ≈ sqrt(0.6^2 + 0.3^2)
+# a point computed by prox: the clipped entries tie in magnitude, and the score is zero to rounding
+@assert prox(fl, [3.0, 2.0, 1.0], 1.0) == [2.0, 2.0, 1.0]                  # an entry already at the magnitude belongs to the face
+z = [3.0, -2.5, 0.5]
+y = prox(fl, z, 1.0)
+v = y - z
+@assert count(==(maximum(abs, y)), abs.(y)) == 2
+@assert kkt_violation(fl, v, y) <= 1e-14
+# the same v with one clipped entry one unit in the last place below the other: the face is entry 1
+y1 = copy(y); y1[2] = -prevfloat(abs(y[2]))
+@assert kkt_violation(fl, v, y1) ≈ sqrt(0.125) rtol = 1e-6                  # τ = u₁ - 1 = -0.25, and v₂ = 0.25 off the face
+(stationary = kkt_violation(fl, v, y), one_ulp_below = kkt_violation(fl, v, y1))
+```
+
+For finite entries, a zero level gives ``\lVert v\rVert_2``, and an infinite level gives `0` at the zero point and
+`Inf` at another point. A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;
+otherwise an infinite entry gives `Inf`, also at a zero or an infinite level. The working type is
+`float(promote_type(eltype(v), eltype(x)))`. The rules for the levels, the non-finite entries, the
+ranges and the accuracy are in the [numerical contract](numerics.md).
+
+The norm is not separable, so it has the full-point form and no form for an entry or a group. The calls
+`kkt_violation(g, v, i)` and `kkt_violation(g, v, x, k)` at an array, a `SparseIterate`, a `BlockIterate` or a
+`SymmetricSparseIterate`, throw an `ArgumentError` that names the full-point form. The full-point form at a
+`SymmetricSparseIterate` throws an `ArgumentError`. A `SparseIterate` or a `BlockIterate` in the full-point
+form is read as one vector, by indexing. A length `n` for which `n + 1` is not a finite number of the working type
+(`Float16` from `n = 65519`) throws an `ArgumentError`. For `Array` arguments of one type, `Float32` or `Float64`, with a level of a
+hardware float type, the tests measure no allocation and no write to `v`, `x` or the buffer of the `NormLinf` object; wider
+parameter arithmetic such as a `BigFloat` level can allocate.
+`Scaled(NormLinf(λ), α)` with a finite positive `α` scores `v/α` and multiplies the result by `α`; a chain of
+wrappers whose factors fold into a normal level is scored with that level (the
+[scaling guide](@ref scaled-kkt) has the limits and the refusals). `test/kkt_linf.jl` checks the value against
+BigFloat references written from the definition.
 
 ## [The group ℓ₂ norm](@id group-l2-guide)
 

@@ -261,6 +261,27 @@ overflowed/underflowed intermediate scale does not discard a recoverable leaf
 result. This mechanism is implemented for retained kernels, not synthesized
 for custom functions.
 
+For `NormL1` and `NormL1Nonneg` under `Scaled` with a positive finite scalar step (`Float32` or `Float64` factors, step
+and level), the product `αγ` of the factors and the step can be below `floatmin(T)` or above `floatmax(T)` while the
+threshold `αγλ0wᵢ` of an entry is representable, because its weight brings the product back into range. The level
+cannot hold the factors and the step as a normal number when `αγλ0` is zero or overflows, when the level that holds
+the exponent of the factors and of the step is a subnormal number, or when that level overflows although `αγλ0` does
+not. In these cases the exponent is split between the level and the step so that both are normal numbers, and the leaf
+forms the threshold of each entry from them and its weight, so that the weight can bring it back into range. For
+`Scaled(Scaled(NormL1(1.3 * 2.0^20, [2.0^1013]), 2.0^-531), 2.0^-531)`, the step `2.0^-30` and `x = [3 * 2.0^-50]`, the
+threshold is `2.2551405187698493e-18` and the scalar step gives `[2.662280118581606e-15]`, as the array step does. The
+tests compare the proximal point with the exact threshold within four units in the last place of the point on selected
+inputs and on a seeded sweep over the exponents of the factors, the step, the level and the weight. Two limits, each on
+its own:
+
+- When `αγλ0` cannot be written as a normal level times a normal step (about the square of the range of the type or
+  beyond), the exponent is not split: the factors and the step go into the level, which can then be a subnormal number
+  with few bits, or, where the level cannot hold them, the step is passed rounded (`0` or `Inf`), as before.
+- `ElasticNet` keeps the earlier route. Under the same conditions, on either side of the range, also with `λ2 = 0`, and
+  with a single factor, a scalar step can lose the ℓ₁ threshold where the same step passed as an array of steps gives it.
+  With `ElasticNet(1.3 * 2.0^20, 0.0, [2.0^1013])` in place of the `NormL1` above, the scalar step gives
+  `[2.6623668547554047e-15]` and the array step `[2.662280118581606e-15]`.
+
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
 for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`
 and a positive finite scalar step `γ` whose product `αγ` is above `floatmax`,

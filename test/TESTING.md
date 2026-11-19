@@ -213,6 +213,16 @@ and each file still runs in a fresh Julia process with bounds checks enabled.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
+
+`PB_TEST_FILE_TIME` records the parent runner's wall-clock time in seconds for
+each test-file subprocess, including startup and compilation. Its `status` is
+`pass` for a zero exit, `fail` for a nonzero exit, or `error` if running the
+subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
+for the selected files, including runner overhead, and uses `shard=all` for
+unsharded runs. Find both records in the GitHub Actions test job logs and the
+`package-validation-logs-linux-current-julia-shard-*` artifacts. The timing
+records measure the existing shard assignments.
+
 The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are
 required by the existing PR verdict and merge gate. PR builds may warm

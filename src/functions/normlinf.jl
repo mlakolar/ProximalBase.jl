@@ -674,6 +674,336 @@ function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
 end
 
 ####################################
+#  Optimality
+####################################
+
+# The optimality implementation below preserves the published PR head for the experiment. Its legacy error
+# analysis predates the corrected shared kernel above, and the Float32 face bound has a published counterexample.
+
+# kkt_violation(f, v, x) of f = λ‖·‖∞ is the Euclidean distance from -v to the subdifferential of f at x. The norm is not
+# separable, so it has the full-point form and no form for an entry or a group. With W = float(promote_type(eltype(v),
+# eltype(x))), the entries read as convert(W, ·) and c the level λ rounded once to W (_kkt_coefficient, as _l2_score forms it),
+# the value is
+#   x = 0:  the distance from v to the ℓ1 ball of radius c: 0 when Σ|vᵢ| ≤ c, and otherwise sqrt(Σ min(|vᵢ|, τ)²) with
+#           Σ (|vᵢ| - τ)₊ = c, that is the norm of prox_{c‖·‖∞}(v);
+#   x ≠ 0:  with m = max|xᵢ|, the face J = {i : |xᵢ| == m} (equality after conversion to W, no tolerance) and uᵢ = -sign(xᵢ) vᵢ
+#           on J, sqrt(Σ_{i∉J} vᵢ² + Σ_{i∈J} min(uᵢ, τ)²) with Σ_{i∈J} (uᵢ - τ)₊ = c. Here τ can be negative.
+# A length n for which n + 1 is not a finite number of W (Float16 from n = 65519) is refused with an ArgumentError before any pass:
+# the counts of the kernel (cnt, n + 1) are formed in W.
+# Rules, in this order. v and x are classified in one pass each (_linf_classify, on abs(convert(W, ·))): sums sv, sx and
+# largest magnitudes mv, m.
+#   1. A NaN sum (isnan(sx) | isnan(sv)) gives NaN: for a type other than Float32 and Float64 the maximum of _linf_classify
+#      does not carry a NaN, its sum does. Otherwise an infinite mv or m gives Inf.
+#   2. An infinite c gives 0 at x = 0 and Inf at x ≠ 0. c = 0 gives ‖v‖₂.
+#   3. Otherwise τ and the sum of squares of the residual, as below. An overflow of sv with finite entries goes to the scaled
+#      path (_linf_scaled) unless an exit of rules 1 and 2 applies. An overflow of sx with a finite m does not: the point is a
+#      zero point or a face by m, and the range is decided by sv.
+#
+# The ordinary path forms τ and the sum of squares in W. It uses no buffer, and allocates nothing for Array arguments of
+# Float32 or Float64.
+#   Zero point: sv ≤ c gives 0. Otherwise τ = max(level, 0), the level from `_l1ball_michelot` on v. Its preconditions
+#      (see there) are met by the values |vᵢ|, which are finite and nonnegative since sv is finite, by 0 ≤ c < sv ≤
+#      floatmax(W)/2 (the tests of this function), and by n eps(W) ≤ 1/2, which is not checked (as for the prox).
+#   Face: one pass for S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ, and τ0 = (S - c)/cnt, in floating point. If τ0 ≤ μ the entries of
+#      J are taken as all active and τ = τ0, which is negative when S < c: τ is not clamped on a face. Otherwise
+#      τ = τ0 + max(level, 0) with the level from `_l1ball_michelot` on Lᵢ = max(uᵢ - τ0, 0) for i ∈ J and 0 off J (the lazy
+#      _LinfShifted). In exact arithmetic τ0 is a lower bound of the level (it is the first level of Michelot's iteration on
+#      J), and for any σ ≤ τ, Σ_J (uᵢ - τ)₊ = Σ_J (max(uᵢ - σ, 0) - (τ - σ))₊, so the level of the Lᵢ for the radius c is τ - σ.
+#      The computed τ0 can exceed the exact level by its rounding; that case is (4b) below. The shift is by τ0 and not by μ:
+#      with the shift by μ each Lᵢ has the size of |μ| when one face entry is far below the level, and the level inherits an
+#      error of order a u |μ|. Preconditions: the Lᵢ are nonnegative and finite, and since τ0 > μ each is at most uᵢ - μ, so
+#      their sum is at most Σ_J (uᵢ - μ) ≤ (cnt + 1) Σ|vᵢ| (as Σ_J uᵢ ≤ Σ|vᵢ| and |μ| ≤ Σ|vᵢ|), with the exact Σ|vᵢ| at
+#      most 1.41 sv (a computed sum of nonnegative terms has a relative error of at most θ = 0.29 for n eps(W) ≤ 1/2). The
+#      ordinary path on a face requires (n + 1) sv ≤ floatmax(W)/4 (_linf_in_range), so the computed sum of the Lᵢ is at most
+#      1.29 · 1.41/4 floatmax(W) < floatmax(W)/2, as `_l1ball_michelot` needs. S is then finite, and τ0 is finite unless
+#      S - c overflows (c close to floatmax(W) and S negative), which the test isfinite(τ0) sends to the scaled path. With the
+#      exact τ0, Σ_J Lᵢ ≥ Σ_J (uᵢ - τ0) = c, which is the condition 0 ≤ c < sum of the routine up to the boundary below. In
+#      the other branch no routine runs.
+#   Where rounding makes the sum of the routine not exceed c (the computed τ0 is above the exact level, or its sum is formed in
+#   another order than the test), it returns a level that is at or below zero, or within rounding of zero, and max(level, 0)
+#   keeps a small positive level. The result is then τ0 on a face, and 0 at the zero point, each within rounding. That is the
+#   limit of the exact level: when Σ_J (uᵢ - τ0) = c the level is τ0 (the closed form, within its rounding), and sv = c puts v
+#   on the boundary of the ball, at distance 0.
+#   Squares: one loop for Q = Σ rᵢ², with rᵢ = min(|vᵢ|, τ) at the zero point (τ = Inf for c = 0, where rᵢ = |vᵢ|), and on a face
+#   uᵢ clipped at τ on J and vᵢ off J. sqrt(Q) is returned when Q is finite and not below n floatmin/eps (_squares_normal).
+#   Otherwise _linf_cold passes the lazy residual to `_residual_squares`, which scans it for its largest exponent and then sums
+#   the squares scaled by it (as _l2_score_cold). It gives zero when all the residual entries are zero, and Inf for an entry
+#   that is not finite.
+#   Range: the scaled path is used when sv > floatmax(W)/2 at the zero point, when (n + 1) sv > floatmax(W)/4 on a face,
+#   and when τ0 is not finite. That path forms τ in units of a power of two.
+#
+# Error of the ordinary path. To first order in n u, with u = eps(W)/2, n = length(x), the entries and c normal numbers,
+# Λ = ‖v‖₂ + λ and d the exact distance for the radius c. A sum of k terms in any order has an error of at most
+# (k - 1) u times the sum of the magnitudes. Quantities named exact (τ0, the level τ, the active set) are those of the exact
+# data; the computed ones carry a hat or are named as computed.
+#   (1) The level. p ↦ (c′/c) p maps the ball (the simplex) of radius c onto that of radius c′ and moves p by at most
+#       |c - c′| ‖p‖₂/c ≤ |c - c′|, since ‖p‖₂ ≤ ‖p‖₁ ≤ c. The distance changes by at most |c - c′|, so rounding λ to c costs
+#       at most u λ.
+#   (2) The level equation. For a set A of a ≥ 1 entries and the computed level τ̂, let η = a τ̂ - (Σ_A uᵢ - c) (uᵢ = |vᵢ| at
+#       the zero point). When A = {i : uᵢ > τ̂}, Σ_A (uᵢ - τ̂) = c - η, so the residual formed from τ̂ is the exact residual for
+#       the radius c - η. In d² = Σ_{i∉A} rᵢ² + a τ², with τ solving Σ_A (uᵢ - τ) = c, dτ/dc = -1/a and d(d²)/dc = -2τ: the
+#       distance changes by |τ||η|/d to first order, and d ≥ √a |τ| gives |τ|/d ≤ 1/√a.
+#   (3) Zero point, and a face with τ0 ≤ μ (then A = J, a = cnt). For the zero point the routine returns the level τ̂ =
+#       fl((Σ_G yᵢ - c)/g) of the set G of g entries above the level of its previous pass (all entries for the first pass),
+#       with yᵢ = |vᵢ|, or its minimum with the largest entry; the exits that are not an ordinary convergence are (3a), (3b)
+#       and (3c). When G is the set above τ̂ (A = G), the sum of the a terms uᵢ has an error of at most (a - 1) u ‖u_A‖₁;
+#       the subtraction and the division add u |Σ_A uᵢ - c| = u a |τ| each: |η| ≤ (a - 1) u ‖u_A‖₁ + 2 u a |τ|. With ‖u_A‖₁
+#       ≤ √a ‖u_A‖₂ ≤ √a ‖v‖₂ the effect on d is at most (a - 1) u ‖v‖₂ + 2 u d.
+#   (3a) The count above the level is zero (the set A is empty: v = ones(2001), c = 8e-14 in Float64 has the level 1.0, and
+#       no entry is above it). Write τ̂ = τ_G + e with τ_G = (Σ_G yᵢ - c)/g and η_G = g e, bounded as in (3) with a = g. As
+#       yᵢ ≤ τ̂ for the entries of G, summing yᵢ ≤ τ_G + e over G gives c ≤ g e = η_G. The routine returns min(τ̂, largest
+#       entry), the level of the radius 0, so the returned value is the exact value for a radius between 0 and c, and the
+#       radius is off by at most η_G. The exact level lies in [τ_G, τ̂] (τ_G is a lower bound of the level for any set G
+#       with Σ_G (yᵢ - τ_G) = c), and the entries of G have a total deficit Σ_G (τ_G - yᵢ)₊ ≤ g e below τ_G, so d ≥ √g (τ_G
+#       - e) and |τ|/d ≤ 1/√g to first order. The effect on d is at most η_G/√g ≤ (g - 1) u ‖v‖₂ + 2 u d, the bound of (3).
+#   (3b) The count did not change (c = cnt): the returned level τ was computed from the set above τp, which has cnt entries,
+#       and the set above τ has c = cnt entries as well. The two sets are nested, whichever of τ and τp is the lower, and have
+#       the same count, so they are the same set: the set above the returned level is its generating set, and this is (3).
+#   (3c) The count rose (c > cnt, the returned level is τp, capped at the largest entry). Let G′ (g′ entries) be the set
+#       that generated τp, τp = τ_{G′} + e′ with τ_{G′} = (Σ_{G′} yᵢ - c)/g′ and |e′| at most the rounding of that level,
+#       ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ_{G′}|)/g′. G = {yᵢ > τp} has g < g′ entries and G ⊂ G′ (a lower τp would not give
+#       a smaller count). The level τ̂ = τ_G + e computed from G has more than g entries above it, so τ̂ < τp (a level not
+#       below τp has at most the entries of G above it). The returned residual is the exact residual for the radius c′ = Σ_G
+#       (yᵢ - τp) = c + g (τ_G - τp). The entries of G′ \ G are at or below τp, and Σ_{G′∖G} (τp - yᵢ) = g (τ_G - τp) + g′
+#       e′, because Σ_{G′} (τp - yᵢ) = g′ τp - Σ_{G′} yᵢ = g′ e′ - c and Σ_G (τp - yᵢ) = -c - g (τ_G - τp). The left side is
+#       not negative, so c′ - c ≥ -g′ |e′|; and τ̂ < τp gives τ_G - τp < |e|, so c′ - c < g |e|. Hence |c′ - c| ≤ max(g′
+#       |e′|, g |e|). The same identity gives Σ_{G′∖G} (τp - yᵢ) < g |e| + g′ |e′|: the entries that the pass before dropped
+#       lie within the rounding of the level, so to first order each contributes τ² to d² and d ≥ √g′ |τ|. The effect on d
+#       is |c′ - c| |τ|/d ≤ max(g′ |e′|, g |e|)/√g′ ≤ ((g′ - 1) u ‖y_{G′}‖₁ + 2 u g′ |τ|)/√g′ ≤ (g′ - 1) u ‖v‖₂ + 2 u d, the
+#       bound of (3) with g′ ≤ n. On a face the same holds in the units of the shifted values, with the errors e′ and e of
+#       (4) in place of those of (3), and the effect is inside the bound of (4) with a = g′. The returned level can differ
+#       from the one that returning τ̂ would give by a rounding, also where that one was accurate (v = [nextfloat(2.0),
+#       nextfloat(1.0)], λ = nextfloat(nextfloat(1.0)), x = zeros(2): 1.4142135623730951 without the exit,
+#       1.4142135623730954 with it, both within the bound).
+#   (4) A face with τ0 > μ. (4a) The computed τ0 is at most the exact level; let σ be the computed τ0 (a number used
+#       consistently), t = τ - σ ≥ 0, A the active set, a = |A| and B = J \ A, b = |B| = cnt - a, whose residuals are the uᵢ
+#       themselves, so ‖u_B‖₂ ≤ d. Σ_A Lᵢ = c + a t. The values Lᵢ are rounded (u each), the sum of the a terms has an error of
+#       at most (a - 1) u Σ_A Lᵢ, the subtraction and the division add u |Σ_A Lᵢ - c| = u a t each, and τ = σ + level is
+#       rounded: η = a τ̂ - (Σ_A uᵢ - c) satisfies |η| ≤ a u (c + a t) + 2 u a t + a u |τ|. Since Σ_A uᵢ = c + a τ and
+#       S = Σ_A uᵢ + Σ_B uᵢ, the exact τ0 is (a τ + Σ_B uᵢ)/cnt and t = Σ_B (τ - uᵢ)/cnt up to the rounding of σ, which adds a
+#       term of second order (it multiplies a u). Then a t ≤ (a/cnt) (b |τ| + √b d), and with |τ| ≤ d/√a (as d ≥ √a |τ|)
+#       a t |τ|/d ≤ (b/cnt + √(ab)/cnt) d ≤ 3d/2. The effect on d, |τ||η|/d, is at most
+#       √a u c + (a + 2) (3/2) u d + u d = (3a/2 + 4) u d + √a u c. With the exact τ0 above μ, B holds the entry of μ and
+#       a ≤ n - 1; when the computed τ0 is above μ and the exact τ0 is not, B can be empty, t is the rounding of σ, and the
+#       effect is at most √a u c + u d (up to second order), which is smaller.
+#       (4b) The computed τ0 exceeds the exact level τ (witness: v = fill(-0.1, 3), x = ones(3), c = 2.0^-60). Then
+#       0 < σ - τ ≤ σ - τ0 ≤ ε0, the rounding of the closed form, ε0 ≤ ((cnt - 1) u ‖u_J‖₁ + 2 u cnt |τ0|)/cnt. The values
+#       max(uᵢ - σ, 0) sum to at most c in exact arithmetic, so the routine returns a level at or below zero or within
+#       rounding of zero, at most (1 + u) u c from its sums, and τ̂ = σ + max(level, 0) satisfies 0 < τ̂ - τ ≤ ε0 + (1 + u) u c.
+#       Evaluating the residual at τ̂ in place of τ changes d by a |τ| (τ̂ - τ)/d ≤ √a (τ̂ - τ) to first order, a the size of the
+#       active set at τ (the entries between τ and τ̂ are counted with it). √a ε0 ≤ √cnt ε0 ≤ (cnt - 1) u ‖v‖₂ +
+#       2 u (‖v‖₂ + c/√cnt), as √cnt |τ0| = |S - c|/√cnt ≤ ‖u_J‖₂ + c/√cnt. The effect is at most
+#       (cnt - 1) u ‖v‖₂ + 2 u (‖v‖₂ + c/√cnt) + √a (1 + u) u c, within the bound of (3) after (5) and (6).
+#   (5) The residual is formed without rounding (a min, a sign change, or vᵢ). The sum of squares and the root add a
+#       relative (n/2 + 1) u to the norm of the residual.
+#   (6) d ≤ ‖v‖₂ + c, since -v is at distance d from a subgradient of 2-norm at most c (an element of the ball or of the simplex
+#       of radius c).
+#   Together, with d ≤ ‖v‖₂ + c: at most (3n/2 + 4) u Λ for the zero point and for τ0 ≤ μ, and for τ0 > μ with a ≤ n - 1,
+#   (3a/2 + n/2 + 5) u d + (√a + 1) u c ≤ (2n + √n + 5) u Λ. The function's bound is (2n + √n + 5) u (‖v‖₂ + λ). The √n term
+#   is the one with c: the shifted values of the active entries add up to c + a t, so the summation error of the level is
+#   proportional to c. On a long sum of nearly equal values the error grows about linearly in n in practice (measured, in
+#   units of u Λ, about 0.01 n on one entry far below the level and a bulk of equal entries, and up to about 0.3 n on random
+#   entries of that shape, at n = 200000), inside the bound. The exit sv ≤ c costs at most (n - 1) u ‖v‖₂: v scaled by
+#   c/Σ|vᵢ| is in the ball. The bound has no term for entries or terms near the subnormal range, where each adds up to the
+#   spacing of W.
+
+# Entry reads with the sign: convert(W, v), and the same scaled by 2^-k (the scaled path).
+struct _ValRead{W} end
+@inline (::_ValRead{W})(v) where {W} = convert(W, v)
+struct _ScaledValRead{W}
+  k::Int
+end
+@inline (g::_ScaledValRead{W})(v) where {W} = ldexp(convert(W, v), -g.k)
+
+# The values Lᵢ = max(uᵢ - σ, 0) for the face J = {i : |xᵢ| == m} and 0 off J, where uᵢ = -sign(xᵢ) rd(vᵢ), as a vector of
+# length(x) that `_l1ball_michelot` reads without a copy. rd is _ValRead{W}() or the scaled read, and the shift σ (the
+# computed first level τ0 of the face) is in the units of rd.
+struct _LinfShifted{W, V, X, R} <: AbstractVector{W}
+  v::V
+  x::X
+  rd::R
+  m::W
+  σ::W
+end
+Base.size(a::_LinfShifted) = (length(a.x),)
+Base.IndexStyle(::Type{<:_LinfShifted}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_LinfShifted{W}, i::Int) where {W}
+  @boundscheck checkbounds(a, i)
+  @inbounds begin
+    xi = convert(W, a.x[i])
+    vi = a.rd(a.v[i])
+  end
+  ifelse(abs(xi) == a.m, max(ifelse(xi > 0, -vi, vi) - a.σ, zero(W)), zero(W))
+end
+
+# The residual of the distance, in the units of v: min(|vᵢ|, τ) when m = 0 (the zero point, and c = 0 with τ = Inf), and on
+# a face with the largest magnitude m: min(uᵢ, τ) on J and vᵢ off J.
+struct _LinfResidual{W, V, X} <: AbstractVector{W}
+  v::V
+  x::X
+  m::W
+  τ::W
+end
+Base.size(a::_LinfResidual) = (length(a.v),)
+Base.IndexStyle(::Type{<:_LinfResidual}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_LinfResidual{W}, i::Int) where {W}
+  @boundscheck checkbounds(a, i)
+  @inbounds vi = convert(W, a.v[i])
+  iszero(a.m) && return min(abs(vi), a.τ)
+  @inbounds xi = convert(W, a.x[i])
+  abs(xi) == a.m ? min(ifelse(xi > 0, -vi, vi), a.τ) : vi
+end
+
+# S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ in one pass, for the face J = {i : |xᵢ| == m} and uᵢ = -sign(xᵢ) rd(vᵢ)
+@inline function _linf_face_sums(v, x, m::W, rd, ::Type{W}) where {W}
+  S = zero(W)
+  cnt = 0
+  μ = W(Inf)
+  @inbounds @simd for i in 1:length(x)
+    xi = convert(W, x[i])
+    vi = rd(v[i])
+    on = abs(xi) == m
+    u = ifelse(xi > 0, -vi, vi)
+    S += ifelse(on, u, zero(W))
+    cnt += on
+    μ = ifelse(on, min(μ, u), μ)
+  end
+  S, cnt, μ
+end
+
+# the sums of squares of the three residuals, for the ordinary path
+@inline function _linf_squares_zero(v, τ::W, ::Type{W}) where {W}
+  Q = zero(W)
+  @inbounds @simd for i in 1:length(v)
+    Q += abs2(min(abs(convert(W, v[i])), τ))
+  end
+  Q
+end
+@inline function _linf_squares_face(v, x, m::W, τ::W, ::Type{W}) where {W}
+  Q = zero(W)
+  @inbounds @simd for i in 1:length(x)
+    xi = convert(W, x[i])
+    vi = convert(W, v[i])
+    Q += abs2(ifelse(abs(xi) == m, min(ifelse(xi > 0, -vi, vi), τ), vi))
+  end
+  Q
+end
+
+# sqrt(Q) when Q is finite and normal in the sense of _squares_normal, and the recomputation otherwise
+@inline function _linf_finish(Q::W, v, x, m::W, τ::W) where {W}
+  (isfinite(Q) & _squares_normal(Q, length(v), W)) && return sqrt(Q)
+  _linf_cold(v, x, m, τ, W)
+end
+
+# The norm of the residual, by the squared-residual kernel (units of the exponent of its largest entry, as _l2_score_cold). A
+# residual entry that is not finite gives Inf.
+@noinline function _linf_cold(v, x, m::W, τ::W, ::Type{W}) where {W}
+  R = _recovery_type(W)
+  q = _residual_squares(_LinfResidual(v, x, m, τ), nothing, R)
+  q === nothing && return W(Inf)
+  s, k = q
+  convert(W, _scaled_product(sqrt(s), one(R), k))
+end
+
+# Whether the sum sv of the magnitudes of v is within the range of the ordinary path (see above)
+@inline _linf_in_range(sv::W, n::Int, zp::Bool, ::Type{W}) where {W} =
+  zp ? sv <= floatmax(W) / 2 : convert(W, n + 1) * sv <= floatmax(W) / 4
+
+# The value for the arguments of the same length n ≥ 1, the level c (a number of type W), and W.
+function _linf_point(c::W, v, x, ::Type{W}) where {W}
+  n = length(x)
+  sx, m = _linf_classify(x, _AbsRead{W}(), W)
+  sv, mv = _linf_classify(v, _AbsRead{W}(), W)
+  (isnan(sx) | isnan(sv)) && return W(NaN)
+  (isinf(m) | isinf(mv)) && return W(Inf)
+  isinf(c) && return iszero(m) ? zero(W) : W(Inf)
+  iszero(c) && return _linf_finish(_linf_squares_zero(v, W(Inf), W), v, x, zero(W), W(Inf))
+  zp = iszero(m)
+  zp && sv <= c && return zero(W)
+  _linf_in_range(sv, n, zp, W) || return _linf_scaled(c, v, x, m, mv, W)
+  if zp
+    τ = max(_l1ball_michelot(v, c, _AbsRead{W}(), W), zero(W))
+    return _linf_finish(_linf_squares_zero(v, τ, W), v, x, m, τ)
+  end
+  S, cnt, μ = _linf_face_sums(v, x, m, _ValRead{W}(), W)
+  τ0 = (S - c) / cnt
+  isfinite(τ0) || return _linf_scaled(c, v, x, m, mv, W)
+  τ = τ0
+  if τ0 > μ
+    τ = τ0 + max(_l1ball_michelot(_LinfShifted(v, x, _ValRead{W}(), m, τ0), c, _AbsRead{W}(), W), zero(W))
+  end
+  _linf_finish(_linf_squares_face(v, x, m, τ, W), v, x, m, τ)
+end
+
+# The same out of the ordinary range, for finite entries and a finite positive c, in units of 2^k as `_linf_exceptional!` does
+# for the prox: v is read as 2^-k vᵢ (the scaled reads), the level is 2^-k c (`_linf_scaled_radius`, formed from the significand
+# and the exponent), and τ = 2^k τ′. k starts at ceil(log2 n) + 2, where the scaled magnitudes sum to at most floatmax/4 before
+# rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`). The loop ends: the scaled
+# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because
+# `_level_point` has refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
+# units, with the same preconditions: the scaled sum is within the limits of `_linf_in_range`, c′ ≤ c/4 is finite (k ≥ 2, as
+# _linf_exponent(n) ≥ 2), S′ and the shifted values are finite, and τ0′ = (S′ - c′)/cnt is finite as
+# |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4. The scaling of an entry or of c can lose up to a subnormal spacing of W,
+# as in the prox. τ is capped at the largest |vᵢ|, mv, which the exact τ does not exceed (it is below the largest uᵢ), so that
+# the rounding of 2^k τ′ does not overflow; a τ below -floatmax is -Inf, and the cold path then gives Inf, as the distance
+# is then above floatmax. A scaled level at least the scaled sum gives 0 at the zero point. This path sends the residual
+# directly to _linf_cold, without testing an ordinary sum of squares.
+@noinline function _linf_scaled(c::W, v, x, m::W, mv::W, ::Type{W}) where {W}
+  n = length(x)
+  zp = iszero(m)
+  k = _linf_exponent(n)
+  local sv′
+  while true
+    sv′ = _linf_sum(v, _ScaledAbsRead{W}(k), W)
+    _linf_in_range(sv′, n, zp, W) && break
+    k += 1
+  end
+  c′ = _linf_scaled_radius(W, one(W), c, k)
+  if zp
+    c′ >= sv′ && return zero(W)
+    τ′ = max(_l1ball_michelot(v, c′, _ScaledAbsRead{W}(k), W), zero(W))
+    τ = min(ldexp(τ′, k), mv)
+    return _linf_cold(v, x, m, τ, W)
+  end
+  rd = _ScaledValRead{W}(k)
+  S′, cnt, μ′ = _linf_face_sums(v, x, m, rd, W)
+  τ0′ = (S′ - c′) / cnt
+  τ′ = τ0′
+  if τ0′ > μ′
+    τ′ = τ0′ + max(_l1ball_michelot(_LinfShifted(v, x, rd, m, τ0′), c′, _AbsRead{W}(), W), zero(W))
+  end
+  _linf_cold(v, x, m, min(ldexp(τ′, k), mv), W)
+end
+
+# The forms that select an entry or a group throw an ArgumentError, as private methods, so that they do not meet the generic
+# methods for a BlockIterate (as for NormL2). The public four-argument methods are those of interface.jl, which reach them.
+@noinline _normlinf_local_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has the full-point form kkt_violation(f, v, x), and no form for an entry or a group: the norm is not separable"))
+_level_score(f::NormLinf, λ, g, x, k) = _normlinf_local_error(f)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::AbstractArray, i::Integer) = _level_score(f, f.λ, g, x, i)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+
+kkt_violation(f::NormLinf, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); _normlinf_local_error(f))
+@noinline _linf_length_error(f, n, ::Type{W}) where {W} = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))): the length $n is not representable in the working type $W (n + 1 overflows it)"))
+@noinline _normlinf_symmetric_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has no form for a SymmetricSparseIterate point; use the full-point form on a dense matrix such as Matrix(x)"))
+# the level λ is passed in, not read from f: a chain of Scaled wrappers passes the level folded with its factors
+function _level_point(f::NormLinf, λ, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  W = float(promote_type(eltype(v), eltype(x)))
+  isempty(x) && return zero(W)
+  isfinite(convert(W, length(x) + 1)) || _linf_length_error(f, length(x), W)
+  _linf_point(_kkt_coefficient(W, λ, true), v, x, W)
+end
+kkt_violation(f::NormLinf, v::AbstractArray, x::AbstractArray) = _level_point(f, f.λ, v, x)
+kkt_violation(f::NormLinf, ::AbstractArray, ::SymmetricSparseIterate) = _normlinf_symmetric_error(f)
+
+####################################
 #  Scaled
 ####################################
 

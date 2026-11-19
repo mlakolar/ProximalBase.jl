@@ -12,7 +12,7 @@ API. This development reduction is not a release announcement.
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf` and `GroupNormL2`, nonconvex penalties,
-logistic/Poisson/robust-loss families, constraints and indicators other than
+Poisson and robust-loss families, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
@@ -26,6 +26,14 @@ Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
+
+### Logistic regression
+
+`LogisticLoss(y, X; weights, offset)` is available as a standalone smooth loss.
+It requires finite responses in `[0, 1]`, including on zero-weight rows. The
+archived logistic constructor did not validate the response domain. The current
+constructor uses homogeneous strided `Float32` or `Float64` vectors and
+accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)
 
@@ -130,6 +138,13 @@ What changed besides the values of the table:
   has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
   four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a
   `SymmetricSparseIterate` throws an `ArgumentError`.
+* `LeastSquaresLoss` and `QuadraticFunction` now support
+  `kkt_violation(f,v,x)`, the infinity norm of the computed stationarity
+  residual. Coordinate, group and symmetric-iterate point forms throw
+  `ArgumentError`. The new call uses function-owned scratch and can allocate a
+  coefficient buffer on its first use with a loss. See
+  [smooth stationarity scores](@ref smooth-kkt) for the ownership rules and
+  the caller-supplied gradient recipe.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the

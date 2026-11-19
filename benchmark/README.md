@@ -554,3 +554,65 @@ PB_BASE=/path/to/tree-before PB_ROUNDS=15 julia --threads=1 --project=benchmark 
 PB_BASE=/path/to/tree-before PB_REVERSE=1 julia --threads=1 --project=benchmark benchmark/kkt_local.jl > run-reversed.out
 python3 benchmark/summarize_kkt_local.py summary.tsv run.out run-reversed.out
 ```
+
+## Logistic-loss harness
+
+Use a dedicated single-thread allocation for both source roles and the
+independently compiled A/A control.
+
+```sh
+julia scripts/instantiate.jl benchmark
+PB_BASELINE=/path/to/master PB_OUTPUT=/path/to/results PB_ROUNDS=7 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/logisticloss.jl
+```
+
+The logistic comparator is a standalone finite-data implementation with the
+same design, coefficients, weights and offsets and one workspace. The
+least-squares comparator loads the existing master source. Both comparisons
+record paired medians, minima and warmed allocations in `raw.csv`, and the
+source heads and Julia/BLAS settings in `provenance.txt`. The case ID names the
+operation, precision, weighting/offset combination and shape. Compare the
+candidate/reference ratios within each round to the control/reference ratios.
+For an isolated compilation probe set `PB_FIRST_CALL=1` and select a single
+case with `PB_FILTER` in each fresh process. The time in `first-call.csv`
+includes the first invocation and its compilation, after loading source.
+
+## SCAD
+
+With separate clean worktrees for the candidate and `legacy/full`, run the
+SCAD differential and time both implementations in the same exclusive
+allocation. The candidate is also loaded under a second module for the A/A
+comparison. The inputs cover the ordinary thresholding rules and the large-step
+comparison away from switches where the two implementations differ.
+
+```sh
+julia scripts/instantiate.jl benchmark
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_CHECK_ONLY=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_OUTPUT=/tmp/scad-forward \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+PB_ARCHIVE=/path/to/archive PB_CANDIDATE="$PWD" PB_OUTPUT=/tmp/scad-reverse PB_REVERSE=1 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/scad.jl
+python3 benchmark/summarize_scad.py /tmp/scad-forward /tmp/scad-reverse
+julia --threads=1 --project=. benchmark/scad_correctness.jl 200000
+```
+
+The timing harness warms every route, alternates measurement order and
+records six paired rounds by default. It writes allocation counts and
+paired times to `raw.csv`, individual samples to `samples.csv` and
+revision, hardware and environment details to `provenance.txt`.
+
+The `default_call` cases time `SCAD(0.5f0)`, `SCAD(0.5f0, 3.7f0)` and
+`SCAD(0.5)` on matching Float32 or Float64 vectors. They measure `prox`
+and `prox!` with the step omitted and with a typed step of one. The
+`alloc_prox` cases include the allocation of the returned array. Use
+`PB_FILTER='/default_call/'` for these cases alone.
+
+Set `PB_PREOPT` to a clean checkout at
+`2fd9cd416ab597ad05000cbad216a1db7b342308` to use the pre-optimization
+candidate as the reference. Run and summarize each reference separately,
+with independent forward and reverse output directories. The same A/A
+control runs in both comparisons.
+
+The independent correctness sweep uses 256-bit arithmetic for ordinary
+inputs and 4096-bit arithmetic over the wider exponent range.

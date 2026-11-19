@@ -8,8 +8,8 @@ Each function below has a mathematical definition and a Julia constructor.
 it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
-All functions on this page operate on arrays. Each has values, gradients
-and [proximal operators](glossary.md#Proximal-operator) for its supported inputs.
+All functions on this page operate on arrays. Each section describes its
+supported values, gradients and [proximal operators](glossary.md#Proximal-operator).
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see
 [Operations on functions](operations.md) and
@@ -90,15 +90,16 @@ The implementation uses a thin SVD cached on the first proximal call, including
 when ``p>n``. It stores `X = U*Diagonal(s)*V'` and `Diagonal(s)*U'*Y`;
 subsequent proximal calls use two products with `V`, without rebuilding the
 factorization when the step changes. The value and gradient use reusable residual scratch and read
-current data entries. Do not call `f(β)`, `gradient!`, `value_and_gradient!` or the
-proximal operator of the same loss object concurrently without synchronization; the
+current data entries. Synchronize calls to `f(β)`, `gradient!`, `value_and_gradient!`,
+`kkt_violation(f, v, β)` and the proximal operators on the same loss object. The
 oracles [at a supplied predictor or residual](#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 do not write the loss. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
 Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
 supported array products. This loss has no `SymmetricSparseIterate`,
-scalar `prox_block`, `value_entry` or `kkt_violation` method. Converting a symmetric iterate
+scalar `prox_block` or `value_entry` method. See [smooth stationarity scores](@ref smooth-kkt)
+for the full-point KKT form. Converting a symmetric iterate
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
@@ -430,7 +431,7 @@ When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
 including vector `SparseIterate` and `BlockIterate`; matrix and symmetric iterate
 inputs are not supported. `issmooth` and `isproximable` are true;
 `isseparable` and `isconvex` are false. There is no scalar `prox_block`,
-`value_entry` or `kkt_violation` method.
+`value_entry` method. See [smooth stationarity scores](@ref smooth-kkt) for the full-point KKT form.
 
 **Caller precondition:** `A` is symmetric; positive semidefiniteness is not
 required. Construction checks real types, squareness and `b`'s length, but does
@@ -497,6 +498,59 @@ x = [2.0, -1]
 @assert restrict(f,[2])([-1.0]) == 7
 prox(f,x,0.5)
 ```
+
+## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
+
+`kkt_violation(f, v, x)` returns `‖v + ∇f(x)‖∞` for `LeastSquaresLoss` and
+`QuadraticFunction`. Supply `v`, typically the gradient of the other objective
+term, and the point `x` where both gradients are evaluated. The score is zero
+when the computed residual vanishes, including at an admissible empty point.
+An indefinite quadratic can attain first-order stationarity at a saddle point
+or maximum.
+
+Use real, one-based inputs of the same shape. The quadratic takes vectors of
+length `size(A, 2)`. For least squares, use a vector of length `size(X, 2)`
+with a vector response, or a coefficient matrix of size
+`(size(X, 2), size(Y, 2))` with a matrix response. The supported array products
+are those of `gradient!`, including supported views, sparse or structured data,
+and iterate representations. The coordinate screen and point-aware coordinate
+and group forms throw `ArgumentError` and name the full-point form. A
+`SymmetricSparseIterate` point also throws `ArgumentError`.
+
+`gradient!` stores its result in the function's floating type `T`. The residual
+sum and maximum use `float(promote_type(eltype(v), eltype(x), T))`. Wider
+inputs can widen the residual arithmetic. The gradient still uses the rounding
+of the existing matrix products and destination. For homogeneous `Float32`
+and `Float64` inputs and function data, finite ordinary scores agree bit for bit
+with `maximum(abs, v .+ gradient(f, x))` at a fixed BLAS thread count in the
+same process. A `NaN` in either input gives `NaN`. Otherwise an infinite input
+entry gives `+Inf`. With finite inputs, ordinary arithmetic in the gradient
+and residual can still overflow, underflow or produce `NaN`.
+
+The call reads `v` and `x` without modifying them and uses `Base.mightalias`
+on their storage to detect overlap with the scratch it writes. A quadratic uses its existing
+scratch for the gradient and makes one matrix product. A least-squares loss
+makes two matrix products and uses both its existing residual scratch and a
+dense coefficient-shaped output. The first ordinary call that needs this
+output allocates it, and later calls reuse it while its type and shape match.
+Homogeneous dense `Float32` and `Float64` inputs need no other scratch.
+Synchronize scratch-using calls on the same function object.
+
+If you already have an independent gradient destination `d` of the function's
+type and the inputs share that type, you can form the same finite ordinary
+score without using or allocating a coefficient buffer inside the function.
+The least-squares gradient in this recipe still uses its residual scratch.
+
+```julia
+gradient!(d, f, x)
+d .+= v
+kkt_violation(ZeroFunction(), d, x)
+```
+
+For a finite positive factor `α`, `Scaled` applies its
+[usual rule](@ref scaled-kkt) to the supplied gradient `v`. An infinite
+factor or a retained chain whose factors do not fold throws `ArgumentError`.
+Scaling a function with finite data by zero through the public constructor yields `ZeroFunction()`.
 
 ## [Zero function](@id Zero-function)
 
@@ -630,4 +684,78 @@ x = [2.0, 1]
 @assert kkt_violation(f, [-1.0, 2], 1) == 0
 @assert kkt_violation(f, [-1.0, 3.0], x, 2) == 1 && kkt_violation(f, [-1.0, 3.0], x) == 1
 prox(f,x,0.5)
+```
+
+## [Logistic regression](@id Logistic-regression-loss)
+
+Construct `f = LogisticLoss(y, X; weights=nothing, offset=nothing)` for an
+unnormalized logistic objective. For an ``n\times p`` design and a length-``p``
+coefficient vector,
+
+```math
+\eta = X\beta + \mathrm{offset},\qquad
+f(\beta)=\sum_{i=1}^n w_i[\log(1+e^{\eta_i})-y_i\eta_i],\qquad
+\nabla f(\beta)=X^\top d,\quad d_i=w_i[(1+e^{-\eta_i})^{-1}-y_i].
+```
+
+Use one-based strided vectors and a strided matrix or `SparseMatrixCSC` design,
+all of the same element type, `Float32` or `Float64`. Responses are finite binary
+values or fractions in `[0, 1]`, including at zero weight. The archived logistic
+constructor did not enforce this range. Supply finite nonnegative weights and
+finite offsets as length-``n`` vectors. The defaults are unit weights and zero
+offset. Include a column of ones to estimate an intercept.
+
+The loss is convex and smooth. Its traits `isproximable` and `isseparable`
+return false. Use `f(β)`, `gradient(f, β)` or `value_and_gradient(f, β)`.
+Their mutating gradient counterparts take a caller-owned strided length-``p``
+output of the computation type. `gradient!(g, f, β)` returns `g`.
+`value_and_gradient!(g, f, β)` returns the scalar value. Use ordinary
+`Scaled(f, α)` or `α*f` for normalization or rescaling in coefficient space.
+
+If the caller already holds **the complete linear predictor**
+``\eta=X\beta+\mathrm{offset}``, pass it to
+`ProximalBase.value_from_predictor(f, η)` or
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. Both return
+the objective. The fused call also writes the weighted observation derivative
+to `d` and the coefficient gradient to `g`, using one product with `X'`.
+The predictor and both outputs are one-based strided vectors of the data type.
+These operations take an unwrapped loss and leave the supplied predictor intact.
+
+The constructor borrows model arrays. Same-shape edits between calls must
+preserve the validated data domain. Reconstruct the loss for structural changes
+and refresh a caller-held predictor when its defining inputs change.
+Ordinary calls share private scratch and require synchronization across tasks.
+Predictor calls can share a loss across tasks when model data stay read-only
+and the outputs are independent. Before writes, the oracles reject nonempty
+output overlaps reported by `Base.mightalias` with the input, other output,
+model arrays (including CSC values and indices) or scratch. An input predictor or
+coefficient vector must also be independent of the scratch.
+
+The scalar formulas preserve the small tail for saturated responses.
+For a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a
+centered expression to retain the slope through weighting. A
+zero-weight row contributes zero to the value and observation derivative, even
+at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
+give the logistic limit: zero loss for a matching binary response, and infinity
+otherwise. Standard matrix products may still propagate nonfinite design
+entries, including through a zero derivative. For large weights the scalar
+loop retains a weighted tail when the unweighted exponential becomes subnormal
+or zero. The matrix products, final value sum and outer scaling use ordinary
+floating-point arithmetic with their usual rounding and range limits.
+The loss supplies first-order oracles. The historical generic scalar-loss,
+coordinate and second-order interfaces remain deferred.
+
+```@example logistic_regression
+using ProximalBase
+X = [1.0 0.0; 1.0 2.0; 1.0 -1.0]
+y = [0.0, 1.0, 0.25]
+offset = [0.1, -0.2, 0.0]
+f = LogisticLoss(y, X; weights=[1.0, 2.0, 1.0], offset)
+β = [0.5, 0.25]
+η = X * β + offset
+g, d = similar(β), similar(y)
+v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)
+@assert v ≈ f(β)
+@assert g ≈ gradient(f, β)
+(value=v, gradient=g)
 ```

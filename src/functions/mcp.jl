@@ -24,6 +24,9 @@ Direct array and iterate oracles reject negative and NaN steps before
 writing. The scalar hook `prox_block` and steps forwarded by `Scaled`
 require nonnegative, non-NaN steps. Symmetric sparse iterates use scalar
 steps and count off-diagonal values twice.
+
+See the [MCP numerical contract](@ref mcp-contract) for the supported
+precision and endpoint rules.
 """
 struct MCP{T<:Real} <: SeparableFunction
   λ::T

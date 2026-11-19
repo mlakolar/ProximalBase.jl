@@ -267,6 +267,28 @@ overflowed/underflowed intermediate scale does not discard a recoverable leaf
 result. This mechanism is implemented for retained kernels, not synthesized
 for custom functions.
 
+For `NormL1` and `NormL1Nonneg` under `Scaled` with a positive finite scalar step (`Float32` or `Float64` factors, step
+and level), the product `αγ` of the factors and the step can be below `floatmin(T)` or above `floatmax(T)` while the
+threshold `αγλ0wᵢ` of an entry is representable, because its weight brings the product back into range. The level that
+holds the factors and the exponent of the step, which is `αγλ0` divided by the significand of `γ`, is not a normal
+number when it is zero, when it is subnormal, and when it overflows, which can happen although `αγλ0` is at most
+`floatmax(T)`. In these cases the exponent is split between the level and the step when the step and the level of that
+split are both normal numbers (the first limit below says when they are not), and the leaf forms the threshold of each
+entry from them and its weight, so that the weight can bring it back into range.
+For `Scaled(Scaled(NormL1(1.3 * 2.0^20, [2.0^1013]), 2.0^-531), 2.0^-531)`, the step `2.0^-30` and `x = [3 * 2.0^-50]`,
+the threshold is `2.2551405187698493e-18` and the scalar step gives `[2.662280118581606e-15]`, as the array step does.
+The tests compare the proximal point with the point given by the exact threshold, within four units in the last place of
+the point, on selected inputs and on a seeded sweep over the exponents of the factors, the step, the level and the
+weight. Two limits, each on its own:
+
+- When the step or the level of the split is not a normal number, which happens for `αγλ0` near or beyond the square of
+  a range limit of the type (`floatmin(T)^2`, `floatmax(T)^2`), the exponent is not split and the step is passed rounded
+  (zero, a subnormal number or `Inf`), as before.
+- `ElasticNet` keeps the earlier route. Under the same conditions, on either side of the range (`αγ` below `floatmin(T)`
+  or above `floatmax(T)`), also with `λ2 = 0`, and with a single factor, a scalar step can lose the ℓ₁ threshold where
+  the same step passed as an array of steps gives it. With `ElasticNet(1.3 * 2.0^20, 0.0, [2.0^1013])` in place of the
+  `NormL1` above, the scalar step gives `[2.6623668547554047e-15]` and the array step `[2.662280118581606e-15]`.
+
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
 for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`
 and a positive finite scalar step `γ` whose product `αγ` is above `floatmax`,
@@ -343,6 +365,7 @@ all-NaN result or a particular exception.
 | `kkt_violation(f,v,x)`, `NormLinf`: forms, element types, level, face | The full-point form has a value; the forms for an entry or a group throw an `ArgumentError`, and so does the full-point form at a `SymmetricSparseIterate`. The working type `W` is `float(promote_type(eltype(v), eltype(x)))` and the result has type `W` (`zero(W)` for an empty `x`); a length `n` for which `n + 1` is not a finite number of `W` (`Float16` from `n = 65519`) throws an `ArgumentError` before any pass. The entries of `v` and `x` are converted to `W` before they are classified or compared, so each statement about a zero, tied, finite or infinite entry is about the converted value (an entry that does not fit `W` is infinite there). The level `c` is `λ` rounded once to `W` by the helper of the `GroupNormL2` and `NormL2` rows with the weight one; a level that overflows in `W` is an infinite level there. The point is the zero point when all entries of `x` are zeros of either sign after the conversion (a subnormal entry is not zero). Otherwise the face `J` is the set of entries whose magnitude equals the largest one, compared for equality in `W` with no tolerance: an entry one unit in the last place below the largest is not on the face, so for a positive finite level an exact tie can make the value discontinuous in `x` |
 | `kkt_violation(f,v,x)`, `NormLinf`: non-finite entries and levels | In this order, for the entries of `v` and `x` converted to `W`: a `NaN` gives `NaN`, also beside an infinite entry in `v` or in `x`; otherwise an infinite entry gives `+Inf`, also where the level is zero or infinite. Then an infinite level gives `0` at the zero point and `+Inf` at another point, and a zero level gives `norm(v)`, formed as a sum of squares of the entries read in `W` that is recomputed as below where it is outside the ordinary range. A finite positive level goes to the paths below |
 | `kkt_violation(f,v,x)`, `NormLinf`: accuracy and range | The ordinary path is used when the sum `sv` of `abs(vᵢ)` is at most `floatmax(W)/2` at the zero point, or `(n + 1) sv ≤ floatmax(W)/4` at another point (`n = length(x)`), the first level of the face, `S - c` divided by the number of entries of the face (`S` the sum of `-sign(xᵢ) vᵢ` over the face), is finite, and the sum of squares `Q` of the residual is finite and at least `n floatmin(W)/eps(W)`. At the zero point the value is `0` when the computed `sv` is at most `c`. Otherwise the level `τ` at the zero point comes from the iteration of the threshold of the prox (the routine that the prox of `NormLinf` has as its fallback, with its four returns) on `abs(vᵢ)`, started at the first level `(sv - c)/n` of the sum `sv` that the classification formed. At another point the closed form is used when the rounded first level `τ0` plus the rounded margin `3u abs(τ0) + 2u cnt maximum(abs, v)` is at most the smallest face value `-sign(xᵢ) vᵢ`, where `u = eps(W)/2` and `cnt` counts the maximal face. In the ordinary range for `Float32` and `Float64` the comparison certifies that the exact first level is the exact level. A tiny subnormal margin can round to zero and the comparison can accept without certifying exact support. Otherwise the iteration continues from `τ0` on the nonnegative shifted values `max(-sign(xᵢ) vᵢ - τ0, 0)` on the face (and `0` off it), from the level zero, and its level is added to `τ0`; the computed `τ0` can be above or below the exact first level and the exact level. The value is `√Q` for the residual `min(abs(vᵢ), τ)` at the zero point, and `min(-sign(xᵢ) vᵢ, τ)` on the face with `vᵢ` off it at another point. In the round-to-nearest relative-error model for the ordinary path for `Float32` and `Float64`, assuming `n u ≤ 1/4` (unchecked), the absolute error has first-order bound `(2n + √n + 5) u (norm(v) + λ)` with remainder `O_n(u² (norm(v) + λ))` for fixed `n`. This compares with the exact distance for `λ` and both inputs read in `W` and excludes additive subnormal-spacing effects. The signed-face argument interprets rounded shifted entries as exact excesses of perturbed face data, accounting for changes in the active set. The estimate scales with `norm(v) + λ`. The test tolerance adds `4n nextfloat(zero(W))`. Outside the ordinary path the value is formed in units of a power of two. When a sum of magnitudes or the first level is out of range, the level is computed from `v` and `c` scaled by `2^-k`, with `k` raised until the scaled sum is in the range of the ordinary path. When `Q` is not finite or is below `n floatmin(W)/eps(W)`, the residual is read again in the recovery type (at least `Float64`), scaled by the exponent of its largest entry, and the result is rounded once to `W`: it is `0` when all the residual entries are zero and `Inf` for an entry that is not finite. This extends the range of the computation, not its precision: the derivation covers the ordinary path, and the scaling of an entry or of `c` can lose up to a subnormal spacing of `W`. The tests compare these paths with the same reference and test tolerance, which they enlarge by a factor of 4 in some cases of overflowing sums, and they do not decide a band of relative width `100 eps(W)` around `floatmax(W)`, where the result may be `floatmax(W)` or `Inf`; they require `Inf` where the exact distance is above `floatmax(W)` by more than that band. Under `Scaled` with a finite positive factor `α` the tests accept `(2n + √n + 11) u (norm(v) + αλ)` against the exact distance for the level `αλ`, where the added `6 u` is an allowance for the rounding of `v/α` and of the product by `α`, not a derived constant. The same-type `Float32` and `Float64` array calls with a level of a hardware float type that the allocation tests use allocate nothing in either range, the first call included, and write neither `v`, `x` nor the buffer of the object (measured by the tests); wider parameter arithmetic such as a `BigFloat` level can allocate |
+| `kkt_violation(f,v,x)`, `LeastSquaresLoss` and `QuadraticFunction` | The gradient at `x` is written into scratch of the function's floating type `T`. Its entries and those of `v` are added in `float(promote_type(eltype(v), eltype(x), T))`, then the largest absolute residual is returned. A `NaN` in `v` or `x` gives `NaN`, otherwise an infinite input entry gives `+Inf`. With finite inputs the result follows ordinary gradient and residual arithmetic, including overflow and `NaN`. See [smooth stationarity scores](@ref smooth-kkt) |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `Scaled` | For a finite positive `α` the call evaluates the existing score of the function on the lazy gradient `v/α`, with the rounding and range limits of that evaluation (the leaf's gradient entry or its sums can overflow or underflow although `1/α` and `v[i]/α` do not), and multiplies it by `α`; underflow, overflow and `NaN` are not recovered. The reciprocal of the factor takes part in the type promotion (an `Int` factor introduces `Float64`; `BigFloat` data stay `BigFloat`). Nested wrappers whose product of factors is not a normal number, an infinite factor, and the functions without a score are listed in the [scaling guide](@ref scaled-kkt). A stack that nests an infinite factor with another `Scaled` wrapper (a direct call of the parameterized constructor `Scaled{F,T}` builds it; `Scaled(f, α)` merges the factors) has unspecified three-argument and zero-coordinate values and throws an `ArgumentError` at a nonzero coordinate or group and in the full-point form |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
@@ -413,45 +436,13 @@ with `prox_block` and in calls through `Scaled`.
 
 ### [Minimax concave penalty](@id spec-mcp)
 
-For `MCP(λ, a)`, the level is nonnegative and the shape is strictly
-positive. Both admit positive infinity. The following rows are applied
-from top to bottom for nonnegative, non-NaN steps.
+See the [MCP numerical contract](@ref mcp-contract) for step rules,
+value endpoints and the supported array and iterate routes.
 
-| Level and step | Proximal entry |
-|:--|:--|
-| `λ = 0` | Identity, including at an infinite step |
-| `λ = Inf` | Positive zero, including at a zero step |
-| `0 < λ < Inf`, `γ = 0` | Identity |
-| `0 < λ < Inf`, `γ = Inf` | Positive zero |
-| `0 < λ, γ < Inf` | NaN and signed infinities pass through. Finite entries use the threshold rules below. |
+### SCAD endpoints
 
-The identity preserves a stored negative zero when the destination can
-represent it. At a zero level the value is zero, including at nonfinite
-inputs. At any positive level a NaN entry gives a NaN value and a zero
-entry gives zero. An infinite level gives an infinite value at all other
-entries. For finite positive parameters the value at an infinite entry is
-the saturated penalty `aλ²/2`, subject to rounding in the working type.
-With infinite shape and finite positive level the value is `λ*abs(x)`.
-
-A finite positive step gives firm thresholding when `γ < a < Inf`
-and soft thresholding when `a = Inf`. For `γ ≥ a` with finite positive
-parameters the operator keeps a finite entry when its squared magnitude
-exceeds `aγλ²`. This comparison uses the exact products of the represented
-homogeneous `Float32` or `Float64` inputs. Mathematical ties give positive
-zero. Interior firm points and values are computed with floating-point
-rounding. A nonzero firm or soft optimum that rounds to zero retains its
-sign. Within a few ulps of the value's overflow boundary, rounding in
-the products can give `floatmax(T)` or `Inf`.
-
-Direct array and iterate oracles reject negative and NaN steps before
-writes. Array steps are matched by linear index and checked in full,
-including at inactive positions. Symmetric sparse iterate oracles use
-scalar steps. Same-kind sparse value and scalar-step prox paths visit
-stored entries. An off-diagonal symmetric entry contributes twice to the
-value. Fused calls evaluate the penalty at the stored proximal point.
-Valid steps are a caller precondition for `prox_block` and `Scaled`
-forwarding. `Scaled` accepts ordinary positive finite factors, and its
-zero-factor constructor rejects MCP.
+See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and
+value rules at zero and infinite levels, steps and shape.
 
 ### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
 

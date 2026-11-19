@@ -177,6 +177,13 @@ end
     @test value_and_prox!(y, s, x, u) === s(y)
     @test y == prox(f, x, T(2))
     @test s(x) === T(2) * f(x)
+    # The scaled array wrapper delegates the effective steps and evaluates
+    # the scaled value at the stored output.
+    expected = prox(f, x, T(2) .* steps)
+    @test prox(s, x, steps) == expected
+    y .= x
+    @test value_and_prox!(y, s, y, steps) === s(y)
+    @test y == expected
     @test_throws ArgumentError Scaled(f, z)
   end
 

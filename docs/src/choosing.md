@@ -13,6 +13,7 @@ step selection and stopping rule.
 | Squared distance or ridge penalty, `λ*sum(abs2, x - y)/2` | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | Omit the center for ridge at zero |
 | General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |
+| Separable penalty that levels off at large magnitudes | [`MCP(λ, a)`](@ref MCP) or [`SCAD(λ, a)`](@ref SCAD) | Nonconvex penalties with global scalar proximal operators |
 | Lasso on nonnegative variables | [`NormL1Nonneg(λ0, w)`](@ref NormL1Nonneg) | The function is defined on `x ≥ 0`; for `NaN`, infinite and extreme inputs see the [numerical contract](numerics.md) |
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |

@@ -14,6 +14,7 @@ For a task-oriented starting point, use [Choose a function or operation](choosin
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |
 |:--|:--|:--|:--|
 | [`LeastSquaresLoss(Y, X)`](@ref LeastSquaresLoss) | ``f(B)=\frac12\lVert Y-XB\rVert_F^2`` | ``X``: design matrix; ``Y``: response; ``B``: argument supplied to `f(B)` | [Least squares](smooth.md#Least-squares-loss) |
+| [`LogisticLoss(y, X; weights, offset)`](@ref LogisticLoss) | ``f(\beta)=\sum_i w_i[\log(1+\exp(\eta_i))-y_i\eta_i]`` | ``\eta=X\beta+\mathrm{offset}``; convex and smooth | [Logistic regression](smooth.md#Logistic-regression-loss) |
 | [`SqrtLeastSquaresLoss(Y, X)`](@ref SqrtLeastSquaresLoss) | ``f(\beta)=\lVert Y-X\beta\rVert_2`` | ``X``: design matrix; ``Y``: response vector; ``\beta``: argument supplied to `f(β)`; convex, not smooth, no proximal operator | [Square-root least squares](smooth.md#Square-root-least-squares-is-not-smooth) |
 | [`LogDetLoss(S, w)`](@ref LogDetLoss) | ``w[\operatorname{tr}(SX)-\log\det(X)]`` on SPD matrices | ``S``: finite symmetric coefficient matrix; ``w>0``: weight (one when omitted) | [Log-determinant loss](smooth.md#Log-determinant-loss) |
 | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\lVert x-y\rVert^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
@@ -22,6 +23,7 @@ For a task-oriented starting point, use [Choose a function or operation](choosin
 | [`LinearFunction(c, d)`](@ref LinearFunction) | ``f(x)=\langle c,x\rangle+d`` | ``c``: coefficient array; ``d``: constant (zero when omitted) | [Linear function](smooth.md#Linear-function) |
 | [`NormL0(λ)`](@ref NormL0) | Level times the number of nonzero entries | ``\lambda\geq0``: level; nonconvex with a hard-thresholding proximal operator | [Numerical contract](numerics.md#Cardinality-penalty-endpoints) |
 | [`MCP(λ, a)`](@ref MCP) | Minimax concave penalty applied entrywise | ``\lambda\geq0`` is the level and ``a>0`` is the shape. The proximal map uses firm or hard thresholding depending on the step. | [Minimax concave penalty](@ref mcp-guide) |
+| [`SCAD(λ, a)`](@ref SCAD) | Sum of smoothly clipped absolute deviations | ``\lambda\geq0``: level, ``a>2``: shape (default 3.7) | [SCAD penalty](penalties.md#SCAD-penalty) |
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
 | [`NormL1Nonneg(λ0, w)`](@ref NormL1Nonneg) | ``g(x)=\lambda_0\sum_i w_ix_i`` for ``x\geq0``, ``+\infty`` otherwise | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The nonnegative ℓ₁ penalty](penalties.md#The-nonnegative-l1-penalty) |
 | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | ``g(x)=\lambda_1\sum_i w_i\lvert x_i\rvert+\frac{\lambda_2}{2}\sum_i x_i^2`` | ``\lambda_1,\lambda_2\geq0``: ℓ₁ and ridge levels; ``w``: nonnegative ℓ₁ weights (all one when omitted) | [The elastic-net penalty](penalties.md#The-elastic-net-penalty) |

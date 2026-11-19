@@ -87,7 +87,7 @@ full-point form and no other.
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
-| Any point, `NormL2` and `NormLinf` | No form for an entry or a group: `ArgumentError` that names the full-point form |
+| Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument
 form for `NormL1` and `ElasticNet` reads `x[k]`, evaluates the score of a zero entry and that of a nonzero one, and selects
@@ -121,15 +121,21 @@ at ``x\ne0``, with the face of the entries of largest magnitude, compared for eq
 working type; see [the ℓ∞ norm](@ref norm-linf-kkt)), and its three-argument and four-argument
 forms throw `ArgumentError`.
 
+`LeastSquaresLoss` and `QuadraticFunction` use the full-point form to return
+`‖v + ∇f(x)‖∞`. Inputs must have the same shape and must be independent of
+the scratch the function writes. See [smooth stationarity scores](@ref smooth-kkt)
+for accepted layouts, rounding, allocations and scratch ownership.
+
 `Scaled` with a finite positive factor `α` evaluates the score of its function on `v/α` and multiplies it by `α`,
-for the five scalar functions, `GroupNormL2` and, in the full-point form, `NormL2` and `NormLinf` (the rounding and range limits
+for the entrywise and group functions above and, in the full-point form, `NormL2`, `NormLinf`,
+`LeastSquaresLoss` and `QuadraticFunction` (the rounding and range limits
 of that evaluation are in the [scaling guide](@ref scaled-kkt)).
 Nested wrappers whose factors do not multiply to a normal number, an infinite factor,
 and the functions without a score have unsupported cases, which are listed in
 the [scaling guide](@ref scaled-kkt), and a function without a score gives a `MethodError` for the
 call on the `Scaled` function.
 
-The full-point form checks real element types, one-based axes (`ArgumentError`),
+For the penalty, zero, linear and squared-norm functions above, the full-point form checks real element types, one-based axes (`ArgumentError`),
 `length(v) == length(x)` (`DimensionMismatch`) and the extent of the function's
 parameters (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout:
 the group count and each group; for `NormL2` and `NormLinf` no parameter). It makes a pass over the entries

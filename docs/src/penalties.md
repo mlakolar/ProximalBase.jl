@@ -473,24 +473,10 @@ s = Scaled(h, 2.0)
 
 ## SCAD penalty
 
-`SCAD(λ, a=3.7)` sums the smoothly clipped absolute deviation penalty.
-For a positive finite level and finite shape, the contribution of
-``t = |x_i|`` is
-
-```math
-p(t) = \begin{cases}
-\lambda t & 0 \le t \le \lambda, \\
-\lambda t - (t - \lambda)^2 / (2(a - 1)) & \lambda < t < a\lambda, \\
-(a + 1)\lambda^2 / 2 & t \ge a\lambda.
-\end{cases}
-```
-
-The proximal operator minimizes the sum of this penalty and the squared
-distance divided by twice the step. Below ``\gamma=a-1``, the scalar
-objective is strictly convex. At that step its middle piece is affine, and
-above it the middle piece is concave. The proximal operator compares the
-possible minima across the pieces and selects the smaller magnitude on an
-exact tie.
+`SCAD(λ, a=3.7)` sums a penalty that increases linearly near zero and
+levels off at magnitude `a*λ`. The scalar proximal operator minimizes the
+complete objective. For a step below `a-1` it uses the three-piece
+thresholding rule. At larger steps it compares the competing magnitudes.
 
 ```@example scad
 using ProximalBase
@@ -500,17 +486,7 @@ f = SCAD(1.0, 3.0)
 nothing # hide
 ```
 
-The direct oracles accept real dense arrays, supported views and reshapes,
-and the three iterate representations. Array steps are supported for dense,
-sparse and block arrays. Symmetric sparse iterate outputs take a scalar step
-and their values count each off-diagonal entry twice. Exact in-place
-proximal calls and separate destinations use the same separable kernels.
-Same-kind sparse and symmetric sparse proximal calls traverse stored
-entries. Block iterate proximal calls traverse the full array.
-
-Positive `Scaled` factors use the wrapper's effective step and value rules.
-The zero-factor constructor throws for this family. An infinite factor with
-a positive step gives an infinite effective step. At zero output the
-wrapper can give NaN from its value arithmetic. The effective step from an
-infinite factor and a zero step is outside the supported step domain.
-See [SCAD endpoints](@ref scad-endpoints) for the level, shape and step limits.
+At step four, magnitudes zero and four have the same objective for an
+input of four, and the proximal operator chooses zero. See the
+[SCAD numerical contract](@ref spec-scad) for the penalty formula,
+supported storage and endpoint rules.

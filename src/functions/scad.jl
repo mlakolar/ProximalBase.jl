@@ -37,25 +37,53 @@ restrict(f::SCAD, ::AbstractVector{<:Integer}) = f
 
 @inline function value_entry(f::SCAD, v::T, ::Integer) where {T<:Real}
   S = float(T)
-  (iszero(f.λ) || iszero(v)) && return zero(S)
-  isnan(v) && return S(NaN)
+  iszero(f.λ) && return zero(S)
   R = _working_type(S, f.λ, f.a)
   λ, a, t = R(f.λ), R(f.a), abs(R(v))
   S(_scad_value(λ, a, t))
 end
 
 @inline function _scad_value(λ, a, t)
-  (t <= λ || isinf(a) || isinf(λ)) && return λ * t
-  if t < a * λ
-    # Integrate the linear slope from λ. Both terms are nonnegative,
-    # and the mean slope stays between λ/2 and λ.
-    d = t - λ
-    return fma(d, λ - (d / (a - 1)) / 2, λ * λ)
-  end
-  (((a + 1) / 2) * λ) * λ
+  isinf(λ) && return iszero(t) ? zero(t) : λ * t
+  linear = λ * t
+  isinf(a) && return linear
+  # Integrate the linear slope from λ. In the middle piece the mean
+  # slope is between λ/2 and λ, and both terms are nonnegative.
+  d = t - λ
+  middle = fma(d, λ - (d / (a - 1)) / 2, λ * λ)
+  plateau = (((a + 1) / 2) * λ) * λ
+  ifelse(t > λ, ifelse(t < a * λ, middle, plateau), linear)
 end
 
-@inline function prox_block(f::SCAD, v::Real, ::Integer, γ::Real)
+@inline prox_block(f::SCAD, v::Real, ::Integer, γ::Real) = _scad_prox_entry(f, v, γ)
+
+@inline function prox_block(f::SCAD{T}, x::T, ::Integer, γ::T) where {T<:Union{Float32, Float64}}
+  λ, a = f.λ, f.a
+  iszero(λ) && return x
+  curvature = (a - γ) - 1
+  ratio = γ / curvature
+  if (λ >= floatmin(T) / eps(T)) & (curvature > 0) & (ratio > 0) & isfinite(a * λ)
+    # The middle root is below soft in the first piece and above t in the
+    # last piece. Clamp it against soft, t and zero to combine the pieces.
+    t = abs(x)
+    soft = fma(-γ, λ, t)
+    root = if ratio <= 1
+      d = soft - λ
+      fma(ratio, ifelse(d > 0, d, zero(T)), soft)
+    else
+      # Near the curvature transition, form the residual at the upper
+      # join in one rounding to avoid amplifying rounding of soft.
+      middle = fma(ratio, fma(-a, λ, t), t)
+      ifelse(middle > soft, middle, soft)
+    end
+    bounded = ifelse(root < t, root, t)
+    u = ifelse(bounded > 0, bounded, zero(T))
+    return ifelse(isfinite(x), copysign(u, x) + zero(T), x)
+  end
+  _scad_prox_entry(f, x, γ)
+end
+
+@noinline function _scad_prox_entry(f::SCAD, v::Real, γ::Real)
   x = float(v)
   λ = f.λ
   iszero(λ) && return x

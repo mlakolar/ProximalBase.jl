@@ -411,32 +411,10 @@ omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
 
-### [SCAD endpoints](@id scad-endpoints)
+### SCAD endpoints
 
-For `SCAD(λ, a)`, apply the first matching proximal rule.
-
-| Level and step | Proximal entry |
-|:--|:--|
-| `λ = 0` | Identity, including at `γ = Inf` |
-| `λ = Inf` | Positive zero, including at `γ = 0` |
-| `0 < λ < Inf`, `γ = 0` | Identity |
-| `0 < λ < Inf`, `γ = Inf` | Positive zero |
-| `0 < λ < Inf`, `0 < γ < Inf` | Global minimizer for finite input. NaN and signed infinities pass through |
-
-Identity routes preserve signed zero. A zero minimizer selected by the
-threshold or projection is positive zero. At a zero level the value is zero
-for all inputs. A positive level gives a NaN value at NaN. At an infinite
-level the value is zero at either signed zero and infinite at every nonzero
-numeric input. At a positive finite level and finite shape, the value at
-either infinity is the plateau, which can exceed the result type's range.
-The infinite shape uses the ℓ₁ value and soft threshold for a positive finite
-level and step. Finite comparisons near a change of minimizer can round.
-
-Direct array oracles reject negative and NaN steps before writing.
-Array steps are matched by linear index and checked in full, including
-inactive entries. A symmetric sparse iterate output requires a scalar step.
-Fused calls evaluate the value at the stored output. Use a nonnegative,
-non-NaN step for `prox_block` and for the effective step through `Scaled`.
+See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and
+value rules at zero and infinite levels, steps and shape.
 
 ### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
 

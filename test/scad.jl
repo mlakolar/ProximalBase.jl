@@ -204,6 +204,9 @@ end
       end
       λ = nextfloat(z)
       check_case(SCAD(λ, T(3)), T(3) * λ, T(2))
+      # The upper join is at 12.5 subnormal units. Rounding its residual
+      # before the affine comparison would treat 13 units as a tie.
+      @test prox_block(SCAD(4λ, T(3.125)), 13λ, 1, T(2.125)) === 13λ
       check_case(SCAD(T(2) * floatmin(T), T(3)), λ, T(0.5))
       check_case(SCAD(u, T(3)), floatmax(T), floatmax(T))
       check_case(SCAD(floatmax(T), T(3)), T(0.5), T(0.5))

@@ -149,7 +149,9 @@ there when `x`, `v` and the function's parameters (levels, weights, centers and
 coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and a `SqrNormL2` level is not infinite. On a `BlockIterate`, the
 four-argument form takes the maximum of the entry scores of the group for the
 functions above, and `GroupNormL2` scores the group (see
-[The ℓ₂ and group ℓ₂ norms](group_penalty.md)).
+[The ℓ₂ and group ℓ₂ norms](group_penalty.md)). `GroupNormLinf` gives the ℓ₁ screen `‖v_G‖₁ - λ0 w[k]` of its dual norm at a zero group
+([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)), not the Euclidean screen of `GroupNormL2`, and throws an
+`ArgumentError` at a nonzero group; the positive part of that screen is not a stationarity distance.
 
 A working-set procedure optimizes selected coordinates, computes a full
 gradient to screen excluded zeros, adds violations, and repeats until both
@@ -186,7 +188,7 @@ column curvatures alone are not a block spectral bound.
 `BlockIterate` supplies an ordered partition and public block views. A separable
 penalty uses scalar `prox_block` at each global member index. A custom block
 penalty supplies the compact-vector extension hook; the built-in
-[`GroupNormL2`](group_penalty.md) implements it. See [coordinate oracles](iterate_oracles.md),
+[`GroupNormL2`](group_penalty.md) and `GroupNormLinf` implement it. See [coordinate oracles](iterate_oracles.md),
 the [block extension](examples/block_prox_extension.md) and the
 [group-lasso building blocks](examples/group_lasso_prox.md). Matching layouts,
 constructing trials and updating caches are the caller's responsibilities.

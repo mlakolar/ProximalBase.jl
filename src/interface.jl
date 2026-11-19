@@ -391,7 +391,7 @@ It is implemented by `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`, `Linea
 implements it together with [`value_entry`](@ref).
 
 The vector form allocates a plain floating `Vector` of `length(u)` and calls
-[`prox_block!`](@ref). [`GroupNormL2`](@ref) interprets `k` as its group number
+[`prox_block!`](@ref). [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) interpret `k` as their group number
 and `u` in that group's order. Custom methods define their own layout and must
 validate it; the allocating wrapper adds no group, shape, parameter or overlap
 checks. A block method alone does not supply full-array operations or traits.
@@ -413,7 +413,7 @@ function prox_block end
     prox_block!(out, f, u, k, γ)
 
 Write the proximal point of compact block `k` into `out` and return `out`.
-[`GroupNormL2`](@ref) supplies the built-in implementation; custom functions
+[`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) supply the built-in implementations; custom functions
 can implement this hook. Buffers follow the selected group's ordered indices.
 
 A conforming method validates real one-based vectors, group bounds, exact
@@ -483,6 +483,10 @@ to the ℓ1 ball of radius `λ`, which is `0` when `sum(abs, v) <= λ`. At `x �
 magnitude equals the largest one after conversion to the working type, with no tolerance, so for a positive finite level
 an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
 type (`Float16` from `n = 65519`) throws an `ArgumentError`.
+
+[`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
+screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
+group, the full-point form and the three-argument form throw an `ArgumentError`, and the four-argument and full-point forms have no method under `Scaled`.
 
 `LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
 `gradient!` in the function's scratch type `T` and reduce the residual in

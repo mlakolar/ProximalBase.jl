@@ -248,6 +248,12 @@ shards, the frozen differential check, and the strict documentation build are
 required by the existing PR verdict and merge gate. PR builds may warm
 independent Julia package caches for the three validation job types.
 
+`logisticloss` checks homogeneous Float32 and Float64 logistic regression with
+dense, strided-view and CSC designs. It covers binary and fractional responses,
+weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
+warmed allocations and product counts. Independent BigFloat and finite-difference
+references check the value and both gradient spaces, including weighted tails.
+
 ## SCAD coverage
 
 `scad` checks the globally minimizing scalar prox against independent BigFloat objectives

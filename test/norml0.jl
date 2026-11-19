@@ -127,6 +127,12 @@ end
       @test value_and_prox!(y, f, y, γ) === f(want)
       @test isequal(y, want)
     end
+    f = NormL0(T(0.5))
+    parent = T[7, 7]
+    y = view(parent, [ones(Int, 64); 2])
+    x = [fill(T(2), 63); T(0.25); T(3)]
+    @test value_and_prox!(y, f, x, u) === T(0.5)
+    @test parent == T[0, 3]
   end
 
   @testset "iterate cardinality and stored values" begin

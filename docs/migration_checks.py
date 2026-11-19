@@ -621,41 +621,84 @@ def validate_upstream_event(old, record, root=ROOT):
     if sequence_starts(after_hashes, source_hashes) or sequence_starts(before_hashes, replacement_hashes):
         raise ValueError("upstream diff must remove the original and introduce the replacement")
 
-    def span(block, text):
-        offset = sum(len(line) for line in text.splitlines(keepends=True)[:block.line - 1])
-        start = text.index(block.text, offset)
-        return text.count("\n", 0, start), text.count("\n", 0, start + len(block.text) - 1) + 1
+    raw_lines = [text.splitlines(keepends=True) for text in texts]
+    offsets, character_spans = [], []
+    for text, lines, page in zip(texts, raw_lines, (before_blocks, after_blocks)):
+        positions = [0]
+        for line in lines:
+            positions.append(positions[-1] + len(line))
+        offsets.append(positions)
+        located, cursor = {}, 0
+        for block in page:
+            start = text.index(block.text, max(cursor, positions[block.line - 1]))
+            cursor = start + len(block.text)
+            located[id(block)] = (start, cursor)
+        character_spans.append(located)
+
+    def span(block, side):
+        start, end = character_spans[side][id(block)]
+        return texts[side].count("\n", 0, start), texts[side].count("\n", 0, end - 1) + 1
 
     def touches(span, start, end):
         first, last = span
         # A pure insertion/deletion has an empty range on one side.
         return first <= start <= last if start == end else max(first, start) < min(last, end)
 
-    old_span = (span(originals[0], texts[0])[0], span(originals[-1], texts[0])[1])
-    new_span = (span(replacements[0], texts[1])[0], span(replacements[-1], texts[1])[1])
-    changes = SequenceMatcher(None, texts[0].splitlines(), texts[1].splitlines(), autojunk=False).get_opcodes()
+    old_span = (span(originals[0], 0)[0], span(originals[-1], 0)[1])
+    new_span = (span(replacements[0], 1)[0], span(replacements[-1], 1)[1])
+    changes = []
+    for tag, i, j, k, l in SequenceMatcher(None, texts[0].splitlines(), texts[1].splitlines(), autojunk=False).get_opcodes():
+        # Adjacent edited table rows remain separate when their unchanged keys
+        # prove a unique, ordered one-to-one pairing. Splits/reorders do not fit.
+        keys = []
+        for side, start, end in ((0, i, j), (1, k, l)):
+            matches = [re.fullmatch(r"\s*\|([^|]+)\|.*\|\s*", line.rstrip("\r\n"))
+                       for line in raw_lines[side][start:end]]
+            keys.append([match[1].strip() for match in matches] if all(matches) else [])
+        if (tag == "replace" and j - i == l - k > 1 and keys[0] == keys[1] and
+                len(keys[0]) == j - i and all(keys[0]) and len(set(keys[0])) == len(keys[0])):
+            changes.extend((tag, i + n, i + n + 1, k + n, k + n + 1) for n in range(j - i))
+        else:
+            changes.append((tag, i, j, k, l))
     owned = [(i, j, k, l) for tag, i, j, k, l in changes if tag != "equal" and touches(old_span, i, j)]
     if not any(touches(new_span, k, l) for i, j, k, l in owned):
         raise ValueError("upstream original and replacement do not share a changed diff hunk")
     # An equal hash elsewhere does not make a newly introduced copy unchanged.
-    # Pair equal blocks by position, corroborated by unchanged raw-line mapping.
-    # Ambiguous partially changed lines are conservatively owned, not excluded.
+    # Pair equal blocks by position, corroborated by exact character mapping
+    # inside the existing line hunks. An unchanged sentence can share a changed
+    # line with its neighbor; a copy elsewhere still supplies no proof.
+    equal_characters = []
+    for tag, i, j, k, l in changes:
+        if tag not in {"equal", "replace"}:
+            continue
+        before_start, after_start = offsets[0][i], offsets[1][k]
+        a, b = texts[0][before_start:offsets[0][j]], texts[1][after_start:offsets[1][l]]
+        matches = [(0, 0, len(a))] if a == b else SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+        for bf, af, length in matches:
+            if not length:
+                continue
+            bf, af = before_start + bf, after_start + af
+            if equal_characters and equal_characters[-1][0] + equal_characters[-1][2] == bf and equal_characters[-1][1] + equal_characters[-1][2] == af:
+                previous = equal_characters.pop()
+                equal_characters.append((previous[0], previous[1], previous[2] + length))
+            else:
+                equal_characters.append((bf, af, length))
     unchanged = {}
     for tag, i, j, k, l in SequenceMatcher(None, before_hashes, after_hashes, autojunk=False).get_opcodes():
         if tag != "equal":
             continue
         for before_index, after_index in zip(range(i, j), range(k, l)):
-            bf, bl = span(before_blocks[before_index], texts[0])
-            af, al = span(after_blocks[after_index], texts[1])
-            if any(tag == "equal" and i <= bf and bl <= j and af == k + bf - i and al == k + bl - i
-                   for tag, i, j, k, l in changes):
+            bf, bl = character_spans[0][id(before_blocks[before_index])]
+            af, al = character_spans[1][id(after_blocks[after_index])]
+            if any(i <= bf and bl <= i + length and af == k + bf - i and al == k + bl - i
+                   for i, k, length in equal_characters):
                 unchanged[after_index] = before_index
     # Project owned changes and retained source members, excluding only proven
     # unchanged neighbors. The API heading and @docs edit remain distinct.
     required = [index for index, block in enumerate(after_blocks)
                 if (index in unchanged and old_starts[0] <= unchanged[index] < old_starts[0] + len(source_hashes)) or
                 (index not in unchanged and
-                 any(touches(span(block, texts[1]), k, l) for i, j, k, l in owned))]
+                 any(touches(span(block, 1), k, l) for i, j, k, l in owned))]
     if (not required or required != list(range(required[0], required[-1] + 1)) or
             [after_hashes[index] for index in required] != replacement_hashes):
         raise ValueError("upstream replacement must cover the complete ordered changed span")

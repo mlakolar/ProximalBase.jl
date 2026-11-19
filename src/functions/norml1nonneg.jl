@@ -151,11 +151,8 @@ _value_sep(f::NormL1Nonneg, x::SymmetricSparseIterate) =
 # membership of the entries in the sum. A term of the sum of magnitudes is Inf at a negative entry and |v| otherwise,
 # and the sums are those of _value_sumabs (one loop for _VALUE_LOOP_MIN to _VALUE_LOOP_MAX entries of a strided
 # Float32 or Float64 array, Julia's reduction otherwise). That sum is Inf at a feasible +Inf entry as it is at a negative
-# one, while the value at a zero level is 0 at +Inf. So a zero level, and a level for which _level_fits(T, λ) is false,
-# take a sum of membership terms: Inf at a negative entry, 0 at any other
-# number, NaN at NaN. For the second case a feasible point then takes _converted_l1_value, which multiplies the sum of
-# magnitudes in the wider type. A product of a finite level and the sum of finite entries that is not finite (an overflow,
-# or a negative entry) takes the entrywise value through invoke: a call of _value_dense on f would be this method.
+# one. When the converted level is zero, sum membership terms: Inf at a negative entry, NaN at NaN, and zero elsewhere.
+# If the converted level and entries are finite and their product with the sum is nonfinite, use the entrywise value.
 @inline _nonneg_member(v::T) where {T} = ifelse(v < 0, T(Inf), ifelse(v == v, zero(T), v))
 @inline _nonneg_abs(v::T) where {T} = ifelse(v < 0, T(Inf), abs(v))
 @inline _nonneg_reduce(g, x) = isempty(x) ? zero(float(eltype(x))) : sum(g, x)
@@ -164,16 +161,12 @@ _value_sep(f::NormL1Nonneg, x::SymmetricSparseIterate) =
   _VALUE_LOOP_MIN <= length(x) <= _VALUE_LOOP_MAX ? _value_loop(g, x) : _nonneg_reduce(g, x)
 function _value_dense(f::NormL1Nonneg{<:Real, Nothing}, x::DenseArray{<:AbstractFloat})
   T = float(eltype(x))
-  λ = f.λ0
+  λ = convert(T, f.λ0)
   iszero(λ) && return _nonneg_sum(_nonneg_member, x)
-  if !_level_fits(T, λ)
-    m = _nonneg_sum(_nonneg_member, x)
-    return iszero(m) ? _converted_l1_value(λ, x) : m
-  end
   s = _nonneg_sum(_nonneg_abs, x)
   # an infinite level fixes every entry at zero: the value at the zero vector is 0, not Inf⋅0
   isinf(λ) && iszero(s) && return zero(T)
-  v = convert(T, λ) * s
+  v = λ * s
   isfinite(v) || !isfinite(λ) || !all(isfinite, x) ? v : _nonneg_generic_value(f, x)
 end
 

@@ -189,24 +189,13 @@ restrict(f::NormL1, S::AbstractVector{<:Integer}) = NormL1(f.λ0, _restrict_entr
 function (f::NormL1{<:Real, Nothing})(x::DenseArray{<:AbstractFloat})
   _check_one_based(x)
   T = float(eltype(x))
-  iszero(f.λ0) && return zero(T)
-  _level_fits(T, f.λ0) || return _converted_l1_value(f.λ0, x)
+  λ = convert(T, f.λ0)
+  iszero(λ) && return zero(T)
   s = _value_sumabs(x)
   # an infinite level fixes every entry at zero: the value at the zero vector is 0, not Inf⋅0
-  isinf(f.λ0) && iszero(s) && return zero(T)
-  v = convert(T, f.λ0) * s
-  isfinite(v) || !isfinite(f.λ0) || !all(isfinite, x) ? v : _value_dense(f, x)
-end
-
-# A level outside the argument's precision is applied before final conversion.
-@noinline function _converted_l1_value(λ, x)
-  T = float(eltype(x))
-  R = promote_type(T, float(typeof(λ)))
-  m = _maximum_abs(x)
-  isfinite(m) || return convert(T, convert(R, λ) * sum(abs, x))
-  e = _magnitude_exponent(m)
-  s = _scaled_value_sum(x, _power_factors(R, -e), abs)
-  convert(T, _scaled_product(convert(R, λ), s, e))
+  isinf(λ) && iszero(s) && return zero(T)
+  v = λ * s
+  isfinite(v) || !isfinite(λ) || !all(isfinite, x) ? v : _value_dense(f, x)
 end
 
 @inline _l1_value(::NormL1, v, a) = a * abs(v)

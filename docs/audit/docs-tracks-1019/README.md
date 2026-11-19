@@ -334,3 +334,21 @@ from `developer/writing_documentation.md`, retaining its forwarding and new-fami
 routing rules. Retain this frozen audit and its final acceptance evidence.
 Ordinary strict builds, links, API coverage and executable-example checks
 continue to protect the manual.
+
+The `NormL1Nonneg` and `ElasticNet` mechanical moves temporarily keep the old
+automatic subsection headings as forwarding entries so the frozen page/fragment
+pairs remain checkable, including the duplicated weights heading. This does not
+make an uncited automatic heading a permanent forwarding requirement. Review
+those temporary entries during the final compatibility cleanup; retain explicit
+IDs and authored link/citation targets under the writing guide's durable rule.
+
+Two whole `NormL1Nonneg` KKT paragraphs parse into three and four units at their
+new `spec/` destination. Their reviewed `split` rows record that parser
+granularity only: each original paragraph remains a contiguous, ordered span,
+with only its relative Markdown link rebased. The exact source/replacement
+hashes and independent public-revision review are in `norml1nonneg-review.json`.
+The removed-lines report and the independent raw-text comparison establish
+preservation for these two mappings; the current split word-count check alone
+does not. This bounded mechanical mapping does not lift the hold on clause
+conversion or authorize prose rewriting before the `reword`/`split` accounting
+gap is closed.

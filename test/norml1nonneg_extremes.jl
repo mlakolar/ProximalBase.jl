@@ -234,12 +234,12 @@ plant(x, k, v) = (y = copy(x); y[k] = v; y)
         @test NormL1Nonneg(T(4))(plant(zeros(T, n), 1, floatmax(T) / 2)) === T(Inf)
         @test NormL1Nonneg(T(2))(xb) === T(Inf) && NormL1Nonneg(T(2))(plant(xb, 3, -one(T))) === T(Inf)
       end
-      # a level that does not fit the type of the data: Float64 levels with Float32 data
+      # A Float64 level is rounded to Float32 for the dense unweighted sum.
       if T === Float32
         fl = NormL1Nonneg(1e-40)
         @test fl(Float32[-1]) === Inf32 && fl(Float32[1, -1e-30, 3]) === Inf32 && isnan(fl(Float32[NaN, -1]))
         for xl in (Float32[1], fill(1.0f0, 100), fill(1.0f0, 2048), Float32[0, 0, 0], Float32[3, 0.5, 20])
-          ref = big4096(() -> big(1e-40) * sum(big, xl; init = big(0)))
+          ref = big4096(() -> big(1f-40) * sum(big, xl; init = big(0)))
           @test big4096(() -> abs(big(fl(xl)) - ref) <= big(eps(Float32(ref))))
         end
         @test fl(Float32[Inf, 1]) === Inf32 && fl(Float32[0, 0]) === 0.0f0 && fl(Float32[-1, Inf]) === Inf32

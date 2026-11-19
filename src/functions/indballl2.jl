@@ -40,11 +40,22 @@ _isindicator(::Type{<:IndBallL2}) = true
   T = _valtype(x)
   isempty(x) && return (zero(T), 0)
   length(x) == 1 && return (abs(T(x[1])), 0)
-  s = _value_sumabs2(x)
+  s = _ball_l2_sumabs2(x)
   if isnan(s) || (isfinite(s) && _squares_normal(s, _square_term_count(x), T))
     return (sqrt(s), 0)
   end
   _ball_l2_scaled_norm(x, _recovery_type(T))
+end
+
+const _BallL2Float = Union{Float32, Float64}
+
+_ball_l2_sumabs2(x) = _value_sumabs2(x)
+@inline _ball_l2_sum4(a, b, c, d) = ((abs2(a) + abs2(b)) + abs2(c)) + abs2(d)
+
+@inline function _ball_l2_sumabs2(x::Vector{<:_BallL2Float})
+  # This is the ordinary short-array reduction order used by sum(abs2, x).
+  length(x) == 4 && return @inbounds _ball_l2_sum4(x[1], x[2], x[3], x[4])
+  _value_sumabs2(x)
 end
 
 @noinline function _ball_l2_scaled_norm(x, ::Type{R}) where {R}
@@ -98,6 +109,49 @@ function value_and_prox!(y::_ArrayOrSymmetricIterate, f::IndBallL2, x::_ArrayOrS
 end
 _value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::IndBallL2,
                            x::_ArrayOrSymmetricIterate, γ::Real) = value_and_prox!(y, f, x, γ)
+
+function prox!(y::Vector{T}, f::IndBallL2{T}, x::Vector{T}, γ::Real) where {T<:_BallL2Float}
+  _check_l2_arrays(f, y, x, γ)
+  if _ball_l2_project4!(y, f.r, x) === nothing
+    _ball_l2_project!(y, f.r, x)
+  end
+  y
+end
+
+function value_and_prox!(y::Vector{T}, f::IndBallL2{T}, x::Vector{T}, γ::Real) where {T<:_BallL2Float}
+  _check_l2_arrays(f, y, x, γ)
+  value = _ball_l2_project4!(y, f.r, x)
+  value === nothing || return value
+  _ball_l2_project!(y, f.r, x)
+  f(y)
+end
+
+# Keep the four coefficients in registers through scaling and evaluation so
+# that the standalone and fused oracles can use the same ordinary reduction.
+@inline function _ball_l2_project4!(y::Vector{T}, r::T, x::Vector{T}) where {T<:_BallL2Float}
+  length(x) == 4 || return nothing
+  # Leave margin above the ordinary sum-of-squares floor after rounding inward.
+  lower = 2sqrt(T(4) * floatmin(T) / eps(T))
+  lower <= r < T(Inf) || return nothing
+  @inbounds a, b, c, d = x[1], x[2], x[3], x[4]
+  s = _ball_l2_sum4(a, b, c, d)
+  _squares_normal(s, 4, T) && isfinite(s) || return nothing
+  n = sqrt(s)
+  if n <= r
+    _ball_l2_copy!(y, x)
+    return zero(T)
+  end
+  t = r / n
+  a, b, c, d = t*a, t*b, t*c, t*d
+  m = sqrt(_ball_l2_sum4(a, b, c, d))
+  if m > r
+    t = one(T) - 5eps(T)
+    a, b, c, d = t*a, t*b, t*c, t*d
+    m = sqrt(_ball_l2_sum4(a, b, c, d))
+  end
+  @inbounds y[1], y[2], y[3], y[4] = a, b, c, d
+  m <= r ? zero(T) : T(Inf)
+end
 
 # A ball indicator ignores the scale. Keep the original step for validation,
 # including a negative step whose product with a small scale rounds to -0.

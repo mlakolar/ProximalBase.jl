@@ -177,9 +177,15 @@ For `IndBallL2`, the value and projection compare the norm with the radius in
 scaled units when the ordinary sum of squares overflows or is too small.
 The domain has no fixed feasibility tolerance. Within the rounding error of
 the norm, the comparison can fall on either side of the boundary.
-`value_and_prox!` evaluates the stored point. Its value can be `Inf` when
-rounding of the projection puts the stored point outside the computed
-boundary. A positive finite radius projects a NaN input to an all-NaN output,
+`value_and_prox!` evaluates the stored point. For dense vectors of four
+entries with matching `Float32` or `Float64` input, output and radius, the
+projection checks the rounded coefficients when the input sum of squares is
+ordinary and the finite radius is at least
+`2sqrt(4floatmin(T) / eps(T))`. If the rounded coefficients fail the
+comparison, it scales them once more toward zero. The stored point in that
+case passes the same norm comparison. Other projections can return a stored
+point outside the computed boundary, giving `Inf` in the fused call.
+A positive finite radius projects a NaN input to an all-NaN output,
 including implicit zeros of a `SparseIterate`.
 
 See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball

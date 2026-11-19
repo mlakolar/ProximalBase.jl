@@ -60,8 +60,9 @@ labelled implementation notes, not guarantees. Thin constructors such as
 `IndBallLinf` have a family-map row linking to their underlying owner, without a
 separate contract page. The map now also includes the later `LogDetLoss`,
 `LogisticLoss` and `GroupNormLinf` restores at their current guide owners.
-It has 18 existing-page family/operation entries after the `NormL1Nonneg` move;
-`ElasticNet` is next. Named inventory blocks retain upstream receipts:
+It has 17 existing-page family/operation entries after the `NormL1Nonneg` and
+`ElasticNet` moves. `IndNonnegative` is next in the approved order. Named
+inventory blocks retain upstream receipts:
 the API coverage check verifies presence, not their descriptive claims.
 Batch several external changes when practical, before the next migration starts.
 

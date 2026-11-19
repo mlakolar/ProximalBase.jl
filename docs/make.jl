@@ -107,6 +107,7 @@ makedocs(;
             "Range, non-finite values and sparse products" => "numerics.md",
             "NormL1" => "spec/norml1.md",
             "NormL1Nonneg" => "spec/norml1nonneg.md",
+            "ElasticNet" => "spec/elasticnet.md",
             "SCAD" => "spec/scad.md",
             "IndBallL1" => "spec/indballl1.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",

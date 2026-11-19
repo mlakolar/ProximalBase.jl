@@ -125,7 +125,8 @@ scales), the #609 inputs that `Scaled(f, α)(β)` misses, the overflow threshold
 gradient and of an overflowing `z - Y`, agreement of `f(β)`, `value_and_gradient!` and the oracles on the same
 predictor (for the raw loss each value within γ_n of the reference of the same rounded residual, because the order of
 additions can differ between compiled methods, and the gradients bit for bit; for a `Scaled` loss each value against
-the exact-difference reference with `value_ok` and the gradients within 4 eps),
+the exact-difference reference with `value_ok` and the gradients checked componentwise by
+`abs(gs[j] - gl[j]) <= 4 * eps(T) * abs(gl[j]) + floatmin(T)`),
 the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and
 the products of the existing methods), the values of a `CountMat` design and a plain matrix each compared to
 α Σ dᵢ² / 2 of its own residual within γ_n (α = 1 for the raw loss; the order of additions can differ between
@@ -136,7 +137,9 @@ refused layouts of `Base.mightalias`, empty designs, tasks that share one loss w
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
 It also checks the ordinary path at its acceptance bounds (sums near `n*floatmin/eps` and near the bound of the
 exponent test, which is also checked directly; on every input the values of the oracles satisfy `value_ok` against
-the reference (its accuracy bound, and its classes where the reference overflows or is not finite), have type `T` and
+the reference (the finite error bound for `abs(ref) * (1 + e) <= floatmax(T)` with `e = (n + 8) * eps(T)` and
+the subnormal allowance, and the class rules otherwise, including an accurate finite value or `+Inf` close to the
+overflow threshold even just below it), have type `T` and
 are `NaN`, `+Inf` or nonnegative as the entries require, and on the inputs with at most two nonzero entries, among
 them 64 entries with one nonzero entry at both bounds, they agree under `isequal` with the kernel called directly;
 `f(β)` and `value_and_gradient!` of the unscaled loss at a finite `r` agree under `isequal` with the oracles on those

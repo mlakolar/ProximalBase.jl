@@ -185,6 +185,16 @@ the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide 
 which side the exact value lies, so a value that rounds to `floatmax(T)` may be
 returned as `Inf`, or the reverse: the same limit as the other recoveries above
 ([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904)).
+
+For `IndBallL2`, the value and projection compare the norm with the radius in
+scaled units when the ordinary sum of squares overflows or is too small.
+The domain has no fixed feasibility tolerance. Within the rounding error of
+the norm, the comparison can fall on either side of the boundary.
+`value_and_prox!` evaluates the stored point. Its value can be `Inf` when
+rounding of the projection puts the stored point outside the computed
+boundary. A positive finite radius projects a NaN input to an all-NaN output,
+including implicit zeros of a `SparseIterate`.
+
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 Its proximal operators recompute, for finite inputs, a group norm whose sum of
@@ -320,6 +330,7 @@ all-NaN result or a particular exception.
 | `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a caller precondition, a documented exception to [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)'s preflight rule. `prox_block` and `Scaled` routes do not check. The historical reasoning is in [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md) |
 | `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
 | `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
+| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
 | `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |

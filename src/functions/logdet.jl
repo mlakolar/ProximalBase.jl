@@ -146,9 +146,24 @@ function prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real)
       U[i, j] *= sqrt(z)
     end
   end
-  Z = Symmetric(BLAS.syrk('U', 'N', U))
-  all(isfinite, Z) || _logdet_prox_range_error()
-  copyto!(Y, Z)
+  _store_logdet_upper!(Y, BLAS.syrk('U', 'N', U))
+end
+
+# SYRK computes the upper triangle. Check it before writing either half of Y.
+function _store_logdet_upper!(Y, Z)
+  n = size(Z, 1)
+  @inbounds for j in 1:n, i in 1:j
+    isfinite(Z[i, j]) || _logdet_prox_range_error()
+  end
+  @inbounds for j in 1:n
+    for i in 1:j-1
+      v = Z[i, j]
+      Y[i, j] = v
+      Y[j, i] = v
+    end
+    Y[j, j] = Z[j, j]
+  end
+  Y
 end
 
 @noinline _logdet_prox_range_error() = throw(ArgumentError("LogDetLoss proximal computation exceeded the finite working range"))

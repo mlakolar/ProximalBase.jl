@@ -50,6 +50,16 @@ using Test, ProximalBase, LinearAlgebra, OffsetArrays
       @test all(==(-7), backing[[2, 4], :])
       @test all(==(-7), backing[:, [1, 3, 5]])
 
+      # The unused triangle may contain arbitrary data. A failure at the
+      # last upper entry must leave the entire destination untouched.
+      staged = T[2 1; NaN Inf]
+      snapshot = copy(backing)
+      @test_throws ArgumentError ProximalBase._store_logdet_upper!(viewout, staged)
+      @test backing == snapshot
+      staged[2, 2] = T(3)
+      @test ProximalBase._store_logdet_upper!(viewout, staged) === viewout
+      @test viewout == X
+
       owner = SymmetricSparseIterate(X)
       @test f(owner) === f(X)
       @test gradient(f, owner) ≈ G

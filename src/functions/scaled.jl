@@ -370,11 +370,26 @@ end
 # gradient already written, which the parts must not read in place of a parameter. A NaN product at
 # a value that is not NaN, which the fold does not recover, is Inf⋅0 at an infinite factor: 0 where
 # f is certainly 0 (`_scaled_nan_value`), and otherwise what the parts give.
-# The recoveries read the entries of the argument: a symmetric iterate is read as the matrix that it represents, which
-# counts an off-diagonal coordinate at both of its positions
-@noinline _scaled_value_recover(f, α, x::SymmetricSparseIterate, v, r, out = nothing) =
-  _scaled_value_recover(f, α, matrixview(x), v, r, out)
+# The stored-entry sum for a small NormL1 value applies both scales before rounding the result.
+# A symmetric iterate contributes each stored off-diagonal at both of its matrix positions.
+@inline _stored_l1_small(f, α, x, v) = false
+@inline _stored_l1_small(::NormL1{T,<:Union{Nothing, AbstractArray{T}}}, α::T,
+                       ::_StoredIterate{T}, v::T) where {T<:Union{Float32, Float64}} =
+  _scaled_small(v) && α > 1 && isfinite(α)
+function _scaled_stored_l1_value(f, α, x, r::T) where {T}
+  λ = f.λ0
+  (λ > 0 && isfinite(λ)) || return r
+  iszero(r) && _all_zero(x) && return r
+  acc = _l1_weighted_abs(_expsum_start(Float64), f.w, x)
+  m = acc.s + acc.c
+  iszero(m) && return zero(T)
+  scale = _projection_accumulate(_scale_start(Float64(α)), Float64(λ))
+  convert(T, _apply_parts(scale, m, acc.ex))
+end
+
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
+  _stored_l1_small(f, α, x, v) && return _scaled_stored_l1_value(f, α, x, r)
+  x isa SymmetricSparseIterate && return _scaled_value_recover(f, α, matrixview(x), v, r, out)
   g = _fold_level(f, _value_fold_scale(α))
   g === nothing || return convert(typeof(r), _value_unchecked(g, x))
   a, d = _partial_plan(α, v)

@@ -168,6 +168,13 @@ has symmetric-iterate value/prox, but no symmetric-iterate gradient. `LeastSquar
 `QuadraticFunction` have no symmetric-iterate interface. A true capability trait is not
 sufficient to accept a symmetric iterate.
 
+When a supported `Scaled` gradient oracle writes to a symmetric iterate,
+a finite factor scales the active coordinates, including explicit zeros.
+A non-finite factor scales all independent coordinates with IEEE arithmetic.
+For example, an implicit zero multiplied by `Inf` becomes an active `NaN`.
+The [sparse product zero-coefficient rule](@ref Sparse-product-semantics)
+applies to specialized products.
+
 A symmetric-iterate prox destination accepts a scalar step only. Array steps
 throw `ArgumentError` before writes. Full-entry parameter arrays must satisfy
 the [exact symmetric-parameter contract](symmetric_parameters.md): the oracles assume it,

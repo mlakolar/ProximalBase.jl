@@ -109,6 +109,7 @@ _scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
   _ball_l2_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
 
 @inline function _ball_l2_project!(y, r, x)
+  isempty(x) && return y
   iszero(r) && return _ball_l2_zero!(y)
   isinf(r) && return _ball_l2_copy!(y, x)
   n, k = _ball_l2_norm(x)

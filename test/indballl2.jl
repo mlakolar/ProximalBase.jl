@@ -224,6 +224,10 @@ end
       @test isequal(z[2], T(-0.0)) && isactive(z, 2)
       @test z[3] == min(T(3), r)
     end
+    x = spzeros(T, 0, 128)
+    z = SparseIterate(T, size(x)...)
+    @test prox!(z, IndBallL2(T(Inf)), x) === z
+    @test value_and_prox!(z, IndBallL2(one(T)), x) === zero(T)
   end
 end
 

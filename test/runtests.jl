@@ -36,15 +36,37 @@ shard_label = shard === nothing ? "all" : "$(shard[1])/$(shard[2])"
 println("ProximalBase minimal tests: tier $tier; shard $shard_label; $(length(selected)) files; Julia $VERSION on $(Sys.MACHINE)")
 println("  ",join(selected," "))
 flush(stdout)
+
+function timed_test_file(cmd, name)
+    status = "error"
+    start_ns = time_ns()
+    try
+        passed = success(run(ignorestatus(cmd)))
+        status = passed ? "pass" : "fail"
+        return passed
+    finally
+        elapsed_s = round((time_ns() - start_ns) / 1e9; digits=3)
+        println("PB_TEST_FILE_TIME file=$name elapsed_s=$elapsed_s status=$status")
+        flush(stdout)
+    end
+end
+
 if !list_only
-    @testset "ProximalBase minimal core" begin
-        for name in selected
-            @testset "$name" begin
-                # Each file gets a fresh process, preserving isolation from fixture methods.
-                runner = "include(ARGS[1]); include(ARGS[2]); include(ARGS[3])"
-                cmd = `$(Base.julia_cmd()) --startup-file=no --check-bounds=yes --project=$(dirname(Base.active_project())) -e $runner $(joinpath(@__DIR__,"tiers.jl")) $(joinpath(@__DIR__,"testutils.jl")) $(joinpath(@__DIR__,name*".jl"))`
-                @test success(run(ignorestatus(cmd)))
+    shard_start_ns = time_ns()
+    try
+        @testset "ProximalBase minimal core" begin
+            for name in selected
+                @testset "$name" begin
+                    # Each file gets a fresh process, preserving isolation from fixture methods.
+                    runner = "include(ARGS[1]); include(ARGS[2]); include(ARGS[3])"
+                    cmd = `$(Base.julia_cmd()) --startup-file=no --check-bounds=yes --project=$(dirname(Base.active_project())) -e $runner $(joinpath(@__DIR__,"tiers.jl")) $(joinpath(@__DIR__,"testutils.jl")) $(joinpath(@__DIR__,name*".jl"))`
+                    @test timed_test_file(cmd, name)
+                end
             end
         end
+    finally
+        elapsed_s = round((time_ns() - shard_start_ns) / 1e9; digits=3)
+        println("PB_TEST_SHARD_TIME shard=$shard_label files=$(length(selected)) elapsed_s=$elapsed_s")
+        flush(stdout)
     end
 end

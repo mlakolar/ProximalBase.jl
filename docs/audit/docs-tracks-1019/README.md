@@ -197,10 +197,10 @@ being attested. A reviewer label does not by itself establish owner approval.
 | Label or role | Work and independence |
 |:--|:--|
 | `plan_consistency` | Independently reviewed the pilot migration and checker changes without editing or committing those repository files. Compared moved content, the example-label repair, frozen artifacts and rendered anchors; reran checks and supplied defect reproductions and design suggestions. |
-| `norml1_pilot` | Authored the NormL1 destination page, migration and evidence table. Its signed upstream receipts independently review external feature changes in PRs #1020, #1022 and #1023, which it did not author. Its later seven-row evidence-table check was author verification. |
-| `migration_checks` | Authored checker changes and regression fixtures, and ran the real shallow-Git workflow fixtures. `plan_consistency` independently reviewed that implementation. |
+| `norml1_pilot` | Authored the NormL1 destination page, migration and evidence table, and later the standalone removed-lines report. Its signed upstream receipts independently review external changes in PRs #1020, #1022, #1023, #1024, #1026, #1025 and #1027, which it did not author. Its later seven-row evidence-table check was author verification. |
+| `migration_checks` | Authored checker changes and regression fixtures, coordinated the removed-lines report, and ran the real shallow-Git workflow fixtures. `plan_consistency` independently reviewed that implementation. |
 | Lead implementation agent | Ran strict local builds and inspected CI results, artifacts and preview publication. These are implementation-validation records. |
-| External Claude reviewer | Prepared the reviews supplied to and accepted by the owner, with the verification limits stated in each review. The first two reviews did not independently verify the Julia build, rendered anchor check or CI results. |
+| External Claude reviewer | Prepared the reviews supplied to and accepted by the owner, with the verification limits stated in each review. The first three reviews did not independently verify the Julia build, rendered anchor check or CI results; the third could not load the preview pages either. |
 | Owner | Accepted the external review and made scope and progression decisions. Acceptance does not imply personally performing the review or rerunning its checks. |
 
 ## Documentation changed by unrelated pull requests
@@ -210,6 +210,9 @@ editing this migration ledger. After such a pull request merges, reconcile its
 changed baseline blocks in a separate documentation-only change. Keep every
 original `block_id` and `sha`; set its action to `upstream` and record the exact
 current destination and exact replacement hash or ordered hashes.
+
+Reconcile first: before starting a migration change, reconcile pending upstream
+changes and run all six checks in blocking mode so the starting report is all-pass.
 
 `upstream.json` uses schema 2. Each record binds the original block ID/hash to
 its final destination/hash and reviewer, followed by an ordered `events` list.
@@ -248,6 +251,13 @@ incoming link or source citation. Audit manual sources, docstrings, repository
 entry documents and examples before retiring an automatic heading. Generated
 self-permalinks and navigation are not authored incoming references. This
 repository audit cannot establish whether an external bookmark exists.
+
+Record each retirement in `baseline.json`: its original block ID/hash, page,
+automatic fragments, same-page successor, reviewer and authored-reference audit.
+The checker validates those data against the frozen heading and fragment inventory,
+the checked upstream mapping and the rendered successor. A later valid retirement
+uses the same record format without changing Python code. Explicit IDs, unrelated
+fragments and missing pages remain protected.
 
 The two uncited API stubs are removed under this narrower rule. The original
 `Nonnegative orthant` heading has an upstream receipt for its two renames to
@@ -301,7 +311,26 @@ original provenance. When a parser limitation affects a real move, add a
 focused fixture and make the limitation visible in review. Do not broaden the
 parser speculatively or replace a missing block with an aggregate-count check.
 
+The supplemental removed-lines report covers text added after the frozen baseline:
+
+```sh
+python3 docs/check_migration_lines.py "$PR_MERGE_BASE"
+```
+
+It compares the change's actual base with the current tree under `docs/src`,
+including new destination files. Every removed nonblank line must reappear among
+the added lines, with identical literal whitespace and enough occurrences. It
+does not credit unchanged copies elsewhere or use ledger exemptions. Reflow,
+link repairs and deliberate rewrites remain visible for review. The default is
+report-only; `--blocking` is available for a verbatim move. A clean line report
+supplements the six checks and independent review, not a claim of semantic
+equivalence. CI retains this report beside the preservation log for every change,
+including changes that do not touch the ledger.
+
 After the final Phase 5 blocking acceptance, retire the six temporary migration
-checks and the migration-only source/test scope guard from routine CI. Retain
-this frozen audit and its final acceptance evidence. Ordinary strict builds,
-links, API coverage and executable-example checks continue to protect the manual.
+checks, the removed-lines report and the migration-only source/test scope guard
+from routine CI. Remove the temporary retirement-record/frozen-inventory sentence
+from `developer/writing_documentation.md`, retaining its forwarding and new-family
+routing rules. Retain this frozen audit and its final acceptance evidence.
+Ordinary strict builds, links, API coverage and executable-example checks
+continue to protect the manual.

@@ -15,6 +15,51 @@ storage and numerical limitations, see
 [Operations on functions](operations.md) and
 [Array and precision conventions](numerical_usage.md).
 
+## [Log-determinant loss](@id Log-determinant-loss)
+
+[`LogDetLoss(S, w)`](@ref LogDetLoss) defines
+``f(X)=w[\operatorname{tr}(SX)-\log\det(X)]`` for finite, exactly symmetric
+positive-definite matrices. The full-matrix Frobenius gradient is
+``w(S-X^{-1})``. Off-diagonal derivatives with respect to the independent
+coordinates of a symmetric matrix would count both mirrored entries.
+The gradient has no finite global Lipschitz bound.
+
+The constructor copies a finite, nonempty, exactly symmetric `S` and takes a
+finite positive weight, defaulting to one. The matching argument and output
+shapes are square, with one-based axes and a common `Float32` or `Float64`
+precision. A [`SymmetricSparseIterate`](@ref) supplies its logical matrix
+through [`matrixview`](@ref). Results are dense. Pass a full writable strided
+matrix or view to reuse a destination. Exact in-place prox is supported.
+Gradient destinations require independent storage.
+
+The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`
+for other domain failures, with an all-NaN gradient in both cases. A zero step
+is the identity, including outside the domain. A positive finite step accepts
+finite inputs, including asymmetric or indefinite matrices. It diagonalizes
+``(X+X^\mathsf{T})/2-\gamma wS`` and replaces each eigenvalue ``d`` with the
+positive root of ``z^2-dz-\gamma w=0``. Negative, NaN and infinite steps throw
+before writing. Non-finite entries at a positive step also throw before
+factorization and writes.
+
+At extreme scales the shifted matrix, its spectrum, or the reconstruction can
+exceed the working range. The proximal point is positive definite in exact
+arithmetic. Rounding can take the stored point outside the numerical domain,
+in which case the fused value follows the standalone domain rule.
+
+```@example library_logdet
+using ProximalBase, LinearAlgebra
+S = [1.0 0.25; 0.25 1.0]
+X = [2.0 0.5; 0.5 2.0]
+f = LogDetLoss(S, 0.75)
+v, g = value_and_gradient(f, X)
+@assert v ≈ 0.75 * (tr(S * X) - logdet(Symmetric(X)))
+@assert g ≈ 0.75 * (S - inv(X))
+Y = similar(X)
+@assert value_and_prox!(Y, f, X, 0.5) == f(Y)
+@assert isposdef(Y)
+Y
+```
+
 ## [Least-squares loss](@id Least-squares-loss)
 
 ```math

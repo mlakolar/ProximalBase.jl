@@ -37,6 +37,21 @@ only that unused path to a restored checkout before instantiating the archived
 environment; preserve the pinned BenchmarkTools/PrecompileTools versions.
 The active benchmark/Project.toml is a clean environment without that path.
 
+## Specializing timed probes
+
+Resolve package callables from each role's module while building the probe. Pass
+the callable and its data to a helper that returns the timed closure with concrete
+captures. For a sweep, pass the callable and the sweep data to the same helper.
+
+Warm the operation before measuring it in a function such as
+`warmed_bytes(op::F) where {F} = (op(); op(); @allocated op())`.
+For probes with a setup step, restore the input before each call and measure
+only the operation. Run a filtered `PB_ROUNDS=1` smoke test and inspect the
+`memory` and `allocs` columns of `raw.csv` for X, Y and XC.
+
+Archived results remain valid records of their runs. Dispatch and allocations in
+the original harnesses can dilute paired ratios toward 1 for fast cells.
+
 ## NormL1 hot-loop harness
 
 `norml1_infinite_weight.jl` times the `NormL1` proximal loops (weighted and

@@ -416,3 +416,122 @@ The new-family guidance and contributor-workflow link render correctly. Both
 frozen snapshot files are byte-identical to `b0c4c8e`, and there is no source,
 test or example-script diff against that base. The independent review found
 no blocking issue; it did not author these repository changes.
+
+## Third-round preparation corrections
+
+The external Claude review of merge commit `5df0776` against `b0c4c8e` confirmed
+the four second-round decisions, 58 fixtures, five preservation checks and no
+source, test or example-script changes. It did not rerun the Julia build or
+rendered anchor check, inspect CI results, or load the preview pages. Those
+implementation-validation results are not attributed to the external review.
+
+This follow-up makes automatic-heading retirement records data-driven while
+retaining their original-heading, frozen-fragment, upstream-mapping, reviewer,
+audit-evidence and same-page-successor validations. It introduces no new
+retirement and changes neither frozen snapshot.
+
+A separate removed-lines report compares each change with its own base under
+`docs/src`. It covers later additions without adding them to the frozen ledger,
+preserves line multiplicity and literal whitespace, and leaves deliberate
+rewrites or link repairs visible for review. CI retains the report even when
+the ledger is unchanged. The audit now requires pending upstream changes to be
+reconciled to an all-pass report before migration work begins.
+
+The Phase 5 cleanup includes the supplemental report and the temporary
+writing-guide sentence about retirement records and the frozen inventory.
+The durable forwarding and new-family routing rules remain. Clause conversion
+is still held pending the separate `reword`/`split` token and example fix.
+
+### Reconciliation before the next migration
+
+Actual master advanced through three external changes after `5df0776`. Their
+PR metadata reported older base SHAs; the receipts use each landed commit's
+actual first parent instead:
+
+| Merged PR | Landed commit | Actual first parent | Reconciled original units |
+|:--|:--|:--|:--|
+| #1024, `IndBallLinf` | `87c8ee066e313ed2ecc540068d5ce3080717951d` | `5df07768395d2225e2bc1d45368cc08e91dfe1e9` | API indicator `@docs` fence and migration scope paragraph |
+| #1026, least-squares test descriptions | `b9120c1374fb5ef379339499bf0e282518fa3606` | `87c8ee066e313ed2ecc540068d5ce3080717951d` | `test/TESTING.md` test-inventory paragraph |
+| #1025, scaled indicator screens | `a4b682ffbb41d6ec66bdc8fa886c82f04d418d2c` | `b9120c1374fb5ef379339499bf0e282518fa3606` | The scaling guide's existing unsupported-forms list item |
+
+`norml1_pilot@a4b682ffbb41d6ec66bdc8fa886c82f04d418d2c` independently
+verified those externally authored changes and their exact Git transitions.
+`plan_consistency` separately confirmed the merged PRs and actual parent chain.
+Two existing receipts gained one event each; two original units gained new
+receipts. The ledger retains all 2,162 original IDs, hashes and kinds:
+2,115 stay, 38 move, one reviewed example-label repair, and eight upstream
+dispositions covering fourteen events. No source, test or example file is
+edited by this reconciliation.
+
+The restored `IndBallLinf` adds a fourth family since the frozen baseline. Its
+existing endpoint rule remains in the numerical hub pending its own migration;
+the current existing-page backlog is seventeen family/operation entries. The
+removed-lines report covers this later text as well as the three restores
+identified in the external review.
+
+Before adding that family-map entry or making another migration change, the
+lead implementation agent built the reconciled tree with Julia 1.10.10 and
+ran all six checks in blocking mode against `a4b682f`. All passed, including
+711 original fragments present and the same two approved retirements. The
+strict build ran the nine isolated examples, manual examples and doctests;
+API coverage included 68 bindings. The reconciliation was committed separately
+as `cf809016b30f749f05410d6eca8aa7bfe19f998e` before the third-round
+preparation changes.
+
+### Local validation before the concurrent IndBallL1 merge
+
+The strict Julia 1.10.10 build on base `a4b682f` passes with the added family-map entry.
+All six preservation checks pass in blocking mode, and all 73 checker fixtures
+pass. The new report compares the final tree with actual base `a4b682f`: one
+added family-map line, zero removed lines and zero unmatched lines. Its fixtures
+reject deletion of post-baseline text, a lost duplicate occurrence and literal
+whitespace changes; they accept exact moves to new untracked destinations.
+They also distinguish staged and unstaged edits, deleted files, clean sparse
+omissions, deliberate reflow/link repairs, invalid bases and CLI exit modes.
+
+Local rendered validation checks 56 pages, 5,683 local links/assets and 139
+repository source/edit links, with no broken links or orphan pages.
+`plan_consistency` independently extracted 769 current content IDs, with all
+711 retained original IDs and exactly the same two approved retirements.
+The indicator targets remain singletons, the added `IndBallLinf` map link
+resolves, and no rendered link targets a retired fragment.
+
+The bounded heading helper supports every one of the 304 heading units in the
+frozen ledger. Independent comparison of all 256 authored manual headings
+against the retained baseline HTML confirms their exact rendered slugs; the
+installed Documenter source confirms the slug filter and explicit-ID handling.
+No frozen heading needs a special-case Python entry. Ambiguous ownership is
+still rejected. The frozen snapshots and retirement metadata are unchanged.
+
+`plan_consistency` independently reviewed the checker, report, fixtures and
+integration, reran all 73 fixtures, and exercised additional real-Git loss,
+move, ignored-output and sparse-checkout cases without a ledger. It found no
+blocking issue and authored no repository implementation. Its reviewed blobs
+were `f103002e730febcc22543c6216c2bc9089accf8a` (`migration_checks.py`),
+`49089d04ee3afa6f69e74313a3ddd017d81451b7` (`check_migration_lines.py`), and
+`101ee66d7430f93477751086927bb499373beb82` (`test_migration_checks.py`).
+
+### Concurrent IndBallL1 integration
+
+PR #1031 at `ee90029` passed every required lane, both gates and preview
+publication in CI run `44471487157`. Its actual preservation and removed-lines
+reports were also clear. Before merge, the actual master ref had advanced to
+`b07983a88bf0d67a5b626721f58f06b057b6f91d`, the landed commit of PR #1027
+(`IndBallL1`). Its actual first parent is `a4b682f`; the feature PR metadata
+reported the older base `87c8ee0`.
+
+The integration preserves both family-map additions: the migration's pending
+`IndBallLinf` entry and the feature's authored `IndBallL1` contract. This was
+the only textual merge conflict. `IndBallL1` follows the new-family routing
+rule with its own fourteen-section `spec/indballl1.md` page, so the existing-page
+backlog remains seventeen. The feature's source, tests, numerical text,
+examples, API references and navigation are inherited unchanged.
+
+The original indicator `@docs` block has one further upstream event for the
+new API entry, independently verified by
+`norml1_pilot@b07983a88bf0d67a5b626721f58f06b057b6f91d`. The other frozen
+units retain their existing dispositions. All 2,162 roots remain accounted for;
+the eight upstream receipts now contain fifteen events.
+Final acceptance must use the integrated head, actual base `b07983a`, and its
+new CI reports and preview; the earlier green run does not establish that
+the combined tree passed. These final results are recorded on PR #1031.

@@ -126,6 +126,9 @@ jobs:
             # baseline; no unrelated history is needed for either check.
             git fetch --no-tags --depth=1 origin "$scope_base"
           fi
+          # The baseline-free line report also covers documentation added
+          # after the frozen ledger, even when no ledger row changes.
+          printf 'PB_DOCS_DIFF_BASE=%s\n' "$scope_base" >> "$GITHUB_ENV"
           if ! git diff --quiet "$scope_base" HEAD -- docs/audit/docs-tracks-1019/ledger.tsv; then
             git diff --exit-code "$scope_base" HEAD -- src test
             printf 'PB_DOCS_SCOPE_BASE=%s\n' "$scope_base" >> "$GITHUB_ENV"
@@ -167,6 +170,10 @@ jobs:
             scope_args=(--scope-base "$PB_DOCS_SCOPE_BASE")
           fi
           python3 -B docs/check_migration.py --check all --anchor-profile ci --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
+      - name: Report removed documentation lines against the change base
+        run: |
+          set -o pipefail
+          python3 -B docs/check_migration_lines.py "$PB_DOCS_DIFF_BASE" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-removed-lines.log"
       - name: Preserve rendered documentation
         uses: actions/upload-artifact@v7
         with:

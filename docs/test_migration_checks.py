@@ -5,8 +5,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import copy
 import json
+import subprocess
+import sys
 import unittest
 
+import check_migration_lines as line_report
 import migration_checks as m
 
 
@@ -266,7 +269,7 @@ class PreservationTests(unittest.TestCase):
         self.assertTrue(any("automatic heading, without @id" in error for error in errors), errors)
 
     def test_anchor_retirement_rejects_unknown_duplicate_and_nonbaseline_pairs(self):
-        for case, message in (("unknown", "unknown named"), ("duplicate", "duplicate anchor retirement"),
+        for case, message in (("unknown", "do not belong to the original heading"), ("duplicate", "duplicate anchor retirement"),
                                ("not-frozen", "not in the frozen snapshot")):
             with self.subTest(case=case):
                 rows, options = self.anchor_retirement_fixture()
@@ -313,6 +316,66 @@ class PreservationTests(unittest.TestCase):
                     options["retirements"][0][case] = ""
                 errors = m.anchor_check(rows, self.root / "build", **options)
                 self.assertTrue(any(message in error for error in errors), errors)
+
+    def test_anchor_retirement_accepts_a_second_unrelated_heading(self):
+        rows, options = self.anchor_retirement_fixture()
+        old = next(m.blocks("## Input `Float32` & ℓ₂\n", "docs/src/other.md"))
+        replacement = next(m.blocks("## More input rules\n", old.path))
+        record = dict(options["retirements"][0], page="other", block_id=old.id,
+                      baseline_sha=old.sha, fragments=["Input-Float32-and-ℓ", "Input-Float32-and-ℓ-1"],
+                      target="More-input-rules")
+        options["retirements"].append(record)
+        options["base_blocks"].append(old)
+        options["mappings"][old.id] = ("upstream", [replacement])
+        rows.extend(dict(page="other", fragment=fragment) for fragment in ["", *record["fragments"]])
+        self.write("build/other.html", '<article id="documenter-page"><h2 id="More-input-rules"></h2></article>')
+        report = {}
+        self.assertEqual(m.anchor_check(rows, self.root / "build", report=report, **options), [])
+        self.assertEqual(report["approved_retirement_count"], 4)
+
+    def test_anchor_retirement_accepts_index_pages_and_explicit_successor(self):
+        for page, path, html in (("developer", "docs/src/developer/index.md", "build/developer/index.html"),
+                                  ("", "docs/src/index.md", "build/index.html")):
+            with self.subTest(path=path):
+                old = next(m.blocks("## Release policy\n", path))
+                replacement = next(m.blocks("## [Updated release policy](@id current-release-policy)\n", path))
+                record = dict(page=page, fragments=["Release-policy", "Release-policy-1"],
+                              target="current-release-policy", block_id=old.id, baseline_sha=old.sha,
+                              reviewer="fixture-reviewer@fixture", evidence="Fixture authored-reference audit.")
+                rows = [dict(page=page, fragment=fragment) for fragment in ["", *record["fragments"]]]
+                self.write(html, '<article id="documenter-page"><h2 id="current-release-policy"></h2></article>')
+                self.assertEqual(m.anchor_check(rows, self.root / "build", retirements=[record],
+                                               base_blocks=[old], mappings={old.id: ("upstream", [replacement])}), [])
+
+    def test_anchor_retirement_rejects_ambiguous_duplicate_and_numbered_titles(self):
+        for text in ("### Nonnegative orthant", "### Nonnegative-orthant-1",
+                     "### [Separate explicit heading](@id Nonnegative-orthant)"):
+            with self.subTest(text=text):
+                rows, options = self.anchor_retirement_fixture()
+                old = options["base_blocks"][0]
+                options["base_blocks"].append(m.Block("other-heading", old.path, "heading", text, 4, text))
+                errors = m.anchor_check(rows, self.root / "build", **options)
+                self.assertTrue(any("ambiguous duplicate or numbered" in error for error in errors), errors)
+
+    def test_anchor_retirement_rejects_malformed_records_and_unparsed_markup(self):
+        for case in ("missing-block", "empty-fragments", "non-string-target", "formatted-heading"):
+            with self.subTest(case=case):
+                rows, options = self.anchor_retirement_fixture()
+                record = options["retirements"][0]
+                if case == "missing-block":
+                    del record["block_id"]
+                elif case == "empty-fragments":
+                    record["fragments"] = []
+                elif case == "non-string-target":
+                    record["target"] = []
+                else:
+                    old = options["base_blocks"][0]
+                    formatted = m.Block(old.id, old.path, "heading", "## **Nonnegative orthant**", 1, old.heading)
+                    options["base_blocks"] = [formatted]
+                    record["baseline_sha"] = formatted.sha
+                errors = m.anchor_check(rows, self.root / "build", **options)
+                self.assertTrue(errors)
+                self.assertTrue(any("missing original page+fragment" in error for error in errors))
 
     def test_sidebar_anchor_changes_are_excluded(self):
         page = '<nav><input id="collapse-1"></nav><article id="documenter-page"><h1 id="kept">Text</h1></article>'
@@ -690,6 +753,136 @@ class UpstreamTests(unittest.TestCase):
         errors, mappings = self.check()
         self.assertEqual(errors, [])
         self.assertEqual([block.line for block in mappings[self.baseline[0].id][1]], [block.line for block in pieces])
+
+
+class RemovedLineTests(unittest.TestCase):
+    """Compare real Git trees with staged, unstaged and untracked doc files."""
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        m.git("init", "--quiet", root=self.root)
+        self.write("docs/src/guide.md", "# Guide\n\nAn original rule.\n")
+        self.base = self.commit()
+
+    def write(self, path, text):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+
+    def commit(self):
+        m.git("add", "-A", root=self.root)
+        m.git("-c", "user.name=Line report fixture", "-c", "user.email=fixture@example.invalid",
+              "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixture", root=self.root)
+        return m.git("rev-parse", "HEAD", root=self.root).strip()
+
+    def report(self, base=None):
+        return line_report.removed_lines(self.base if base is None else base, self.root)
+
+    def test_new_post_baseline_text_deletion_is_reported(self):
+        self.write("docs/src/guide.md", "# Guide\n\nAn original rule.\nA later rule.\n")
+        later_base = self.commit()
+        self.write("docs/src/guide.md", "# Guide\n\nAn original rule.\n")
+        report = self.report(later_base)
+        self.assertEqual(report["unmatched"], [
+            {"path": "docs/src/guide.md", "line": 4, "text": "A later rule."}])
+        self.assertEqual((report["removed"], report["added"], report["matched"]), (1, 0, 0))
+
+    def test_verbatim_move_to_untracked_destination_preserves_deleted_file(self):
+        source = self.root / "docs/src/guide.md"
+        self.write("docs/src/new/guide.md", source.read_bytes())
+        source.unlink()
+        report = self.report()
+        self.assertEqual(report["changed_paths"], ["docs/src/guide.md", "docs/src/new/guide.md"])
+        self.assertEqual((report["removed"], report["added"], report["matched"]), (2, 2, 2))
+        self.assertEqual(report["unmatched"], [])
+
+    def test_only_added_occurrences_credit_duplicate_removals(self):
+        self.write("docs/src/guide.md", "# Guide\n\nRepeated rule.\nRepeated rule.\n")
+        self.write("docs/src/other.md", "# Other\n\nRepeated rule.\n")
+        self.base = self.commit()
+        self.write("docs/src/guide.md", "# Guide\n")
+        self.write("docs/src/other.md", "# Other\n\nRepeated rule.\nAn unrelated addition.\n")
+        self.write("docs/src/new.md", "Repeated rule.\n")
+        report = self.report()
+        self.assertEqual((report["removed"], report["added"], report["matched"]), (2, 2, 1))
+        self.assertEqual([item["text"] for item in report["unmatched"]], ["Repeated rule."])
+
+    def test_current_tree_includes_staged_and_unstaged_changes(self):
+        self.write("docs/src/guide.md", "# Guide\n\nStaged removal.\nUnstaged removal.\n")
+        self.base = self.commit()
+        self.write("docs/src/guide.md", "# Guide\n\nUnstaged removal.\n")
+        m.git("add", "docs/src/guide.md", root=self.root)
+        self.write("docs/src/guide.md", "# Guide\n")
+        self.write("docs/src/new.md", "Staged removal.\n")
+        report = self.report()
+        self.assertEqual(report["matched"], 1)
+        self.assertEqual([item["text"] for item in report["unmatched"]], ["Unstaged removal."])
+
+    def test_literal_whitespace_is_not_normalized(self):
+        old = ['s = "a  b"', "\tIndented", "Trailing  ", "Windows\r"]
+        self.write("docs/src/guide.md", "\n".join(old) + "\n")
+        self.base = self.commit()
+        self.write("docs/src/guide.md", 's = "a b"\n Indented\nTrailing\nWindows\n')
+        report = self.report()
+        self.assertEqual([item["text"] for item in report["unmatched"]], old)
+
+    def test_ignored_generated_destinations_cannot_credit_moves(self):
+        self.write(".gitignore", "docs/src/generated/\n")
+        self.base = self.commit()
+        source = self.root / "docs/src/guide.md"
+        self.write("docs/src/generated/guide.md", source.read_bytes())
+        source.unlink()
+        report = self.report()
+        self.assertEqual(report["added"], 0)
+        self.assertEqual(report["changed_paths"], ["docs/src/guide.md"])
+        self.assertEqual(len(report["unmatched"]), 2)
+
+    def test_reflow_and_relative_link_repairs_remain_reviewable(self):
+        self.write("docs/src/guide.md", "A rule on\ntwo lines.\nSee [details](other.md).\n")
+        self.base = self.commit()
+        (self.root / "docs/src/guide.md").unlink()
+        self.write("docs/src/new/guide.md", "A rule on two lines.\nSee [details](../other.md).\n")
+        report = self.report()
+        self.assertEqual([item["text"] for item in report["unmatched"]],
+                         ["A rule on", "two lines.", "See [details](other.md)."])
+
+    def test_empty_tree_and_missing_base_differ_from_no_changes(self):
+        self.assertEqual(self.report()["changed_paths"], [])
+        empty = subprocess.check_output(["git", "-C", str(self.root), "mktree"], input=b"").decode().strip()
+        report = self.report(empty)
+        self.assertEqual(report["base_tree"], empty)
+        self.assertEqual((report["removed"], report["added"]), (0, 2))
+        with self.assertRaises(ValueError):
+            self.report("nonexistent-comparison-base")
+
+    def test_clean_sparse_omission_is_not_a_deletion(self):
+        m.git("update-index", "--skip-worktree", "docs/src/guide.md", root=self.root)
+        (self.root / "docs/src/guide.md").unlink()
+        self.assertEqual(self.report()["changed_paths"], [])
+        self.assertEqual(self.report()["unmatched"], [])
+
+    def test_changed_binary_and_non_utf8_files_fail_explicitly(self):
+        for data, message in ((b"binary\0data", "binary"), (b"bad\xfftext", "UTF-8")):
+            with self.subTest(data=data):
+                self.write("docs/src/new.md", data)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.report()
+
+    def test_cli_report_only_blocking_and_configuration_exit_codes(self):
+        self.write("docs/check_migration_lines.py", Path(line_report.__file__).read_bytes())
+        self.write("docs/src/guide.md", "# Guide\n")
+        script = self.root / "docs/check_migration_lines.py"
+        for arguments, code in (([self.base], 0), ([self.base, "--blocking"], 1), (["missing-base"], 2)):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([sys.executable, "-B", str(script), *arguments],
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, code, result.stderr)
+                if code != 2:
+                    self.assertEqual(len(json.loads(result.stdout)["unmatched"]), 1)
+                else:
+                    self.assertIn("could not run", result.stderr)
 
 
 if __name__ == "__main__":

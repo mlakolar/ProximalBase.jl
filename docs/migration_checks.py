@@ -15,6 +15,7 @@ import json
 import posixpath
 import re
 import subprocess
+import unicodedata
 
 ROOT = Path(__file__).resolve().parent.parent
 AUDIT = ROOT / "docs/audit/docs-tracks-1019"
@@ -373,6 +374,47 @@ def split_destination(value):
     if not path or PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts:
         raise ValueError("destination must be a repository-relative path")
     return path, anchor
+
+
+def heading_anchor(text):
+    """Documenter's slug for a bounded heading: plain text, code, or an @id.
+
+    Other inline markup is deliberately rejected instead of guessing its rendered
+    text. The slug filter follows Documenter.utilities.slugify (letters,
+    punctuation, decimal digits; whitespace and ampersands become hyphens/and).
+    """
+    heading = HEADING.fullmatch(text.strip())
+    if not heading:
+        raise ValueError("not a single Markdown heading")
+    title = heading[2]
+    explicit = re.fullmatch(r"\[([^\]]+)\]\(@id\s+([^\s)]+)\)", title)
+    if explicit:
+        title = explicit[2]
+    else:
+        literals = []
+
+        def code(match):
+            if match[1] is None:
+                raise ValueError("unsupported formatted heading; cannot prove its fragment ownership")
+            literals.append(match[2])
+            return f"\0{len(literals) - 1}\0"
+
+        title = INLINE_LITERAL.sub(code, title)
+        if (any(mark in title for mark in ("`", "*", "[", "]", "<", ">", "$", "\\", "@id")) or
+                re.search(r"(?<!\w)_(?!\s)|(?<!\s)_(?!\w)|&[A-Za-z#0-9]+;", title)):
+            raise ValueError("unsupported formatted heading; cannot prove its fragment ownership")
+        for index, value in enumerate(literals):
+            title = title.replace(f"\0{index}\0", value)
+    slug = re.sub(r"\s+", "-", title).replace("&", "-and-")
+    slug = "".join(char for char in slug if unicodedata.category(char)[0] in {"L", "P"} or char.isdecimal())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if not slug:
+        raise ValueError("heading has no nonempty fragment")
+    return slug, bool(explicit)
+
+
+def heading_page(block):
+    return page_key(PurePosixPath(block.path).relative_to("docs/src").with_suffix(".html"))
 
 
 def section_text(text, anchor):
@@ -753,10 +795,7 @@ def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, 
     frozen = {(row["page"], row["fragment"]) for row in rows}
     originals = {block.id: block for block in base_blocks}
     approved = {}
-    # The second-round decision permits this named automatic heading only. This is not a rule
-    # that every upstream heading change may discard its original fragments.
-    named_id = "docs/src/api/functions.md::Function reference / Nonnegative orthant::13"
-    named_fragments = {"Nonnegative-orthant", "Nonnegative-orthant-1"}
+    retired_blocks = set()
     if not isinstance(retirements, (list, tuple)):
         errors.append("anchor_retirements must be an array")
         retirements = ()
@@ -765,23 +804,35 @@ def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, 
             if not isinstance(record, dict):
                 raise ValueError("anchor retirement must be an object")
             page, fragments, target = record.get("page"), record.get("fragments"), record.get("target")
-            if not isinstance(fragments, list) or not all(isinstance(item, str) for item in fragments):
+            if not isinstance(page, str) or not isinstance(target, str) or not target:
+                raise ValueError("anchor retirement requires a page and nonempty target")
+            if not isinstance(fragments, list) or not fragments or not all(isinstance(item, str) and item for item in fragments):
                 raise ValueError("anchor retirement requires named fragments")
             if len(fragments) != len(set(fragments)):
                 raise ValueError("duplicate anchor retirement fragment")
-            if (page != "api/functions" or target != "Indicators" or
-                    record.get("block_id") != named_id or set(fragments) != named_fragments):
-                raise ValueError("unknown named anchor retirement")
             pairs = {(page, fragment) for fragment in fragments}
             if not pairs <= frozen:
                 raise ValueError("anchor retirement is not in the frozen snapshot")
-            if pairs & approved.keys():
+            identifier = record.get("block_id")
+            if not isinstance(identifier, str):
+                raise ValueError("anchor retirement original block/hash mismatch")
+            if pairs & approved.keys() or identifier in retired_blocks:
                 raise ValueError("duplicate anchor retirement record")
-            old = originals.get(record["block_id"])
+            old = originals.get(identifier)
             if old is None or record.get("baseline_sha") != old.sha:
                 raise ValueError("anchor retirement original block/hash mismatch")
-            if old.kind != "heading" or "@id" in old.text or old.path != f"docs/src/{page}.md":
+            if old.kind != "heading" or "@id" in old.text or heading_page(old) != page:
                 raise ValueError("anchor retirement requires the original automatic heading, without @id")
+            slug, _ = heading_anchor(old.text)
+            owned = {slug, slug + "-1"}  # First heading's primary and legacy IDs.
+            if not set(fragments) <= owned:
+                raise ValueError("anchor retirement fragments do not belong to the original heading")
+            for other in base_blocks:
+                if other.kind != "heading" or other.id == old.id or other.path != old.path:
+                    continue
+                other_slug, _ = heading_anchor(other.text)
+                if owned & {other_slug, other_slug + "-1"}:
+                    raise ValueError("ambiguous duplicate or numbered heading fragment ownership")
             reviewer = record.get("reviewer", "")
             if not isinstance(reviewer, str) or "@" not in reviewer:
                 raise ValueError("anchor retirement requires independent review identity@revision")
@@ -791,13 +842,13 @@ def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, 
             if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
                 raise ValueError("anchor retirement requires the authored-inbound-reference audit evidence")
             action, replacements = (mappings or {}).get(old.id, (None, []))
-            heading = HEADING.fullmatch(replacements[0].text.strip()) if len(replacements) == 1 else None
-            if (action != "upstream" or not heading or replacements[0].kind != "heading" or
-                    replacements[0].path != old.path or heading[2] != target):
+            if (action != "upstream" or len(replacements) != 1 or replacements[0].kind != "heading" or
+                    replacements[0].path != old.path or heading_anchor(replacements[0].text)[0] != target):
                 raise ValueError("anchor retirement requires a validated upstream mapping to the exact successor heading")
             if target not in pages.get(page, set()):
                 raise ValueError(f"missing anchor retirement target on its original page: {page}#{target}")
             approved.update({pair: target for pair in pairs})
+            retired_blocks.add(identifier)
         except ValueError as error:
             errors.append(str(error))
     for row in rows:

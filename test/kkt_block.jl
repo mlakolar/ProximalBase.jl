@@ -1207,6 +1207,8 @@ end
   sf = Scaled(f, T(2))
   @test @inferred(PB._kkt_class(typeof(sf))) isa PB._KktScore
   @test @inferred(PB._kkt_class(typeof(Scaled(NormLinf(T(1)), T(2))))) isa PB._KktScore
+  @test @inferred(PB._kkt_class(typeof(Scaled(QuadraticFunction(T[1 0; 0 1]), T(2))))) isa PB._KktScore
+  @test @inferred(PB._kkt_class(typeof(Scaled(LeastSquaresLoss(T[1, 2], T[1 0; 0 1]), T(2))))) isa PB._KktScore
   @test @inferred(PB._kkt_class(typeof(Scaled(SqrtLeastSquaresLoss(T[1, 2], T[1 0; 0 1]), T(2))))) isa PB._KktNone
   @test @inferred(PB._kkt_class(typeof(Scaled(OwnAll(), T(2))))) isa PB._KktCustom
 end

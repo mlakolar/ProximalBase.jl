@@ -484,12 +484,20 @@ magnitude equals the largest one after conversion to the working type, with no t
 an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
 type (`Float16` from `n = 65519`) throws an `ArgumentError`.
 
-`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
-the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
+`LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
+`gradient!` in the function's scratch type `T` and reduce the residual in
+`float(promote_type(eltype(v), eltype(x), T))`. A `NaN` in either input takes precedence over an infinite entry, which
+returns `+Inf`. With finite inputs, ordinary gradient and residual arithmetic can still produce `NaN` or `Inf`.
+The call writes function-owned scratch and refuses overlap of either input with that scratch. Coordinate, group and
+`SymmetricSparseIterate` point forms throw `ArgumentError`. See [smooth stationarity scores](@ref smooth-kkt).
+
+`Scaled` with a finite positive factor `α` evaluates the existing score of its function on the lazy gradient `v/α`,
+with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
 of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where
 that gives a normal level. Where it does not, the three-argument form and a zero coordinate or group have a value, and a
-nonzero point and the full-point form throw an `ArgumentError`. So does an infinite factor at a nonzero point and in
+nonzero point and the full-point form throw an `ArgumentError`. The smooth pair also refuses the local forms.
+An infinite factor throws at a nonzero point and in
 the full-point form. A function of this package without a score gives a `MethodError` under `Scaled`. A function
 defined outside this package gets its three-argument value at a zero coordinate and an `ArgumentError` at a nonzero one,
 unless it defines the method. Under `Scaled` it has its scaled three-argument value and that error also when it defines
@@ -735,6 +743,46 @@ end
 
 @noinline _kkt_symmetric_point_error(f) = throw(ArgumentError(
   "kkt_violation(f, v, x) is not defined for a SymmetricSparseIterate and $(nameof(typeof(f))): use the coordinate form kkt_violation(f, v, x, k)"))
+
+# Shared input and residual operations for smooth functions that call gradient! into their own scratch.
+@inline function _check_smooth_kkt_inputs(v, x)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  _checksize(v, x)
+end
+
+_smooth_kkt_parent(a) = a
+@inline function _check_smooth_kkt_alias(buf, v, x)
+  isempty(buf) && return nothing
+  (Base.mightalias(buf, _smooth_kkt_parent(v)) || Base.mightalias(buf, x)) && _smooth_kkt_alias_error()
+  nothing
+end
+@noinline _smooth_kkt_alias_error() =
+  throw(ArgumentError("kkt_violation(f, v, x) needs v and x to be independent of the function's scratch"))
+
+@inline function _smooth_kkt_allfinite(a)
+  finite = true
+  @inbounds @simd for i in eachindex(a)
+    finite &= isfinite(a[i])
+  end
+  finite
+end
+@noinline _smooth_kkt_nonfinite(::Type{W}, v, x) where {W} =
+  any(isnan, v) || any(isnan, x) ? W(NaN) : W(Inf)
+
+@inline function _smooth_kkt_residual(::Type{W}, v, d) where {W}
+  r = zero(W)
+  @inbounds @simd for i in eachindex(v, d)
+    r = max(r, abs(convert(W, v[i]) + convert(W, d[i])))
+  end
+  r
+end
+
+@noinline _smooth_kkt_local_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) supports the full-point form kkt_violation(f, v, x) and has no coordinate or group form"))
+@noinline _smooth_kkt_symmetric_error(f) = throw(ArgumentError(
+  "kkt_violation(f, v, x) of $(nameof(typeof(f))) does not support SymmetricSparseIterate points"))
 
 # The methods of a function with the entry kernels above, for arrays, a BlockIterate and a SymmetricSparseIterate.
 macro _kkt_entrywise(F)

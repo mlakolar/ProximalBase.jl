@@ -44,6 +44,7 @@ _ScaledArray{T}(g::AbstractArray{<:Any, N}, c) where {T, N} = _ScaledArray{T, N,
 Base.size(a::_ScaledArray) = size(a.g)
 Base.IndexStyle(::Type{<:_ScaledArray}) = IndexLinear()
 Base.@propagate_inbounds Base.getindex(a::_ScaledArray{T}, i::Int) where {T} = a.c * convert(T, a.g[i])
+_smooth_kkt_parent(a::_ScaledArray) = _smooth_kkt_parent(a.g)
 
 # the entries of g times a factor that is not a normal number, with the exponent applied last
 struct _ExpScaledArray{T, N, A<:AbstractArray, S<:_ProjectionScale} <: AbstractArray{T, N}
@@ -687,6 +688,7 @@ struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
 _kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
+_kkt_class(::Type{<:_SmoothKktFunction}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
 _kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
@@ -1013,6 +1015,7 @@ kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
 # the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
 _kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
 _kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
+_kkt_symmetric_scaled_error(s, f::_SmoothKktFunction) = _smooth_kkt_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,

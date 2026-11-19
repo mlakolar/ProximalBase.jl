@@ -130,6 +130,13 @@ What changed besides the values of the table:
   has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
   four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a
   `SymmetricSparseIterate` throws an `ArgumentError`.
+* `LeastSquaresLoss` and `QuadraticFunction` now support
+  `kkt_violation(f,v,x)`, the infinity norm of the computed stationarity
+  residual. Coordinate, group and symmetric-iterate point forms throw
+  `ArgumentError`. The new call uses function-owned scratch and can allocate a
+  coefficient buffer on its first use with a loss. See
+  [smooth stationarity scores](@ref smooth-kkt) for the ownership rules and
+  the caller-supplied gradient recipe.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the

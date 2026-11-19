@@ -38,6 +38,8 @@ julia> gradient(f, [1.0, 1.0])
   same-shape changes to `A`; changing `b` alone needs no reset. Reconstruct
   after dimension changes. The cached eigenbasis reads `A`'s upper triangle,
   while values and gradients use `A` directly.
+- Full-point [`kkt_violation`](@ref) uses the scratch shared by value and prox.
+  Synchronize calls on one object when they use that scratch.
 
 See [quadratic operations and step domain](@ref Quadratic-function) for exact
 boundary qualifications, caching, alias rules and numerical limits.
@@ -186,6 +188,21 @@ function gradient!(g::AbstractVector, f::QuadraticFunction, x::AbstractVector)
   mul!(g, f.A, x)
   f.b === nothing || (g .+= f.b)
   g
+end
+
+function kkt_violation(f::QuadraticFunction{T}, v::AbstractArray, x::AbstractArray) where {T}
+  _check_smooth_kkt_inputs(v, x)
+  d = f.tmp
+  _checksize(d, x)
+  n = length(d)
+  size(f.A) == (n, n) || throw(DimensionMismatch("A must be $n × $n"))
+  f.b === nothing || _checksize(f.b, d)
+  _check_smooth_kkt_alias(d, v, x)
+  W = float(promote_type(eltype(v), eltype(x), T))
+  isempty(x) && return zero(W)
+  _smooth_kkt_allfinite(x) && _smooth_kkt_allfinite(v) || return _smooth_kkt_nonfinite(W, v, x)
+  gradient!(d, f, x)
+  _smooth_kkt_residual(W, v, d)
 end
 
 function _eigen!(f::QuadraticFunction{T}) where {T}

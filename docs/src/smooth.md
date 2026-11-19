@@ -90,15 +90,16 @@ The implementation uses a thin SVD cached on the first proximal call, including
 when ``p>n``. It stores `X = U*Diagonal(s)*V'` and `Diagonal(s)*U'*Y`;
 subsequent proximal calls use two products with `V`, without rebuilding the
 factorization when the step changes. The value and gradient use reusable residual scratch and read
-current data entries. Do not call `f(β)`, `gradient!`, `value_and_gradient!` or the
-proximal operator of the same loss object concurrently without synchronization; the
+current data entries. Synchronize calls to `f(β)`, `gradient!`, `value_and_gradient!`,
+`kkt_violation(f, v, β)` and the proximal operators on the same loss object. The
 oracles [at a supplied predictor or residual](#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 do not write the loss. After changing entries of `X` or `Y`, call `reset_cache!(f)`;
 construct a new object if dimensions change. The input data are not copied.
 
 Dense coefficients, vector/matrix `SparseIterate` and vector `BlockIterate` use
 supported array products. This loss has no `SymmetricSparseIterate`,
-scalar `prox_block`, `value_entry` or `kkt_violation` method. Converting a symmetric iterate
+scalar `prox_block` or `value_entry` method. See [smooth stationarity scores](@ref smooth-kkt)
+for the full-point KKT form. Converting a symmetric iterate
 to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 `restrict(f,S)` selects design columns only for **vector-response** losses.
 `lipschitz(f)` bounds ``\|X\|_2^2``; it uses a full spectral norm for dense
@@ -430,7 +431,7 @@ When omitted, `b` and `c` are zero. The domain is real length-``p`` vectors,
 including vector `SparseIterate` and `BlockIterate`; matrix and symmetric iterate
 inputs are not supported. `issmooth` and `isproximable` are true;
 `isseparable` and `isconvex` are false. There is no scalar `prox_block`,
-`value_entry` or `kkt_violation` method.
+`value_entry` method. See [smooth stationarity scores](@ref smooth-kkt) for the full-point KKT form.
 
 **Caller precondition:** `A` is symmetric; positive semidefiniteness is not
 required. Construction checks real types, squareness and `b`'s length, but does
@@ -497,6 +498,59 @@ x = [2.0, -1]
 @assert restrict(f,[2])([-1.0]) == 7
 prox(f,x,0.5)
 ```
+
+## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
+
+`kkt_violation(f, v, x)` returns `‖v + ∇f(x)‖∞` for `LeastSquaresLoss` and
+`QuadraticFunction`. Supply `v`, typically the gradient of the other objective
+term, and the point `x` where both gradients are evaluated. The score is zero
+when the computed residual vanishes, including at an admissible empty point.
+An indefinite quadratic can attain first-order stationarity at a saddle point
+or maximum.
+
+Use real, one-based inputs of the same shape. The quadratic takes vectors of
+length `size(A, 2)`. For least squares, use a vector of length `size(X, 2)`
+with a vector response, or a coefficient matrix of size
+`(size(X, 2), size(Y, 2))` with a matrix response. The supported array products
+are those of `gradient!`, including supported views, sparse or structured data,
+and iterate representations. The coordinate screen and point-aware coordinate
+and group forms throw `ArgumentError` and name the full-point form. A
+`SymmetricSparseIterate` point also throws `ArgumentError`.
+
+`gradient!` stores its result in the function's floating type `T`. The residual
+sum and maximum use `float(promote_type(eltype(v), eltype(x), T))`. Wider
+inputs can widen the residual arithmetic. The gradient still uses the rounding
+of the existing matrix products and destination. For homogeneous `Float32`
+and `Float64` inputs and function data, finite ordinary scores agree bit for bit
+with `maximum(abs, v .+ gradient(f, x))` at a fixed BLAS thread count in the
+same process. A `NaN` in either input gives `NaN`. Otherwise an infinite input
+entry gives `+Inf`. With finite inputs, ordinary arithmetic in the gradient
+and residual can still overflow, underflow or produce `NaN`.
+
+The call reads `v` and `x` without modifying them and refuses overlap detected
+by `Base.mightalias` with scratch it writes. A quadratic uses its existing
+scratch for the gradient and makes one matrix product. A least-squares loss
+makes two matrix products and uses both its existing residual scratch and a
+dense coefficient-shaped output. The first ordinary call that needs this
+output allocates it, and later calls reuse it while its type and shape match.
+Homogeneous dense `Float32` and `Float64` inputs need no other scratch.
+Synchronize scratch-using calls on the same function object.
+
+If you already have an independent gradient destination `d` of the function's
+type and the inputs share that type, you can form the same finite ordinary
+score without using or allocating a coefficient buffer inside the function.
+The least-squares gradient in this recipe still uses its residual scratch.
+
+```julia
+gradient!(d, f, x)
+d .+= v
+kkt_violation(ZeroFunction(), d, x)
+```
+
+For a finite positive factor `α`, `Scaled` applies its
+[usual rule](@ref scaled-kkt) to the supplied gradient `v`. An infinite
+factor or a retained chain whose factors do not fold throws `ArgumentError`.
+Scaling by zero through the public constructor yields `ZeroFunction()`.
 
 ## [Zero function](@id Zero-function)
 

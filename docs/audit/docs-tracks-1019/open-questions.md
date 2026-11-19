@@ -21,14 +21,22 @@ shared-rule links for the remaining verbatim family moves. The review's scope,
 its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
-Unrelated merged PR changes now use the bounded `upstream` action with exact
-Git provenance and independent review. Three receipts each contain two verified
-transitions, for merged IndBox PR #1020 and IndBallL2 PR #1022. Two more account
-for NormL0 PR #1023, including one sentence that became three. The second-round
-review narrows heading compatibility to explicit IDs and authored link/citation
-targets. The uncited original API heading now has its own upstream receipt;
-its two automatic fragments are explicitly retired, while the frozen snapshot
-is retained. See `upstream.json`, `baseline.json` and `review.md`.
+Unrelated merged PR changes use the bounded `upstream` action with exact Git
+provenance and independent review. Eight receipts now cover fourteen transitions
+from PRs #1020, #1022, #1023, #1024, #1026 and #1025. These include the original
+heading's renames, a sentence that became three, the later `IndBallLinf`
+inventory changes, the least-squares test description and the scaled-indicator
+screen rule. No baseline identity is replaced. Reconcile pending external
+changes to an all-pass six-check report before starting a migration change.
+The supplemental removed-lines report also protects later text during moves.
+See `upstream.json`, `baseline.json` and `review.md`.
+
+Heading compatibility retains explicit IDs and authored link/citation targets.
+The uncited original API heading's two automatic fragments remain the only
+approved retirements; the complete frozen snapshots remain unchanged. Later
+valid retirements use the same data record and validations, without a Python
+whitelist change. Phase 5 removes the temporary writing-guide instruction to
+record these in the migration audit, retaining the durable forwarding rule.
 
 Before the next family, refine the three remaining family guides to sentence
 units with original-block provenance, and replace the three uncited runtime
@@ -46,11 +54,12 @@ Phase 5 blocking acceptance; the frozen audit and ordinary documentation gates
 remain. The preparation work is tracked in #1019.
 
 New function families must now place their numerical rules directly in
-`docs/src/spec/<family>.md` using the fourteen-section schema. The three restores
+`docs/src/spec/<family>.md` using the fourteen-section schema. The four restores
 already merged into the numerical hub increase the existing-page backlog from
-13 to 16 families/operations. Named inventory blocks retain upstream receipts:
+13 to 17 families/operations. The fourth, `IndBallLinf`, is now in the family
+map with its existing hub location. Named inventory blocks retain upstream receipts:
 the API coverage check verifies presence, not their descriptive claims.
-Reconcile several external changes in one documentation change when practical.
+Batch several external changes when practical, before the next migration starts.
 
 Clause conversion, the remaining families, numerical routine pages, lessons,
 figures, the agent entry file and the final blocking-mode switch remain tracked

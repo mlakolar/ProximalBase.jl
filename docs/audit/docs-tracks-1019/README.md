@@ -188,6 +188,21 @@ diagnostics, not a mathematical or semantic proof that the meaning survived.
 The checker cannot authenticate a review identity or decide whether two
 statements mean the same thing.
 
+### Review identities and verification scope
+
+These labels identify agents in the implementation session, not human names or
+authenticated GitHub identities. Independence applies to the particular change
+being attested. A reviewer label does not by itself establish owner approval.
+
+| Label or role | Work and independence |
+|:--|:--|
+| `plan_consistency` | Independently reviewed the pilot migration and checker changes without editing or committing those repository files. Compared moved content, the example-label repair, frozen artifacts and rendered anchors; reran checks and supplied defect reproductions and design suggestions. |
+| `norml1_pilot` | Authored the NormL1 destination page, migration and evidence table. Its signed upstream receipts independently review external feature changes in PRs #1020, #1022 and #1023, which it did not author. Its later seven-row evidence-table check was author verification. |
+| `migration_checks` | Authored checker changes and regression fixtures, and ran the real shallow-Git workflow fixtures. `plan_consistency` independently reviewed that implementation. |
+| Lead implementation agent | Ran strict local builds and inspected CI results, artifacts and preview publication. These are implementation-validation records. |
+| External Claude reviewer | Prepared the reviews supplied to and accepted by the owner, with the verification limits stated in each review. The first two reviews did not independently verify the Julia build, rendered anchor check or CI results. |
+| Owner | Accepted the external review and made scope and progression decisions. Acceptance does not imply personally performing the review or rerunning its checks. |
+
 ## Documentation changed by unrelated pull requests
 
 Ordinary feature pull requests may update the documentation they affect without
@@ -224,13 +239,39 @@ checker cannot authenticate it. CI fetches the exact before/after revisions for
 every recorded event at depth one, deduplicating revisions shared by events.
 
 All accounting checks accept the upstream disposition only after that evidence
-passes. A later unrecorded edit to the replacement still fails. Heading changes
-do not waive old URLs: keep the old heading and a forwarding paragraph. The
-current reconciliation records three blocks changed successively by merged
-PRs #1020 and #1022, while retaining both earlier API headings as forwarding stubs.
-Two further receipts account for merged PR #1023: one coverage row and one
-sentence replaced by three consecutive sentences. All original block identities
-and hashes remain frozen.
+passes. A later unrecorded edit to the replacement still fails. All original
+block identities and hashes remain frozen, including a heading renamed by an
+external feature change.
+
+Retain a forwarding stub for an explicit `@id` or a heading with an authored
+incoming link or source citation. Audit manual sources, docstrings, repository
+entry documents and examples before retiring an automatic heading. Generated
+self-permalinks and navigation are not authored incoming references. This
+repository audit cannot establish whether an external bookmark exists.
+
+The two uncited API stubs are removed under this narrower rule. The original
+`Nonnegative orthant` heading has an upstream receipt for its two renames to
+`Indicators`. Its two original automatic fragments have named retirement
+records in `baseline.json`, pointing to that successor on the same page. The
+later `Box and nonnegative orthant` heading was never in the frozen baseline.
+Both complete 713-ID snapshots remain unchanged. Acceptance reports 711
+original IDs retained and two approved retirements; it does not report all
+713 as still present. Every other baseline ID and every original page must
+remain. Ordinary strict rendering and HTML link checks still reject broken
+authored links.
+
+### Inventory reconciliation decision
+
+Keep upstream receipts for the four current inventory blocks: the README
+function list, migration scope paragraph, grouped API `@docs` fence, and
+`value_entry` coverage row. `check_api.jl` checks that required names appear in
+the API reference and coverage text. It does not validate the README or migration
+scope claims, supported-argument descriptions, or evidence references inside
+coverage cells. An exemption for the whole blocks would also exempt those
+claims. This temporary migration therefore accepts the reconciliation cost;
+batch several reviewed external changes in one documentation update when
+practical. Numerical text always retains its exact provenance. The migration
+checks still retire after Phase 5 acceptance.
 
 The known `reword`/`split` token and example accounting gap is separate. Clause
 conversion is held until those checks stay active and any intentional token

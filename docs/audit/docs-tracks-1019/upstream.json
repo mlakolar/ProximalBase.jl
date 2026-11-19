@@ -144,6 +144,39 @@
           ]
         }
       ]
+    },
+    {
+      "block_id": "docs/src/api/functions.md::Function reference / Nonnegative orthant::13",
+      "baseline_sha": "f244858523943a19616296f040357e0623108b4ce0128a26d433d87529a185e7",
+      "dest": "docs/src/api/functions.md#Indicators",
+      "dest_sha": "1f72d3c08463ab96723db569dc60b9b495bf78bb9264684b5daf27df0f549c29",
+      "reviewer": "plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45",
+      "events": [
+        {
+          "pull_request": 1020,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1020",
+          "merged": true,
+          "before_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+          "after_commit": "fc95196390b8f1a164621625362984f03f728ab0",
+          "before_blob": "3528c147aebec4ade5d4ed65928d9e98b705e02a",
+          "after_blob": "32f04055c0f5fd0034a05c91693347d64cd569a4",
+          "source_sha": "f244858523943a19616296f040357e0623108b4ce0128a26d433d87529a185e7",
+          "replacement_sha": "79dea98b86a80a5822011c7128e3988c9e6dad9e99e4c321757b2ffa57568cf2",
+          "reviewer": "plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45"
+        },
+        {
+          "pull_request": 1022,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1022",
+          "merged": true,
+          "before_commit": "fc95196390b8f1a164621625362984f03f728ab0",
+          "after_commit": "9acd0a5d3a806f7254b02d9b92faf866e6b3c429",
+          "before_blob": "32f04055c0f5fd0034a05c91693347d64cd569a4",
+          "after_blob": "c9cc73ed53be3b16d4fb7da8ae0650ac7c406f5c",
+          "source_sha": "79dea98b86a80a5822011c7128e3988c9e6dad9e99e4c321757b2ffa57568cf2",
+          "replacement_sha": "1f72d3c08463ab96723db569dc60b9b495bf78bb9264684b5daf27df0f549c29",
+          "reviewer": "plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45"
+        }
+      ]
     }
   ],
   "schema": 2

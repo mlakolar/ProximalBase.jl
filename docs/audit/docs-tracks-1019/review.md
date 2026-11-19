@@ -39,12 +39,13 @@ the changed fence metadata; no numerical rule was reworded.
 | Destination block SHA-256 | `f96cb594134cda45e80ce5192e2d2f845ed17c52c547fb02d7dbb8c70b249fc8` |
 | Destination Git blob | `a8edcfeba2e44aaf513672a7fb2cbaaf7f36f4a1` |
 
-This independent review does not substitute for the owner pilot review required
+This independent review does not substitute for the owner acceptance required
 by Phase 2 step 3. See [open questions](open-questions.md).
 
 ## Baseline build records
 
-The exact frozen tree was built locally with Julia 1.10.10, including all nine
+The lead implementation agent built the exact frozen tree locally with Julia
+1.10.10, including all nine
 isolated scripts, Documenter examples, doctests and API coverage. Its HTML check
 reported 54 pages, 5,258 checked internal links/assets, and no broken or orphan
 pages. All six migration checks passed on the unchanged all-stay ledger.
@@ -68,7 +69,7 @@ older documentation-provenance commit.
 
 ## Final local acceptance of the pilot
 
-The final strict build on Julia 1.10.10 ran all nine isolated scripts again,
+The lead implementation agent's final strict build on Julia 1.10.10 ran all nine isolated scripts again,
 executed the manual examples and doctests, and passed API coverage. The unique
 example name removed the new module-replacement warning. The search-index size
 advisory also present in the baseline remains non-failing.
@@ -115,14 +116,21 @@ checks pass with the local profile against the final local build, and with the
 CI profile against that final CI build. The profile correction changes no
 authored documentation page or numerical behavior.
 
-## Owner review of the pilot
+## External review accepted by the owner
 
-Mladen reviewed PR #1021 at `1e35bcf` against master at `2a55362` on
-18 November 2026. The review confirmed that no numerical statement was lost
-or altered and approved the fourteen-section layout for the remaining
-verbatim family moves, with the stated adjustments. Merge approval is
-conditional on the five fixes listed in that review; clause conversion
-remains held until the preservation-checker gap is closed.
+An external Claude review prepared for Mladen covered PR #1021 at `1e35bcf`
+against master at `2a55362`, dated 18 November 2026. The owner accepted that
+review and its recommendation to use the fourteen-section layout for the
+remaining verbatim family moves, with the stated adjustments. The review found
+no numerical statement lost or altered. The owner approved merge subject to
+the five requested corrections.
+
+The external reviewer read the diff, ran the Python checks and inspected the
+published preview. It did not run the Julia documentation build or anchor
+check, or verify CI results. The build and CI evidence recorded in this file
+was checked by the implementation team. Clause conversion remains held until
+the preservation-checker gap is closed. Owner acceptance does not mean that
+the owner personally performed the review or reran those checks.
 
 The three documentation fixes from that review are applied here: the
 import-only block in `numerics.md` uses `@setup numerical_endpoints`, the
@@ -173,7 +181,7 @@ a migration that added its own source change failed the scope guard.
 
 ## Upstream reconciliation and complete anchor inventory
 
-While the owner corrections were in CI, master merged
+While the corrections from the accepted external review were in CI, master merged
 [PR #1020](https://github.com/mlakolar/ProximalBase.jl/pull/1020), restoring
 `IndBox`, at `fc95196390b8f1a164621625362984f03f728ab0`. GitHub reported the PR
 merged at that revision. Its actual first parent is
@@ -322,7 +330,8 @@ and exactly one target for each indicator and the new `NormL0` docstring.
 
 `norml1_pilot@fc13ace163d219da0668b7f18be54ce6043edbf7` also checked every one
 of the seven Evidence-table descriptions against its referenced test file and
-found no mismatch. Those NormL1 source/test files are unchanged at this base.
+found no mismatch. This was author verification: that agent authored the pilot
+page and its evidence table. Those NormL1 source/test files are unchanged at this base.
 The core-functions description's exact input/output identity denotes aliasing
 of the same object; its approximate value comparison is not a claim of bitwise
 numerical equality. No clause status was inferred from this review.
@@ -342,3 +351,68 @@ objects are present; no unrelated history is fetched. All event blobs are
 readable, and the scope comparison needs no further fetch. Inherited source
 changes pass while a PR-owned source change fails. The final branch has no
 source, test or example-script diff against `fc13ace`.
+
+## Second-round decisions before the next family
+
+The external Claude review of merge commit `b0c4c8e` against its master parent
+`fc13ace` confirmed the five requested fixes, 2,162 accounted-for ledger rows,
+52 passing fixtures and five preservation checks. It counted the 713 IDs in
+the frozen snapshots, but did not rerun the rendered anchor check or Julia
+build and did not inspect CI results. Those validation results remain the
+implementation team's evidence, not independent findings of that review.
+
+The follow-up adopts four decisions:
+
+1. Require forwarding stubs for explicit IDs and authored incoming links or
+   source citations. The two uncited automatic API headings are removed.
+   The original heading's rename is recorded through its existing external
+   feature transitions, and its two baseline fragments are explicitly retired
+   to `Indicators`. The complete frozen snapshots remain unchanged.
+2. Route new families directly to `docs/src/spec/<family>.md` with the fourteen
+   headings, source/test evidence and links to shared owners. The writing guide
+   now states this rule; the contributor workflow and `CONTRIBUTING.md` link to it.
+   The three already-restored families leave 16 existing family/operation entries
+   to migrate, instead of the initial 13.
+3. Retain receipts for the four inventory blocks. API presence checks do not
+   protect the README and migration scope claims or the descriptions and evidence
+   inside coverage cells. Batch several reconciliations when practical; keep
+   the existing retirement of migration checks after Phase 5 acceptance.
+4. Attribute the supplied review to its external author and record the owner's
+   acceptance separately. The audit README defines agent roles by the change
+   reviewed. The pilot author's later evidence-table verification is labelled
+   as author verification, while its external-feature receipts remain independent.
+
+No numerical clause is converted in this follow-up. The `reword`/`split` token
+and example accounting fix remains required before clause conversion.
+
+For the heading decision, `plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45`
+audited 162 tracked text files covering the active manual, developer/design
+documents, README/CONTRIBUTING, examples, source/docstrings and tests, plus nine
+directly referenced benchmark/audit resources at that revision. It found no
+authored incoming link, reference definition, `@ref` or raw HTML link to either
+heading or its generated `-1` fragment. Both headings lack an explicit `@id`.
+Generated navigation and self-permalinks do not count as authored references;
+external bookmarks are outside this audit's scope.
+
+The same reviewer verified the original heading's exact `Nonnegative orthant`
+to `Box and nonnegative orthant` to `Indicators` transitions in merged PRs
+#1020 and #1022. The added heading receipt keeps the original block hash and
+uses the existing upstream mechanism. The ledger now has 2,117 stay, 38 move,
+one reviewed example-label repair, and six upstream dispositions with ten
+verified events. No original unit or frozen snapshot has been regenerated.
+
+The lead implementation agent's strict local build passes all nine isolated
+scripts, executable manual examples, doctests and API coverage for 67 bindings.
+All six preservation checks pass in blocking mode, with 58 passing checker
+fixtures. HTML validation checks 56 pages, 5,675 internal links/assets and
+138 repository source/edit links, with no broken links or orphan pages.
+
+`plan_consistency` independently reviewed the follow-up code, documentation and
+rendered output. Its separate extraction found 768 current content IDs and
+exactly the two approved baseline omissions; the other 711 remain. Both later
+box-heading fragments are also absent, `Indicators` and each API docstring
+target remain singletons, and no rendered link targets a removed fragment.
+The new-family guidance and contributor-workflow link render correctly. Both
+frozen snapshot files are byte-identical to `b0c4c8e`, and there is no source,
+test or example-script diff against that base. The independent review found
+no blocking issue; it did not author these repository changes.

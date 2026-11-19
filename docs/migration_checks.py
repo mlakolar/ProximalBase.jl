@@ -745,17 +745,75 @@ def accounting(base_blocks, mappings, kind):
     return errors
 
 
-def anchor_check(rows, build):
+def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, report=None):
     pages = html_anchors(build)
     errors = []
     if not pages:
         return ["no built HTML; run docs/make.jl first"]
+    frozen = {(row["page"], row["fragment"]) for row in rows}
+    originals = {block.id: block for block in base_blocks}
+    approved = {}
+    # The second-round decision permits this named automatic heading only. This is not a rule
+    # that every upstream heading change may discard its original fragments.
+    named_id = "docs/src/api/functions.md::Function reference / Nonnegative orthant::13"
+    named_fragments = {"Nonnegative-orthant", "Nonnegative-orthant-1"}
+    if not isinstance(retirements, (list, tuple)):
+        errors.append("anchor_retirements must be an array")
+        retirements = ()
+    for record in retirements:
+        try:
+            if not isinstance(record, dict):
+                raise ValueError("anchor retirement must be an object")
+            page, fragments, target = record.get("page"), record.get("fragments"), record.get("target")
+            if not isinstance(fragments, list) or not all(isinstance(item, str) for item in fragments):
+                raise ValueError("anchor retirement requires named fragments")
+            if len(fragments) != len(set(fragments)):
+                raise ValueError("duplicate anchor retirement fragment")
+            if (page != "api/functions" or target != "Indicators" or
+                    record.get("block_id") != named_id or set(fragments) != named_fragments):
+                raise ValueError("unknown named anchor retirement")
+            pairs = {(page, fragment) for fragment in fragments}
+            if not pairs <= frozen:
+                raise ValueError("anchor retirement is not in the frozen snapshot")
+            if pairs & approved.keys():
+                raise ValueError("duplicate anchor retirement record")
+            old = originals.get(record["block_id"])
+            if old is None or record.get("baseline_sha") != old.sha:
+                raise ValueError("anchor retirement original block/hash mismatch")
+            if old.kind != "heading" or "@id" in old.text or old.path != f"docs/src/{page}.md":
+                raise ValueError("anchor retirement requires the original automatic heading, without @id")
+            reviewer = record.get("reviewer", "")
+            if not isinstance(reviewer, str) or "@" not in reviewer:
+                raise ValueError("anchor retirement requires independent review identity@revision")
+            identity, _, revision = reviewer.partition("@")
+            if not identity or identity == "mechanical" or not revision:
+                raise ValueError("anchor retirement requires independent review identity@revision")
+            if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
+                raise ValueError("anchor retirement requires the authored-inbound-reference audit evidence")
+            action, replacements = (mappings or {}).get(old.id, (None, []))
+            heading = HEADING.fullmatch(replacements[0].text.strip()) if len(replacements) == 1 else None
+            if (action != "upstream" or not heading or replacements[0].kind != "heading" or
+                    replacements[0].path != old.path or heading[2] != target):
+                raise ValueError("anchor retirement requires a validated upstream mapping to the exact successor heading")
+            if target not in pages.get(page, set()):
+                raise ValueError(f"missing anchor retirement target on its original page: {page}#{target}")
+            approved.update({pair: target for pair in pairs})
+        except ValueError as error:
+            errors.append(str(error))
     for row in rows:
         page, fragment = row["page"], row["fragment"]
         if page not in pages:
             errors.append(f"missing baseline page: {page or '/'}")
-        elif fragment and fragment not in pages[page]:
+        elif fragment and fragment not in pages[page] and (page, fragment) not in approved:
             errors.append(f"missing original page+fragment: {page or '/'}#{fragment}")
+    if report is not None:
+        present = {(page, fragment) for page, fragment in frozen if fragment and fragment in pages.get(page, set())}
+        retired = approved.keys() - present
+        report.update(baseline_fragment_count=sum(bool(fragment) for page, fragment in frozen),
+                      present_fragment_count=len(present), retired_fragment_count=len(retired),
+                      approved_retirement_count=len(approved),
+                      approved_retirements=[dict(page=page, fragment=fragment, target=approved[page, fragment])
+                                            for page, fragment in sorted(approved)])
     return errors
 
 

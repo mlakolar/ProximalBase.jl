@@ -231,6 +231,89 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("old#required", errors[0])
 
+    def anchor_retirement_fixture(self):
+        page, path = "api/functions", "docs/src/api/functions.md"
+        identifier = path + "::Function reference / Nonnegative orthant::13"
+        old = m.Block(identifier, path, "heading", "## Nonnegative orthant", 1, "Nonnegative orthant")
+        replacement = next(m.blocks("## Indicators\n", path))
+        fragments = ["Nonnegative-orthant", "Nonnegative-orthant-1"]
+        record = dict(page=page, fragments=fragments, target="Indicators", block_id=old.id,
+                      baseline_sha=old.sha, reviewer="fixture-reviewer@fixture-revision",
+                      evidence="Fixture: reviewed repository-authored inbound references are absent.")
+        rows = [dict(page=page, fragment=fragment) for fragment in ["", *fragments, "Still-required"]]
+        self.write("build/api/functions.html", '<article id="documenter-page"><h2 id="Indicators"></h2><h2 id="Still-required"></h2></article>')
+        return rows, dict(retirements=[record], base_blocks=[old], mappings={old.id: ("upstream", [replacement])})
+
+    def test_named_anchor_retirement_reports_present_and_retired_separately(self):
+        rows, options = self.anchor_retirement_fixture()
+        report = {}
+        self.assertEqual(m.anchor_check(rows, self.root / "build", report=report, **options), [])
+        self.assertEqual(report["baseline_fragment_count"], 3)
+        self.assertEqual(report["present_fragment_count"], 1)
+        self.assertEqual(report["retired_fragment_count"], 2)
+        self.assertEqual(report["approved_retirement_count"], 2)
+        self.assertEqual({r["fragment"] for r in report["approved_retirements"]},
+                         {"Nonnegative-orthant", "Nonnegative-orthant-1"})
+        self.assertEqual(len(m.anchor_check(rows, self.root / "build")), 2)
+
+    def test_anchor_retirement_cannot_remove_an_explicit_id_heading(self):
+        rows, options = self.anchor_retirement_fixture()
+        old = options["base_blocks"][0]
+        explicit = m.Block(old.id, old.path, "heading", "## [Nonnegative orthant](@id Nonnegative-orthant)", 1, old.heading)
+        options["base_blocks"] = [explicit]
+        options["retirements"][0]["baseline_sha"] = explicit.sha
+        errors = m.anchor_check(rows, self.root / "build", **options)
+        self.assertTrue(any("automatic heading, without @id" in error for error in errors), errors)
+
+    def test_anchor_retirement_rejects_unknown_duplicate_and_nonbaseline_pairs(self):
+        for case, message in (("unknown", "unknown named"), ("duplicate", "duplicate anchor retirement"),
+                               ("not-frozen", "not in the frozen snapshot")):
+            with self.subTest(case=case):
+                rows, options = self.anchor_retirement_fixture()
+                record = options["retirements"][0]
+                if case == "unknown":
+                    record["fragments"][0] = "ProximalBase.IndNonnegative"
+                    rows.append(dict(page="api/functions", fragment="ProximalBase.IndNonnegative"))
+                elif case == "duplicate":
+                    options["retirements"].append(copy.deepcopy(record))
+                else:
+                    rows = [row for row in rows if row["fragment"] != "Nonnegative-orthant"]
+                errors = m.anchor_check(rows, self.root / "build", **options)
+                self.assertTrue(any(message in error for error in errors), errors)
+
+    def test_anchor_retirement_requires_target_and_original_page(self):
+        rows, options = self.anchor_retirement_fixture()
+        self.write("build/api/functions.html", '<article id="documenter-page"><h2 id="Still-required"></h2></article>')
+        self.write("build/other.html", '<article id="documenter-page"><h2 id="Indicators"></h2></article>')
+        errors = m.anchor_check(rows, self.root / "build", **options)
+        self.assertTrue(any("target on its original page" in error for error in errors), errors)
+        (self.root / "build/api/functions.html").unlink()
+        errors = m.anchor_check(rows, self.root / "build", **options)
+        self.assertTrue(any("missing baseline page: api/functions" in error for error in errors), errors)
+
+    def test_anchor_retirement_keeps_unrelated_missing_fragments_blocking(self):
+        rows, options = self.anchor_retirement_fixture()
+        self.write("build/api/functions.html", '<article id="documenter-page"><h2 id="Indicators"></h2></article>')
+        errors = m.anchor_check(rows, self.root / "build", **options)
+        self.assertEqual(errors, ["missing original page+fragment: api/functions#Still-required"])
+
+    def test_anchor_retirement_requires_validated_mapping_and_review_evidence(self):
+        for case, message in (("mapping", "validated upstream mapping"),
+                               ("wrong-source-page", "validated upstream mapping"),
+                               ("reviewer", "independent review"), ("evidence", "audit evidence")):
+            with self.subTest(case=case):
+                rows, options = self.anchor_retirement_fixture()
+                if case == "mapping":
+                    options["mappings"] = {}
+                elif case == "wrong-source-page":
+                    old = options["base_blocks"][0]
+                    replacement = next(m.blocks("## Indicators\n", "docs/src/other.md"))
+                    options["mappings"] = {old.id: ("upstream", [replacement])}
+                else:
+                    options["retirements"][0][case] = ""
+                errors = m.anchor_check(rows, self.root / "build", **options)
+                self.assertTrue(any(message in error for error in errors), errors)
+
     def test_sidebar_anchor_changes_are_excluded(self):
         page = '<nav><input id="collapse-1"></nav><article id="documenter-page"><h1 id="kept">Text</h1></article>'
         self.assertEqual(m.ContentAnchors(page).ids, {"documenter-page", "kept"})

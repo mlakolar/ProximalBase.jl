@@ -33,8 +33,16 @@ Direct value and proximal oracles use the real, one-based dense array
 and iterate routes of [`SeparableFunction`](@ref SeparableFunction).
 The numerical targets are homogeneous CPU `Float32` and `Float64`.
 The one-argument constructor promotes the level with the `Float64`
-default shape. Pass both parameters and the step as `Float32` to use
-homogeneous `Float32` arithmetic.
+default shape. The omitted unit step also uses `Float64` working precision
+for `Float32` inputs, even when both parameters are `Float32`. For the
+homogeneous `Float32` path on a `Float32` array `x`, pass both parameters
+and the step explicitly.
+
+```julia
+f = SCAD(0.5f0, 3.7f0)
+y = prox(f, x, 1f0)
+```
+
 Array steps pair with coordinates by linear index on dense arrays,
 `SparseIterate` and `BlockIterate`. A `SymmetricSparseIterate` destination
 requires a scalar step.

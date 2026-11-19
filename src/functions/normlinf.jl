@@ -752,7 +752,8 @@ end
 # Bound the distance from the rounded mass to its exact value by 4Du times
 # the rounded mass, with D the depth and Du ≤ 1/4. Round the interval out
 # at each step. The exact level for this support is t + (mass - c) / k.
-function _linf_certified_ball_level(t::W, c::W, mass::W, k, lo::W, hi::W, depth) where {W}
+@inline function _linf_certified_support_level(t::W, c::W, mass::W, k, lo::W, hi::W, depth,
+                                               signed = false) where {W}
   rel = (2 * depth) * eps(W)
   rel <= W(0.5) && isfinite(mass) || return nothing
   error = nextfloat(rel * mass)
@@ -761,13 +762,37 @@ function _linf_certified_ball_level(t::W, c::W, mass::W, k, lo::W, hi::W, depth)
   lower = prevfloat(t + prevfloat(prevfloat(lower_mass - c) / k))
   upper = nextfloat(t + nextfloat(nextfloat(upper_mass - c) / k))
   lo < lower && upper < hi || return nothing
-  t + (mass - c) / k
+  level = t + (mass - c) / k
+  # A signed support can remain fixed through cancellation at level zero.
+  # Use the sorted prefix there. Require a narrow interval of one sign.
+  if signed
+    (lower > 0 || upper < 0) && upper - lower <= abs(level) / 1024 || return nothing
+  end
+  level
 end
 
-function _linf_ball_support(v, t::W, n, rd) where {W}
+struct _LinfFaceRead{W, X}
+  x::X
+  m::W
+end
+
+Base.@propagate_inbounds _linf_support_entry(v, i, rd::_AbsRead) = rd(v[i]), true
+Base.@propagate_inbounds function _linf_support_entry(v, i, rd::_LinfFaceRead{W}) where {W}
+  xi, vi = convert(W, rd.x[i]), convert(W, v[i])
+  ifelse(xi > 0, -vi, vi), abs(xi) == rd.m
+end
+
+# Signed integer keys order both signs of a float. The sign-dependent
+# transform is its own inverse. Magnitudes already have ordered keys.
+@inline _linf_support_order(bits, ::_AbsRead) = bits
+@inline _linf_support_order(bits::K, ::_LinfFaceRead) where {K} =
+  xor(bits, ifelse(bits < 0, typemax(K), zero(K)))
+
+function _linf_projection_support(v, t::W, n, rd, inactive_floor::W = zero(W)) where {W}
   K = _int_type(W)
   count = zero(K)
-  below = zero(K)
+  floor_key = _linf_support_order(reinterpret(K, inactive_floor), rd)
+  below = floor_key
   above = typemax(K)
   mass = squares = zero(W)
   for first in 1:4096:n
@@ -776,12 +801,12 @@ function _linf_ball_support(v, t::W, n, rd) where {W}
     for start in first:64:last
       block_mass = block_squares = zero(W)
       @inbounds @simd for i in start:min(last, start + 63)
-        y = rd(v[i])
-        active = y > t
-        bits = reinterpret(K, y)
+        y, on_face = _linf_support_entry(v, i, rd)
+        active = on_face & (y > t)
+        key = _linf_support_order(reinterpret(K, y), rd)
         count += active
-        below = max(below, ifelse(active, zero(K), bits))
-        above = min(above, ifelse(active, bits, typemax(K)))
+        below = max(below, ifelse(on_face & !active, key, floor_key))
+        above = min(above, ifelse(active, key, typemax(K)))
         block_mass += ifelse(active, y - t, zero(W))
         block_squares += abs2(ifelse(active, zero(W), y))
       end
@@ -791,7 +816,47 @@ function _linf_ball_support(v, t::W, n, rd) where {W}
     mass += tile_mass
     squares += tile_squares
   end
-  mass, squares, Int(count), reinterpret(W, below), reinterpret(W, above)
+  mass, squares, Int(count), reinterpret(W, _linf_support_order(below, rd)),
+    reinterpret(W, _linf_support_order(above, rd))
+end
+
+@inline _linf_proposal_excess(v, n, t, rd::_AbsRead) = _l1ball_excess(v, n, t, rd)
+function _linf_proposal_excess(v, n, t::W, rd::_LinfFaceRead{W}) where {W}
+  K = _int_type(W)
+  count, above = zero(K), typemax(K)
+  mass = zero(W)
+  @inbounds @simd for i in 1:n
+    y, on_face = _linf_support_entry(v, i, rd)
+    active = on_face & (y > t)
+    mass += ifelse(active, y - t, zero(W))
+    count += active
+    above = min(above, ifelse(active, _linf_support_order(reinterpret(K, y), rd), typemax(K)))
+  end
+  mass, Int(count), reinterpret(W, _linf_support_order(above, rd))
+end
+
+# The certificate is independent of the accuracy of these proposal passes.
+function _linf_proposed_support(v, c, t, n, rd)
+  for _ in 1:6
+    mass, k, hi = _linf_proposal_excess(v, n, t, rd)
+    k == 0 && return nothing
+    mass <= c && break
+    step = t + (mass - c) / k
+    step > t || break
+    t = step
+    t < hi && break
+  end
+  t
+end
+
+@inline function _linf_certified_support_score(v, c::W, t::W, n, rd, inactive_floor::W,
+                                               signed) where {W}
+  mass, squares, k, lo, hi = _linf_projection_support(v, t, n, rd, inactive_floor)
+  k == 0 && return nothing
+  level = _linf_certified_support_level(t, c, mass, k, lo, hi, 129 + cld(n, 4096), signed)
+  level === nothing && return nothing
+  q = squares + k * abs2(level)
+  isfinite(q) && _squares_normal(q, n, W) ? sqrt(q) : nothing
 end
 
 @noinline function _linf_outside_ball_score(v, c::W, s::W, n) where {W<:Union{Float32, Float64}}
@@ -800,26 +865,41 @@ end
   n >= 32 && n * eps(W) <= W(0.5) && c >= floatmin(W) &&
     c < s / 2 && s <= floatmax(W) / 2 || return nothing
   rd = _AbsRead{W}()
-  t = (s - c) / n
-  # A bounded series of shared excess passes proposes a support. The
-  # certificate below is independent of the accuracy of these passes.
-  for _ in 1:6
-    mass, k, hi = _l1ball_excess(v, n, t, rd)
-    k == 0 && return nothing
-    mass <= c && break
-    step = t + (mass - c) / k
-    step > t || break
-    t = step
-    t < hi && break
-  end
-  mass, squares, k, lo, hi = _linf_ball_support(v, t, n, rd)
-  k == 0 && return nothing
-  level = _linf_certified_ball_level(t, c, mass, k, lo, hi, 129 + cld(n, 4096))
-  level === nothing && return nothing
-  q = squares + k * abs2(level)
-  isfinite(q) && _squares_normal(q, n, W) ? sqrt(q) : nothing
+  t = _linf_proposed_support(v, c, (s - c) / n, n, rd)
+  t === nothing && return nothing
+  _linf_certified_support_score(v, c, t, n, rd, zero(W), false)
 end
 @inline _linf_outside_ball_score(v, c, s, n) = nothing
+
+function _linf_face_seed(v, rd::_LinfFaceRead{W}, n, c, facesize) where {W}
+  K = _int_type(W)
+  lowest, highest = typemax(K), typemin(K)
+  sum_face = zero(W)
+  @inbounds @simd for i in 1:n
+    y, on_face = _linf_support_entry(v, i, rd)
+    key = _linf_support_order(reinterpret(K, y), rd)
+    sum_face += ifelse(on_face, y, zero(W))
+    lowest = min(lowest, ifelse(on_face, key, typemax(K)))
+    highest = max(highest, ifelse(on_face, key, typemin(K)))
+  end
+  min_face = reinterpret(W, _linf_support_order(lowest, rd))
+  max_face = reinterpret(W, _linf_support_order(highest, rd))
+  max((sum_face - c) / facesize, max_face - c), min_face, max_face
+end
+
+@noinline function _linf_certified_face_score(v, x, m::W, c::W, s::W, n, facesize) where {W<:Union{Float32, Float64}}
+  # Small faces already sort cheaply. The ordinary range keeps the seed finite.
+  n >= 32 && facesize >= 16 && n * eps(W) <= W(0.5) &&
+    floatmin(W) <= c <= floatmax(W) / 4 && s <= floatmax(W) / 4 || return nothing
+  rd = _LinfFaceRead(x, m)
+  seed, min_face, max_face = _linf_face_seed(v, rd, n, c, facesize)
+  seed < max_face || return nothing
+  # An all-active proposal needs only the certification pass.
+  t = seed < min_face ? seed : _linf_proposed_support(v, c, seed, n, rd)
+  t === nothing && return nothing
+  _linf_certified_support_score(v, c, t, n, rd, W(-Inf), true)
+end
+@inline _linf_certified_face_score(v, x, m, c, s, n, facesize) = nothing
 
 function _linf_point(c::W, v, x, ::Type{W}) where {W}
   sx, m = _linf_classify(x, _AbsRead{W}(), W)
@@ -847,6 +927,8 @@ function _linf_point(c::W, v, x, ::Type{W}) where {W}
       last = i
     end
   end
+  score = _linf_certified_face_score(v, x, m, c, sv, n, facesize)
+  score === nothing || return score
   outside = facesize == n ? zero(W) : _linf_remainder_norm(_LinfOffFace(v, x, m))
   if facesize == 1
     u = W(x[last]) > 0 ? -W(v[last]) : W(v[last])

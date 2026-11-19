@@ -226,10 +226,26 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 ## CI sharding
 
 The full declared inventory is split across three Linux/current-Julia runners.
-The shards are computed from the same sorted inventory as the unsharded local
-run, round-robin, so each declared test runs exactly once across the three
-shards. Every shard validates the complete inventory before selecting files,
-and each file still runs in a fresh Julia process with bounds checks enabled.
+The runner assigns selected files longest-processing-time first. It considers
+files in descending weight order, breaking ties by file name, and assigns each
+file to the shard with the smallest cumulative weight, breaking ties by shard
+index. Within each shard, files run in their original sorted selection order.
+Each declared test runs exactly once across the three full CI shards. The
+runner validates the complete inventory and weight table before selection,
+and runs each file in a fresh Julia process with bounds checks enabled.
+
+The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
+time in seconds. Each entry is the median of three measurements, rounded to
+one decimal second, from these Julia 1.13.4 GitHub Actions runs of the same
+50-file inventory.
+[44576422943](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44576422943/attempts/1),
+[44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
+and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578535495/attempts/1).
+
+After a significant inventory or runtime change, collect fresh timings from
+representative successful CI runs with a matching inventory and Julia version.
+Update the affected weights and record the timing sources. New test files need
+a positive finite weight when they are declared.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
@@ -240,8 +256,7 @@ each test-file subprocess, including startup and compilation. Its `status` is
 subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
 for the selected files, including runner overhead, and uses `shard=all` for
 unsharded runs. Find both records in the GitHub Actions test job logs and the
-`package-validation-logs-linux-current-julia-shard-*` artifacts. The timing
-records measure the existing shard assignments.
+`package-validation-logs-linux-current-julia-shard-*` artifacts.
 
 The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are

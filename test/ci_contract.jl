@@ -1,7 +1,20 @@
 module CIContractTest
 using Test, TOML
 const root=dirname(@__DIR__)
+const TT=Main.TestTiers
 workflow=read(joinpath(root,".github","workflows","CI.yml"),String)
+
+parts(names,w,count)=[TT.shard_files(names,i,count;weights=w) for i in 1:count]
+function check_partition(names,w,count)
+    p=parts(names,w,count)
+    combined=reduce(vcat,p)
+    @test all(!isempty,p)
+    @test sort(combined)==sort(names)
+    @test length(unique(combined))==length(names)
+    @test p==parts(names,w,count)
+    @test all(s -> s==filter(in(s),names),p)
+end
+
 @testset "minimal required CI contract" begin
     @test occursin("name: PR required jobs",workflow)
     @test occursin("name: PR merge gate",workflow)
@@ -18,23 +31,128 @@ workflow=read(joinpath(root,".github","workflows","CI.yml"),String)
     @test Set(keys(rules["platforms"]))==Set(["linux"])
 end
 @testset "shards cover the complete supported inventory exactly once" begin
-    selected=Main.TestTiers.select(Main.TestTiers.inventory(),"full")
-    parts=[Main.TestTiers.shard_files(selected,i,3) for i in 1:3]
-    @test all(x -> !isempty(x),parts)
-    combined=reduce(vcat,parts)
-    @test sort(combined)==sort(selected)
-    @test length(unique(combined))==length(selected)
-    @test_throws ErrorException Main.TestTiers.shard_files(selected,0,3)
-    @test_throws ErrorException Main.TestTiers.shard_files(selected,4,3)
-    @test_throws ErrorException Main.TestTiers.shard_files(selected,1,0)
-    @test_throws ErrorException Main.TestTiers.shard_files(selected,1,length(selected)+1)
+    inv=TT.inventory()
+    selected=TT.select(inv,"full")
+    @test !isempty(selected)
+    @test Set(keys(inv.weights))==Set(selected)
+    @test all(w -> w isa Real && !(w isa Bool) && isfinite(w) && w > 0, values(inv.weights))
+    check_partition(selected,inv.weights,3)
+    check_partition(selected,inv.weights,2)
+    check_partition(selected[1:2:end],inv.weights,3)
+    @test parts(selected,inv.weights,1)==[selected]
+    @test_throws "shard index must lie in 1:3" TT.shard_files(selected,0,3;weights=inv.weights)
+    @test_throws "shard index must lie in 1:3" TT.shard_files(selected,4,3;weights=inv.weights)
+    @test_throws "shard count must be positive" TT.shard_files(selected,1,0;weights=inv.weights)
+    @test_throws "more shards than selected test files" TT.shard_files(selected,1,length(selected)+1;weights=inv.weights)
+end
+@testset "scheduler places the heaviest files on the lightest shard" begin
+    # Equal weights are placed in lexical order. The final tie goes to shard 1.
+    @test parts(["c","a","b"],Dict("a"=>1,"b"=>1,"c"=>1),2)==[["c","a"],["b"]]
+    # Shard 1 holds h alone (10). Shard 2 holds m+n+o (9) in input order.
+    @test parts(["o","h","n","m"],Dict("h"=>10,"m"=>3.0,"n"=>3,"o"=>3),2)==[["h"],["o","n","m"]]
+    # Ties between shards go to the lowest index: a,b,c fill 1,2,3, then d -> 1 and e -> 2.
+    @test parts(["a","b","c","d","e"],Dict("a"=>2,"b"=>2,"c"=>2,"d"=>1,"e"=>1),3)==[["a","d"],["b","e"],["c"]]
+    # Loads are exact: Float64 rounds 2^60 + 1 back to 2^60 and sees a tie; exactly, d goes to the lighter shard 2.
+    @test parts(["a","b","c","d"],Dict("a"=>2.0^60,"b"=>2.0^60,"c"=>1.0,"d"=>1.0),2)==[["a","c"],["b","d"]]
+    # Float64 loads would overflow to Inf and tie; exact loads put f on shard 2 (2fm against 2.5fm).
+    fm=floatmax()
+    big=Dict("a"=>fm,"b"=>fm,"c"=>fm,"d"=>fm,"e"=>fm/2,"f"=>fm/2)
+    @test parts(["a","b","c","d","e","f"],big,2)==[["a","c","e"],["b","d","f"]]
+end
+@testset "tier selection is cumulative and shards use only selected weights" begin
+    mktempdir() do dir
+        for f in ("q","s","t","f","helper")
+            write(joinpath(dir,f*".jl"),"nothing\n")
+        end
+        write(joinpath(dir,"tiers.toml"),"""
+        [tiers]
+        quick = ["q"]
+        standard = ["s"]
+        thorough = ["t"]
+        full = ["f"]
+        [not_tests]
+        files = ["helper"]
+        [weights]
+        q = 1
+        s = 5
+        t = 1
+        f = 1
+        """)
+        inv=TT.inventory(dir)
+        @test TT.select(inv,"quick")==["q"]
+        @test TT.select(inv,"standard")==["q","s"]
+        @test TT.select(inv,"thorough")==["q","s","t"]
+        @test TT.select(inv,"full")==["f","q","s","t"]
+        @test_throws "unknown test tier" TT.select(inv,"nightly")
+        standard=TT.select(inv,"standard")
+        @test parts(standard,inv.weights,2)==[["s"],["q"]]
+    end
 end
 @testset "manifest rejects unclassified tests" begin
+    empty_catalog="[tiers]\nquick=[]\nstandard=[]\nthorough=[]\nfull=[]\n[not_tests]\nfiles=[]\n"
     mktempdir() do dir
-        write(joinpath(dir,"tiers.toml"),"[tiers]\nquick=[]\nstandard=[]\nthorough=[]\nfull=[]\n[not_tests]\nfiles=[]\n")
-        @test isempty(Main.TestTiers.select(Main.TestTiers.inventory(dir),"full"))
+        write(joinpath(dir,"tiers.toml"),empty_catalog)
+        @test_throws "[weights] table" TT.inventory(dir)
+        write(joinpath(dir,"tiers.toml"),empty_catalog*"[weights]\n")
+        inv=TT.inventory(dir)
+        @test isempty(inv.weights)
+        @test isempty(TT.select(inv,"full"))
         write(joinpath(dir,"unexpected.jl"),"nothing\n")
-        @test_throws ErrorException Main.TestTiers.inventory(dir)
+        @test_throws "inventory mismatch" TT.inventory(dir)
+        write(joinpath(dir,"tiers.toml"),empty_catalog)
+        @test_throws "inventory mismatch" TT.inventory(dir)
+    end
+    mktempdir() do dir
+        write(joinpath(dir,"a.jl"),"nothing\n")
+        single="[tiers]\nquick=[\"a\"]\nstandard=[]\nthorough=[]\nfull=[]\n[not_tests]\nfiles=[]\n"
+        write(joinpath(dir,"tiers.toml"),single)
+        @test_throws "[weights] table" TT.inventory(dir)
+        write(joinpath(dir,"tiers.toml"),single*"[weights]\na=2.5\n")
+        inv=TT.inventory(dir)
+        @test inv.weights==Dict("a"=>2.5)
+        @test parts(TT.select(inv,"full"),inv.weights,1)==[["a"]]
+    end
+end
+@testset "manifest weights must match the declared tests and be finite positive" begin
+    catalog="""
+    [tiers]
+    quick = ["a"]
+    standard = ["b"]
+    thorough = []
+    full = []
+    [not_tests]
+    files = ["helper"]
+    """
+    mktempdir() do dir
+        for f in ("a","b","helper")
+            write(joinpath(dir,f*".jl"),"nothing\n")
+        end
+        load(text)=(write(joinpath(dir,"tiers.toml"),text); TT.inventory(dir))
+        inv=load(catalog*"[weights]\na = 1.5\nb = 2\n")
+        @test inv.weights==Dict("a"=>1.5,"b"=>2)
+        @test parts(TT.select(inv,"standard"),inv.weights,2)==[["b"],["a"]]
+        @test_throws "[weights] table" load(catalog)
+        @test_throws "[weights] table" load("weights = 3\n"*catalog)
+        @test_throws "[weights] table" load("weights = []\n"*catalog)
+        @test_throws "[weights] table" load(catalog*"[[weights]]\na = 1\nb = 1\n")
+        for (label, entries) in (
+            ("missing key", "a = 1\n"),
+            ("extra key", "a = 1\nb = 1\nc = 1\n"),
+            ("stale key", "a = 1\nold = 1\n"),
+            ("helper key", "a = 1\nb = 1\nhelper = 1\n"),
+        )
+            @testset "$label" begin
+                @test_throws "weight mismatch" load(catalog*"[weights]\n"*entries)
+            end
+        end
+        for value in ("true", "\"1\"", "[1]", "{ x = 1 }", "0", "0.0", "-1", "nan", "inf", "-inf")
+            @testset "invalid weight $value" begin
+                @test_throws "finite positive" load(catalog*"[weights]\na = $value\nb = 1\n")
+            end
+        end
+        @testset "duplicate key" begin
+            @test_throws TOML.ParserError load(catalog*"[weights]\na = 1\na = 2\nb = 1\n")
+        end
     end
 end
 end

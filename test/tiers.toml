@@ -24,6 +24,7 @@ quick = [
   "kkt_block",
   "kkt_linf",
   "kkt_point",
+  "kkt_smooth",
   "leastsquares_predictor",
   "linear_shapes",
   "linear_sparse_value",

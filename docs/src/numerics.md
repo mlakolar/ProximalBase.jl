@@ -195,6 +195,25 @@ rounding of the projection puts the stored point outside the computed
 boundary. A positive finite radius projects a NaN input to an all-NaN output,
 including implicit zeros of a `SparseIterate`.
 
+For `IndBallL1`, the value and projection compare the computed sum of
+magnitudes with the radius rounded to the floating type `T` of the argument.
+There is no feasibility tolerance. Rounding can decide a point at the
+boundary. For example, the computed sum for `[1.0, 2.0^-54]` equals `1.0`,
+and the projection at radius `1.0` copies that point.
+
+Finite sums above `floatmax(T)/2` are compared in power-of-two units. The
+shared ℓ₁-ball threshold from `NormLinf` selects the soft-threshold level.
+A tiny radius can be lost when that level rounds to the largest magnitude.
+The fallback sorts the magnitudes and forms the output directly from their
+gaps at `O(n log n)` cost. It is used when the radius is tiny relative to the
+largest magnitude or when a small radius relative to the sum shows
+substantial loss in the tentative projection. With `M = floatmax(Float64)`
+and radius `1`, the projection of `[M, -M]` is `[0.5, -0.5]`.
+
+`value_and_prox!` evaluates the stored point. Its value can be `Inf` when
+rounding puts that point outside the computed boundary. For example, with
+`δ = nextfloat(0.0)`, radius `3δ` projects `[M, -M]` to `[2δ, -2δ]`.
+
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 Its proximal operators recompute, for finite inputs, a group norm whose sum of
@@ -331,6 +350,7 @@ all-NaN result or a particular exception.
 | `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
 | `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
 | `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL1` | The same step, radius and nonfinite rules as `IndBallL2`: any nonnegative scalar step projects, a negative or NaN step throws before writes (including through scalar `Scaled`), a NaN entry gives value NaN, zero radius projects to positive zeros, infinite radius copies the input, and at positive finite radius a single infinite entry gives the signed radius there and zeros elsewhere, while multiple infinite entries or any NaN give an all-NaN projection. A feasible point is copied with its signed zeros. Entries at or below the threshold level become `+0`. |
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
 | `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |

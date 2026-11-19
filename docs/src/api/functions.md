@@ -54,6 +54,7 @@ ElasticNet
 ```@docs
 IndBox
 IndNonnegative
+IndBallL1
 IndBallL2
 ```
 

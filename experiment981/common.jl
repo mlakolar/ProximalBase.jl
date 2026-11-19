@@ -3,7 +3,7 @@
 function load_checkout(checkout, namespace)
     container = Module(namespace)
     Base.include(container, abspath(checkout, "src", "ProximalBase.jl"))
-    return container.ProximalBase
+    return Base.invokelatest(getproperty, container, :ProximalBase)
 end
 
 function penalty(pb, level, factors)

@@ -79,5 +79,5 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     length(ARGS) == 3 || error("usage: accuracy.jl LABEL CHECKOUT OUT.tsv")
     pb = load_checkout(ARGS[2], :AccuracyCheckout)
-    accuracy(ARGS[1], pb, ARGS[3])
+    Base.invokelatest(accuracy, ARGS[1], pb, ARGS[3])
 end

@@ -233,6 +233,12 @@ block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and
 frozen storage bookkeeping checks, with no packaged Testing extension.
 
+`mcp` checks the minimax concave penalty and its global proximal operator
+against a `BigFloat` evaluation of the full objective on each region and a
+separate numerical search. It covers `Float32` and `Float64` ties and adjacent
+inputs, parameter and step endpoints, overflow and subnormals, stored-output
+fused values, and pre-write validation for arrays and iterates.
+
 This is the complete minimal suite, not the historical package full suite.
 The removed historical catalog is preserved at the frozen baseline and
 legacy/full. No retained failure is skipped to accommodate the reduction.
@@ -274,6 +280,13 @@ The 54-file snapshot uses provisional weights of 35 seconds for
 checkout up to the next five seconds. The measured times were 33.898,
 84.136, 14.302, and 149.517 seconds on Julia 1.13.4.
 [54-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44615346170/attempts/1)
+
+The 55-file snapshot adds a provisional 15-second weight for `mcp`. This
+rounds the slower of two passing Julia 1.13.4 observations, 10.808 and
+14.887 seconds, up to the next five seconds. The second file passed before
+a newer master push cancelled its workflow.
+[Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
+and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

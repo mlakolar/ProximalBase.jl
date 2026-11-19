@@ -45,6 +45,12 @@ NormL0
 SCAD
 ```
 
+## Minimax concave penalty
+
+```@docs
+MCP
+```
+
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs

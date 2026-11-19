@@ -27,9 +27,10 @@ apply alongside each entry.
 |:--|:--|:--|
 | `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints) | Existing pages |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
+| `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
-| `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
+| `ElasticNet` | [Numerical contract](elasticnet.md) | Verbatim migration |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |

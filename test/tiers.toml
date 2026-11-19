@@ -32,6 +32,7 @@ quick = [
   "logdet",
   "logisticloss",
   "matrixview",
+  "mcp",
   "minimal_math",
   "norml0",
   "norml1nonneg",
@@ -60,7 +61,7 @@ thorough = []
 full = []
 
 [not_tests]
-files = ["runtests", "tiers", "testutils"]
+files = ["mcp_reference", "runtests", "tiers", "testutils"]
 
 [weights]
 active_handle = 4.6
@@ -95,6 +96,7 @@ linear_value_recovery = 5.9
 logdet = 19.6
 logisticloss = 30.0
 matrixview = 8.7
+mcp = 15.0
 minimal_math = 23.1
 norml0 = 6.0
 norml1nonneg = 14.6

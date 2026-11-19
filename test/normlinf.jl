@@ -1287,6 +1287,7 @@ end
   for (name, x, a) in inputs
     buf = Vector{T}(undef, length(x))
     @test allocs(PB._l1ball_threshold!, buf, x, a, rd) == 0
+    @test allocs(PB._l1ball_threshold!, buf, x, a, rd, PB._linf_sum(x, rd, T)) == 0
     @test allocs(PB._l1ball_michelot, x, a, rd, T) == 0
   end
 end

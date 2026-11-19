@@ -660,7 +660,8 @@ function _l1ball_iterate(x, n::Int, a::T, rd::F, τ::T) where {T, F}
 end
 
 # Michelot's algorithm: the iteration of the header on all the entries, from the plain level (s - a)/n of all of them, with s their sum
-# from `_linf_sum` (the vectorized pass of the caller). The handover of Condat's pass calls it with the argument and the same reader.
+# from `_linf_sum` (the vectorized pass of the caller). The handover of Condat's pass starts the same iteration from the same level,
+# with the sum of the caller's pass when the caller gives it.
 function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
   n = length(x)
   s = _linf_sum(x, rd, T)

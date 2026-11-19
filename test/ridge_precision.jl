@@ -47,12 +47,11 @@ setprecision(BigFloat, BIG) do
     @test prox_block(SqrNormL2(pow2(Float32, -100), Float32[pow2(Float32, 100)]), 0f0, 1, pow2(Float32, -60)) === pow2(Float32, -60)
 
     # a Float64 level or step outside the range of Float32, and a product γλ outside the range of Float64
-    # (prox, uncentered and centered, and the gradient)
+    # (prox, uncentered and centered)
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), Float32[1], pow2(Float64, -160)) == Float32[0.5]
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160), Float32[0]), Float32[1], pow2(Float64, -160)) == Float32[0.5]
     @test prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), [pow2(Float32, 100)], 1.0) == [pow2(Float32, -60)]
     @test prox!(zeros(1), SqrNormL2(pow2(Float64, 800)), [pow2(Float64, 900)], pow2(Float64, 800)) == [pow2(Float64, -700)]
-    @test gradient!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 160)), [pow2(Float32, -80)]) == [pow2(Float32, 80)]
   end
 
   @testset "prox: sweep against exact references" begin
@@ -81,22 +80,12 @@ setprecision(BigFloat, BIG) do
     end
   end
 
-  @testset "prox: extremes of the data and a wide center" begin
+  @testset "prox: extreme data and mixed types" begin
     # t = 2^200 in Float32 with the largest coordinate: no overflow in the small weight
     for s in (1f0, -1f0)
       x = [s * floatmax(Float32)]
       z = prox!(zeros(Float32, 1), SqrNormL2(pow2(Float64, 200)), x, 1.0)
       @test near(z[1], ref_prox(Float32, x[1], 0, 1.0, pow2(Float64, 200)), 3)
-    end
-    # a Float64 center outside Float32's range, ordinary coefficient and scaled coefficient
-    for (λ, γ) in ((pow2(Float64, -100), 1.0), (pow2(Float64, -160), 1.0), (pow2(Float64, -40), pow2(Float64, -100)))
-      x, c = Float32[1], Float64[pow2(Float64, 200)]
-      f = SqrNormL2(λ, c)
-      r = ref_prox(Float32, x[1], c[1], γ, λ)
-      normal(Float32, r) || continue
-      z = prox!(zeros(Float32, 1), f, x, γ)
-      @test near(z[1], r, 3)
-      @test prox_block(f, x[1], 1, γ) === z[1]
     end
     # Float32 data, Float64 center that rounds ordinarily: the converted problem is solved
     z = prox!(zeros(Float32, 1), SqrNormL2(1.0, [1 + pow2(Float64, -28)]), Float32[1], 1.0)
@@ -108,7 +97,7 @@ setprecision(BigFloat, BIG) do
   end
 
   @testset "gradient: sweep and overflow of the difference" begin
-    sweeps = ((Float32, Float64, (-200, -100, -1, 0, 1, 100, 200), (0, 100, -100, 127)),
+    sweeps = ((Float32, Float64, (-100, -1, 0, 1, 100), (0, 100, -100, 127)),
               (Float64, Float64, (-1022, -800, -1, 0, 1, 800, 1000), (0, 900, -900, 1023)))
     for (W, F, ks, ds) in sweeps, kλ in ks, kx in ds, kc in ds, sx in (1, -1), sc in (1, -1)
       λ = pow2(F, kλ)
@@ -178,13 +167,6 @@ setprecision(BigFloat, BIG) do
   @testset "value: a Float64 center does not widen a Float32 value" begin
     f = SqrNormL2(1.0, [1 + pow2(Float64, -28)])
     @test f(Float32[1]) === 0f0
-    # a center outside Float32's range is used unrounded: 2^-400 (2^200)^2 / 2 = 0.5, although neither the level nor the
-    # center is representable in Float32
-    f = SqrNormL2(pow2(Float64, -400), [pow2(Float64, 200)])
-    @test f(Float32[0]) === 0.5f0
-    # entries that fit are still rounded when another entry does not
-    f = SqrNormL2(pow2(Float64, -400), [pow2(Float64, 200), 1 + pow2(Float64, -28)])
-    @test f(Float32[0, 1]) === 0.5f0
     # the centered value agrees with the dense reference for a sparse argument
     c = Float64[1.5, -2, 0.25, 4]
     xs = sparsevec([2, 4], Float32[1, 3], 4)
@@ -193,49 +175,28 @@ setprecision(BigFloat, BIG) do
     @test SqrNormL2(0.5f0, Float32[1])(Float64[2]) === 0.25
     @test SqrNormL2(0.5, Float32[1])(Float32[2]) === 0.25f0
   end
-  @testset "dense paths: one center entry leaves Float32's range" begin
-    n = 9
-    x = Float32[0.5, -1, 2, 3, -4, 0.25, 8, -0.125, 1]
-    for (k, label) in ((200, "overflows"), (-160, "underflows"))
-      c = Float64[0.3, -1.5, 2, 1, 0.75, -2, 1.25, 0.5, -3]
-      c[4] = pow2(Float64, k)
-      cw = [Float64(Float32(ci)) for ci in c]
-      cw[4] = c[4]                          # the entry that cannot be rounded is used as given
-      # gradient with a level that fits Float32
-      λ = k > 0 ? pow2(Float64, -100) : pow2(Float64, 100)
-      g = fill(7f0, n)
-      gradient!(g, SqrNormL2(λ, c), x)
-      for i in 1:n
-        r = big(λ) * (big(x[i]) - big(cw[i]))
-        normal(Float32, r) ? @test(near(g[i], r, 2)) : nothing
-      end
-      # prox, aliased and separate
-      γ = 1.0
-      z = zeros(Float32, n)
-      prox!(z, SqrNormL2(λ, c), x, γ)
-      xa = copy(x)
-      prox!(xa, SqrNormL2(λ, c), xa, γ)
-      @test xa == z
-      for i in 1:n
-        r = ref_prox(Float32, x[i], cw[i], γ, λ)
-        normal(Float32, r) ? @test(near(z[i], r, 3)) : nothing
-      end
-      # value
-      v = SqrNormL2(λ, c)(x)
-      r = big(λ) / 2 * sum((big(x[i]) - big(cw[i]))^2 for i in 1:n)
-      normal(Float32, r) ? @test(near(v, r, 4)) : nothing
-    end
-  end
-  @testset "a center that underflows on rounding is used unrounded" begin
-    # x - c = -2^-150 exactly; rounding c to a Float32 subnormal would give -2^-149 or 0
-    x = fill(1f0, 9); x[4] = pow2(Float32, -149)
-    c = fill(1.0, 9); c[4] = 1.5 * pow2(Float64, -149)
-    λ = pow2(Float64, 100)
-    g = zeros(Float32, 9)
-    gradient!(g, SqrNormL2(λ, c), x)
-    @test g[4] === -pow2(Float32, -50)
-    @test all(==(0f0), g[[1:3; 5:9]])
-    @test gradient(SqrNormL2(λ, c[4:4]), x[4:4])[1] === -pow2(Float32, -50)
+  @testset "mixed parameters use the converted model" begin
+    x = Float32[2f0^-64]
+    f = SqrNormL2(2.0^160)
+    @test f(x) === Inf32
+    @test gradient(f, x) == Float32[Inf]
+
+    x = zeros(Float32, 9)
+    c = fill(2.0^-160, length(x))
+    λ = 2.0^100
+    f = SqrNormL2(λ, c)
+    g = gradient(f, x)
+    @test all(iszero, g)
+    @test iszero(gradient(f, view(x, :))[1])
+    @test all(iszero, prox(f, x, 1.0))
+    @test iszero(prox_block(f, x[1], 1, 1.0))
+
+    f = SqrNormL2(2.0^-100, [2.0^200])
+    x = Float32[-1]
+    @test f(x) === Inf32
+    @test gradient(f, x) == Float32[-Inf]
+    @test prox(f, x, 1.0) == Float32[Inf]
+    @test prox_block(f, x[1], 1, 1.0) === Inf32
   end
   @testset "review regressions" begin
     # the gradient may be written over the center: the repair pass must not reread it
@@ -244,18 +205,9 @@ setprecision(BigFloat, BIG) do
     r = gradient(SqrNormL2(pow2(Float64, -1020), copy(c)), [fm, 2.0, 3.0])
     @test gradient!(c, SqrNormL2(pow2(Float64, -1020), c), [fm, 2.0, 3.0]) == r
     @test isapprox(r[1], 32.0; rtol = 1e-14)
-    # a BigFloat center that underflows on rounding to the model precision is used as given
-    setprecision(BigFloat, 200) do
-      g = zeros(2)
-      gradient!(g, SqrNormL2(pow2(Float64, 1000), [BigFloat(2)^-1100, BigFloat(0.5)]), [0.0, 1.0])
-      @test g[1] == -ldexp(1.0, -100)
-      x32 = Float32[0, 1]
-      g32 = zeros(Float32, 2)
-      gradient!(g32, SqrNormL2(pow2(Float64, 100), [BigFloat(2)^-200, BigFloat(0.5)]), x32)
-      @test g32[1] === -pow2(Float32, -100)
-    end
     # long Float32 argument with a Float64 center: the sum does not lose digits
-    x = rand(Float32, 10^6); c = rand(Float64, 10^6)
+    rng = Xoshiro(411)
+    x = rand(rng, Float32, 10^6); c = rand(rng, Float64, 10^6)
     ref = sum(abs2, Float64.(x) .- Float64.(Float32.(c))) / 2
     @test isapprox(SqrNormL2(1.0, c)(x), ref; rtol = 1e-6)
   end
@@ -318,13 +270,6 @@ setprecision(BigFloat, BIG) do
         normal(T, r) || return true
         near(z[i], r, 2) && near(s[i], r, 2)
       end
-    end
-  end
-  @testset "BigFloat centers are rounded entry by entry" begin
-    setprecision(BigFloat, 256) do
-      x = Float32[1, 0]
-      c = BigFloat[BigFloat(1) + BigFloat(2)^(-28), BigFloat(2)^(-200)]
-      @test SqrNormL2(ldexp(1.0, 400), c)(x) === 0.5f0
     end
   end
 end

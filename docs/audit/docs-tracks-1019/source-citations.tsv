@@ -1,0 +1,36 @@
+# baseline	7ae86e2093060eb124211e2f21f043c6379f97ae
+path	line	heading
+src/block_iterate.jl	571	Sparse product semantics
+src/functions/elasticnet.jl	72	NaN, infinities and zeros
+src/functions/elasticnet.jl	240	NaN, infinities and zeros
+src/functions/elasticnet.jl	311	NaN, infinities and zeros
+src/functions/elasticnet.jl	380	NaN, infinities and zeros
+src/functions/elasticnet.jl	393	NaN, infinities and zeros
+src/functions/indnonnegative.jl	65	NaN, infinities and zeros
+src/functions/linear.jl	106	Sparse product semantics
+src/functions/norml1.jl	74	NaN, infinities and zeros
+src/functions/norml1nonneg.jl	100	NaN, infinities and zeros
+src/functions/norml1nonneg.jl	111	NaN, infinities and zeros
+src/functions/quadratic.jl	125	Overflow and underflow of values
+src/functions/scaled.jl	487	Overflow and underflow of values
+src/functions/sqrnorml2.jl	242	Overflow and underflow of values
+src/numerical_kernels.jl	235	Overflow and underflow of values
+src/numerical_kernels.jl	247	Overflow and underflow of values
+src/numerical_kernels.jl	281	Overflow and underflow of values
+src/numerical_kernels.jl	696	Overflow and underflow of values
+src/numerical_kernels.jl	723	Overflow and underflow of values
+src/sparse_iterate.jl	338	Sparse product semantics
+src/utils.jl	174	Overflow and underflow of values
+src/utils.jl	193	Overflow and underflow of values
+test/leastsquares_predictor.jl	53	
+test/linear_sparse_value.jl	8	Sparse product semantics
+test/linear_sparse_value.jl	10	Range guarantees
+test/linear_sparse_value.jl	50	Range guarantees
+test/linear_value_recovery.jl	10	Range guarantees
+test/numerical_recovery.jl	14	
+test/ridge_precision.jl	4	Range guarantees
+test/ridge_precision.jl	6	Supported precision and oracle agreement
+test/ridge_precision.jl	293	
+test/sparse_iterate.jl	33	Sparse product semantics
+test/sparse_iterate.jl	363	Sparse product semantics
+test/sparse_iterate_basics.jl	311	Sparse product semantics

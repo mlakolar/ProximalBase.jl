@@ -558,8 +558,10 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 Restrict a retained function's entry parameters to the integer index vector S.
 NormL1, NormL1Nonneg and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
-linear term, vector-response LeastSquaresLoss selects design columns, and
-Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+linear term, vector-response LeastSquaresLoss selects design columns, IndBox
+selects intervals, and Scaled forwards. For least squares, quadratics and
+IndBox, omitted coordinates are fixed at zero. IndBox throws ArgumentError
+if an omitted interval excludes zero, or if scalar bounds exclude zero.
 Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
 when finite, it changes values but not restricted minimizers/gradients/prox.
 Add it back for full-value comparisons. A nonzero fixed point needs separately

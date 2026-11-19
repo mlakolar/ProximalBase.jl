@@ -11,7 +11,7 @@ module KktLinfTest
 # a ProximalBase kernel. Besides them, the zero point is compared with the norm of the proximal point, stationary points
 # are built from the proximal operator, and the distance is checked as the steepest descent rate of v + ∂f at x.
 # A value is accepted within (2n + √n + 5) u (‖v‖₂ + λ) + 4 n nextfloat(zero(W)) of its reference (linf_bound), u = eps(W)/2, where the reference
-# is in the range of W: the bound of the ordinary path, plus the subnormal spacing. A reference above floatmax(W) must
+# is in the range of W. This test tolerance uses the ordinary first-order estimate and an additive subnormal term. A reference above floatmax(W) must
 # overflow to Inf, and the band of relative width 100 eps(W) around floatmax(W) is not decided.
 #
 # Which tests fail at the base (13891ccf): the checks of valid inputs, of the new NormLinf methods and of the refusals that they

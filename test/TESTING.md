@@ -8,11 +8,14 @@ belong to quick; standard/thorough/full include that inventory.
 
 The preserved storage suites cover scalar/block/symmetric indexing, active
 zeros, copies, views, aliases, arbitrary block layouts, writes and products.
+`symmetric_iterate_interface` also checks finite and infinite `Scaled` gradients
+in Float32/64, including active-zero membership, IEEE activation of implicit
+zeros, retained finite exponent products, and validation before writes.
 `ridge_precision` preserves the frozen independent BigFloat ridge tests and
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64.
 `numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
-(bounded products, halved residuals, squared residuals) against BigFloat
+(bounded products, halved residuals, squared residuals, two-term exponent sums) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
 `quadratic_domain` tests `QuadraticFunction` for a symmetric `A` that need not be positive
 semidefinite: values, gradients and the proximal point against analytic and BigFloat references,
@@ -25,7 +28,7 @@ the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunc
 single-factor `Scaled` recovery (value parts, level folds, partial folds, array-step routes, exact zeros and
 infinite factors), `NormL1` weights and thresholds (and the unweighted entry type, #684), `NormL1` values
 whose terms round below floatmin on every representation (#373), the ridge prox
-weights and owners, the SVD prox, the `_pow2_weighted` sums, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
+weights and owners, the SVD prox, the recomputed-dot shift, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
 part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `symmetric_parameters` covers symmetric per-entry parameters as a model precondition: valid
@@ -142,7 +145,8 @@ scales), the #609 inputs that `Scaled(f, α)(β)` misses, the overflow threshold
 gradient and of an overflowing `z - Y`, agreement of `f(β)`, `value_and_gradient!` and the oracles on the same
 predictor (for the raw loss each value within γ_n of the reference of the same rounded residual, because the order of
 additions can differ between compiled methods, and the gradients bit for bit; for a `Scaled` loss each value against
-the exact-difference reference with `value_ok` and the gradients within 4 eps),
+the exact-difference reference with `value_ok` and the gradients checked componentwise by
+`abs(gs[j] - gl[j]) <= 4 * eps(T) * abs(gl[j]) + floatmin(T)`),
 the products counted with a strided matrix type (none for the value oracles, one by Xᵀ for the combined one, and
 the products of the existing methods), the values of a `CountMat` design and a plain matrix each compared to
 α Σ dᵢ² / 2 of its own residual within γ_n (α = 1 for the raw loss; the order of additions can differ between
@@ -153,7 +157,9 @@ refused layouts of `Base.mightalias`, empty designs, tasks that share one loss w
 here), the domain refusals (`MethodError`), public but unexported names, and warmed zero allocation and inference.
 It also checks the ordinary path at its acceptance bounds (sums near `n*floatmin/eps` and near the bound of the
 exponent test, which is also checked directly; on every input the values of the oracles satisfy `value_ok` against
-the reference (its accuracy bound, and its classes where the reference overflows or is not finite), have type `T` and
+the reference (the finite error bound for `abs(ref) * (1 + e) <= floatmax(T)` with `e = (n + 8) * eps(T)` and
+the subnormal allowance, and the class rules otherwise, including an accurate finite value or `+Inf` close to the
+overflow threshold even just below it), have type `T` and
 are `NaN`, `+Inf` or nonnegative as the entries require, and on the inputs with at most two nonzero entries, among
 them 64 entries with one nonzero entry at both bounds, they agree under `isequal` with the kernel called directly;
 `f(β)` and `value_and_gradient!` of the unscaled loss at a finite `r` agree under `isequal` with the oracles on those

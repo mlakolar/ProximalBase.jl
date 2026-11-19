@@ -170,26 +170,6 @@ end
   ldexp((ma * mb) * mc, ea + eb + ec + k)
 end
 
-# a b c 2^k for strictly positive finite a and b and a scaled norm c with 1 <= c < 2^30 that is represented at no more
-# than the current precision (a BigFloat c stored at a precision at most the current one; a c of an IEEE type is). The
-# significands of a and b, in [1/2, 1), are multiplied by c, which needs no frexp, and their product, in [1/4, 2^30] after
-# rounding, is in range. Under these conditions it gives the bits of the kernel above that frexps c as well
-# (_scaled_product) when every integer conversion and exponent addition of the two is exact in its accumulator type: the
-# conversion of k by _product_power, and the sums ea + eb + k here and ea + eb + ec + k there, with ea, eb, ec the frexp
-# exponents of a, b, c (Int sums, Int128 sums for BigFloat). A BigFloat c stored above the current precision is
-# multiplied unrounded here and rounded by frexp there, and the two results can differ. A zero or non-finite a or b is
-# outside this contract (-0 gives -0 here, +0 there). The caller, _l2_term_cold, passes the level and the weight
-# (nonnegative by the constructors' checks) converted to R, after the zero-weight exit of _l2_term and its own zero-level
-# and infinite-parameter exits; the norm ns of _l2_classified_norm, which sqrt forms at the current precision (ns >= 1
-# and, up to rounding, ns <= 2 sqrt(n) for a group of n entries, below 2^30 for n <= 2^56); and the largest Int exponent
-# k of the entries converted to R. For R = Float64 these exponents are below 2^11 in magnitude, and for R = BigFloat the
-# sums are Int128 sums of Int terms, so there the conversion and both sums are exact.
-@inline function _scaled_product_norm(a::T, b::T, c::T, k::Integer) where {T<:AbstractFloat}
-  ma, ea = _frexp(a)
-  mb, eb = _frexp(b)
-  ldexp((ma * mb) * c, _exponent_sum(T, ea, eb, _product_power(T, k)))
-end
-
 @inline function _compensated_add(s, e, v)
   t = s + v
   e += abs(s) >= abs(v) ? (s - t) + v : (v - t) + s
@@ -262,105 +242,12 @@ end
 @inline _log2_ceil(n::Integer) = n <= 1 ? 0 : 8sizeof(Int) - leading_zeros(Int(n) - 1)
 @inline _max_exponent(::Type{R}) where {R} = exponent(floatmax(R))
 
-# w Σ mᵢ 2^eᵢ over finite mᵢ, for the terms of a value recomputed in different
-# power-of-two units. The terms are added from the largest exponent down
-# to an accumulator kept as a significand in [1/2, 1) and its own exponent,
-# renormalized after each addition, so terms that cancel do so before a
-# smaller term is aligned to what remains; the weight is applied last, with
-# one rounding. Non-finite terms give the ordinary sum. The weight is w ≥ 0
-# (_scaled_product takes the sign from the sum).
-function _pow2_weighted(::Type{R}, w, terms::Vararg{Tuple{Any, Int}, N}) where {R, N}
-  ms = map(t -> convert(R, t[1]), terms)
-  es = map(t -> t[2], terms)
-  all(isfinite, ms) || return convert(R, w) * sum(ms; init = zero(R))
-  # The frame exponents are Int128 for BigFloat, where the sum of an MPFR exponent and an Int exponent can leave Int64,
-  # and Int for the other types.
-  s, E = zero(R), _exponent_sum(R, 0)
-  used = ntuple(_ -> false, Val(N))
-  for _ in 1:N
-    j, ej = 0, _exponent_sum(R, typemin(Int))
-    for i in 1:N                                # the largest term not yet added
-      (used[i] || iszero(ms[i])) && continue
-      ei = _exponent_sum(R, exponent(ms[i]), es[i])
-      ei > ej && ((j, ej) = (i, ei))
-    end
-    j == 0 && break
-    used = Base.setindex(used, true, j)
-    mj, fj = _frexp(ms[j])
-    D = _exponent_sum(R, fj, es[j])
-    if iszero(s)
-      s, E = mj, D
-    else              # the larger of the two sets the units (a remainder of a cancellation may be the smaller)
-      s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
-      E = max(E, D)
-      iszero(s) || ((s, f) = _frexp(s); E = _exponent_sum(R, E, f))
-    end
-  end
-  iszero(s) && return convert(R, w) * zero(R)
-  _scaled_product(convert(R, w), s, E)
-end
-# Two terms, the case of the dot with a shift d (LinearFunction) and of the two sums of LeastSquaresLoss: the operations
-# of the method above for N = 2 without the loops over the terms (the larger term first, the first one if their
-# exponents are equal; the aligned addition and the renormalization; a zero term
-# skipped; the final product), and, for the IEEE types only, the skip of a shift that cannot change the sum and, for the
-# weight one of every call of _pow2_sum, the final scaling of the sum without the renormalization (below).
-# The method above remains the definition. The two agree where each nonzero term has an exponent sum exponent(m) + e
-# above typemin(Int) (taken in Int128 for BigFloat), the value from which the selection of the method above starts; the
-# tests compare them there, also under directed rounding. At that sum the method above selects no term, and this method
-# takes the single nonzero term, so the two differ there: for BigFloat (floatmin(BigFloat), -2^62) with a zero term, and
-# for the IEEE types (T(0.75), typemin(Int) + 1) with a zero term and the weight T(Inf) (Inf from this method, NaN from
-# the method above).
-# exponent(m) of a finite nonzero m, from the exponent f that frexp returns for it: f - 1 for the IEEE types, whose frexp is
-# exact (a BigFloat above the current precision rounds in frexp)
-@inline _entry_exponent(::Type{<:Base.IEEEFloat}, m, f) = f - 1
-@inline _entry_exponent(::Type, m, f) = exponent(m)
-# a term that is not finite, or a zero one: the sum without the alignment
-@noinline function _pow2_weighted_edge(::Type{R}, w, m1, e1, m2, e2) where {R}
-  (isfinite(m1) & isfinite(m2)) || return convert(R, w) * ((zero(R) + m1) + m2)
-  (iszero(m1) & iszero(m2)) && return convert(R, w) * zero(R)
-  m, e = iszero(m1) ? (m2, e2) : (m1, e1)
-  s, f = _frexp(m)
-  _scaled_product(convert(R, w), s, _exponent_sum(R, f, e))
-end
-# inlined, so that R and the weight one of _pow2_sum are known to the caller
-@inline function _pow2_weighted(::Type{R}, w, t1::Tuple{Any, Int}, t2::Tuple{Any, Int}) where {R}
-  m1, m2 = convert(R, t1[1]), convert(R, t2[1])
-  e1, e2 = t1[2], t2[2]
-  (isfinite(m1) & isfinite(m2) & !iszero(m1) & !iszero(m2)) || return _pow2_weighted_edge(R, w, m1, e1, m2, e2)
-  # the frame exponents are Int128 for BigFloat and Int for the other types, as above. The larger term, by the exponents
-  # exponent(m) + e of the entries, is the first (the first one if they are equal): the same terms in the same roles as
-  # the method above, taken by selection and not by exchange.
-  s1, f1 = _frexp(m1)
-  s2, f2 = _frexp(m2)
-  second = _exponent_sum(R, _entry_exponent(R, m2, f2), e2) > _exponent_sum(R, _entry_exponent(R, m1, f1), e1)
-  E1, E2 = _exponent_sum(R, f1, e1), _exponent_sum(R, f2, e2)
-  s, mj = ifelse(second, s2, s1), ifelse(second, s1, s2)
-  E, D = ifelse(second, E2, E1), ifelse(second, E1, E2)
-  # For the IEEE types frexp is exact, so D <= E: the larger term is first. Such a term more than 2 precision(R) binades
-  # below the sum is below half an ulp of s, which is in [1/2, 1) in magnitude, and the IEEE types round to nearest only,
-  # so s + ldexp(mj, D - E) is s. The shift, which can round to a subnormal or to zero (slow), is skipped. Every other
-  # type does the sum of the generic method: a BigFloat is rounded in the mode that is set, which a term below half an ulp
-  # can still change, and the frexp of one above the current precision rounds, so D > E can occur there.
-  if !(R <: Base.IEEEFloat && D - E < -2 * precision(R))
-    s = D <= E ? s + ldexp(mj, D - E) : ldexp(s, E - D) + mj
-    E = max(E, D)
-  end
-  iszero(s) && return convert(R, w) * zero(R)
-  # With the weight one the final product of the method above is s 2^E, rounded once, with the significand of s
-  # renormalized by an exact power of two: an IEEE type scales s itself and skips that frexp.
-  R <: Base.IEEEFloat && isone(w) && return ldexp(s, E)
-  s, f = _frexp(s)
-  _scaled_product(convert(R, w), s, _exponent_sum(R, E, f))
-end
-_pow2_sum(::Type{R}, terms::Vararg{Tuple{Any, Int}, N}) where {R, N} = _pow2_weighted(R, one(R), terms...)
-
 ####################################
 #
 #  Values as a significand and an exponent (numerics.md, "Overflow and underflow of values")
-#
 ####################################
 
-# The bound of `_zero_value_exponent` (utils.jl) for a zero value that comes from underflow:
+# Bound used by `_zero_value_exponent` for a zero value that comes from underflow:
 # n losses of at most δ/2, each multiplied by less than 2^amp, with a margin of two binades for the
 # relative errors of the ordinary sums: n δ 2^amp / 2 < 2^E
 @inline _underflow_exponent(::Type{T}, n::Integer, amp::Integer = 0) where {T} =
@@ -1120,7 +1007,7 @@ end
   k == _EXPONENT_INF && return T(Inf)
   k == _EXPONENT_ZERO && return zero(T)
   unbounded && return T(Inf)
-  convert(T, _scaled_product_norm(convert(R, λ), convert(R, w), ns, k))
+  convert(T, _scaled_product(convert(R, λ), convert(R, w), ns, k))
 end
 
 # λ‖x‖₂ in O(stored entries): _sumabs2 and the squared-residual kernel visit the stored values of the

@@ -165,9 +165,8 @@ end
 @inline _scaled_chain(f, a) = (f, a)
 @inline _scaled_chain(f::Scaled, a) = _scaled_chain(f.f, _projection_accumulate(a, f.α))
 @inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, _scale_start(s.α))
-# Nested wrappers also arise with ordinary products (a block of a conjugate keeps its own scale in
-# a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
-# not a normal number takes the methods that combine the factors.
+# The direct Scaled{F,T} constructor can nest wrappers with ordinary products.
+# Such wrappers keep their recursive oracles.
 @inline _chained(::Scaled) = false
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false
@@ -537,10 +536,26 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
-# a symmetric iterate gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
-# that are not zero
-_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
-_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
+# Finite scales preserve the active set, including explicitly stored zeros.
+# Non-finite scales can turn an implicit zero into NaN and activate it.
+function _scale!(g::SymmetricSparseIterate, α)
+  if isfinite(α)
+    v = activevalues(g)
+    v .*= α
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
+function _scale!(g::SymmetricSparseIterate, α::_ProjectionScale)
+  if isfinite(α)
+    v = activevalues(g)
+    v .= _apply_scale.(α, v)
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
@@ -657,6 +672,7 @@ iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _screen_chain(s, g, i) :
+   _isindicator(_kkt_innermost(s.f)) ? kkt_violation(s.f, g, i) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 
 # ---- the point-aware scores of a scaled function ----

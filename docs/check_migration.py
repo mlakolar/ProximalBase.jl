@@ -40,11 +40,14 @@ def main():
     base_blocks = m.baseline_blocks(baseline=baseline)
     rows = m.read_tsv(m.AUDIT / "ledger.tsv")
     errors, mappings = m.coverage(base_blocks, rows)
+    anchor_report = {}
     checks = {
         "blocks": lambda: errors,
         "tokens": lambda: m.accounting(base_blocks, mappings, "tokens"),
         "sentences": lambda: m.accounting(base_blocks, mappings, "sentences"),
-        "anchors": lambda: m.anchor_check(m.anchor_snapshot(metadata, args.anchor_profile), args.build),
+        "anchors": lambda: m.anchor_check(m.anchor_snapshot(metadata, args.anchor_profile), args.build,
+                                           retirements=metadata.get("anchor_retirements", []),
+                                           base_blocks=base_blocks, mappings=mappings, report=anchor_report),
         "citations": lambda: m.citations_check(baseline=baseline, scope_base=args.scope_base)[0],
         "examples": lambda: m.examples_check(base_blocks, mappings, metadata),
     }
@@ -54,6 +57,8 @@ def main():
             continue
         findings = check()
         results[name] = {"status": "FAIL" if findings else "PASS", "findings": findings}
+        if name == "anchors":
+            results[name].update(anchor_report)
     print(json.dumps(dict(mode="blocking" if args.blocking else "report-only", baseline=baseline,
                          anchor_profile=args.anchor_profile,
                          baseline_blocks=len(base_blocks), ledger_rows=len(rows), checks=results), indent=2))

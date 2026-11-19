@@ -49,16 +49,6 @@ NormL1Nonneg
 ElasticNet
 ```
 
-## Nonnegative orthant
-
-The indicator API entries are now grouped under
-[Indicators](#Indicators).
-
-## Box and nonnegative orthant
-
-The box and nonnegative-orthant API entries are now grouped under
-[Indicators](#Indicators).
-
 ## Indicators
 
 ```@docs

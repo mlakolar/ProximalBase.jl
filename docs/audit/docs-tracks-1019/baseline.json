@@ -25,6 +25,20 @@
       "source_commit": "7ae86e2093060eb124211e2f21f043c6379f97ae"
     }
   },
+  "anchor_retirements": [
+    {
+      "baseline_sha": "f244858523943a19616296f040357e0623108b4ce0128a26d433d87529a185e7",
+      "block_id": "docs/src/api/functions.md::Function reference / Nonnegative orthant::13",
+      "evidence": "Independent authored-reference audit at b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45: 162 tracked text files covering the active manual, developer/design docs, README/CONTRIBUTING, examples, source/docstrings, and tests, plus nine directly referenced benchmark/audit resources fetched at that revision. No incoming authored link, @ref, reference definition, or raw HTML link to Nonnegative-orthant, Nonnegative-orthant-1, Box-and-nonnegative-orthant, or Box-and-nonnegative-orthant-1 was found. Both headings are plain automatic headings without explicit @id. Ordinary prose occurrences and generated self-permalinks/sidebar entries are not authored incoming references. The current upstream owner is the existing same-page Indicators heading.",
+      "fragments": [
+        "Nonnegative-orthant",
+        "Nonnegative-orthant-1"
+      ],
+      "page": "api/functions",
+      "reviewer": "plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45",
+      "target": "Indicators"
+    }
+  ],
   "authored_pages": 42,
   "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
   "block_count": 2162,

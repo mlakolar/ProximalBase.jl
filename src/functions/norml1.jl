@@ -246,13 +246,19 @@ end
 # The cold paths of the loop above: a coefficient out of range or zero is retried with SIMD exempting zero
 # factors, and 0*Inf/NaN takes the entrywise zero-factor and domain priorities of value_entry; then the sum
 # is checked for products that rounded below floatmin.
-@noinline function _l1_exceptional_result(f, x, s, ordinary)
+@inline function _l1_exceptional_sum(f, x, s, ordinary)
   if !ordinary
     s, ordinary = _l1_value_sum(f, x, true)
     ordinary && !isnan(s) || (s = invoke(_value_dense, Tuple{Any,AbstractArray}, f, x))
   end
-  _l1_result_from_sum(f, x, s)
+  s
 end
+
+@noinline _l1_exceptional_value(f, x, s, ordinary) =
+  _l1_underflow_checked(f, x, _l1_exceptional_sum(f, x, s, ordinary), length(x))
+
+@noinline _l1_exceptional_result(f, x, s, ordinary) =
+  _l1_result_from_sum(f, x, _l1_exceptional_sum(f, x, s, ordinary))
 
 @inline _l1_result_from_sum(f, x, s) =
   _sum_kept(s, length(x)) ? (s, false) : _l1_underflow_result(f, x, s)

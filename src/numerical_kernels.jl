@@ -384,35 +384,6 @@ function _expsum_value(::Type{R}, acc::_ExpSum{A}, w = one(A)) where {R, A}
   convert(R, _scaled_product(convert(A, w), m, acc.ex))
 end
 
-# The smallest nonzero |x_i| as an exponent (the exponent of floatmax if there is none): a product of two
-# entries with exponents e1 and e2 is at least 2^(e1+e2), so e1 + e2 ≥ exponent(floatmin) rules out its
-# rounding into the subnormal range.
-function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:AbstractFloat}
-  m = floatmax(T)
-  @inbounds for v in _stored_values(x)
-    a = abs(v)
-    (iszero(a) || a >= m) || (m = a)
-  end
-  exponent(m)
-end
-
-# On the bit patterns, where the integer minimum vectorizes: with the sign cleared, b - 1 is the bit pattern
-# of the magnitude minus one step, and for a zero it wraps to the largest integer, so that zeros are skipped
-# without a select. An Inf or a NaN, whose patterns exceed that of floatmax, never replaces it.
-function _min_nonzero_exponent(x::AbstractArray{T}) where {T<:Union{Float32, Float64}}
-  U = _int_type(T)
-  vals = _stored_values(x)
-  m = typemax(U)
-  @inbounds @simd for i in eachindex(vals)
-    m = min(m, ((reinterpret(U, vals[i]) & typemax(U)) - one(U)) & typemax(U))
-  end
-  fm = reinterpret(U, floatmax(T))
-  exponent(reinterpret(T, m == typemax(U) ? fm : min(m + one(U), fm)))
-end
-_min_nonzero_exponent(x::Diagonal) = _min_nonzero_exponent(x.diag)
-_stored_minexp(x) = _min_nonzero_exponent(x)
-_stored_minexp(x::_WrappedSparse) = _min_nonzero_exponent(parent(x))
-
 # An absolute error that the rounding of one product into P cannot exceed is denorm_min/2 =
 # eps floatmin/2. A quadratic form with n products per entry of A x then carries at most
 # n² eps floatmin max|x| / 4 of it, the N products of the final dots at most N eps floatmin / 2 more,

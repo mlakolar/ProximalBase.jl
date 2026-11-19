@@ -262,21 +262,19 @@ function test_quadratic_guards(::Type{T}) where {T<:AbstractFloat}
   @testset "quadratic recovery trigger and guards" begin
     n = 2
     A0 = T[1 -1; -1 1]
-    # an exact zero of a null-space argument, with every product normal: the ordinary value 0 is exact and the
-    # underflow test fires but the products are normal, so nothing is recomputed (the result is the same zero)
+    # an exact zero of a null-space argument, with every product normal: the underflow test fires and the
+    # value is recomputed from the exact products, which also sum to zero here
     f = QuadraticFunction(A0)
     x = T[3, 3]
     v = f(x)
     @test v === zero(T)
     @test PB._quadratic_underflow_risk(f, x, v, T, maximum(abs, x))
-    @test PB._quadratic_products_normal(f, x, v, T)
     @test PB._quadratic_checked(f, x, v, T, maximum(abs, x)) === v
     # subnormal products (A and x small): the same test does not allow keeping the ordinary value
     fs = QuadraticFunction(A0 .* pow2(T, e0 ÷ 2))
     xs = T[1, 1] .* pow2(T, e0 ÷ 2 - 2)
     vs = fs(xs)
     @test PB._quadratic_underflow_risk(fs, xs, vs, T, maximum(abs, xs))
-    @test !PB._quadratic_products_normal(fs, xs, vs, T)
     # no risk at an exact zero of x, or when |v| is large compared with the underflow threshold
     @test !PB._quadratic_underflow_risk(f, zeros(T, 2), zero(T), T, zero(T))
     @test !PB._quadratic_underflow_risk(f, T[1, 2], T(100), T, T(2))
@@ -285,16 +283,6 @@ function test_quadratic_guards(::Type{T}) where {T<:AbstractFloat}
     @test PB._underflow_threshold(T, 3, T(5), 7) == (3.0 * Float64(floatmin(T))) * 5.0 + 7 * Float64(floatmin(T))
     @test PB._underflow_threshold(T, 2^40, T(1), 0) == 2.0^40 * Float64(floatmin(T))
     @test PB._underflow_threshold(T, 1e308, floatmax(T), 0) === Inf
-    # the smallest nonzero exponent over the stored entries (the bit-pattern kernel and the generic one)
-    @test PB._min_nonzero_exponent(T[0, 3, -0.375, floatmax(T), T(Inf)]) == -2
-    @test PB._min_nonzero_exponent(T[0, T(0), -zero(T)]) == emax(T)
-    @test PB._min_nonzero_exponent(T[floatmax(T), 0]) == emax(T)
-    @test PB._min_nonzero_exponent(T[T(NaN), 4]) == 2
-    @test PB._min_nonzero_exponent([δ, 1, 2]) == exponent(δ) == emin(T) - precision(T) + 1
-    @test PB._min_nonzero_exponent(Diagonal(T[0, 8, 0.5])) == -1
-    @test PB._min_nonzero_exponent(sparse(T[0 0.25; 0 4])) == -2
-    @test PB._min_nonzero_exponent(BigFloat[3, 0.1]) == -4                  # the generic method (no bit patterns)
-    @test PB._stored_minexp(transpose(sparse(T[0 0.25; 0 4]))) == -2
     # genuine NaN/Inf data keep the ordinary result: no recomputation hides them
     fi = QuadraticFunction(T[2 1; 1 3], T[1, 1], T(1))
     @test fi(T[Inf, 1]) === T(Inf)

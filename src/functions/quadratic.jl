@@ -127,34 +127,11 @@ end
 # could have lost more than eps |v| (#520; numerics.md, "Overflow and underflow of values"). m is max|x|,
 # which the product A x has already read.
 @inline function _quadratic_checked(f::QuadraticFunction, x, v, ::Type{P}, m) where {P}
-  if !isfinite(v) || (_quadratic_underflow_risk(f, x, v, P, m) && !_quadratic_products_normal(f, x, v, P))
+  if !isfinite(v) || _quadratic_underflow_risk(f, x, v, P, m)
     _quadratic_value_recover(f, x, v)
   else
     v
   end
-end
-
-# The threshold of _quadratic_underflow_risk is a worst case: it assumes that products may be subnormal.
-# When none can be, the ordinary value carries only relative errors, and the value is as accurate as the
-# ordinary computation, however small it is, an exact zero of a null-space argument included.
-# Every nonzero product of two operands is normal if the sum of the exponents of their smallest nonzero
-# entries is at least exponent(floatmin): |a b| >= 2^(ea + eb) (Julia's exponent has a significand in
-# [1, 2)); a product with a zero is exact; and a sum with a subnormal result is exact. The products are
-# those of A x, of x and A x in the dot, and of b and x. The test is made on the operands and on
-# A x, which is recomputed into f.tmp (the buffer may hold A x + b, and an ordinary call has not
-# modified it; the cost is that of one product, on a path that is rare). It needs the whole computation
-# in the type P (a wider argument or buffer is rounded elsewhere). Data need not be tested for being
-# finite: a finite value has none that is not (an Inf makes a product Inf or NaN).
-@noinline function _quadratic_products_normal(f::QuadraticFunction, x, v, ::Type{P}) where {P}
-  (_underflow_checked(P) && eltype(x) === P && eltype(f.tmp) === P && typeof(v) === P &&
-   eltype(f.A) <: Union{Float32, Float64} && (f.b === nothing || eltype(f.b) <: Union{Float32, Float64})) ||
-    return false
-  emin = exponent(floatmin(P))
-  ex = _stored_minexp(x)
-  _stored_minexp(f.A) + ex >= emin || return false
-  f.b === nothing || _stored_minexp(f.b) + ex >= emin || return false
-  mul!(f.tmp, f.A, x)
-  _min_nonzero_exponent(f.tmp) + ex >= emin
 end
 
 # Rounding a product into P changes an entry of A x by at most denorm_min(P)/2 per term, and that

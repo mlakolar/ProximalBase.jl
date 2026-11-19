@@ -12,6 +12,7 @@ quick = [
   "elasticnet_extremes",
   "groupnorml2",
   "groupnormlinf",
+  "indballl0",
   "indballl1",
   "indballl2",
   "indballlinf",

@@ -13,14 +13,15 @@ API. This development reduction is not a release announcement.
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties,
 Poisson and robust-loss families, constraints and indicators other than
-`IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
+`IndNonnegative`, `IndBox`, `IndBallLinf`, `IndBallL2` and `IndBallL0`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
 the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restored indicators are
 `IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954) and
-`IndBallL2` (#950).
+`IndBallL2` (#950); `IndBallL0(s; diagonal = false)` (#1057) is restored for
+dense symmetric matrices.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
@@ -193,6 +194,7 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | `IndBox(l, u)` ([#949](https://github.com/mlakolar/ProximalBase.jl/issues/949)) | Scalar and per-entry bounds, value, coordinatewise projection, and restriction | Array bounds are copied, feasibility uses exact interval comparisons, and a `NaN` entry gives value `NaN` |
 | `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps |
 | `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
+| `IndBallL0(s; diagonal = false)` ([#1057](https://github.com/mlakolar/ProximalBase.jl/issues/1057)) | The type, the off-diagonal budget with a nonzero pair counting two, the value, the exact Frobenius projection that keeps the `min(s ÷ 2, p(p-1)/2)` nonzero pairs of largest magnitude with ties to the earlier entry of the lower triangle read by columns, and the diagonal copied | Only `diagonal = false` is accepted: the archived default `diagonal = true` (a counted diagonal) and an explicit `diagonal = true` throw `ArgumentError`. Arguments are dense `Matrix` or `Symmetric` of `Float32` or `Float64` with `p ≥ 1`; vectors, general arrays, other element types, sparse arrays and `SymmetricSparseIterate` throw `ArgumentError`. The projection refuses nonfinite entries (the archive had NaN-block rules) and a nonsymmetric `Matrix`; steps must be finite and nonnegative, so `Scaled(f, Inf)` at a positive step throws. Signed zeros: each pair is written from its lower entry, and a dropped entry is `+0`. |
 
 ## Names, coordinates and writes
 

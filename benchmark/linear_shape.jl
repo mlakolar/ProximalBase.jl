@@ -41,6 +41,9 @@ function makedata(::Type{T}, n::Int) where {T}
     (; m, c, x, out = similar(x), C, X, Out = similar(X), SC, SX, SCa = SC', Cs = C + C', xsp, sym)
 end
 
+bindcall(fn, args...) = () -> (fn(args...); nothing)
+bindstore(out, fn, args...) = () -> (out[1] = fn(args...); nothing)
+
 function makeprobes(PB, ::Type{T}, n::Int, D) where {T}
     (; m, c, x, out, C, X, Out, SC, SX, SCa, Cs, xsp, sym) = D
     γ = T(0.7); d = T(0.25)
@@ -49,30 +52,30 @@ function makeprobes(PB, ::Type{T}, n::Int, D) where {T}
     # dense vectors
     f = PB.LinearFunction(c, d); s = T(3) * f
     add("vector/value", () -> (out[1] = f(x); nothing), () -> out[1])
-    add("vector/gradient!", () -> (PB.gradient!(out, f, x); nothing), () -> copy(out))
-    add("vector/value_and_gradient!", () -> (out[1] = PB.value_and_gradient!(out, f, x); nothing), () -> copy(out))
-    add("vector/prox!", () -> (PB.prox!(out, f, x, γ); nothing), () -> copy(out))
-    add("vector/value_and_prox!", () -> (out[1] = PB.value_and_prox!(out, f, x, γ); nothing), () -> copy(out))
+    add("vector/gradient!", bindcall(PB.gradient!, out, f, x), () -> copy(out))
+    add("vector/value_and_gradient!", bindstore(out, PB.value_and_gradient!, out, f, x), () -> copy(out))
+    add("vector/prox!", bindcall(PB.prox!, out, f, x, γ), () -> copy(out))
+    add("vector/value_and_prox!", bindstore(out, PB.value_and_prox!, out, f, x, γ), () -> copy(out))
     add("vector/scaled_value", () -> (out[1] = s(x); nothing), () -> out[1])
-    add("vector/scaled_prox!", () -> (PB.prox!(out, s, x, γ); nothing), () -> copy(out))
+    add("vector/scaled_prox!", bindcall(PB.prox!, out, s, x, γ), () -> copy(out))
     # dense matrices
     fm = PB.LinearFunction(C, d)
     add("matrix/value", () -> (Out[1] = fm(X); nothing), () -> Out[1])
-    add("matrix/prox!", () -> (PB.prox!(Out, fm, X, γ); nothing), () -> copy(Out))
-    add("matrix/value_and_prox!", () -> (Out[1] = PB.value_and_prox!(Out, fm, X, γ); nothing), () -> copy(Out))
-    add("matrix/value_and_gradient!", () -> (Out[1] = PB.value_and_gradient!(Out, fm, X); nothing), () -> copy(Out))
+    add("matrix/prox!", bindcall(PB.prox!, Out, fm, X, γ), () -> copy(Out))
+    add("matrix/value_and_prox!", bindstore(Out, PB.value_and_prox!, Out, fm, X, γ), () -> copy(Out))
+    add("matrix/value_and_gradient!", bindstore(Out, PB.value_and_gradient!, Out, fm, X), () -> copy(Out))
     # sparse coefficients or arguments (one entry in eight stored): the sparse dot methods
     fs = PB.LinearFunction(SC, d); fa = PB.LinearFunction(SCa, d)
     add("sparse_c_dense_x/value", () -> (Out[1] = fs(X); nothing), () -> Out[1])
     add("dense_c_sparse_x/value", () -> (Out[1] = fm(SX); nothing), () -> Out[1])
     add("sparse_c_sparse_x/value", () -> (Out[1] = fs(SX); nothing), () -> Out[1])
-    add("sparse_c_dense_x/prox!", () -> (PB.prox!(Out, fs, X, γ); nothing), () -> copy(Out))
+    add("sparse_c_dense_x/prox!", bindcall(PB.prox!, Out, fs, X, γ), () -> copy(Out))
     add("adjoint_sparse_c_sparse_x/value", () -> (Out[1] = fa(SX); nothing), () -> Out[1])
     # iterates, built per role: the stored-entry dot of a SparseIterate, a BlockIterate, and a symmetric iterate
     sp = PB.SparseIterate(xsp); spout = copy(sp)
     add("sparse_iterate/value", () -> (out[1] = f(sp); nothing), () -> out[1])
-    add("sparse_iterate/prox!", () -> (PB.prox!(out, f, sp, γ); nothing), () -> copy(out))
-    add("sparse_iterate/prox!_iterate_output", () -> (PB.prox!(spout, f, sp, γ); nothing), () -> Vector(spout))
+    add("sparse_iterate/prox!", bindcall(PB.prox!, out, f, sp, γ), () -> copy(out))
+    add("sparse_iterate/prox!_iterate_output", bindcall(PB.prox!, spout, f, sp, γ), () -> Vector(spout))
     bl = PB.BlockIterate(copy(x), [collect(1:2:n), collect(2:2:n)])
     add("block_iterate/value", () -> (out[1] = f(bl); nothing), () -> out[1])
     si = PB.SymmetricSparseIterate(T, m)
@@ -82,9 +85,9 @@ function makeprobes(PB, ::Type{T}, n::Int, D) where {T}
     symout = similar(si)
     fsym = PB.LinearFunction(Cs, d)
     add("symmetric/value", () -> (Out[1] = fsym(si); nothing), () -> Out[1])
-    add("symmetric/prox!", () -> (PB.prox!(symout, fsym, si, γ); nothing), () -> Matrix(symout))
-    add("symmetric/value_and_gradient!", () -> (Out[1] = PB.value_and_gradient!(symout, fsym, si); nothing), () -> (Out[1], Matrix(symout)))
-    add("symmetric/prox!_dense_output", () -> (PB.prox!(Out, fsym, si, γ); nothing), () -> copy(Out))
+    add("symmetric/prox!", bindcall(PB.prox!, symout, fsym, si, γ), () -> Matrix(symout))
+    add("symmetric/value_and_gradient!", bindstore(Out, PB.value_and_gradient!, symout, fsym, si), () -> (Out[1], Matrix(symout)))
+    add("symmetric/prox!_dense_output", bindcall(PB.prox!, Out, fsym, si, γ), () -> copy(Out))
     probes
 end
 sizes = (16, 1024, 65536)

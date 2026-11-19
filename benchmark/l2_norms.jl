@@ -56,69 +56,83 @@ function makedata(::Type{T}, m::Int, layout::Symbol, pattern::Symbol) where {T}
        w = T(0.5) .+ rand(rng, T, K), g = randn(rng, T, p))
 end
 
+# Construct the closures after specializing on the data for one group layout and the role's callables.
+function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
+                   prox!, value_and_prox!, prox_block!, blockindices, blockview) where {G, B}
+    f = G(d.λ, d.groups, d.w)
+    x, y, U, outs, γ = d.x, d.y, d.U, d.outs, d.γ
+    K = length(U)
+    add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x)))
+    T = eltype(x)
+    if layout === :range                         # the compact kernel does not see the layout
+        k1 = findfirst(u -> any(!iszero, u), U)
+        u, out = U[k1], outs[k1]
+        add("prox_block1", () -> (prox_block!(out, f, u, k1, γ); nothing), () -> copy(out))
+        kz = findfirst(u -> all(iszero, u), U)
+        if kz !== nothing
+            uz, oz = U[kz], outs[kz]
+            add("prox_block_zero", () -> (prox_block!(oz, f, uz, kz, γ); nothing), () -> copy(oz))
+        end
+        add("block_sweep", () -> begin
+            for k in 1:K
+                @inbounds prox_block!(outs[k], f, U[k], k, γ)
+            end
+            nothing
+        end, () -> reduce(vcat, outs))
+    end
+    if pattern !== :partial
+        # a block-coordinate sweep as a solver runs it: for every group, the trial u = x[G] - s g[G]
+        # from the iterate, the pure prox_block! into scratch, and the write copyto!(blockview(x, k), out);
+        # the iterate is restored from x0 by a whole-iterate copy before each sweep
+        xb = B(copy(x), d.groups)
+        x0 = copy(xb)
+        g = d.g
+        Uu, Ou = [similar(u) for u in U], [similar(u) for u in U]   # own scratch: U stays as the other probes use it
+        add("block_update_sweep", () -> begin
+            copyto!(xb, x0)
+            for k in 1:K
+                indices = blockindices(xb, k)
+                trial, result = Uu[k], Ou[k]
+                @inbounds for a in eachindex(trial)
+                    i = indices[a]
+                    trial[a] = xb[i] - T(0.5) * g[i]
+                end
+                prox_block!(result, f, trial, k, γ)
+                copyto!(blockview(xb, k), result)
+            end
+            nothing
+        end, () -> Vector(xb))
+    end
+    add("prox", () -> (prox!(y, f, x, γ); nothing), () -> copy(y))
+    add("value_and_prox", () -> (value_and_prox!(y, f, x, γ); nothing), () -> (value_and_prox!(y, f, x, γ), copy(y)))
+    add("value", () -> (y[1] = f(x); nothing), () -> f(x))
+    return nothing
+end
+
 function makeprobes(PB, data)
     probes = NamedTuple[]
     for ((T, m, layout, pattern), d) in data
         id = "$(T)/m$(m)/$(layout)/$(pattern)"
-        f = PB.GroupNormL2(d.λ, d.groups, d.w)
-        x, y, U, outs, γ = d.x, d.y, d.U, d.outs, d.γ
-        K = length(U)
-        add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x)))
-        T = eltype(x)
-        if layout === :range                         # the compact kernel does not see the layout
-            k1 = findfirst(u -> any(!iszero, u), U)
-            u, out = U[k1], outs[k1]
-            add("prox_block1", () -> (PB.prox_block!(out, f, u, k1, γ); nothing), () -> copy(out))
-            kz = findfirst(u -> all(iszero, u), U)
-            if kz !== nothing
-                uz, oz = U[kz], outs[kz]
-                add("prox_block_zero", () -> (PB.prox_block!(oz, f, uz, kz, γ); nothing), () -> copy(oz))
-            end
-            add("block_sweep", () -> begin
-                for k in 1:K
-                    @inbounds PB.prox_block!(outs[k], f, U[k], k, γ)
-                end
-                nothing
-            end, () -> reduce(vcat, outs))
-        end
-        if pattern !== :partial
-            # a block-coordinate sweep as a solver runs it: for every group, the trial u = x[G] - s g[G]
-            # from the iterate, the pure prox_block! into scratch, and the write copyto!(blockview(x, k), out);
-            # the iterate is restored from x0 by a whole-iterate copy before each sweep
-            xb = PB.BlockIterate(copy(x), d.groups)
-            x0 = copy(xb)
-            g = d.g
-            Uu, Ou = [similar(u) for u in U], [similar(u) for u in U]   # own scratch: U stays as the other probes use it
-            add("block_update_sweep", () -> begin
-                copyto!(xb, x0)
-                for k in 1:K
-                    G = PB.blockindices(xb, k)
-                    u, out = Uu[k], Ou[k]
-                    @inbounds for a in eachindex(u)
-                        i = G[a]
-                        u[a] = xb[i] - T(0.5) * g[i]
-                    end
-                    PB.prox_block!(out, f, u, k, γ)
-                    copyto!(PB.blockview(xb, k), out)
-                end
-                nothing
-            end, () -> Vector(xb))
-        end
-        add("prox", () -> (PB.prox!(y, f, x, γ); nothing), () -> copy(y))
-        add("value_and_prox", () -> (PB.value_and_prox!(y, f, x, γ); nothing), () -> (PB.value_and_prox!(y, f, x, γ), copy(y)))
-        add("value", () -> (y[1] = f(x); nothing), () -> f(x))
+        addgroup!(probes, id, d, layout, pattern, PB.GroupNormL2, PB.BlockIterate,
+                  PB.prox!, PB.value_and_prox!, PB.prox_block!, PB.blockindices, PB.blockview)
     end
     probes
+end
+
+function adddense!(probes, n, f, x, y, γ, prox!, value_and_prox!)
+    T = eltype(x)
+    add(name, op, check) = push!(probes, (id = "NormL2/$(T)/n$(n)/$name", op = op, check = check, n = n))
+    add("prox", () -> (prox!(y, f, x, γ); nothing), () -> copy(y))
+    add("value_and_prox", () -> (value_and_prox!(y, f, x, γ); nothing), () -> (value_and_prox!(y, f, x, γ), copy(y)))
+    add("value", () -> (y[1] = f(x); nothing), () -> f(x))
+    return nothing
 end
 
 function makel2probes(PB, ::Type{T}, dense) where {T}
     probes = NamedTuple[]
     f = PB.NormL2(T(0.3))
     for (n, x, y) in dense
-        add(name, op, check) = push!(probes, (id = "NormL2/$(T)/n$(n)/$name", op = op, check = check, n = n))
-        add("prox", () -> (PB.prox!(y, f, x, T(0.8)); nothing), () -> copy(y))
-        add("value_and_prox", () -> (PB.value_and_prox!(y, f, x, T(0.8)); nothing), () -> (PB.value_and_prox!(y, f, x, T(0.8)), copy(y)))
-        add("value", () -> (y[1] = f(x); nothing), () -> f(x))
+        adddense!(probes, n, f, x, y, T(0.8), PB.prox!, PB.value_and_prox!)
     end
     p, nstored = 200, 400
     rng = Random.MersenneTwister(808)

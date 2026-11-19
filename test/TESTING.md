@@ -8,6 +8,9 @@ belong to quick; standard/thorough/full include that inventory.
 
 The preserved storage suites cover scalar/block/symmetric indexing, active
 zeros, copies, views, aliases, arbitrary block layouts, writes and products.
+`symmetric_iterate_interface` also checks finite and infinite `Scaled` gradients
+in Float32/64, including active-zero membership, IEEE activation of implicit
+zeros, retained finite exponent products, and validation before writes.
 `ridge_precision` preserves the frozen independent BigFloat ridge tests and
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64.

@@ -536,10 +536,26 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
-# a symmetric iterate gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
-# that are not zero
-_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
-_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
+# Finite scales preserve the active set, including explicitly stored zeros.
+# Non-finite scales can turn an implicit zero into NaN and activate it.
+function _scale!(g::SymmetricSparseIterate, α)
+  if isfinite(α)
+    v = activevalues(g)
+    v .*= α
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
+function _scale!(g::SymmetricSparseIterate, α::_ProjectionScale)
+  if isfinite(α)
+    v = activevalues(g)
+    v .= _apply_scale.(α, v)
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))

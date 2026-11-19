@@ -136,10 +136,9 @@ function prox!(Y::AbstractMatrix, f::LogDetLoss{T}, X::AbstractMatrix, γ::Real)
     B[i, j] = ordinary ? muladd(-μ, s, x) : x - r * (r * s)
     isfinite(B[i, j]) || _logdet_prox_range_error()
   end
-  E = eigen!(Symmetric(B))
-  U = E.vectors
-  @inbounds for j in eachindex(E.values)
-    d = E.values[j]
+  values, U = LAPACK.syevd!('V', 'U', B)
+  @inbounds for j in eachindex(values)
+    d = values[j]
     isfinite(d) || _logdet_prox_range_error()
     z = _logdet_root(d, r)
     isfinite(z) || _logdet_prox_range_error()

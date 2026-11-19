@@ -561,15 +561,19 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
     nt, nv, s, ρ, many = _condat_step!(buf, rd(x[j]), nt, nv, s, ρ, a, cap, u)
     j += 1
   end
-  many && return _l1ball_iterate(x, n, a, rd, (_handover_sum(x, rd, T, s_all) - a) / n)
+  many && return _l1ball_handover(x, n, a, rd, s_all)
   lv = nv == 1 ? s - a : (s - a) / nv                    # the plain level of the candidates (the division by 1 is skipped)
   _l1ball_iterate(buf, nt + nv, a, identity, ifelse(lv > ρ, lv, ρ))
 end
 
-# The sum of all the entries for the plain start of the handover: the sum of the caller's pass when it is given, and the entries
-# summed here when it is not.
-@inline _handover_sum(x, rd, ::Type{T}, s::T) where {T} = s
-@inline _handover_sum(x, rd, ::Type{T}, ::Nothing) where {T} = _linf_sum(x, rd, T)
+# The handover: the iteration on all the entries from the plain level (s - a)/n, with s the sum of the caller's pass when it is given
+# and the sum of the entries formed here when it is not. It is not inlined, so that the code of Condat's pass does not depend on it.
+@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T) where {T, F}
+  _l1ball_iterate(x, n, a, rd, (s - a) / n)
+end
+@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, ::Nothing) where {T, F}
+  _l1ball_handover(x, n, a, rd, _linf_sum(x, rd, T))
+end
 
 # One entry y of Condat's pass, with the level ρ (claim 4): an entry not above ρ is not stored. Otherwise it joins the nv candidates when
 # their plain level with y, (s + y - a)/(nv + 1), exceeds y - a, which is the test s > (y - a) nv, and then ρ becomes

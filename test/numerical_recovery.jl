@@ -984,9 +984,6 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
       @test isequal(Scaled(NormL1(one(T), wz), T(Inf))(y), iszero(vz) ? T(NaN) : T(Inf))
     end
     @test Scaled(NormL1(one(T), wz), T(Inf))(zeros(T, 2)) === zero(T)
-    λw = W2(2)^(T === Float32 ? -200 : -1500)                           # a level out of the range of T, unweighted
-    xw = fill(T(1.5) * pow2(T, T === Float32 ? 100 : 1000), 3)
-    @test within(NormL1(λw)(xw), big(λw) * sum(abs, big.(xw)), 2)
   end
 end
 

@@ -230,15 +230,21 @@ end
   own = _leastsquares_own.(r, lim, Ref(up))                  # 2^k (X βs)ᵢ where representable
   Yo = _leastsquares_own_y.(r, Y, lim, T)
   r .= _leastsquares_big.(r, Y, lim, Ref(sc))
-  _pow2_sum(T, _leastsquares_squares(own, Yo), _leastsquares_squares(r, nothing, 2k))
+  acc = _expsum_add(_expsum_start(T), _leastsquares_squares(own, Yo)...)
+  acc = _expsum_add(acc, _leastsquares_squares(r, nothing, 2k)...)
+  _expsum_value(T, acc)
 end
 @inline _leastsquares_own(a::T, lim, up) where {T} = abs(a) <= lim ? _scale_value(a, up) : zero(T)
 @inline _leastsquares_own_y(a, y, lim, ::Type{T}) where {T} = abs(a) <= lim ? convert(T, y) : zero(T)
 @inline _leastsquares_big(a::T, y, lim, sc) where {T} = abs(a) <= lim ? zero(T) : a - _scale_value(convert(T, y), sc)
-# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift; the entries are finite here
+# 2^shift ‖x - y‖²/2 as a normalized significand and an exponent, for finite entries
 function _leastsquares_squares(x, y, shift = 0)
   s, k = _residual_squares(x, y, eltype(x))
-  (s, iszero(s) ? 0 : 2k - 1 + shift)
+  m, e = _frexp(s)
+  ex = _exponent_sum(eltype(x), e, 2k - 1 + shift)
+  # _ExpSum stores an Int exponent. For these nonnegative terms, saturation
+  # keeps a BigFloat exponent outside Int on the same side of MPFR's range.
+  (m, Int(clamp(ex, typemin(Int), typemax(Int))))
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)

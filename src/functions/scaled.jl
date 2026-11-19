@@ -165,9 +165,8 @@ end
 @inline _scaled_chain(f, a) = (f, a)
 @inline _scaled_chain(f::Scaled, a) = _scaled_chain(f.f, _projection_accumulate(a, f.α))
 @inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, _scale_start(s.α))
-# Nested wrappers also arise with ordinary products (a block of a conjugate keeps its own scale in
-# a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
-# not a normal number takes the methods that combine the factors.
+# The direct Scaled{F,T} constructor can nest wrappers with ordinary products.
+# Such wrappers keep their recursive oracles.
 @inline _chained(::Scaled) = false
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false

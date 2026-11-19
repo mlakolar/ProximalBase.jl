@@ -108,19 +108,6 @@ setprecision(BigFloat, 1200) do
       w, v, k = abs(signif(rng, T, rand(rng, -E:E))), signif(rng, T, rand(rng, -E:E)), rand(rng, -E:E)
       @test PB._scaled_product_retained(w, v, k) === PB._scaled_product(w, v, k)
     end
-    # the product with a scaled norm c in [1, 2^30), which is not split into a significand and an exponent, gives the
-    # bits of the three-factor kernel: factors over many binades, subnormal and +0 factors, powers that leave the range
-    for _ in 1:4000
-      a = abs(signif(rng, T, rand(rng, e0 - 20:E)))
-      b = abs(signif(rng, T, rand(rng, e0 - 20:E)))
-      c = T(2)^(29 * rand(rng, T)) * (rand(rng) < 0.2 ? 1 : 1 + rand(rng, T) / 2)
-      k = rand(rng, -2E:2E)
-      @test PB._scaled_product_norm(a, b, c, k) === PB._scaled_product(a, b, c, k)
-    end
-    for a in (zero(T), nextfloat(zero(T)), prevfloat(floatmin(T)), floatmin(T), T(1), floatmax(T)),
-        b in (zero(T), nextfloat(zero(T)), T(0.75), floatmax(T)), c in (T(1), T(1.5), prevfloat(T(2)^30)), k in (-3E, -E, 0, E, 3E)
-      @test PB._scaled_product_norm(a, b, c, k) === PB._scaled_product(a, b, c, k)
-    end
   end
 
   @testset "halved difference" begin
@@ -338,74 +325,43 @@ setprecision(BigFloat, 1200) do
     @test PB._square_exponent(S, nothing, Float64) == PB._EXPONENT_NAN
   end
 
-  @testset "two-term power-of-two sum" begin
-    # the method for two terms performs the operations of the generic method: the same bits for cancellation to zero,
-    # equal exponents, exponents far apart, either sign, zero terms, non-finite terms and a weight w, where each nonzero
-    # term has an exponent sum above typemin(Int), the value from which the selection of the generic method starts (at
-    # that sum the two differ)
-    generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
+  @testset "two-term exponent sum" begin
+    p = precision(T)
     es = exponent(nextfloat(zero(T)))
-    for R in unique((T, Float64))
-      terms = Tuple[]
-      for _ in 1:2500
-        m1 = signif(rng, R, rand(rng, -3:3)) * (rand(rng) < 0.1 ? 3 : 1)
-        k = rand(rng, (0, 0, 1, 2, 30, 200, -200, 2 * E, -2 * E, E + 30, -(E + 30), 3 * E))
-        m2 = rand(rng) < 0.25 ? -m1 : rand(rng) < 0.25 ? m1 : signif(rng, R, rand(rng, -3:3))
-        push!(terms, ((m1, rand(rng, -E:E)), (m2, rand(rng, -E:E) + k)))
+    # Both orders of finite terms, including zeros, exact and near cancellation,
+    # and results at the normal, subnormal and overflow boundaries.
+    cases = (
+      ((zero(T), E), (-zero(T), es)),
+      ((zero(T), E), (T(0.75), 3)),
+      ((T(0.75), E + 2), (-T(0.75), E + 2)),
+      ((T(0.5), E + 2), (-prevfloat(one(T)), E + 1)),
+      ((T(0.75), 3), (T(0.75), 3 - 2E)),
+      ((T(-0.75), 3), (T(0.75), 3 - 2E)),
+      ((T(0.5), es), (T(0.5), es)),
+      ((T(0.5), es - 1), (T(0.5), es - 1)),
+      ((T(0.5), e0), (T(0.5), e0)),
+      ((prevfloat(one(T)), e0), (zero(T), 0)),
+      ((prevfloat(one(T)), E + 1), (zero(T), 0)),
+      ((prevfloat(one(T)), E + 1), (T(0.5), E + 1 - p)),
+      ((T(0.5), E + 1), (T(0.5), E + 1)),
+    )
+    setprecision(BigFloat, 4096) do
+      check_sum(t1, t2) = begin
+        acc = PB._expsum_add(PB._expsum_start(T), t1...)
+        acc = PB._expsum_add(acc, t2...)
+        ref = ldexp(BigFloat(t1[1]), t1[2]) + ldexp(BigFloat(t2[1]), t2[2])
+        @test PB._expsum_value(T, acc) === T(ref)
       end
-      # exponents that differ by at most 3, either order
-      for _ in 1:1500
-        e = rand(rng, -E:E)
-        push!(terms, ((signif(rng, R, rand(rng, -2:2)), e), (signif(rng, R, rand(rng, -2:2)), e + rand(rng, -3:3))))
+      for (t1, t2) in cases
+        check_sum(t1, t2)
+        check_sum(t2, t1)
       end
-      # exactly cancelling terms, with unnormalized significands, and a remainder that is below the frame
-      for a in (R(0.75), R(1.5), R(3), R(-0.625)), ea in (-40, 0, 7, E + 3)
-        push!(terms, ((a, ea), (-a, ea)))
-        push!(terms, ((a, ea), (-a * 2, ea - 1)))
-        push!(terms, ((a, ea), (nextfloat(-a), ea)))
-        push!(terms, ((a, ea), (zero(R), 0)))
-        push!(terms, ((zero(R), 0), (a, ea)))
-        push!(terms, ((zero(R), 0), (-zero(R), 5)))
-        push!(terms, ((R(Inf), ea), (a, 3)))
-        push!(terms, ((a, 3), (R(NaN), ea)))
-        push!(terms, ((R(Inf), 0), (-R(Inf), 0)))
-        push!(terms, ((R(-Inf), 0), (-R(Inf), 4)))
+      rng_sum = MersenneTwister(31)
+      for _ in 1:300
+        e = rand(rng_sum, e0 + p:E - 1)
+        m1, m2 = signif(rng_sum, T, 0), signif(rng_sum, T, 0)
+        check_sum((m1, e), (m2, e + rand(rng_sum, -2E:1)))
       end
-      for (t1, t2) in terms, w in (one(R), R(3) / 7, R(2)^(E ÷ 2), zero(R), R(Inf))
-        t1 = (t1[1], Int(t1[2])); t2 = (t2[1], Int(t2[2]))
-        a = PB._pow2_weighted(R, w, t1, t2)
-        b = generic(R, w, t1, t2)
-        @test a === b
-      end
-      @test PB._pow2_sum(R, (R(3), 5), (R(1), 5)) === PB._pow2_weighted(R, one(R), (R(3), 5), (R(1), 5))
-      # and against the exact value, so that the generic method is not the only reference
-      for (t1, t2) in terms[1:300]
-        all(isfinite, (t1[1], t2[1])) || continue
-        r = big(t1[1]) * big(2.0)^t1[2] + big(t2[1]) * big(2.0)^t2[2]
-        (isfinite(R(r)) && (iszero(r) || abs(r) >= big(nextfloat(zero(R))) * 4)) || continue
-        @test within(PB._pow2_sum(R, t1, t2), r, 2)
-      end
-    end
-  end
-
-  @testset "two-term power-of-two sum at the edges of the range" begin
-    # sums whose scaled value is subnormal, rounds to zero, overflows, or is the larger term alone (gaps around the skip
-    # bound 2 precision), with the weight one of _pow2_sum, whose result is scaled without a renormalization, and with
-    # another weight, in both orders of the terms
-    generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
-    for R in unique((T, Float64))
-      p = precision(R)
-      lo, hi = exponent(floatmin(R)) - p - 2, exponent(floatmax(R))
-      ntests = 0
-      for edge in vcat(collect(lo:lo + p + 5), collect(hi - 3:hi + 2)), gap in (0, 1, p - 1, p, p + 1, 2p - 1, 2p, 2p + 1, 2p + 2, 3p),
-          (m1, m2) in ((R(0.75), R(0.6875)), (R(0.5), -R(0.5)), (prevfloat(R(1)), nextfloat(R(0.5))), (R(0.5), R(0.5))),
-          sgn in (1, -1), w in (one(R), R(3) / 7)
-        for (t1, t2) in (((m1, edge), (sgn * m2, edge - gap)), ((sgn * m2, edge - gap), (m1, edge)))
-          ntests += 1
-          @test PB._pow2_weighted(R, w, t1, t2) === generic(R, w, t1, t2)
-        end
-      end
-      @test ntests == (p + 6 + 6) * 10 * 4 * 2 * 2 * 2
     end
   end
 
@@ -746,75 +702,8 @@ end
 end
 
 
-# #767: the retained exponent of a _ProjectionScale is an Int that may already have wrapped. The
-# retained products sum the exponents in Int, modulo 2^64, so they are right whenever the final
-# exponent fits in Int. The ordinary kernel widens BigFloat exponents to Int128 and would read the
-# wrapped power at face value. MPFR exponents near -2^62 let two factors carry the wrap back.
 setprecision(BigFloat, 256) do
-@testset "two-term power-of-two sum, BigFloat exponents beyond Int64" begin
-  # MPFR exponents reach 2^62 - 1: the frame exponents of the sum are taken in Int128, as in the generic method
-  generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
-  big_e = (2^62 - 3, 2^61, 2^40, 5, 0, -5, -2^40, -2^61, -(2^62 - 3))
-  ms = (BigFloat(0.75), BigFloat(-0.75), BigFloat(1.5), BigFloat(3) / 7, BigFloat(0))
-  count = 0
-  for m1 in ms, m2 in ms, e1 in big_e, e2 in big_e, w in (BigFloat(1), BigFloat(0.3))
-    t1, t2 = (m1, e1), (m2, e2)
-    @test bigsame(PB._pow2_weighted(BigFloat, w, t1, t2), generic(BigFloat, w, t1, t2))
-    count += 1
-  end
-  @test count == 5 * 5 * 9 * 9 * 2
-  # a value in range through terms with exponents beyond Int64 in sum, and the overflow of the weight
-  big2 = BigFloat(2)
-  @test PB._pow2_sum(BigFloat, (BigFloat(0.5), 2^62 - 3), (BigFloat(-0.5), 2^62 - 3)) == 0
-  v = PB._pow2_sum(BigFloat, (BigFloat(0.75), 2^62 - 3), (BigFloat(0.75), -(2^62 - 3)))
-  @test v == BigFloat(0.75) * big2^(2^62 - 3)
-end
-
-@testset "two-term power-of-two sum under directed rounding (BigFloat)" begin
-  # Only the IEEE types skip the shift of a term far below the sum (they round to nearest only). A BigFloat does the
-  # sum of the generic method in every rounding mode: under RoundUp, RoundDown and RoundToZero a term below half an ulp
-  # can still move the result, depending on its sign and the mode. The precisions and gaps below straddle the skip bound
-  # 2 precision for the types that have it.
-  generic(R, w, t1, t2) = invoke(PB._pow2_weighted, Tuple{Type, Any, Vararg{Tuple{Any, Int}}}, R, w, t1, t2)
-  ntests = 0
-  for p in (256, 512), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
-    setprecision(BigFloat, p) do
-      setrounding(BigFloat, mode) do
-        for gap in (1, 30, 255, 256, 257, 511, 512, 513, 600, 1023, 1024, 1025, 1112, 4000), sgn in (1, -1),
-            (m1, m2) in ((BigFloat(0.75), BigFloat(0.75)), (BigFloat(0.75), BigFloat(0.5)), (BigFloat(1) / 3, BigFloat(2) / 3)),
-            e in (0, 7, -50, 2^40), w in (BigFloat(1), BigFloat(3) / 7)
-          t1, t2 = (m1, e), (sgn * m2, e - gap)
-          for (u, v) in ((t1, t2), (t2, t1), ((-m1, e), t2))
-            a = PB._pow2_weighted(BigFloat, w, u, v)
-            ntests += 1
-            @test bigsame(a, generic(BigFloat, w, u, v))
-          end
-        end
-        # a term below half an ulp that moves the sum: 0.75 + 0.75 2^-600 at 256 bits is above 0.75 under RoundUp, and
-        # 0.75 - 0.75 2^-600 is below it under RoundDown and RoundToZero
-        if p == 256
-          up = PB._pow2_sum(BigFloat, (BigFloat(0.75), 0), (BigFloat(0.75), -600))
-          dn = PB._pow2_sum(BigFloat, (BigFloat(0.75), 0), (BigFloat(-0.75), -600))
-          @test up == (mode === RoundUp ? nextfloat(BigFloat(0.75)) : BigFloat(0.75))
-          @test dn == (mode in (RoundDown, RoundToZero) ? prevfloat(BigFloat(0.75)) : BigFloat(0.75))
-        end
-      end
-    end
-  end
-  @test ntests == 2 * 4 * 14 * 2 * 3 * 4 * 2 * 3
-  # significands stored above the current precision: frexp rounds, and the frexp exponent of the second term can exceed
-  # that of the first (D > E); the sum is still that of the generic method, in every mode
-  v = setprecision(() -> 1 - ldexp(BigFloat(1), -258), BigFloat, 768)
-  @test precision(v) == 768
-  for mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
-    setprecision(BigFloat, 256) do
-      setrounding(BigFloat, mode) do
-        for (t1, t2) in (((BigFloat(0.75), 0), (v, 0)), ((v, 0), (BigFloat(0.75), 0)), ((v, 3), (-v, 3)), ((v, 0), (ldexp(v, -300), 0)))
-          @test bigsame(PB._pow2_weighted(BigFloat, BigFloat(1), t1, t2), generic(BigFloat, BigFloat(1), t1, t2))
-        end
-      end
-    end
-  end
+@testset "group screen under directed rounding (BigFloat)" begin
   # the group screen ‖g‖ - λw through the public kkt_violation, with λw 2^-600 of ‖g‖, g = 2^e, e = -2^61: the exact
   # value is g (1 - 2^-600), which rounds to g to nearest and upward, and to prevfloat(g) downward and toward zero
   for (mode, down) in ((RoundNearest, false), (RoundUp, false), (RoundDown, true), (RoundToZero, true)), p in (256, 512)
@@ -828,32 +717,12 @@ end
       end
     end
   end
-  # the IEEE types have no rounding mode to set (the skip is exact for them): there is no setrounding method
-  @test_throws MethodError setrounding(() -> 1.0, Float64, RoundUp)
 end
 
-@testset "scaled product of a norm under directed rounding (BigFloat)" begin
-  # the product with a scaled norm c in [1, 2^30) rounds as the three-factor kernel does, in each of the four rounding modes
-  # and at precisions 53 and 256, also with exponents beyond Int64 (Int128 sums); one a value (a0) is stored at 400 bits,
-  # above the current precision, and the four c values are formed at the current precision, as the contract requires of c
-  ntests = 0
-  big2 = BigFloat(2)
-  for p in (53, 256), mode in (RoundNearest, RoundUp, RoundDown, RoundToZero)
-    setprecision(BigFloat, p) do
-      setrounding(BigFloat, mode) do
-        a0 = setprecision(() -> BigFloat(1) / 3, BigFloat, 400)
-        for a in (BigFloat(0), BigFloat(0.75), BigFloat(1) / 7, BigFloat(3) / 7 * big2^40, big2^(-2^61), big2^(2^61), a0),
-            b in (BigFloat(0), BigFloat(0.6), BigFloat(5) / 3, big2^(-2^61 - 3), big2^(2^61)),
-            c in (BigFloat(1), BigFloat(3) / 2, BigFloat(10) / 3, BigFloat(2)^29 * 0.999), k in (-2^62, -3, 0, 5, 2^61, 2^62 - 1)
-          ntests += 1
-          @test bigsame(PB._scaled_product_norm(a, b, c, k), PB._scaled_product(a, b, c, k))
-        end
-      end
-    end
-  end
-  @test ntests == 2 * 4 * 7 * 5 * 4 * 6
-end
-
+# #767: the retained exponent of a _ProjectionScale is an Int that may already have wrapped. The
+# retained products sum the exponents in Int, modulo 2^64, so they are right whenever the final
+# exponent fits in Int. The ordinary kernel widens BigFloat exponents to Int128 and would read the
+# wrapped power at face value. MPFR exponents near -2^62 let two factors carry the wrap back.
 @testset "retained exponent across Int wraparound (#767)" begin
   E = exponent(floatmax(BigFloat))
   a, b = ldexp(big(0.75), -E + 10), ldexp(big(0.625), -E + 10)

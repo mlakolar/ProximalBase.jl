@@ -12,7 +12,7 @@ zeros, copies, views, aliases, arbitrary block layouts, writes and products.
 excludes only constrained-ridge sections. `minimal_math` uses independent dense
 and BigFloat references across Float32/64.
 `numerical_kernels` tests the shared overflow/underflow kernels of numerical_kernels.jl
-(bounded products, halved residuals, squared residuals) against BigFloat
+(bounded products, halved residuals, squared residuals, two-term exponent sums) against BigFloat
 references in Float32/64, including genuine NaN/Inf inputs and exact zeros.
 `quadratic_domain` tests `QuadraticFunction` for a symmetric `A` that need not be positive
 semidefinite: values, gradients and the proximal point against analytic and BigFloat references,
@@ -25,7 +25,7 @@ the `_ExpSum` accumulator and the signed/overflowing/underflowing `QuadraticFunc
 single-factor `Scaled` recovery (value parts, level folds, partial folds, array-step routes, exact zeros and
 infinite factors), `NormL1` weights and thresholds (and the unweighted entry type, #684), `NormL1` values
 whose terms round below floatmin on every representation (#373), the ridge prox
-weights and owners, the SVD prox, the `_pow2_weighted` sums, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
+weights and owners, the SVD prox, the recomputed-dot shift, `norm`/`norm_diff`, the sparse and symmetric three-factor products and the symmetric
 part of an asymmetric argument, each against an independent BigFloat evaluation of the formula in Float32 and
 Float64. Known defects are recorded with `@test_broken` against the correct reference and flip when fixed.
 `symmetric_parameters` covers symmetric per-entry parameters as a model precondition: valid

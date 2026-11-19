@@ -60,19 +60,31 @@ end
 @inline function _logistic_terms(η::T, y, w, ::Val{V}, ::Val{D}) where {T,V,D}
   iszero(w) && return (zero(T), zero(T))
   positive = η > zero(T)
-  c = positive ? one(T) - y : y
+  # The flags specialize this loop. Fused calls share the unsigned
+  # subtraction and apply its sign after weighting.
+  fused = V && D
+  c = fused ? (positive ? one(T) - y : y) : ifelse(positive, one(T) - y, y)
   s = abs(η)
   e = exp(-s)
-  linear = V && !(iszero(c) && isinf(s)) ? c * s : zero(T)
-  if w > one(T) && e < floatmin(T)
+  linear = zero(T)
+  if V
+    if fused
+      linear = iszero(c) && isinf(s) ? zero(T) : c * s
+    else
+      linear = c * ifelse(iszero(c) & isinf(s), zero(T), s)
+    end
+  end
+  if e < floatmin(T) && w > one(T)
     tail = _logistic_weighted_tail(w, s)
     v = V ? w * linear + tail : zero(T)
-    d = D ? w * c - tail : zero(T)
+    wc = w * c
+    d = D ? (fused ? wc - tail : ifelse(positive, wc - tail, tail - wc)) : zero(T)
   else
     v = V ? w * (linear + log1p(e)) : zero(T)
-    d = D ? w * (c - e / (one(T) + e)) : zero(T)
+    q = e / (one(T) + e)
+    d = D ? w * (fused ? c - q : ifelse(positive, c - q, q - c)) : zero(T)
   end
-  return v, positive ? d : -d
+  return v, fused && !positive ? -d : d
 end
 
 @inline _logistic_weight(::Nothing, ::Type{T}, i) where {T} = one(T)

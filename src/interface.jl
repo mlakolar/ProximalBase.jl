@@ -789,6 +789,18 @@ end
   r
 end
 
+# As in _maximum_abs, the sign-cleared bit patterns keep the order of the
+# magnitudes and put NaNs above infinity. The integer maximum can vectorize.
+@inline function _smooth_kkt_residual(::Type{W}, v, d) where {W<:Union{Float32, Float64}}
+  I = _int_type(W)
+  r = zero(I)
+  @inbounds @simd for i in eachindex(v, d)
+    s = convert(W, v[i]) + convert(W, d[i])
+    r = max(r, reinterpret(I, s) & typemax(I))
+  end
+  reinterpret(W, r)
+end
+
 @noinline _smooth_kkt_local_error(f) = throw(ArgumentError(
   "kkt_violation of $(nameof(typeof(f))) supports the full-point form kkt_violation(f, v, x) and has no coordinate or group form"))
 @noinline _smooth_kkt_symmetric_error(f) = throw(ArgumentError(

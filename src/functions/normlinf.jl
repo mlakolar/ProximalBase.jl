@@ -736,6 +736,17 @@ function _linf_sorted_distance!(y::Vector{W}, c::W, ball) where {W}
   hypot(prefix_norm, _linf_remainder_norm(@view y[j+1:end]))
 end
 
+# For n nonnegative working-type entries with exact sum S, any addition order
+# gives s ≥ (1 - (n - 1)u)S under round-to-nearest, with u = eps(W)/2.
+# A subnormal sum of two nonnegative working-type entries is exact. The margin
+# n*eps(W) is exact in the admitted range. The radius guard keeps the product
+# normal, so its rounded value is at most c(1 - 2nu)(1 + u) ≤ c(1 - (n - 1)u).
+@inline function _linf_certified_inside_ball(s::W, c::W, n::Int) where {W<:Union{Float32, Float64}}
+  margin = n * eps(W)
+  margin <= W(0.5) && c >= 2 * floatmin(W) && s <= c * (one(W) - margin)
+end
+@inline _linf_certified_inside_ball(s, c, n) = false
+
 function _linf_point(c::W, v, x, ::Type{W}) where {W}
   sx, m = _linf_classify(x, _AbsRead{W}(), W)
   sv, mv = _linf_classify(v, _AbsRead{W}(), W)
@@ -746,6 +757,7 @@ function _linf_point(c::W, v, x, ::Type{W}) where {W}
   iszero(c) && return _linf_remainder_norm(_IndexedValues(v, 1:n, W))
   if iszero(m)
     n == 1 && return max(mv - c, zero(W))
+    _linf_certified_inside_ball(sv, c, n) && return zero(W)
     y = W[abs(W(v[i])) for i in 1:n]
     return _linf_sorted_distance!(y, c, true)
   end

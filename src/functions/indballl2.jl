@@ -99,14 +99,16 @@ end
 _value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::IndBallL2,
                            x::_ArrayOrSymmetricIterate, γ::Real) = value_and_prox!(y, f, x, γ)
 
-# An indicator ignores the scale. Keep the original step for validation,
+# A ball indicator ignores the scale. Keep the original step for validation,
 # including a negative step whose product with a small scale rounds to -0.
-_scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
-@inline _ball_l2_leaf(::Type) = false
-@inline _ball_l2_leaf(::Type{<:IndBallL2}) = true
-@inline _ball_l2_leaf(::Type{<:Scaled{F}}) where {F} = _ball_l2_leaf(F)
+# IndBallL1 (indballl1.jl) shares this route.
+const _BallIndicator = Union{IndBallL2, IndBallL1}
+_scaled_step(::Scaled{<:_BallIndicator}, γ::Real) = γ
+@inline _ball_leaf(::Type) = false
+@inline _ball_leaf(::Type{<:_BallIndicator}) = true
+@inline _ball_leaf(::Type{<:Scaled{F}}) where {F} = _ball_leaf(F)
 @inline _scaled_step(s::Scaled{<:Scaled}, γ::Real) =
-  _ball_l2_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
+  _ball_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
 
 @inline function _ball_l2_project!(y, r, x)
   isempty(x) && return y

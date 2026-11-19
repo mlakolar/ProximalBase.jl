@@ -30,6 +30,7 @@ The shared numerical rules above apply alongside those locations.
 | `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
 | `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `SqrNormL2` | [Squared Euclidean norm](@ref Squared-Euclidean-norm) | Existing pages |
 | `LeastSquaresLoss` | [Least-squares loss](@ref Least-squares-loss), including predictor and residual oracles | Existing pages |

@@ -183,6 +183,19 @@ The distinction matters: `value_and_gradient!` returns the value at
 the **input**, whereas `value_and_prox!` returns the value at the
 **stored proximal result**.
 
+For [`IndBallL1`](@ref) and [`IndBallL2`](@ref), the proximal point is the
+Euclidean projection at any nonnegative scalar step, including `0` and
+`Inf`. A negative or NaN step throws before writing. The fused oracle
+evaluates the stored point, which rounding can leave just outside the ball.
+
+```@example operations_basics
+ball = IndBallL1(3.0)
+projected = prox(ball, [3.0, -1.0])   # soft threshold at level 0.5
+@assert projected == [2.5, -0.5]
+@assert prox(ball, [3.0, -1.0], 10.0) == projected
+(ball([3.0, -1.0]), ball(projected))
+```
+
 ## Putting gradients and proximal maps together
 
 When minimizing ``f+g`` with a smooth ``f`` and a proximable ``g``,

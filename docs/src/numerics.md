@@ -444,8 +444,8 @@ before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate. `NormL1Nonneg` applies it to an infinite level (positive-weight entries become `+0`; zero-weight entries are projected onto the orthant, not left unchanged). `GroupNormL2` applies the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight, and `NormL2` and `NormLinf` to an
-infinite level; no other function
+a positive weight become `+0`) and to an infinite group weight. `NormL0`, `NormL2` and `NormLinf` apply
+it to an infinite level. No other function
 is claimed to implement a zero-step projection rule.
 
 The [endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md)

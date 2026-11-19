@@ -55,6 +55,9 @@ end
   # Doubling γ is exact when finite. Unequal rounded products preserve the
   # order of the exact products when the doubled factor remains finite.
   (floatmin(R) <= q <= floatmax(R) && p != q) && return p > q
+  # The exact comparison requires finite positive factors. Scaled may form
+  # a NaN step, for example from an infinite scale at a zero step.
+  (0 < γ <= floatmax(R) && 0 < λ <= floatmax(R)) || return p > q
   _l0_keeps_exact(x, γ, λ)
 end
 

@@ -20,6 +20,7 @@ def main():
     for path in pages:
         headings = []
         fenced = False
+        clause_table = False
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if line.startswith("```"):
                 fenced = not fenced
@@ -31,11 +32,20 @@ def main():
                 headings.append(title.strip())
             if line.startswith("|"):
                 first = line.split("|", 2)[1].strip().strip("`")
-                if IDENTIFIER.fullmatch(first):
+                if first.lower() in {"id", "identifier", "clause id"}:
+                    clause_table = True
+                    continue
+                if re.fullmatch(r"[:\-\s]+", first):
+                    continue
+                if clause_table and not IDENTIFIER.fullmatch(first):
+                    errors.append(f"{path.name}:{number}: invalid clause identifier {first!r}")
+                elif IDENTIFIER.fullmatch(first):
                     where = f"{path.name}:{number}"
                     if first in identifiers:
                         errors.append(f"{where}: duplicate clause {first} ({identifiers[first]})")
                     identifiers[first] = where
+            else:
+                clause_table = False
         if tuple(headings) != HEADINGS:
             errors.append(f"{path.name}: expected the fourteen family headings in their documented order")
     if not pages:

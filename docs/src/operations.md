@@ -406,6 +406,15 @@ estimate = opnorm2(Xnorm)
 An estimate is **not a certified upper bound**. Do not rely on it alone
 for step-size safety; use an independently valid bound or backtracking.
 
+## Evaluating at a caller-held predictor
+
+`ProximalBase.value_from_predictor(f, η)` evaluates a loss at a supplied
+predictor. `ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`
+also writes its observation-space derivative and coefficient gradient. For
+[`LogisticLoss`](@ref), the predictor includes the offset. See
+[logistic regression](smooth.md#Logistic-regression-loss) and
+[least-squares predictor and residual operations](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
+
 ## Invalidating cached calculations
 
 **Question:** What if I modify data already stored by reference

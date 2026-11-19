@@ -12,7 +12,7 @@ API. This development reduction is not a release announcement.
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf` and `GroupNormL2`, nonconvex penalties,
-logistic/Poisson/robust-loss families, constraints and indicators other than
+Poisson and robust-loss families, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
@@ -26,6 +26,14 @@ Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
+
+### Logistic regression
+
+`LogisticLoss(y, X; weights, offset)` is available as a standalone smooth loss.
+It requires finite responses in `[0, 1]`, including on zero-weight rows. The
+archived logistic constructor did not validate the response domain. The current
+constructor uses homogeneous strided `Float32` or `Float64` vectors and
+accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)
 

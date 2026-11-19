@@ -194,23 +194,43 @@ Ordinary feature pull requests may update the documentation they affect without
 editing this migration ledger. After such a pull request merges, reconcile its
 changed baseline blocks in a separate documentation-only change. Keep every
 original `block_id` and `sha`; set its action to `upstream` and record the exact
-current destination and replacement hash.
+current destination and exact replacement hash or ordered hashes.
 
-`upstream.json` binds each such row to the external PR number and URL, its
-reviewed merged status, actual before/after commits, before/after file blob IDs,
-original normalized block hash, replacement hash and reviewer. Use the actual
-first parent of the landed commit, which can differ from the PR API's recorded
-base. The checker recomputes Git provenance and requires the original and
-replacement blocks to belong to the same changed diff hunk. This initial action
-supports one replacement in the same file; it does not grant a general move,
-rename or deletion exemption. The receipt's PR merge status is independently
-verified and recorded in `review.md`; an offline checker cannot authenticate it.
+`upstream.json` uses schema 2. Each record binds the original block ID/hash to
+its final destination/hash and reviewer, followed by an ordered `events` list.
+Every event records the external PR number and URL, reviewed merged status,
+actual before/after commits, file blob IDs, source/replacement block hashes,
+and its own reviewer. A single block uses `source_sha` or `replacement_sha`;
+an ordered span uses `source_shas` or `replacement_shas`. Each side has exactly
+one of those forms. Use the actual first parent of the landed commit, which
+can differ from the PR API's recorded base. The checker recomputes each event's
+Git provenance and requires its source and replacement to share a changed diff
+hunk. The first source is the frozen original; each later source is the complete
+preceding replacement span. The final ordered hashes and reviewer match the
+ledger. Multiple destinations repeat one exact same-file scope, paired in order
+with their hashes. Current pieces must remain consecutive in that scope.
+
+The checker derives the complete replacement span from the source-owned changed
+line regions. An unchanged neighboring block is excluded only when positional
+block matching and unchanged raw-line alignment agree. Matching text elsewhere
+in the old file does not exempt a newly introduced copy from the receipt.
+
+Events need not be adjacent commits or have identical whole-file blobs between
+them: unrelated upstream work may edit other sections. Exact block-hash
+continuity is mandatory. The action supports exact contiguous replacement spans
+in the same file, without a general move, rename or deletion exemption. Each PR's
+merged status is independently verified and recorded in `review.md`; an offline
+checker cannot authenticate it. CI fetches the exact before/after revisions for
+every recorded event at depth one, deduplicating revisions shared by events.
 
 All accounting checks accept the upstream disposition only after that evidence
 passes. A later unrecorded edit to the replacement still fails. Heading changes
 do not waive old URLs: keep the old heading and a forwarding paragraph. The
-first reconciliation records three blocks changed by merged PR #1020, while
-restoring the old API heading as a forwarding stub.
+current reconciliation records three blocks changed successively by merged
+PRs #1020 and #1022, while retaining both earlier API headings as forwarding stubs.
+Two further receipts account for merged PR #1023: one coverage row and one
+sentence replaced by three consecutive sentences. All original block identities
+and hashes remain frozen.
 
 The known `reword`/`split` token and example accounting gap is separate. Clause
 conversion is held until those checks stay active and any intentional token

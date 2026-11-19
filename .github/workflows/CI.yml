@@ -87,7 +87,8 @@ jobs:
           receipts = audit / "upstream.json"
           if receipts.is_file():
               for record in json.loads(receipts.read_text())["changes"]:
-                  revisions.update((record["before_commit"], record["after_commit"]))
+                  for event in record["events"]:
+                      revisions.update((event["before_commit"], event["after_commit"]))
           print("\n".join(sorted(revisions)))
           PY
           )"

@@ -237,3 +237,108 @@ The independent `plan_consistency` review passed the upstream checker,
 all three receipts and the completed rendering. Its separate parser found
 762 IDs on the current 56 pages and confirmed every one of the 713 original
 IDs, including both historical and both new API heading fragments exactly once.
+
+## Successive upstream changes
+
+The actual master ref advanced again before merge, through
+[PR #1022](https://github.com/mlakolar/ProximalBase.jl/pull/1022), restoring
+`IndBallL2` at `9acd0a5d3a806f7254b02d9b92faf866e6b3c429`. Its actual first
+parent is `fc95196390b8f1a164621625362984f03f728ab0`. The PR metadata for #1021
+still reported its previously tested base, so the final merge check must read
+the current master ref rather than treating that metadata as current.
+
+This second restore changes the same three blocks and renames the API group to
+`Indicators`. Both `Nonnegative orthant` and `Box and nonnegative orthant`
+remain as forwarding headings, each pointing directly to `Indicators`. The
+three indicator docstrings remain in the one upstream API fence. An additive
+`IndBallL2` index row links to its existing API, range and endpoint owners.
+
+Schema 2 receipts retain the complete first event for #1020 and append #1022,
+reviewed as `norml1_pilot@9acd0a5d3a806f7254b02d9b92faf866e6b3c429`. Every event
+has exact source/replacement hashes, before/after commits and blobs, and its own
+review identity. The original hash starts the chain, each intermediate hash
+joins two events, and the final hash/reviewer match the ledger. Unrelated changes
+to other parts of a file may occur between events; the checker does not require
+adjacent commits or whole-file blob continuity. It does require exact block
+continuity and each event's independently recomputed changed-hunk evidence.
+
+All **46 fixtures** pass, including nonadjacent upstream events, missing or
+reordered transitions, stale later evidence, final reviewer mismatches, and
+later current-content changes. Independent `plan_consistency` review confirms
+that the first receipts are retained, both transitions match actual Git data,
+all 2,162 original units resolve, and source/tests/example scripts have no PR
+diff against the actual `9acd0a5` master. Clause conversion remains held.
+
+The strict local rebuild against that master passes all nine isolated scripts,
+executable manual examples, doctests and API coverage. All six preservation
+checks pass in blocking mode. Rendered validation finds 56 pages, 5,663 internal
+links/assets and 137 repository source/edit links, with no broken links or
+orphan pages. An independent ancestor-stack extraction finds 765 current content
+IDs and retains all 713 original IDs. Both historical API headings and the new
+`Indicators` heading have their two generated fragments exactly once; both
+forwarding paragraphs resolve directly to `Indicators`, and each indicator
+has one docstring target.
+
+The real shallow-Git fixture fetches exactly four distinct provenance revisions:
+the frozen baseline and the before/after boundaries of both upstream events.
+Starting from the tested merge commit, it ends with five commit objects and
+remains shallow. All provenance blobs are readable; inherited source changes
+pass the scope guard and a PR-owned source change fails.
+
+## Upstream sentence split
+
+[PR #1023](https://github.com/mlakolar/ProximalBase.jl/pull/1023) subsequently
+restored `NormL0` at `fc13ace163d219da0668b7f18be54ce6043edbf7`, with actual first
+parent `9acd0a5d3a806f7254b02d9b92faf866e6b3c429`. GitHub confirms that exact
+merged revision. It changes two more frozen units: the `value_entry` coverage
+row and the shared infinite-level family-summary sentence. The latter becomes
+three consecutive sentences, adding `NormL0` to the applicable families.
+
+`norml1_pilot@fc13ace163d219da0668b7f18be54ce6043edbf7` independently verified
+the merged PR, actual parent and file blobs, and all replacement hashes. Each
+replacement is unique and byte-identical to the upstream text. The three
+numerical sentences remain consecutive at their original shared-rule heading.
+The original row now references all three exact hashes in order; no baseline
+unit is regenerated or discarded. The earlier three two-event chains remain
+unchanged. The ledger totals are 2,118 stay, 38 move, one reviewed example-label
+repair, and five upstream dispositions, covering all 2,162 original units.
+
+Schema 2 permits singular or plural source/replacement hash fields, exclusively,
+so a bounded contiguous span can survive later upstream edits. Each transition
+still verifies actual Git commit, blob and diff evidence. This is external-change
+accounting, not permission for migration rewrites; the `reword`/`split` hardening
+gate before clause conversion remains in force. The new cardinality endpoint
+section stays in its upstream location, with an additive family-index link.
+The NormL1 contract and all existing API forwarding headings are unchanged.
+
+The strict local build against `fc13ace` passes all nine isolated scripts,
+executable manual examples, doctests and API coverage (67 bindings). Markdown
+lint passes for all 49 active sources; the pilot retains all fourteen headings
+and assigns no clause identifiers. Rendered validation finds 56 pages, 5,676
+internal links/assets and 138 repository source/edit links, with no broken links
+or orphan pages. The independent ancestor-stack review finds 770 current IDs
+and confirms all 713 original IDs, both historical API forwarding headings,
+and exactly one target for each indicator and the new `NormL0` docstring.
+
+`norml1_pilot@fc13ace163d219da0668b7f18be54ce6043edbf7` also checked every one
+of the seven Evidence-table descriptions against its referenced test file and
+found no mismatch. Those NormL1 source/test files are unchanged at this base.
+The core-functions description's exact input/output identity denotes aliasing
+of the same object; its approximate value comparison is not a claim of bitwise
+numerical equality. No clause status was inferred from this review.
+
+All **52 fixtures** and all six preservation checks pass in blocking mode at
+this revision. The new span fixtures reject missing, reordered, extra, stale
+or nonconsecutive pieces and support a later change to one member of a prior
+span. Independent review reproduced an omission case where a replacement piece
+duplicated text elsewhere in the old file. The correction uses positional
+block and raw-line alignment; the regression rejects the incomplete receipt
+and accepts the complete span. Every newly introduced copy remains accounted
+for even when its normalized text already exists elsewhere.
+
+The final real shallow-Git fixture fetches exactly five distinct provenance
+commits at depth one. Including the starting merge commit, exactly six commit
+objects are present; no unrelated history is fetched. All event blobs are
+readable, and the scope comparison needs no further fetch. Inherited source
+changes pass while a PR-owned source change fails. The final branch has no
+source, test or example-script diff against `fc13ace`.

@@ -35,6 +35,12 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
+## Cardinality penalty
+
+```@docs
+NormL0
+```
+
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs
@@ -46,13 +52,19 @@ ElasticNet
 ## Nonnegative orthant
 
 The indicator API entries are now grouped under
-[Box and nonnegative orthant](#Box-and-nonnegative-orthant).
+[Indicators](#Indicators).
 
 ## Box and nonnegative orthant
+
+The box and nonnegative-orthant API entries are now grouped under
+[Indicators](#Indicators).
+
+## Indicators
 
 ```@docs
 IndBox
 IndNonnegative
+IndBallL2
 ```
 
 ## ℓ₂ and group ℓ₂ norms

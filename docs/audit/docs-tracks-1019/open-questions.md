@@ -21,9 +21,11 @@ remaining verbatim family moves. The five requested pilot corrections and
 the inspected source revision are recorded in `review.md`.
 
 Unrelated merged PR changes now use the bounded `upstream` action with exact
-Git provenance and independent review. The first three receipts account for
-the documentation changes in merged IndBox PR #1020; old API heading URLs
-are preserved by a forwarding stub. See `upstream.json` and `review.md`.
+Git provenance and independent review. Three receipts each contain two verified
+transitions, for merged IndBox PR #1020 and IndBallL2 PR #1022. Two more account
+for NormL0 PR #1023, including one sentence that became three. Both earlier API
+heading URLs are preserved by forwarding stubs. See `upstream.json` and
+`review.md`.
 
 Before the next family, refine the three remaining family guides to sentence
 units with original-block provenance, and replace the three uncited runtime

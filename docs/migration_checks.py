@@ -454,8 +454,8 @@ def upstream_records(rows, root=ROOT):
     if not required and not path.exists():
         return {}
     receipt = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(receipt, dict) or receipt.get("schema") != 1 or not isinstance(receipt.get("changes"), list):
-        raise ValueError("upstream receipt requires schema 1 and a changes list")
+    if not isinstance(receipt, dict) or receipt.get("schema") != 2 or not isinstance(receipt.get("changes"), list):
+        raise ValueError("upstream receipt requires schema 2 and a changes list")
     records = {}
     for record in receipt["changes"]:
         if not isinstance(record, dict) or not isinstance(record.get("block_id"), str):
@@ -469,11 +469,29 @@ def upstream_records(rows, root=ROOT):
     return records
 
 
-def validate_upstream(old, row, record, root=ROOT):
-    """Bind one original block and its replacement to a reviewed upstream diff.
+def upstream_hashes(record, name):
+    """Accept one scalar or one ordered list, never both spellings."""
+    scalar, plural = name + "_sha", name + "_shas"
+    if (scalar in record) == (plural in record):
+        raise ValueError(f"upstream requires exactly one of {scalar} and {plural}")
+    hashes = [record[scalar]] if scalar in record else record[plural]
+    if (not isinstance(hashes, list) or not hashes or
+            any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes)):
+        raise ValueError(f"upstream requires nonempty exact {name} hashes")
+    return hashes
 
-    This bounded action supports a single changed block in its original file.
-    It does not approve additional edits, moves, or ambiguous duplicate blocks.
+
+def sequence_starts(values, sequence):
+    return [i for i in range(len(values) - len(sequence) + 1)
+            if values[i:i + len(sequence)] == sequence]
+
+
+def validate_upstream(old, row, record, root=ROOT):
+    """Bind one original block to an exact sequence of reviewed upstream diffs.
+
+    Each event replaces a contiguous span in its original file. Hashes must join
+    exactly; unrelated intervening commits or file edits need not be adjacent.
+    The final hash remains bound to the ledger's current destination.
     """
     if record is None:
         raise ValueError("missing valid upstream receipt")
@@ -481,14 +499,51 @@ def validate_upstream(old, row, record, root=ROOT):
                     dest_sha=row["dest_sha"], reviewer=row["reviewer"])
     if any(record.get(key) != value for key, value in expected.items()):
         raise ValueError("upstream receipt does not match original hash, destination, or reviewer")
-    if len(destination_parts(row["dest"])) != 1 or len(destination_parts(row["dest_sha"])) != 1:
-        raise ValueError("upstream requires one destination block")
-    path, _ = split_destination(row["dest"])
-    if path != old.path or row["dest_sha"] == old.sha:
+    destinations, hashes = destination_parts(row["dest"]), destination_parts(row["dest_sha"])
+    if not destinations or len(destinations) != len(hashes) or len(set(destinations)) != 1:
+        raise ValueError("upstream requires one repeated destination scope for its ordered span")
+    path, anchor = split_destination(destinations[0])
+    if path != old.path or hashes == [old.sha]:
         raise ValueError("upstream requires a changed block in its original file")
     reviewer, _, revision = row["reviewer"].partition("@")
     if not reviewer or reviewer == "mechanical" or not revision:
         raise ValueError("upstream requires independent review identity@revision")
+    events = record.get("events")
+    if not isinstance(events, list) or not events:
+        raise ValueError("upstream requires a nonempty events sequence")
+    source = [old]
+    for index, event in enumerate(events, 1):
+        try:
+            source = validate_upstream_event(source, event, root)
+        except (ValueError, subprocess.CalledProcessError) as error:
+            raise ValueError(f"upstream event {index}: {error}") from error
+    if [block.sha for block in source] != hashes:
+        raise ValueError("upstream final replacement does not match the destination hash")
+    if events[-1]["reviewer"] != row["reviewer"]:
+        raise ValueError("upstream final event reviewer does not match the destination review")
+    current = list(blocks(section_text(read_current(path, root), anchor), path))
+    starts = sequence_starts([block.sha for block in current], hashes)
+    if len(starts) != 1:
+        raise ValueError("no block with expected hash sequence uniquely contiguous at the current destination")
+    return current[starts[0]:starts[0] + len(hashes)]
+
+
+def validate_upstream_event(old, record, root=ROOT):
+    """Verify one complete ordered transition using actual Git line changes."""
+    if not isinstance(record, dict):
+        raise ValueError("upstream event must be an object")
+    source_hashes = upstream_hashes(record, "source")
+    replacement_hashes = upstream_hashes(record, "replacement")
+    if source_hashes != [block.sha for block in old]:
+        raise ValueError("upstream source hash breaks event continuity")
+    if replacement_hashes == source_hashes:
+        raise ValueError("upstream event requires a different exact replacement hash sequence")
+    reviewer = record.get("reviewer")
+    if not isinstance(reviewer, str):
+        raise ValueError("upstream event requires independent review identity@revision")
+    identity, _, revision = reviewer.partition("@")
+    if not identity or identity == "mechanical" or not revision:
+        raise ValueError("upstream event requires independent review identity@revision")
     number = record.get("pull_request")
     if (type(number) is not int or number <= 0 or record.get("merged") is not True or
             record.get("pull_request_url") != f"https://github.com/mlakolar/ProximalBase.jl/pull/{number}"):
@@ -503,6 +558,7 @@ def validate_upstream(old, row, record, root=ROOT):
     parents = re.findall(r"^parent ([0-9a-f]{40})$", header, re.M)
     if not parents or parents[0] != before:
         raise ValueError("upstream before_commit is not after_commit's first parent")
+    path = old[0].path
     texts = []
     for commit, key in ((before, "before_blob"), (after, "after_blob")):
         actual = git("rev-parse", "--verify", f"{commit}:{path}", root=root).strip()
@@ -512,12 +568,15 @@ def validate_upstream(old, row, record, root=ROOT):
     if record["before_blob"] == record["after_blob"]:
         raise ValueError("upstream file did not change")
     before_blocks, after_blocks = (list(blocks(text, path)) for text in texts)
-    originals = [b for b in before_blocks if b.sha == old.sha and b.kind == old.kind]
-    replacements = [b for b in after_blocks if b.sha == row["dest_sha"]]
-    if len(originals) != 1 or len(replacements) != 1:
+    before_hashes, after_hashes = ([block.sha for block in page] for page in (before_blocks, after_blocks))
+    old_starts, new_starts = sequence_starts(before_hashes, source_hashes), sequence_starts(after_hashes, replacement_hashes)
+    if len(old_starts) != 1 or len(new_starts) != 1:
         raise ValueError("upstream diff must contain unique original and replacement blocks")
-    if (any(b.sha == old.sha for b in after_blocks) or
-            any(b.sha == row["dest_sha"] for b in before_blocks)):
+    originals = before_blocks[old_starts[0]:old_starts[0] + len(source_hashes)]
+    replacements = after_blocks[new_starts[0]:new_starts[0] + len(replacement_hashes)]
+    if [block.kind for block in originals] != [block.kind for block in old]:
+        raise ValueError("upstream source block kinds changed outside the recorded sequence")
+    if sequence_starts(after_hashes, source_hashes) or sequence_starts(before_hashes, replacement_hashes):
         raise ValueError("upstream diff must remove the original and introduce the replacement")
 
     def span(block, text):
@@ -530,11 +589,35 @@ def validate_upstream(old, row, record, root=ROOT):
         # A pure insertion/deletion has an empty range on one side.
         return first <= start <= last if start == end else max(first, start) < min(last, end)
 
-    old_span, new_span = span(originals[0], texts[0]), span(replacements[0], texts[1])
+    old_span = (span(originals[0], texts[0])[0], span(originals[-1], texts[0])[1])
+    new_span = (span(replacements[0], texts[1])[0], span(replacements[-1], texts[1])[1])
     changes = SequenceMatcher(None, texts[0].splitlines(), texts[1].splitlines(), autojunk=False).get_opcodes()
-    if not any(tag != "equal" and touches(old_span, i, j) and touches(new_span, k, l)
-               for tag, i, j, k, l in changes):
+    owned = [(i, j, k, l) for tag, i, j, k, l in changes if tag != "equal" and touches(old_span, i, j)]
+    if not any(touches(new_span, k, l) for i, j, k, l in owned):
         raise ValueError("upstream original and replacement do not share a changed diff hunk")
+    # An equal hash elsewhere does not make a newly introduced copy unchanged.
+    # Pair equal blocks by position, corroborated by unchanged raw-line mapping.
+    # Ambiguous partially changed lines are conservatively owned, not excluded.
+    unchanged = {}
+    for tag, i, j, k, l in SequenceMatcher(None, before_hashes, after_hashes, autojunk=False).get_opcodes():
+        if tag != "equal":
+            continue
+        for before_index, after_index in zip(range(i, j), range(k, l)):
+            bf, bl = span(before_blocks[before_index], texts[0])
+            af, al = span(after_blocks[after_index], texts[1])
+            if any(tag == "equal" and i <= bf and bl <= j and af == k + bf - i and al == k + bl - i
+                   for tag, i, j, k, l in changes):
+                unchanged[after_index] = before_index
+    # Project owned changes and retained source members, excluding only proven
+    # unchanged neighbors. The API heading and @docs edit remain distinct.
+    required = [index for index, block in enumerate(after_blocks)
+                if (index in unchanged and old_starts[0] <= unchanged[index] < old_starts[0] + len(source_hashes)) or
+                (index not in unchanged and
+                 any(touches(span(block, texts[1]), k, l) for i, j, k, l in owned))]
+    if (not required or required != list(range(required[0], required[-1] + 1)) or
+            [after_hashes[index] for index in required] != replacement_hashes):
+        raise ValueError("upstream replacement must cover the complete ordered changed span")
+    return replacements
 
 
 def coverage(base_blocks, rows, root=ROOT):
@@ -582,12 +665,12 @@ def coverage(base_blocks, rows, root=ROOT):
             continue
         if action == "upstream":
             try:
-                validate_upstream(old, row, upstream.get(old.id), root)
-            except (ValueError, subprocess.CalledProcessError) as error:
+                upstream_replacements = validate_upstream(old, row, upstream.get(old.id), root)
+            except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
                 errors.append(f"{old.id}: {error}")
                 continue
         replacements = []
-        for dest, expected in zip(destinations, hashes):
+        for index, (dest, expected) in enumerate(zip(destinations, hashes)):
             try:
                 path, anchor = split_destination(dest)
                 if path not in cached:
@@ -598,7 +681,7 @@ def coverage(base_blocks, rows, root=ROOT):
                 if dest not in candidates_by_dest:
                     candidates_by_dest[dest] = list(blocks(section_text(cached[path], anchor), path))
                 candidates = candidates_by_dest[dest]
-                matches = [b for b in candidates if b.sha == expected]
+                matches = [upstream_replacements[index]] if action == "upstream" else [b for b in candidates if b.sha == expected]
                 if not matches:
                     raise ValueError(f"no block with expected hash {expected[:12]} at {dest}")
                 if action in {"stay", "move", "archive"} and expected != old.sha:

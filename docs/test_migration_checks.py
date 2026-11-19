@@ -328,16 +328,22 @@ class UpstreamTests(unittest.TestCase):
         self.baseline = [old]
         self.rows = m.initial_ledger(self.baseline)
         self.rows[0].update(action="upstream", dest_sha=new.sha, reviewer="fixture-reviewer@upstream")
+        self.event = self.make_event(self.before, self.after, old.sha, new.sha)
         self.record = dict(block_id=old.id, baseline_sha=old.sha, dest=self.path,
                            dest_sha=new.sha, reviewer=self.rows[0]["reviewer"],
-                           pull_request=1020, pull_request_url="https://github.com/mlakolar/ProximalBase.jl/pull/1020",
-                           merged=True, before_commit=self.before, after_commit=self.after,
-                           before_blob=m.git("rev-parse", f"{self.before}:{self.path}", root=self.root).strip(),
-                           after_blob=m.git("rev-parse", f"{self.after}:{self.path}", root=self.root).strip())
+                           events=[self.event])
         self.save()
 
+    def make_event(self, before, after, source_sha, replacement_sha, number=1020):
+        return dict(source_sha=source_sha, replacement_sha=replacement_sha,
+                    pull_request=number, pull_request_url=f"https://github.com/mlakolar/ProximalBase.jl/pull/{number}",
+                    merged=True, before_commit=before, after_commit=after,
+                    before_blob=m.git("rev-parse", f"{before}:{self.path}", root=self.root).strip(),
+                    after_blob=m.git("rev-parse", f"{after}:{self.path}", root=self.root).strip(),
+                    reviewer="fixture-reviewer@upstream")
+
     def save(self, records=None):
-        self.receipt.write_text(json.dumps(dict(schema=1, changes=[self.record] if records is None else records)))
+        self.receipt.write_text(json.dumps(dict(schema=2, changes=[self.record] if records is None else records)))
 
     def check(self):
         return m.coverage(self.baseline, self.rows, self.root)
@@ -370,9 +376,10 @@ class UpstreamTests(unittest.TestCase):
                                      ("reviewer", "mechanical", "independent review")):
             with self.subTest(field=field):
                 self.select("prose")
-                self.record[field] = value
                 if field == "reviewer":
-                    self.rows[0][field] = value
+                    self.rows[0][field] = self.record[field] = value
+                else:
+                    self.event[field] = value
                 self.save()
                 self.assert_rejected(error)
 
@@ -386,17 +393,17 @@ class UpstreamTests(unittest.TestCase):
     def test_upstream_rejects_bad_hash_blob_and_parent(self):
         for field, value, error in (("baseline_sha", "0" * 64, "does not match"),
                                      ("dest_sha", "0" * 64, "does not match"),
-                                     ("before_blob", self.record["after_blob"], "blob mismatch"),
+                                     ("before_blob", self.event["after_blob"], "blob mismatch"),
                                      ("before_commit", self.after, "first parent")):
             with self.subTest(field=field):
                 self.select("prose")
-                self.record[field] = value
+                (self.event if field in {"before_blob", "before_commit"} else self.record)[field] = value
                 self.save()
                 self.assert_rejected(error)
 
     def test_upstream_rejects_unrelated_changed_block_as_replacement(self):
         unrelated = list(m.blocks(self.changed, self.path))[-1]
-        self.rows[0]["dest_sha"] = self.record["dest_sha"] = unrelated.sha
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = self.event["replacement_sha"] = unrelated.sha
         self.save()
         self.assert_rejected("share a changed diff hunk")
 
@@ -404,7 +411,7 @@ class UpstreamTests(unittest.TestCase):
         mutation = self.changed.replace("Updated `1`", "Unreviewed `2`")
         (self.root / self.path).write_text(mutation)
         new = next(b for b in m.blocks(mutation, self.path) if b.kind == "prose")
-        self.rows[0]["dest_sha"] = self.record["dest_sha"] = new.sha
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = self.event["replacement_sha"] = new.sha
         self.save()
         self.assert_rejected("unique original and replacement blocks")
 
@@ -420,6 +427,186 @@ class UpstreamTests(unittest.TestCase):
                 self.after = self.commit(self.changed + suffix, "invalid upstream")
                 self.select("prose")
                 self.assert_rejected(error)
+
+    def extend_chain(self, intervening=False):
+        before, text = self.after, self.changed
+        if intervening:
+            text += "\nAn intervening unrelated paragraph.\n"
+            before = self.commit(text, "unrelated intervening file edit")
+        self.final = text.replace("Updated `1` rule.", "Final `2` rule.").replace(
+            "A different unrelated rule.", "A final unrelated rule.")
+        after = self.commit(self.final, "second upstream change")
+        new = next(b for b in m.blocks(self.final, self.path) if b.kind == "prose")
+        event = self.make_event(before, after, self.record["dest_sha"], new.sha, number=1022)
+        event["reviewer"] = "second-fixture-reviewer@second-upstream"
+        self.record["events"].append(event)
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = new.sha
+        self.rows[0]["reviewer"] = self.record["reviewer"] = event["reviewer"]
+        self.save()
+        return event
+
+    def test_upstream_chain_accepts_intervening_unrelated_file_edits(self):
+        second = self.extend_chain(intervening=True)
+        self.assertNotEqual(self.event["after_commit"], second["before_commit"])
+        self.assertNotEqual(self.event["after_blob"], second["before_blob"])
+        self.assertEqual(self.event["replacement_sha"], second["source_sha"])
+        self.assertNotEqual(self.event["reviewer"], second["reviewer"])
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_upstream_chain_rejects_empty_skipped_reordered_and_duplicate_events(self):
+        self.extend_chain()
+        first, second = copy.deepcopy(self.record["events"])
+        for events, error in (([], "nonempty events"),
+                               ([second], "source hash breaks event continuity"),
+                               ([first], "final replacement"),
+                               ([second, first], "source hash breaks event continuity"),
+                               ([first, first, second], "source hash breaks event continuity")):
+            with self.subTest(events=events):
+                self.record["events"] = events
+                self.save()
+                self.assert_rejected(error)
+
+    def test_upstream_chain_validates_later_event_evidence(self):
+        second = self.extend_chain(intervening=True)
+        original = copy.deepcopy(second)
+        for field, value, error in (("source_sha", self.baseline[0].sha, "event continuity"),
+                                     ("before_blob", self.event["before_blob"], "blob mismatch"),
+                                     ("before_commit", self.before, "first parent"),
+                                     ("replacement_sha", "0" * 64, "unique original and replacement"),
+                                     ("merged", False, "merged pull request"),
+                                     ("reviewer", "mechanical", "independent review")):
+            with self.subTest(field=field):
+                second.clear()
+                second.update(original)
+                second[field] = value
+                self.save()
+                self.assert_rejected(error)
+
+    def test_upstream_chain_binds_final_reviewer_and_current_destination(self):
+        second = self.extend_chain()
+        self.rows[0]["reviewer"] = self.record["reviewer"] = "other-reviewer@other-revision"
+        self.save()
+        self.assert_rejected("final event reviewer")
+        self.rows[0]["reviewer"] = self.record["reviewer"] = second["reviewer"]
+        self.save()
+        (self.root / self.path).write_text(self.final.replace("Final `2` rule.", "Unreviewed `3` rule."))
+        self.assert_rejected("no block with expected hash")
+
+    def test_upstream_chain_rejects_unrelated_later_diff_hunk(self):
+        second = self.extend_chain()
+        unrelated = list(m.blocks(self.final, self.path))[-1]
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = second["replacement_sha"] = unrelated.sha
+        self.save()
+        self.assert_rejected("share a changed diff hunk")
+
+    def test_upstream_chain_keeps_original_file_restriction(self):
+        self.extend_chain()
+        target = self.root / "docs/src/other.md"
+        target.parent.mkdir(parents=True)
+        target.write_text(self.final)
+        self.rows[0]["dest"] = self.record["dest"] = "docs/src/other.md"
+        self.save()
+        self.assert_rejected("original file")
+
+    def split_fixture(self):
+        self.path = "docs/src/numerics.md"
+        (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.original = "# Rules\n\nApply the group rule and norm rule; no other rule is claimed.\n\n## Other\n\nUnrelated text.\n"
+        self.changed = "# Rules\n\nApply the group rule. Apply the norm rule.\nNo other rule is claimed.\n\n## Other\n\nUnrelated text.\n"
+        self.before = self.commit(self.original, "before split")
+        self.after = self.commit(self.changed, "upstream sentence split")
+        self.select("prose")
+        self.pieces = [block for block in m.blocks(self.changed, self.path) if block.kind == "prose"][:3]
+        del self.event["replacement_sha"]
+        self.set_split_hashes([block.sha for block in self.pieces])
+
+    def set_split_hashes(self, hashes):
+        self.event["replacement_shas"] = hashes
+        self.rows[0]["dest"] = self.record["dest"] = ";".join([self.path] * len(hashes))
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = ";".join(hashes)
+        self.save()
+
+    def test_upstream_split_preserves_all_three_ordered_pieces(self):
+        self.split_fixture()
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual([b.sha for b in mappings[self.baseline[0].id][1]], [b.sha for b in self.pieces])
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_upstream_split_rejects_missing_reordered_and_extra_receipt_pieces(self):
+        self.split_fixture()
+        hashes = [block.sha for block in self.pieces]
+        extra = next(block.sha for block in m.blocks(self.changed, self.path) if block.text == "## Other")
+        for changed, error in ((hashes[:-1], "complete ordered changed span"),
+                                ([hashes[0], hashes[2]], "unique original and replacement"),
+                                (list(reversed(hashes)), "unique original and replacement"),
+                                (hashes + [extra], "complete ordered changed span")):
+            with self.subTest(hashes=changed):
+                self.set_split_hashes(changed)
+                self.assert_rejected(error)
+        self.set_split_hashes(hashes[:1])
+        self.event["replacement_sha"] = self.event.pop("replacement_shas")[0]
+        self.save()
+        self.assert_rejected("complete ordered changed span")
+
+    def test_upstream_span_hash_keys_are_exclusive_and_nonempty(self):
+        self.split_fixture()
+        original = copy.deepcopy(self.event)
+        for name in ("source", "replacement"):
+            with self.subTest(name=name):
+                self.event.clear()
+                self.event.update(original)
+                self.event[name + "_sha"] = self.baseline[0].sha
+                self.event[name + "_shas"] = [self.baseline[0].sha]
+                self.save()
+                self.assert_rejected("exactly one of")
+                del self.event[name + "_sha"]
+                self.event[name + "_shas"] = []
+                self.save()
+                self.assert_rejected("nonempty exact")
+
+    def test_upstream_split_current_pieces_must_remain_contiguous_and_ordered(self):
+        self.split_fixture()
+        texts = [block.text for block in self.pieces]
+        for changed in (list(reversed(texts)), [texts[0], "An unrelated insertion.", *texts[1:]]):
+            with self.subTest(text=changed):
+                (self.root / self.path).write_text("# Rules\n\n" + " ".join(changed) + "\n")
+                self.assert_rejected("uniquely contiguous at the current destination")
+
+    def test_upstream_split_continues_through_later_partial_span_change(self):
+        self.split_fixture()
+        final = self.changed.replace("Apply the norm rule.", "Apply the newer norm rule.")
+        after = self.commit(final, "later change to one split piece")
+        hashes = [block.sha for block in m.blocks(final, self.path) if block.kind == "prose"][:3]
+        second = self.make_event(self.after, after, self.pieces[0].sha, hashes[0], number=1022)
+        del second["source_sha"], second["replacement_sha"]
+        second.update(source_shas=[block.sha for block in self.pieces], replacement_shas=hashes)
+        self.record["events"].append(second)
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = ";".join(hashes)
+        self.save()
+        self.assertEqual(self.check()[0], [])
+        second["source_shas"].reverse()
+        self.save()
+        self.assert_rejected("source hash breaks event continuity")
+
+    def test_upstream_split_cannot_omit_new_copy_of_text_existing_elsewhere(self):
+        self.original = "# Guide\n\nOriginal combined rule.\n\n## Elsewhere\n\nRepeated obligation.\n"
+        self.changed = self.original.replace("Original combined rule.", "First replacement rule.\n\nRepeated obligation.")
+        self.before = self.commit(self.original, "before duplicated split piece")
+        self.after = self.commit(self.changed, "upstream split introduces an existing phrase")
+        self.select("prose")
+        # The incomplete scalar receipt must not hide the introduced second copy.
+        self.assert_rejected("complete ordered changed span")
+        pieces = [block for block in m.blocks(self.changed, self.path) if block.kind == "prose"][:2]
+        del self.event["replacement_sha"]
+        self.set_split_hashes([block.sha for block in pieces])
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual([block.line for block in mappings[self.baseline[0].id][1]], [block.line for block in pieces])
 
 
 if __name__ == "__main__":

@@ -567,7 +567,8 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
 end
 
 # The handover: the iteration on all the entries from the plain level (s - a)/n, with s the sum of the caller's pass when it is given
-# and the sum of the entries formed here when it is not. It is not inlined, so that the code of Condat's pass does not depend on it.
+# and the sum of the entries formed here when it is not. It is not inlined, which keeps `_l1ball_threshold!` to Condat's pass and
+# one call for the handover.
 @noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T) where {T, F}
   _l1ball_iterate(x, n, a, rd, (s - a) / n)
 end

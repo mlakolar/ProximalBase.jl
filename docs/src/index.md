@@ -108,3 +108,14 @@ guide unless you need to change ProximalBase internals.
 The [Glossary](glossary.md) defines unfamiliar terminology.
 The [API reference](api/interface.md) lists signatures and qualified names.
 For changes from earlier releases, see [Compatibility and migration](migration.md).
+
+## [Choose a documentation track](@id documentation-tracks)
+
+Choose the track that matches what you want to understand. The User guide,
+Examples and API reference are shared by all three tracks.
+
+| Track | Question | Start here |
+|:--|:--|:--|
+| Learn | Why does the method work, and how do I calculate an example? | [A first lasso problem](getting_started.md) |
+| Developer guide | How are the package and its routines organized? | [Overview and package structure](developer/index.md) |
+| Numerical contracts | Which numerical conditions and results must I preserve? | [How to read the contracts](spec/index.md) |

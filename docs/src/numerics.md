@@ -110,21 +110,8 @@ recovery of a dense argument and in the recovery of the `LinearFunction` value a
 `d` beside a dot that cancels exactly is returned as `d` when the compensated sum of the
 products cancels to zero, which is not guaranteed for products of very different sizes.
 
-`NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
-subnormal range, which loses accuracy even when the total is normal
-([#373](https://github.com/mlakolar/ProximalBase.jl/issues/373)). Each such
-rounding loses at most half the smallest subnormal spacing,
-`eps(T)*floatmin(T)/2`, so an ordinary sum `s ≥ n*floatmin(T)` of `n` terms
-loses at most `eps(T)/2` relative to `s` and is returned from the unchanged
-vectorized loop. A smaller sum, a zero one included, is recomputed: the
-products `w[i]*abs(x[i])` are accumulated with their exponents, and `λ0` is
-applied before the single conversion to `T`. This holds for dense arrays and
-for the stored entries of `SparseIterate`, `BlockIterate` and
-`SymmetricSparseIterate`, and for `value_and_prox!` at its stored output.
-Zero and infinite levels, infinite weights and NaN/Inf entries keep the rules
-below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
-as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
-rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
+For `NormL1` value recovery, including subnormal terms, see the
+[NormL1 range clauses](@ref spec-norml1-range).
 
 `NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
 term of a negative entry; the rules for `NaN` and `Inf` entries are in the table below, and at a
@@ -310,11 +297,7 @@ all-NaN result or a particular exception.
 | Case | Retained behavior |
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
-| Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
-| `NormL1`, zero weight | Unpenalized entry at every level |
-| `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
-| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. See [the zero-step rule](@ref infinite-penalty-at-zero-step) |
-| `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
+| `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
 | `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
@@ -351,21 +334,11 @@ all-NaN result or a particular exception.
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
-```@example numerical_endpoints
+The `NormL1` assertions are retained in its
+[executed endpoint example](@ref spec-norml1-endpoints).
+
+```@setup numerical_endpoints
 using ProximalBase
-@assert NormL1(0.0)([NaN,Inf]) == 0
-@assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
-@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)
-@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])
-@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold
-@assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
-@assert isnan(shrink(NaN,1.0))
-@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero
-@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step
-@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)
-@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
-@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
-prox(NormL1(Inf),[NaN,Inf],1.0)
 ```
 
 ```@example numerical_endpoints
@@ -386,16 +359,8 @@ prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
 prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)
 ```
 
-**Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
-coordinate weight maps a *finite input value* to zero, even at zero level and step.
-For inputs of `NaN` or `±Inf` with finite level, that fixed-zero guarantee is
-intentionally not extended: retained soft-threshold arithmetic may return
-`NaN`. Separately, a threshold made from *finite* factors can overflow to
-`Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
-though the mathematical threshold is finite. These examples characterize
-present behavior, not additional non-finite-output guarantees. A genuinely
-infinite **level** at any nonnegative step retains its distinct fixed-zero rule
-for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
+The decision on `NormL1` non-finite inputs is retained with the
+[NormL1 endpoint clauses](@ref spec-norml1-endpoints).
 
 ### Cardinality penalty endpoints
 

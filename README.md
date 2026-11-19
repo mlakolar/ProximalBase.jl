@@ -81,3 +81,14 @@ The documented `master` interface is under development and may differ
 from a tagged or registered release. See
 [Compatibility and migration](docs/src/migration.md) for the
 pre-rebuild implementation and its archival references.
+
+## Documentation tracks
+
+The manual offers three reading tracks, with the User guide, Examples and API
+reference shared by all readers.
+
+| Track | Start here |
+|:--|:--|
+| Learn: mathematics and worked calculations | [A first lasso problem](docs/src/getting_started.md) |
+| Developer guide: package structure and implementation | [Developer overview](docs/src/developer/index.md) |
+| Numerical contracts: supported behavior and its limits | [How to read the contracts](docs/src/spec/index.md) |

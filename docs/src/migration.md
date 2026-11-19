@@ -13,13 +13,14 @@ API. This development reduction is not a release announcement.
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf` and `GroupNormL2`, nonconvex penalties,
 logistic/Poisson/robust-loss families, constraints and indicators other than
-`IndNonnegative`, `IndBox` and `IndBallL2`,
+`IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
 the norm `NormLinf` separately (#946). The restored indicators are
-`IndNonnegative` (#948), `IndBox` (#949) and `IndBallL2` (#950).
+`IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954) and
+`IndBallL2` (#950).
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
@@ -163,6 +164,7 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | `NormL1Nonneg(λ0, w)` ([#947](https://github.com/mlakolar/ProximalBase.jl/issues/947)) | Constructor, fields `λ0`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` zero scaling and level folds | The domain test is exact: `x ≥ 0` with `-0.0` feasible, where the archive accepted entries down to `-sqrt(eps)` and clamped them at zero (the value rules are in the [numerical contract](numerics.md)). An infinite level follows the current `NormL1` rule (`+0` for positive weights at every `γ ≥ 0`, `NaN` and `±Inf` inputs included). With a `Float32` level and an unweighted `Float32` entry, `value_entry` returns `Float32` rather than the archive's `Float64` ([#684](https://github.com/mlakolar/ProximalBase.jl/issues/684)). A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic. New: the point-aware `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)` |
 | `IndNonnegative()` ([#948](https://github.com/mlakolar/ProximalBase.jl/issues/948)) | The type, `isconvex`, `iszeropreserving`, `value_entry`, `prox_block`, the screen `kkt_violation(f,v,i) = -v[i]`, `restrict`, and zero scaling (`Scaled(f, 0)` is `f`) | The value is exact: `0` at a point with no negative entry, `Inf` at a negative entry of any size (the archive accepted `v >= -_tol`), and `NaN` at a `NaN` entry (the archive gave `Inf`). `value_and_prox!` returns the value at the stored output, so `NaN` where an output entry is `NaN` (the archive returned `0`). A negative or `NaN` scalar step throws `ArgumentError` before writes in `prox`, `prox!` and `value_and_prox!`; the archive did not check the step. The point-aware `kkt_violation` forms, conjugates, `Constrained` and the envelope slopes are not restored |
 | `IndBox(l, u)` ([#949](https://github.com/mlakolar/ProximalBase.jl/issues/949)) | Scalar and per-entry bounds, value, coordinatewise projection, and restriction | Array bounds are copied, feasibility uses exact interval comparisons, and a `NaN` entry gives value `NaN` |
+| `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps |
 | `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
 
 ## Names, coordinates and writes

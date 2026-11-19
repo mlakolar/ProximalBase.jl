@@ -20,7 +20,7 @@ export AbstractFunction, SeparableFunction,
   prox!, prox, value_and_prox!, gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2, reset_cache!,
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, SqrtLeastSquaresLoss,
-  NormL0, NormL1, NormL1Nonneg, ElasticNet, IndNonnegative, IndBox, IndBallL2, NormL2, NormLinf, GroupNormL2, Scaled,
+  NormL0, NormL1, NormL1Nonneg, ElasticNet, IndNonnegative, IndBox, IndBallLinf, IndBallL2, NormL2, NormLinf, GroupNormL2, Scaled,
   SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
   activate!, blockview, blockindices, nnz, dropzeros!, shrink, norm_diff, tril_index, tril_cartesian

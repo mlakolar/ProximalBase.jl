@@ -8,6 +8,8 @@ function inventory(root=@__DIR__)
     names = reduce(vcat, (String.(tiers[t]) for t in TIERS))
     length(names) == length(unique(names)) || error("duplicate test file in manifest")
     helpers = String.(manifest["not_tests"]["files"])
+    overlap = intersect(names, helpers)
+    isempty(overlap) || error("files declared as both tests and helpers: $(sort(overlap))")
     declared = Set(vcat(names,helpers))
     found = Set(relpath(joinpath(dir,f),root)[1:end-3] for (dir,_,files) in walkdir(root) for f in files if endswith(f,".jl"))
     declared == found || error("test inventory mismatch: undeclared=$(setdiff(found,declared)), missing=$(setdiff(declared,found))")
@@ -34,11 +36,11 @@ function select(manifest,tier)
     sort!(reduce(vcat,(String.(manifest.tiers[t]) for t in TIERS[1:stop])))
 end
 
-# Partition the selected files deterministically and without duplication.
+# Partition unique selected files deterministically.
 # Files are placed heaviest first (ties by name) onto the shard with the smallest
 # cumulative weight (ties to the lowest index); loads are exact rationals so that
 # neither overflow nor rounding can alter a placement. The requested shard keeps
-# the original order of `names`. Each shard still validates the complete manifest.
+# the original order of `names`. The runner validates the manifest before selection.
 function shard_files(names::Vector{String}, index::Int, count::Int; weights)
     count >= 1 || error("shard count must be positive")
     1 <= index <= count || error("shard index must lie in 1:$count")

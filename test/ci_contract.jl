@@ -88,6 +88,31 @@ end
         @test parts(standard,inv.weights,2)==[["s"],["q"]]
     end
 end
+@testset "runner filters by prefix before sharding" begin
+    function list_output(args)
+        # Load the list-only runner in its own module with its own arguments.
+        runner = Module(gensym(:ListRunner))
+        Core.eval(runner, :(const ARGS = $args))
+        Core.eval(runner, :(include(path) = Base.include($runner, path)))
+        mktemp() do _, output
+            redirect_stdout(output) do
+                Base.include(runner, joinpath(@__DIR__, "runtests.jl"))
+            end
+            seekstart(output)
+            read(output, String)
+        end
+    end
+    inv = TT.inventory()
+    selected = filter(n -> startswith(n, "indball") || startswith(n, "kkt"),
+                      TT.select(inv, "quick"))
+    cases = ["--list", "--tier=quick", "indball", "indballl", "kkt"]
+    for i in 1:2
+        output = list_output([cases; "--shard=$i/2"])
+        @test !occursin("PB_TEST_", output)
+        @test split(last(split(chomp(output), '\n'))) == TT.shard_files(selected, i, 2; weights=inv.weights)
+    end
+    @test_throws "no test file matches no_matching_prefix" list_output([cases; "no_matching_prefix"])
+end
 @testset "manifest rejects unclassified tests" begin
     empty_catalog="[tiers]\nquick=[]\nstandard=[]\nthorough=[]\nfull=[]\n[not_tests]\nfiles=[]\n"
     mktempdir() do dir
@@ -111,6 +136,9 @@ end
         inv=TT.inventory(dir)
         @test inv.weights==Dict("a"=>2.5)
         @test parts(TT.select(inv,"full"),inv.weights,1)==[["a"]]
+        overlap=replace(single,"files=[]"=>"files=[\"a\"]")
+        write(joinpath(dir,"tiers.toml"),overlap*"[weights]\na=2.5\n")
+        @test_throws "declared as both tests and helpers" TT.inventory(dir)
     end
 end
 @testset "manifest weights must match the declared tests and be finite positive" begin

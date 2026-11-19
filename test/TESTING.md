@@ -230,13 +230,13 @@ The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
 index. Within each shard, files run in their original sorted selection order.
-Each declared test runs exactly once across the three full CI shards. The
-runner validates the complete inventory and weight table before selection,
-and runs each file in a fresh Julia process with bounds checks enabled.
+Each declared test is assigned to exactly one of the three full CI shards.
+The runner validates the complete inventory and weight table before selection,
+and runs each selected file in a fresh Julia process with bounds checks enabled.
 
 The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
-time in seconds. Each entry is the median of three measurements, rounded to
-one decimal second, from these Julia 1.13.4 GitHub Actions runs of the same
+time in seconds. The current snapshot uses medians of three measurements,
+rounded to one decimal second, from these Julia 1.13.4 GitHub Actions runs of the same
 50-file inventory.
 [44576422943](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44576422943/attempts/1),
 [44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
@@ -244,8 +244,9 @@ and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
-Update the affected weights and record the timing sources. New test files need
-a positive finite weight when they are declared.
+Update the affected weights and record the timing sources. If a new test has
+no representative timings yet, assign an explicit conservative provisional
+weight and record its justification.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).

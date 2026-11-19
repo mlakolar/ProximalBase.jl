@@ -20,6 +20,7 @@ quick = [
   "iterate_writes",
   "kkt_block",
   "kkt_linf",
+  "kkt_linf_fallback",
   "kkt_point",
   "leastsquares_predictor",
   "linear_shapes",

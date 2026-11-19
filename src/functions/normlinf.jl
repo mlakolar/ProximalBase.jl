@@ -703,6 +703,33 @@ function _linf_remainder_norm(a::AbstractVector{W}) where {W}
   _scaled_norm(a, nothing, q)
 end
 
+# Bound the reduction depth even when SIMD is disabled. Use the same tree
+# on the scaled path so a long reduction cannot stall in either range.
+function _linf_pairwise_squares(a::AbstractVector{W}, lo, hi, readvalue) where {W}
+  if hi - lo < 32
+    squares = zero(W)
+    @inbounds @simd for i in lo:hi
+      squares += abs2(readvalue(a[i]))
+    end
+    return squares
+  end
+  mid = lo + (hi - lo) ÷ 2
+  _linf_pairwise_squares(a, lo, mid, readvalue) +
+    _linf_pairwise_squares(a, mid + 1, hi, readvalue)
+end
+
+function _linf_remainder_norm(a::AbstractVector{W}) where {W<:Union{Float32, Float64}}
+  n = length(a)
+  n == 0 && return zero(W)
+  q = _linf_pairwise_squares(a, 1, n, identity)
+  isfinite(q) && _squares_normal(q, n, W) && return sqrt(q)
+  m = maximum(abs, a)
+  isfinite(m) && !iszero(m) || return m
+  k = exponent(m)
+  readvalue = Base.Fix2(_scale_value, _power_factors(W, -k))
+  ldexp(sqrt(_linf_pairwise_squares(a, 1, n, readvalue)), k)
+end
+
 # For a sorted prefix of j entries the level is (sum(prefix) - c)/j.
 # The next value belongs to the prefix if it exceeds this level. Compare
 # before division so that an unrepresentably small level still has a sign.
@@ -726,7 +753,7 @@ function _linf_sorted_distance!(y::Vector{W}, c::W, ball) where {W}
     # The scaled sum of absolute values and the scaled radius together fit.
     # Only the prefix needs these units. The suffix still contains the inputs.
     k = _linf_exponent(length(y))
-    numerator, j = _linf_sorted_prefix(y, c, t -> ldexp(t, -k))
+    numerator, j = _linf_sorted_prefix(y, c, Base.Fix2(ldexp, -k))
   end
   ball && numerator <= 0 && return zero(W)
   # Each prefix residual is numerator/j. Combine their squares analytically
@@ -734,6 +761,89 @@ function _linf_sorted_distance!(y::Vector{W}, c::W, ball) where {W}
   prefix_norm = ldexp(abs(numerator) / sqrt(W(j)), k)
   j == length(y) && return prefix_norm
   hypot(prefix_norm, _linf_remainder_norm(@view y[j+1:end]))
+end
+
+# With round-to-nearest and finite sums, each FastTwoSum increment in
+# _compensated_add is exact. For u = eps(W)/2 and ju ≤ 1/4, their magnitudes
+# total at most ju*A/(1-ju), where A = c + sum(abs, y[1:j]). Rounding the low
+# sum therefore costs at most (ju/(1-ju))^2*A. Include the final sum's
+# rounding and leave slack for computing the error estimate itself.
+function _linf_prefix_certified(y::Vector{W}, c::W, p::W, j) where {W}
+  r = j * eps(W)
+  isfinite(p) && r <= W(0.5) || return false
+  scale = c + j * max(abs(y[1]), abs(y[j]))
+  uncertainty = nextfloat(nextfloat((r * r) * scale) + nextfloat((2 * eps(W)) * abs(p)))
+  # A support decision alone does not guarantee a usable score near zero.
+  uncertainty <= sqrt(eps(W)) * abs(p) || return false
+  lower, upper = prevfloat(p - uncertainty), nextfloat(p + uncertainty)
+  upper < prevfloat(j * y[j]) || return false
+  j == length(y) || nextfloat(j * y[j + 1]) < lower
+end
+
+# Integers in units of the smallest positive value represent all the stored
+# binary inputs exactly. Use them only when the Float32/64 prefix is ambiguous.
+function _linf_dyadic_units(x::W) where {W<:Union{Float32, Float64}}
+  bits = reinterpret(_int_type(W), abs(x))
+  fraction_bits = precision(W) - 1
+  hidden = one(bits) << fraction_bits
+  significand = bits & (hidden - one(bits))
+  binade = Int(bits >> fraction_bits)
+  if binade > 0
+    significand |= hidden
+  end
+  units = BigInt(significand) << max(binade - 1, 0)
+  signbit(x) ? -units : units
+end
+
+function _linf_exact_sorted_prefix(y, c)
+  numerator = -_linf_dyadic_units(c)
+  j = 0
+  while j < length(y)
+    first = j + 1
+    value = y[first]
+    j = first
+    while j < length(y) && y[j + 1] == value
+      j += 1
+    end
+    numerator += (j - first + 1) * _linf_dyadic_units(value)
+    if j == length(y) || j * _linf_dyadic_units(y[j + 1]) <= numerator
+      return numerator, j
+    end
+  end
+  error("empty projection face")
+end
+
+# Round abs(units)/sqrt(j) directly in the target format, in dyadic units.
+# Compare squared midpoints as integers to cover subnormals and overflow.
+function _linf_exact_active_norm(units::BigInt, j, ::Type{W}) where {W}
+  iszero(units) && return zero(W)
+  squared = units^2
+  lower_units = isqrt(div(squared, j))
+  shift = max(ndigits(lower_units; base = 2) - precision(W), 0)
+  low = lower_units >> shift
+  midpoint_twice = (2 * low + 1) << shift
+  midpoint_comparison = cmp(squared << 2, j * midpoint_twice^2)
+  if midpoint_comparison > 0 || (midpoint_comparison == 0 && isodd(low))
+    low += 1
+  end
+  ldexp(W(low), exponent(nextfloat(zero(W))) + shift)
+end
+
+function _linf_sorted_distance!(y::Vector{W}, c::W, ball) where {W<:Union{Float32, Float64}}
+  sort!(y; rev = true)
+  numerator, j = _linf_sorted_prefix(y, c, identity)
+  if _linf_prefix_certified(y, c, numerator, j)
+    ball && numerator < 0 && return zero(W)
+    prefix_norm = abs(numerator) / sqrt(W(j))
+    if prefix_norm >= floatmin(W)
+      return j == length(y) ? prefix_norm : hypot(prefix_norm, _linf_remainder_norm(@view y[j+1:end]))
+    end
+  end
+
+  units, j = _linf_exact_sorted_prefix(y, c)
+  ball && units <= 0 && return zero(W)
+  prefix_norm = _linf_exact_active_norm(units, j, W)
+  j == length(y) ? prefix_norm : hypot(prefix_norm, _linf_remainder_norm(@view y[j+1:end]))
 end
 
 # For n nonnegative working-type entries with exact sum S, any addition order

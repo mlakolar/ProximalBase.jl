@@ -28,6 +28,7 @@ quick = [
   "linear_sparse_value",
   "linear_value_recovery",
   "logdet",
+  "logisticloss",
   "matrixview",
   "minimal_math",
   "norml0",

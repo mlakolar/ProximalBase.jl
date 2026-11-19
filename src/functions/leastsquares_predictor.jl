@@ -112,6 +112,11 @@ recovery, not `sqrt(2*v)` of the squared-loss value; see the
   remain unchanged. The ordinary path allocates nothing for raw losses and
   `Float32`, `Float64` or `Int` scales.
 
+For a [`LogisticLoss`](@ref), supply the complete predictor `η = X*β + offset`
+with the loss element type and response axes. The call returns the logistic
+objective and reads neither design entries nor private workspace entries. See
+[logistic regression](@ref Logistic-regression) for its supported layouts.
+
 See [predictor domains, accuracy and ownership](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 and [`ProximalBase.value_from_residual`](@ref).
 """
@@ -151,6 +156,11 @@ julia> (g[1], d[1])
 - Overflow/underflow in `X'*d` is not recovered before applying `α`.
   Overflow in `z-Y` makes the value non-finite, even where the standalone
   predictor value can recover it. Last-bit agreement is not promised.
+
+For a [`LogisticLoss`](@ref), supply `η = X*β + offset`. The operation returns
+the logistic objective, writes `d[i] = w[i] * (σ(η[i]) - y[i])` and forms
+`g = X' * d`. Both outputs must be independent of the weights and offset as
+well. See [logistic regression](@ref Logistic-regression) for its supported layouts.
 
 See [predictor accuracy, failure and concurrency rules](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """

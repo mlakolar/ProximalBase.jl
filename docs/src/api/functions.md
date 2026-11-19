@@ -7,6 +7,7 @@ numerical examples and capability limits for the available concrete function typ
 
 ```@docs
 LeastSquaresLoss
+LogisticLoss
 SqrNormL2
 QuadraticFunction
 ZeroFunction
@@ -22,11 +23,12 @@ value oracles of the next group.
 SqrtLeastSquaresLoss
 ```
 
-## Least-squares oracles at a supplied predictor or residual
+## Oracles at a supplied predictor or residual
 
-The qualified public names below evaluate a vector-response `LeastSquaresLoss` or `SqrtLeastSquaresLoss`, or one
-`Scaled` of either, at a linear predictor or a residual that the caller has already formed
-(`value_and_gradient_from_predictor!` serves `LeastSquaresLoss` only). They are not exported.
+Both predictor operations support `LeastSquaresLoss` and `LogisticLoss`.
+`SqrtLeastSquaresLoss` supports the predictor value operation. The residual
+value and data accessor serve both least-squares losses. See the individual
+operations for the supported domains and scaling rules.
 
 ```@docs
 ProximalBase.value_from_predictor

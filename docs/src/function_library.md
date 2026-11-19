@@ -14,6 +14,7 @@ For a task-oriented starting point, use [Choose a function or operation](choosin
 | Julia constructor | Mathematical function | Arguments and interpretation | Detailed guide |
 |:--|:--|:--|:--|
 | [`LeastSquaresLoss(Y, X)`](@ref LeastSquaresLoss) | ``f(B)=\frac12\lVert Y-XB\rVert_F^2`` | ``X``: design matrix; ``Y``: response; ``B``: argument supplied to `f(B)` | [Least squares](smooth.md#Least-squares-loss) |
+| [`LogisticLoss(y, X; weights, offset)`](@ref LogisticLoss) | ``f(\beta)=\sum_i w_i[\log(1+\exp(\eta_i))-y_i\eta_i]`` | ``\eta=X\beta+\mathrm{offset}``; convex and smooth | [Logistic regression](smooth.md#Logistic-regression) |
 | [`SqrtLeastSquaresLoss(Y, X)`](@ref SqrtLeastSquaresLoss) | ``f(\beta)=\lVert Y-X\beta\rVert_2`` | ``X``: design matrix; ``Y``: response vector; ``\beta``: argument supplied to `f(β)`; convex, not smooth, no proximal operator | [Square-root least squares](smooth.md#Square-root-least-squares-is-not-smooth) |
 | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | ``f(x)=\frac{\lambda}{2}\lVert x-y\rVert^2`` | ``\lambda\geq0``: level; ``y``: center (zero when omitted) | [Squared Euclidean norm](smooth.md#Squared-Euclidean-norm) |
 | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | ``f(x)=\frac12x^\mathsf{T}Ax+b^\mathsf{T}x+c`` | ``A``: symmetric matrix (caller precondition), positive semidefinite not required; ``b``: linear coefficient (zero when omitted); ``c``: constant (zero when omitted) | [Quadratic function](smooth.md#Quadratic-function) |

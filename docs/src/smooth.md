@@ -8,8 +8,8 @@ Each function below has a mathematical definition and a Julia constructor.
 it is evaluated. The following sections pair each formula with its constructor,
 gradient, proximal map and an executable example.
 
-All functions on this page operate on arrays. Each has values, gradients
-and [proximal operators](glossary.md#Proximal-operator) for its supported inputs.
+All functions on this page operate on arrays. Each section describes its
+supported values, gradients and [proximal operators](glossary.md#Proximal-operator).
 For allocating and mutating conventions, input restrictions, shared
 storage and numerical limitations, see
 [Operations on functions](operations.md) and
@@ -585,4 +585,76 @@ x = [2.0, 1]
 @assert kkt_violation(f, [-1.0, 2], 1) == 0
 @assert kkt_violation(f, [-1.0, 3.0], x, 2) == 1 && kkt_violation(f, [-1.0, 3.0], x) == 1
 prox(f,x,0.5)
+```
+
+## [Logistic regression](@id Logistic-regression)
+
+Construct `f = LogisticLoss(y, X; weights=nothing, offset=nothing)` for an
+unnormalized logistic objective. For an ``n\times p`` design and a length-``p``
+coefficient vector,
+
+```math
+\eta = X\beta + \mathrm{offset},\qquad
+f(\beta)=\sum_{i=1}^n w_i[\log(1+e^{\eta_i})-y_i\eta_i],\qquad
+\nabla f(\beta)=X^\top d,\quad d_i=w_i[(1+e^{-\eta_i})^{-1}-y_i].
+```
+
+Use one-based strided vectors and a strided matrix or `SparseMatrixCSC` design,
+all of the same element type, `Float32` or `Float64`. Responses are finite binary
+values or fractions in `[0, 1]`, including at zero weight. The archived logistic
+constructor did not enforce this range. Supply finite nonnegative weights and
+finite offsets as length-``n`` vectors. The defaults are unit weights and zero
+offset. Include a column of ones to estimate an intercept.
+
+The loss is convex and smooth. Its traits `isproximable` and `isseparable`
+return false. Use `f(β)`, `gradient(f, β)` or `value_and_gradient(f, β)`.
+Their mutating gradient counterparts take a caller-owned strided length-``p``
+output of the computation type. `gradient!(g, f, β)` returns `g`.
+`value_and_gradient!(g, f, β)` returns the scalar value. Use ordinary
+`Scaled(f, α)` or `α*f` for normalization or rescaling in coefficient space.
+
+If the caller already holds **the complete linear predictor**
+``\eta=X\beta+\mathrm{offset}``, pass it to
+`ProximalBase.value_from_predictor(f, η)` or
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. Both return
+the objective. The fused call also writes the weighted observation derivative
+to `d` and the coefficient gradient to `g`, using one product with `X'`.
+The predictor and both outputs are one-based strided vectors of the data type.
+These operations take an unwrapped loss and leave the supplied predictor intact.
+
+The constructor borrows model arrays. Same-shape edits between calls must
+preserve the validated data domain. Reconstruct the loss for structural changes
+and refresh a caller-held predictor when its defining inputs change.
+Ordinary calls share private scratch and require synchronization across tasks.
+Predictor calls can share a loss across tasks when model data stay read-only
+and the outputs are independent. Before writes, the oracles reject nonempty
+output overlaps reported by `Base.mightalias` with the input, other output,
+model arrays (including CSC numeric storage) or scratch. An input predictor or
+coefficient vector must also be independent of the scratch.
+
+The scalar formulas preserve the small tail for saturated responses. A
+zero-weight row contributes zero to the value and observation derivative, even
+at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
+give the logistic limit: zero loss for a matching binary response, and infinity
+otherwise. Standard matrix products may still propagate nonfinite design
+entries, including through a zero derivative. For large weights the scalar
+loop retains a weighted tail when the unweighted exponential becomes subnormal
+or zero. The matrix products, final value sum and outer scaling use ordinary
+floating-point arithmetic with their usual rounding and range limits.
+The loss supplies first-order oracles. The historical generic scalar-loss,
+coordinate and second-order interfaces remain deferred.
+
+```@example logistic_regression
+using ProximalBase
+X = [1.0 0.0; 1.0 2.0; 1.0 -1.0]
+y = [0.0, 1.0, 0.25]
+offset = [0.1, -0.2, 0.0]
+f = LogisticLoss(y, X; weights=[1.0, 2.0, 1.0], offset)
+β = [0.5, 0.25]
+η = X * β + offset
+g, d = similar(β), similar(y)
+v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)
+@assert v ≈ f(β)
+@assert g ≈ gradient(f, β)
+(value=v, gradient=g)
 ```

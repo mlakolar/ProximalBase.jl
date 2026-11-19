@@ -20,9 +20,13 @@ The fourteen-section layout and shared-rule links are approved for the
 remaining verbatim family moves. The five requested pilot corrections and
 the inspected source revision are recorded in `review.md`.
 
-Before the next family, record how unrelated merged pull requests change
-pinned documentation, refine the three remaining family guides to sentence
-units with original-block provenance, and replace the two uncited runtime
+Unrelated merged PR changes now use the bounded `upstream` action with exact
+Git provenance and independent review. The first three receipts account for
+the documentation changes in merged IndBox PR #1020; old API heading URLs
+are preserved by a forwarding stub. See `upstream.json` and `review.md`.
+
+Before the next family, refine the three remaining family guides to sentence
+units with original-block provenance, and replace the three uncited runtime
 admonition hashes with exact page/category/title comparisons. Keep original
 heading IDs and forwarding paragraphs. The next pages must label pointer-only
 sections and use specific shared-rule anchors; verbatim duplicates stay until

@@ -1,0 +1,47 @@
+{
+  "changes": [
+    {
+      "after_blob": "bc30090ff4c2ff33af04fca9e9763565d3a63b48",
+      "after_commit": "fc95196390b8f1a164621625362984f03f728ab0",
+      "baseline_sha": "9f221122c0d8822c17000b1034242d88fa7fecaf8c64c77e737ad32f1d14e15b",
+      "before_blob": "f05c574719e2490797785dd04debb249b7ea82a2",
+      "before_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+      "block_id": "README.md::ProximalBase.jl / Available functionality::15",
+      "dest": "README.md#Available-functionality",
+      "dest_sha": "82c9233932605624e7cc708266ea2f642c7b21e0723d0595710ac1e8922c2d9f",
+      "merged": true,
+      "pull_request": 1020,
+      "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1020",
+      "reviewer": "norml1_pilot@fc95196390b8f1a164621625362984f03f728ab0"
+    },
+    {
+      "after_blob": "32f04055c0f5fd0034a05c91693347d64cd569a4",
+      "after_commit": "fc95196390b8f1a164621625362984f03f728ab0",
+      "baseline_sha": "62b56931763ed43092b5a02d1755223874f749a8dfd11a393bbf1016dd055eea",
+      "before_blob": "3528c147aebec4ade5d4ed65928d9e98b705e02a",
+      "before_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+      "block_id": "docs/src/api/functions.md::Function reference / Nonnegative orthant::14",
+      "dest": "docs/src/api/functions.md#Box-and-nonnegative-orthant",
+      "dest_sha": "2f86af85f7e3ad69558415292c37045f73f8c8428b6e374fd35800487408ce7e",
+      "merged": true,
+      "pull_request": 1020,
+      "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1020",
+      "reviewer": "norml1_pilot@fc95196390b8f1a164621625362984f03f728ab0"
+    },
+    {
+      "after_blob": "b83a7b6ce1ace94a62ab83a1a9141c1ea3311976",
+      "after_commit": "fc95196390b8f1a164621625362984f03f728ab0",
+      "baseline_sha": "96d2afeb2f25a60e902c5936e873c50df93f6f1de3932c33078c55963efcfeed",
+      "before_blob": "3b0c001eb3eb1ca644d6d96434b882c61dd15824",
+      "before_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+      "block_id": "docs/src/migration.md::Compatibility and migration / Retained and removed scope::5",
+      "dest": "docs/src/migration.md#Retained-and-removed-scope",
+      "dest_sha": "9900131c51c4926ba11ddec4183b2202589a6144f1cfc521d8d9c346117ee0d3",
+      "merged": true,
+      "pull_request": 1020,
+      "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1020",
+      "reviewer": "norml1_pilot@fc95196390b8f1a164621625362984f03f728ab0"
+    }
+  ],
+  "schema": 1
+}

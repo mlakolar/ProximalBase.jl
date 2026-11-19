@@ -21,14 +21,15 @@ historical audit data and generated copies are excluded from the prose ledger.
 and `anchors-ci.tsv` record each baseline rendered page and its content anchors
 for the two explicitly selected build runtimes described below. Each snapshot
 contains 54 rendered pages, including generated examples and contracts, and
-621 content anchors. Sidebar control IDs are excluded because navigation
+713 content anchors. Sidebar control IDs are excluded because navigation
 regrouping intentionally changes those controls. `source-citations.tsv` records
 the baseline source/test references to `numerics.md`; the check also reads
 current citations. `baseline.json` records the baseline and immutable example
 script hashes. These nine scripts are preserved exactly.
 
 The baseline HTML itself is a build artifact, not repository content. In CI,
-the baseline commit must be available locally. The regular documentation build
+the exact baseline and recorded upstream-provenance commits must be available
+locally; the workflow fetches those commits at depth one. The regular documentation build
 still runs the nine isolated scripts, doctests, and all executable manual
 examples; provenance checks do not replace their execution.
 
@@ -83,14 +84,14 @@ citation checks.
 
 Documenter 1.20.0 constructs an admonition fragment from its title and
 `string(hash(strip(mdflatten(node))), base=16)`. That uses Julia's runtime
-string hash rather than a portable content digest. The unchanged two
+string hash rather than a portable content digest. The unchanged three
 admonitions therefore have different fragments under the local Julia 1.10.10
 build and the CI Julia 1.13.4 build, although their content is identical. The
 flattened input contains the admonition text, title, and category, not its file
 path or link destinations.
 
-The `local` profile is the original `anchors.tsv`; it remains the default and
-is unchanged. The `ci` profile is `anchors-ci.tsv`, captured from the retained
+The `local` profile is `anchors.tsv`, extracted from the original local build;
+it remains the default. The `ci` profile is `anchors-ci.tsv`, extracted from the retained
 Phase 0 CI artifact **14492512149** at commit
 `db20ba7564992abadf0c1293a6ff4d10acd07ad5`, before any authored documentation
 change. Its ZIP SHA-256 is
@@ -109,16 +110,28 @@ build revision are recorded separately in the profile metadata.
 |:--|:--|:--|
 | `function_library` | `Which-squared-loss-object-should-I-use?-4d7e89b086da14ac` | `Which-squared-loss-object-should-I-use?-7961aee47a1e55` |
 | `getting_started` | `Degenerate-data-and-step-size-estimates-431e86eee387de1e` | `Degenerate-data-and-step-size-estimates-a1d8f97b86f5e430` |
+| `api/iterates` | `Non-finite-vectors-58bc6ef4f6c45cbf` | `Non-finite-vectors-826d64009c1fff3a` |
 
 These are the only differences between the two baseline snapshots. Each is
 validated as a complete, nonempty snapshot of 54 original page records and
-621 exact content anchors, with no duplicate rows and a verified snapshot hash.
+713 exact content anchors, with no duplicate rows and a verified snapshot hash.
 Every anchor remains bound to its original page. Selection is explicit via
 `--anchor-profile local` or `--anchor-profile ci`; unknown or unavailable
 profiles are configuration errors. The checker never removes hash suffixes,
-ignores the two IDs, accepts a reduced subset, or falls back to another profile.
+ignores the three IDs, accepts a reduced subset, or falls back to another profile.
 Use a baseline and final build from the same declared runtime. A future runtime
 change requires an explicit provenance and compatibility decision.
+
+Anchor parser version 2 tracks the outer article's depth through nested API
+docstring articles. The original Boolean parser stopped at the first nested
+closing article and omitted 92 IDs: 28 in `api/functions`, 33 in `api/interface`,
+and 31 in `api/iterates`. Both snapshots were re-extracted from the same frozen
+HTML, adding those 92 IDs and removing none. The corrected baseline is therefore
+713 content IDs, not 621. `baseline.json` retains the former incomplete snapshot
+hashes alongside the corrected hashes. This also exposed the third runtime
+admonition difference shown above. The owner-approved simplification to exact
+page/category/title identities for uncited generated admonitions is a separate
+preparation step; all three are still checked exactly in the selected profile.
 
 ## Block identity and destinations
 
@@ -156,9 +169,10 @@ copy unless the ledger explicitly records a reviewed deduplication.
 | `dedupe` | Independently reviewed surviving replacement hash and equivalent meaning confirmed in rendered review |
 | `supersede` | Independently reviewed replacement hashes for routing text deliberately replaced by navigation |
 | `archive` | Original normalized hash under `docs/design/` and a forwarding link from the original page |
+| `upstream` | Independently reviewed merged external PR receipt; exact before/after commits, file blobs and changed blocks verified against Git; current replacement matches that external change |
 
 `reviewer=mechanical` means only that the checker can verify unchanged text; it
-is not a human or agent review attestation. The four reviewed actions require
+is not a human or agent review attestation. Reviewed actions require
 an independent identity and revision in the form `reviewer@revision`. Record a
 real review, never a placeholder. Reviewers compare the old rendered section
 with the rendered destination and check the current source/tests where the
@@ -173,6 +187,35 @@ when an approved deduplication reduces a total count. Aggregate counts are
 diagnostics, not a mathematical or semantic proof that the meaning survived.
 The checker cannot authenticate a review identity or decide whether two
 statements mean the same thing.
+
+## Documentation changed by unrelated pull requests
+
+Ordinary feature pull requests may update the documentation they affect without
+editing this migration ledger. After such a pull request merges, reconcile its
+changed baseline blocks in a separate documentation-only change. Keep every
+original `block_id` and `sha`; set its action to `upstream` and record the exact
+current destination and replacement hash.
+
+`upstream.json` binds each such row to the external PR number and URL, its
+reviewed merged status, actual before/after commits, before/after file blob IDs,
+original normalized block hash, replacement hash and reviewer. Use the actual
+first parent of the landed commit, which can differ from the PR API's recorded
+base. The checker recomputes Git provenance and requires the original and
+replacement blocks to belong to the same changed diff hunk. This initial action
+supports one replacement in the same file; it does not grant a general move,
+rename or deletion exemption. The receipt's PR merge status is independently
+verified and recorded in `review.md`; an offline checker cannot authenticate it.
+
+All accounting checks accept the upstream disposition only after that evidence
+passes. A later unrecorded edit to the replacement still fails. Heading changes
+do not waive old URLs: keep the old heading and a forwarding paragraph. The
+first reconciliation records three blocks changed by merged PR #1020, while
+restoring the old API heading as a forwarding stub.
+
+The known `reword`/`split` token and example accounting gap is separate. Clause
+conversion is held until those checks stay active and any intentional token
+change has an exact, reviewed allowance. A reviewer string alone cannot provide
+that control.
 
 ## Updating the ledger
 
@@ -196,3 +239,8 @@ does not need a baseline ledger row; existing content must always retain its
 original provenance. When a parser limitation affects a real move, add a
 focused fixture and make the limitation visible in review. Do not broaden the
 parser speculatively or replace a missing block with an aggregate-count check.
+
+After the final Phase 5 blocking acceptance, retire the six temporary migration
+checks and the migration-only source/test scope guard from routine CI. Retain
+this frozen audit and its final acceptance evidence. Ordinary strict builds,
+links, API coverage and executable-example checks continue to protect the manual.

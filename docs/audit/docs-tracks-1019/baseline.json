@@ -1,4 +1,5 @@
 {
+  "anchor_parser_version": 2,
   "anchor_profiles": {
     "ci": {
       "artifact_id": 14492512149,
@@ -8,8 +9,9 @@
       "file": "anchors-ci.tsv",
       "julia": "1.13.4",
       "pr_head_commit": "db20ba7564992abadf0c1293a6ff4d10acd07ad5",
-      "sha256": "54065538a2e0e88c989eeb0e28678ee5f8e33af681e748d5ca50e82ff88797cf",
-      "source": "Retained strict CI build of Phase 0 before any authored documentation change",
+      "prior_incomplete_sha256": "54065538a2e0e88c989eeb0e28678ee5f8e33af681e748d5ca50e82ff88797cf",
+      "sha256": "05e877deea11f4d85fd58db3fa987ed4c5ddd2c6d904fd9e2cd065a67f786c1e",
+      "source": "Retained Phase 0 CI artifact, re-extracted with nested-article depth",
       "source_commit": "f08c07bbfb6d36dd9096cd94754e12a30300cef6",
       "workflow_run_id": 44443622327
     },
@@ -17,15 +19,16 @@
       "documenter": "1.20.0",
       "file": "anchors.tsv",
       "julia": "1.10.10",
-      "sha256": "12244f245010d94a54df747c474b1bd09e50ac46e560dbf90dfc30b20f5c09a5",
-      "source": "Strict local baseline build; original anchors.tsv retained unchanged",
+      "prior_incomplete_sha256": "12244f245010d94a54df747c474b1bd09e50ac46e560dbf90dfc30b20f5c09a5",
+      "sha256": "5ac8084ea14f9cf9e7bf8b8e61e4fc80a70c06bcc6c908151166745132732752",
+      "source": "Original strict local baseline build, re-extracted with nested-article depth",
       "source_commit": "7ae86e2093060eb124211e2f21f043c6379f97ae"
     }
   },
   "authored_pages": 42,
   "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
   "block_count": 2162,
-  "content_anchor_count": 621,
+  "content_anchor_count": 713,
   "example_scripts": {
     "examples/block_prox_extension.jl": "0354ebf15cca157c9dfc69dce98fd686dd299da86af8aa68c0d2f69e8f20769e",
     "examples/block_storage.jl": "b961008b3e7c6d57312688ddf0553a18bad9c564f5f11d06699d5969e53795f9",

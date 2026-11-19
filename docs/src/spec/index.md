@@ -28,6 +28,7 @@ The shared numerical rules above apply alongside those locations.
 | `NormL1Nonneg` | [The nonnegative ℓ₁ penalty](../penalties.md#The-nonnegative-l1-penalty) | Existing pages |
 | `ElasticNet` | [The elastic-net penalty](../penalties.md#The-elastic-net-penalty) | Existing pages |
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `SqrNormL2` | [Squared Euclidean norm](@ref Squared-Euclidean-norm) | Existing pages |
 | `LeastSquaresLoss` | [Least-squares loss](@ref Least-squares-loss), including predictor and residual oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Square-root least squares](../smooth.md#Square-root-least-squares-is-not-smooth) | Existing pages |

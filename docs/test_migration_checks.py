@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import copy
+import json
 import unittest
 
 import migration_checks as m
@@ -275,6 +276,15 @@ class PreservationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "snapshot hash mismatch"):
             m.anchor_snapshot(metadata, "local", audit)
 
+    def test_nested_docstring_articles_keep_following_page_anchors(self):
+        html = ('<article id="documenter-page"><h1 id="page-title"></h1>'
+                '<article><details id="docstring"><article id="nested-note">'
+                '</article></details></article><h2 id="following-section"></h2>'
+                '</article><article id="outside-page"></article>')
+        self.assertEqual(m.ContentAnchors(html).ids,
+                         {"documenter-page", "page-title", "docstring",
+                          "nested-note", "following-section"})
+
     def test_flat_and_directory_urls_share_page_identity(self):
         self.assertEqual(m.page_key("old.html"), m.page_key("old/index.html"))
         self.assertEqual(m.page_key("index.html"), "")
@@ -283,6 +293,133 @@ class PreservationTests(unittest.TestCase):
     def test_wrapped_source_heading_reference(self):
         text = '# numerics.md ("Supported precision\n# and oracle agreement")\n'
         self.assertEqual(list(m.source_citations(text)), [(1, "Supported precision and oracle agreement")])
+
+
+class UpstreamTests(unittest.TestCase):
+    """Use real Git objects, not mocked hashes, for inherited-change receipts."""
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.path = "README.md"
+        self.original = ("# Guide\n\nOriginal `0` rule.\n\n## API\n\n"
+                         "```@docs\nIndNonnegative\n```\n\n## Other\n\nAn unrelated rule.\n")
+        self.changed = (self.original.replace("Original `0`", "Updated `1`")
+                        .replace("```@docs\n", "```@docs\nIndBox\n")
+                        .replace("An unrelated rule.", "A different unrelated rule."))
+        m.git("init", "--quiet", root=self.root)
+        self.before = self.commit(self.original, "before")
+        self.after = self.commit(self.changed, "upstream")
+        self.receipt = self.root / "docs/audit/docs-tracks-1019/upstream.json"
+        self.receipt.parent.mkdir(parents=True)
+        self.select("prose")
+
+    def commit(self, text, message):
+        (self.root / self.path).write_text(text)
+        m.git("add", self.path, root=self.root)
+        m.git("-c", "user.name=Migration fixture", "-c", "user.email=fixture@example.invalid",
+              "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", message, root=self.root)
+        return m.git("rev-parse", "HEAD", root=self.root).strip()
+
+    def select(self, kind):
+        old = next(b for b in m.blocks(self.original, self.path) if b.kind == kind)
+        new = next(b for b in m.blocks(self.changed, self.path) if b.kind == kind)
+        self.baseline = [old]
+        self.rows = m.initial_ledger(self.baseline)
+        self.rows[0].update(action="upstream", dest_sha=new.sha, reviewer="fixture-reviewer@upstream")
+        self.record = dict(block_id=old.id, baseline_sha=old.sha, dest=self.path,
+                           dest_sha=new.sha, reviewer=self.rows[0]["reviewer"],
+                           pull_request=1020, pull_request_url="https://github.com/mlakolar/ProximalBase.jl/pull/1020",
+                           merged=True, before_commit=self.before, after_commit=self.after,
+                           before_blob=m.git("rev-parse", f"{self.before}:{self.path}", root=self.root).strip(),
+                           after_blob=m.git("rev-parse", f"{self.after}:{self.path}", root=self.root).strip())
+        self.save()
+
+    def save(self, records=None):
+        self.receipt.write_text(json.dumps(dict(schema=1, changes=[self.record] if records is None else records)))
+
+    def check(self):
+        return m.coverage(self.baseline, self.rows, self.root)
+
+    def assert_rejected(self, message):
+        errors, mappings = self.check()
+        self.assertTrue(any(message in error for error in errors), errors)
+        self.assertNotIn(self.baseline[0].id, mappings)
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertTrue(m.accounting(self.baseline, mappings, kind))
+
+    def test_reviewed_upstream_change_passes_all_accounting(self):
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_upstream_insertion_inside_code_block_passes_with_shallow_roots(self):
+        self.select("code")
+        # Match depth-one fetches of both exact commits: their parent objects
+        # exist, but Git revision walking treats each commit as a shallow root.
+        (self.root / ".git/shallow").write_text(self.before + "\n" + self.after + "\n")
+        self.assertEqual(m.git("rev-parse", "--is-shallow-repository", root=self.root).strip(), "true")
+        self.assertEqual(self.check()[0], [])
+
+    def test_upstream_requires_receipt_review_and_merged_pr(self):
+        self.receipt.unlink()
+        self.assert_rejected("upstream evidence")
+        for field, value, error in (("merged", False, "merged pull request"),
+                                     ("reviewer", "mechanical", "independent review")):
+            with self.subTest(field=field):
+                self.select("prose")
+                self.record[field] = value
+                if field == "reviewer":
+                    self.rows[0][field] = value
+                self.save()
+                self.assert_rejected(error)
+
+    def test_upstream_rejects_duplicate_and_unused_receipts(self):
+        self.save([self.record, self.record])
+        self.assert_rejected("duplicate upstream receipt")
+        extra = dict(self.record, block_id="unrelated")
+        self.save([self.record, extra])
+        self.assert_rejected("exactly match upstream ledger rows")
+
+    def test_upstream_rejects_bad_hash_blob_and_parent(self):
+        for field, value, error in (("baseline_sha", "0" * 64, "does not match"),
+                                     ("dest_sha", "0" * 64, "does not match"),
+                                     ("before_blob", self.record["after_blob"], "blob mismatch"),
+                                     ("before_commit", self.after, "first parent")):
+            with self.subTest(field=field):
+                self.select("prose")
+                self.record[field] = value
+                self.save()
+                self.assert_rejected(error)
+
+    def test_upstream_rejects_unrelated_changed_block_as_replacement(self):
+        unrelated = list(m.blocks(self.changed, self.path))[-1]
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = unrelated.sha
+        self.save()
+        self.assert_rejected("share a changed diff hunk")
+
+    def test_upstream_rejects_hash_not_present_in_recorded_after_blob(self):
+        mutation = self.changed.replace("Updated `1`", "Unreviewed `2`")
+        (self.root / self.path).write_text(mutation)
+        new = next(b for b in m.blocks(mutation, self.path) if b.kind == "prose")
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = new.sha
+        self.save()
+        self.assert_rejected("unique original and replacement blocks")
+
+    def test_upstream_rejects_current_mutation_after_review(self):
+        (self.root / self.path).write_text(self.changed.replace("Updated `1`", "Unreviewed `2`"))
+        self.assert_rejected("no block with expected hash")
+
+    def test_upstream_rejects_unchanged_original_and_ambiguous_replacement(self):
+        for suffix, error in (("\nOriginal `0` rule.\n", "remove the original"),
+                               ("\nUpdated `1` rule.\n", "unique original and replacement")):
+            with self.subTest(suffix=suffix):
+                m.git("checkout", "--quiet", "--detach", self.before, root=self.root)
+                self.after = self.commit(self.changed + suffix, "invalid upstream")
+                self.select("prose")
+                self.assert_rejected(error)
 
 
 if __name__ == "__main__":

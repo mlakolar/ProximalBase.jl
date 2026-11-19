@@ -170,3 +170,70 @@ only those two exact commits at depth one, retained a shallow repository with
 three commit objects, and could read the frozen baseline with `git show`.
 A docs-only migration passed despite unrelated upstream source changes;
 a migration that added its own source change failed the scope guard.
+
+## Upstream reconciliation and complete anchor inventory
+
+While the owner corrections were in CI, master merged
+[PR #1020](https://github.com/mlakolar/ProximalBase.jl/pull/1020), restoring
+`IndBox`, at `fc95196390b8f1a164621625362984f03f728ab0`. GitHub reported the PR
+merged at that revision. Its actual first parent is
+`2a55362d374fa4299d29db7684659fce8cc8e149`; the PR API's older base SHA is not
+the landed diff boundary. The tested merge tree therefore inherited four
+changed baseline blocks, which the report-only checks correctly reported.
+
+The `upstream` action now records three of these changes in `upstream.json`:
+the README function inventory, the API `@docs` fence, and the migration scope
+paragraph. `norml1_pilot@fc95196390b8f1a164621625362984f03f728ab0` independently
+verified the original and replacement text, actual file blobs, and merged PR.
+The original block IDs and hashes remain unchanged. The checker recomputes
+the parent, blob, uniqueness and diff-hunk evidence and requires the current
+replacement to match the external change exactly. It does not authenticate
+GitHub merge status or reviewer identity; those are reviewed attestations.
+The action currently covers one changed block in the same file, without a
+general rename, move or deletion exemption.
+
+The fourth changed block was the old `Nonnegative orthant` heading. It is
+restored verbatim as a forwarding stub to `Box and nonnegative orthant`,
+preserving both original generated fragments while retaining the new upstream
+heading and single API fence. The family index adds an `IndBox` entry pointing
+to its existing API and numerical owners. No new family contract is migrated.
+
+This inspection exposed a separate anchor-parser defect: the Boolean article
+flag stopped at the first nested API docstring article. The earlier claim that
+621 IDs covered the complete rendered baseline was therefore incomplete.
+Article-depth parsing recovers 92 additional IDs: 28 in `api/functions`,
+33 in `api/interface`, and 31 in `api/iterates`. Both profiles were re-extracted
+from the same frozen HTML, with the original CI ZIP checksum verified again.
+They add those IDs and remove none. The corrected baseline is **54 pages and
+713 content IDs**, superseding the earlier completeness count. Former snapshot
+hashes remain in `baseline.json` for provenance.
+
+The independent reviewer used a different article-ancestor stack parser
+directly on the original local HTML and CI ZIP. Both corrected snapshots match
+their complete source artifacts exactly: 767 page/fragment pairs, consisting
+of 54 page records and 713 IDs. The nested-article regression checks that an API
+docstring does not hide later headings and that unrelated outside articles
+remain excluded. A third runtime-dependent admonition ID, `Non-finite vectors`
+on `api/iterates`, is now covered alongside the two already known IDs. No
+fragment is waived by this correction.
+
+The reconciled strict local build passes all nine isolated scripts, executable
+examples, doctests and API coverage. All **40 fixtures** and all six preservation
+checks pass in blocking mode. Rendered checks find **56 pages, 5,649 internal
+links/assets and 136 repository source/edit links**, with no broken links or
+orphan pages. The corrected 713-ID baseline passes. The ledger remains at
+2,162 original rows: 2,120 stay, 38 move, one reviewed example-label repair,
+and three reviewed upstream changes. Source, tests and example scripts have
+no PR diff against the current upstream base.
+
+The updated real shallow-Git fixture starts with only the tested PR merge
+commit. It fetches exactly three distinct provenance revisions at depth one:
+the frozen baseline, upstream before, and upstream after (also the scope base).
+Only those four commit objects are present afterward; the checkout remains
+shallow. Provenance reads succeed, inherited source changes pass the scope
+check, and a PR-owned source change fails. No full history is fetched.
+
+The independent `plan_consistency` review passed the upstream checker,
+all three receipts and the completed rendering. Its separate parser found
+762 IDs on the current 56 pages and confirmed every one of the 713 original
+IDs, including both historical and both new API heading fragments exactly once.

@@ -45,7 +45,13 @@ ElasticNet
 
 ## Nonnegative orthant
 
+The indicator API entries are now grouped under
+[Box and nonnegative orthant](#Box-and-nonnegative-orthant).
+
+## Box and nonnegative orthant
+
 ```@docs
+IndBox
 IndNonnegative
 ```
 

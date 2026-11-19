@@ -5,6 +5,7 @@ proof. Documenter owns rendering; independent reviewers own approved rewrites.
 """
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
@@ -20,7 +21,7 @@ AUDIT = ROOT / "docs/audit/docs-tracks-1019"
 BASELINE = "7ae86e2093060eb124211e2f21f043c6379f97ae"
 NORMALIZER_VERSION = 2
 FIELDS = ("block_id", "sha", "kind", "action", "dest", "dest_sha", "clause_ids", "reviewer")
-ACTIONS = {"stay", "move", "split", "reword", "dedupe", "supersede", "archive"}
+ACTIONS = {"stay", "move", "split", "reword", "dedupe", "supersede", "archive", "upstream"}
 REVIEWED = {"split", "reword", "dedupe", "supersede"}
 CONTRACTS = {"docs/design/" + name for name in (
     "block-prox-0.6.md", "iterate-family-0.6.md", "symmetric-sparse-iterate-0.6.md")}
@@ -234,19 +235,22 @@ class ContentAnchors(HTMLParser):
     def __init__(self, html):
         super().__init__(convert_charrefs=True)
         self.ids = set()
-        self.article = False
+        self.article_depth = 0
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        if tag == "article" and attrs.get("id") == "documenter-page":
-            self.article = True
-        if self.article and "id" in attrs:
+        if tag == "article":
+            if self.article_depth:
+                self.article_depth += 1
+            elif attrs.get("id") == "documenter-page":
+                self.article_depth = 1
+        if self.article_depth and "id" in attrs:
             self.ids.add(attrs["id"])
 
     def handle_endtag(self, tag):
-        if tag == "article":
-            self.article = False
+        if tag == "article" and self.article_depth:
+            self.article_depth -= 1
 
 
 def page_key(path):
@@ -439,6 +443,100 @@ def example_tokens(block):
                    if "@example" in line or "jldoctest" in line or "@assert" in line)
 
 
+def upstream_records(rows, root=ROOT):
+    """Read the reviewed receipt; Git checks below verify its content provenance.
+
+    The merged-PR status and reviewer identity are review attestations, not facts
+    an offline Git repository can authenticate. They never replace blob checks.
+    """
+    required = {row["block_id"] for row in rows if row.get("action") == "upstream"}
+    path = root / "docs/audit/docs-tracks-1019/upstream.json"
+    if not required and not path.exists():
+        return {}
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict) or receipt.get("schema") != 1 or not isinstance(receipt.get("changes"), list):
+        raise ValueError("upstream receipt requires schema 1 and a changes list")
+    records = {}
+    for record in receipt["changes"]:
+        if not isinstance(record, dict) or not isinstance(record.get("block_id"), str):
+            raise ValueError("upstream receipt has no block_id")
+        identifier = record["block_id"]
+        if identifier in records:
+            raise ValueError(f"duplicate upstream receipt: {identifier}")
+        records[identifier] = record
+    if set(records) != required:
+        raise ValueError("upstream receipt IDs must exactly match upstream ledger rows")
+    return records
+
+
+def validate_upstream(old, row, record, root=ROOT):
+    """Bind one original block and its replacement to a reviewed upstream diff.
+
+    This bounded action supports a single changed block in its original file.
+    It does not approve additional edits, moves, or ambiguous duplicate blocks.
+    """
+    if record is None:
+        raise ValueError("missing valid upstream receipt")
+    expected = dict(block_id=old.id, baseline_sha=old.sha, dest=row["dest"],
+                    dest_sha=row["dest_sha"], reviewer=row["reviewer"])
+    if any(record.get(key) != value for key, value in expected.items()):
+        raise ValueError("upstream receipt does not match original hash, destination, or reviewer")
+    if len(destination_parts(row["dest"])) != 1 or len(destination_parts(row["dest_sha"])) != 1:
+        raise ValueError("upstream requires one destination block")
+    path, _ = split_destination(row["dest"])
+    if path != old.path or row["dest_sha"] == old.sha:
+        raise ValueError("upstream requires a changed block in its original file")
+    reviewer, _, revision = row["reviewer"].partition("@")
+    if not reviewer or reviewer == "mechanical" or not revision:
+        raise ValueError("upstream requires independent review identity@revision")
+    number = record.get("pull_request")
+    if (type(number) is not int or number <= 0 or record.get("merged") is not True or
+            record.get("pull_request_url") != f"https://github.com/mlakolar/ProximalBase.jl/pull/{number}"):
+        raise ValueError("upstream requires a reviewed merged pull request in this repository")
+    for key in ("before_commit", "after_commit", "before_blob", "after_blob"):
+        if not isinstance(record.get(key), str) or not re.fullmatch(r"[0-9a-f]{40}", record[key]):
+            raise ValueError(f"upstream requires an exact Git object ID: {key}")
+    before, after = record["before_commit"], record["after_commit"]
+    # Read raw commit headers: HEAD^ / revision walking stops at shallow roots.
+    git("cat-file", "commit", before, root=root)
+    header = git("cat-file", "commit", after, root=root).partition("\n\n")[0]
+    parents = re.findall(r"^parent ([0-9a-f]{40})$", header, re.M)
+    if not parents or parents[0] != before:
+        raise ValueError("upstream before_commit is not after_commit's first parent")
+    texts = []
+    for commit, key in ((before, "before_blob"), (after, "after_blob")):
+        actual = git("rev-parse", "--verify", f"{commit}:{path}", root=root).strip()
+        if actual != record[key]:
+            raise ValueError(f"upstream file blob mismatch: {key}")
+        texts.append(git("cat-file", "blob", actual, root=root))
+    if record["before_blob"] == record["after_blob"]:
+        raise ValueError("upstream file did not change")
+    before_blocks, after_blocks = (list(blocks(text, path)) for text in texts)
+    originals = [b for b in before_blocks if b.sha == old.sha and b.kind == old.kind]
+    replacements = [b for b in after_blocks if b.sha == row["dest_sha"]]
+    if len(originals) != 1 or len(replacements) != 1:
+        raise ValueError("upstream diff must contain unique original and replacement blocks")
+    if (any(b.sha == old.sha for b in after_blocks) or
+            any(b.sha == row["dest_sha"] for b in before_blocks)):
+        raise ValueError("upstream diff must remove the original and introduce the replacement")
+
+    def span(block, text):
+        offset = sum(len(line) for line in text.splitlines(keepends=True)[:block.line - 1])
+        start = text.index(block.text, offset)
+        return text.count("\n", 0, start), text.count("\n", 0, start + len(block.text) - 1) + 1
+
+    def touches(span, start, end):
+        first, last = span
+        # A pure insertion/deletion has an empty range on one side.
+        return first <= start <= last if start == end else max(first, start) < min(last, end)
+
+    old_span, new_span = span(originals[0], texts[0]), span(replacements[0], texts[1])
+    changes = SequenceMatcher(None, texts[0].splitlines(), texts[1].splitlines(), autojunk=False).get_opcodes()
+    if not any(tag != "equal" and touches(old_span, i, j) and touches(new_span, k, l)
+               for tag, i, j, k, l in changes):
+        raise ValueError("upstream original and replacement do not share a changed diff hunk")
+
+
 def coverage(base_blocks, rows, root=ROOT):
     """Return errors and validated baseline-to-destination mappings.
 
@@ -446,6 +544,11 @@ def coverage(base_blocks, rows, root=ROOT):
     exemption flag. Their meaning still requires the recorded independent review.
     """
     errors, mappings = [], {}
+    try:
+        upstream = upstream_records(rows, root)
+    except (FileNotFoundError, ValueError) as error:
+        errors.append(f"upstream evidence: {error}")
+        upstream = {}
     by_id = {b.id: b for b in base_blocks}
     row_counts = Counter(row["block_id"] for row in rows)
     for identifier in sorted(set(by_id) - set(row_counts)):
@@ -469,7 +572,7 @@ def coverage(base_blocks, rows, root=ROOT):
             errors.append(f"unknown action {action!r}: {old.id}")
             continue
         reviewer = row.get("reviewer", "")
-        if not reviewer or (action in REVIEWED and (reviewer == "mechanical" or "@" not in reviewer)):
+        if not reviewer or (action in REVIEWED | {"upstream"} and (reviewer == "mechanical" or "@" not in reviewer)):
             errors.append(f"missing independent review identity@revision for {action}: {old.id}")
             continue
         destinations = destination_parts(row.get("dest", ""))
@@ -477,6 +580,12 @@ def coverage(base_blocks, rows, root=ROOT):
         if not destinations or len(destinations) != len(hashes):
             errors.append(f"destination/hash count mismatch: {old.id}")
             continue
+        if action == "upstream":
+            try:
+                validate_upstream(old, row, upstream.get(old.id), root)
+            except (ValueError, subprocess.CalledProcessError) as error:
+                errors.append(f"{old.id}: {error}")
+                continue
         replacements = []
         for dest, expected in zip(destinations, hashes):
             try:
@@ -502,7 +611,7 @@ def coverage(base_blocks, rows, root=ROOT):
                     origin = canonical_links(read_current(old.path, root), old.path)
                     if not re.search(r"\]\(" + re.escape(path) + r"(?:[#)]|\s)", origin):
                         raise ValueError("archive requires a forwarding link at its source")
-                if action in {"stay", "move", "archive"}:
+                if action in {"stay", "move", "archive", "upstream"}:
                     key = (path, expected)
                     used[key] += 1
                     # Count across the whole page, so two anchor scopes cannot
@@ -531,6 +640,10 @@ def accounting(base_blocks, mappings, kind):
             errors.append(f"unaccounted baseline block: {old.id}")
             continue
         action, replacements = mappings[old.id]
+        # coverage has independently checked the exact reviewed upstream Git
+        # change. These are inherited changes, not preservation-equivalent edits.
+        if action == "upstream":
+            continue
         # Reviewed replacement hashes are the acceptance evidence for semantic
         # transformations. Every check uses this same action policy.
         if action in REVIEWED:

@@ -82,7 +82,7 @@ function production_calls(PB, f, β, η, g, d)
 end
 
 function warm_trial(call, evals)
-  bench = @benchmarkable $call() evals=$evals samples=35 seconds=0.4
+  bench = @benchmarkable $call() evals=evals samples=35 seconds=0.4
   run(bench)
 end
 
@@ -91,7 +91,7 @@ function measure!(io, id, calls, outputs, ::Type{T}, evals, rng) where {T}
   roles = ("reference", "candidate", "control")
   if FIRST_CALL
     for j in randperm(rng, 3)
-      stats = @timed calls[j]()
+      stats = @timed Base.invokelatest(calls[j])
       println(io, join((id, roles[j], stats.time, stats.bytes), ','))
     end
     return

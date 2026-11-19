@@ -104,13 +104,9 @@ function _logistic_transpose!(g, X, d)
   isempty(X) ? fill!(g, zero(eltype(g))) : mul!(g, transpose(X), d)
 end
 
-# Sparse designs hold their numeric storage in a separate vector.
-@inline _logistic_design_overlap(a, X) = _ls_overlap(a, X)
-@inline _logistic_design_overlap(a, X::SparseMatrixCSC) = _ls_overlap(a, nonzeros(X))
-
 @inline function _logistic_check_output(out, name, f, input, input_name)
   _ls_overlap(out, input) && _ls_alias_error(name, input_name)
-  _logistic_design_overlap(out, f.X) && _ls_alias_error(name, "the design X")
+  _ls_overlap(out, f.X) && _ls_alias_error(name, "the design X")
   _ls_overlap(out, f.y) && _ls_alias_error(name, "the response y")
   f.weights !== nothing && _ls_overlap(out, f.weights) && _ls_alias_error(name, "the weights")
   f.offset !== nothing && _ls_overlap(out, f.offset) && _ls_alias_error(name, "the offset")

@@ -204,7 +204,17 @@ end
     oldvalues = copy(nonzeros(S))
     @test_throws ArgumentError logistic_fused!(view(nonzeros(S), 1:2), d, fs, η)
     @test_throws ArgumentError logistic_fused!(g, view(nonzeros(S), 1:4), fs, η)
-    @test nonzeros(S) == oldvalues && g == fill(T(2), 2) && d == fill(T(3), 4)
+    colptr = SparseArrays.getcolptr(S)
+    oldrows, oldptr = copy(rowvals(S)), copy(colptr)
+    for index_buffer in (rowvals(S), colptr)
+      aliased_g = view(reinterpret(T, index_buffer), 1:2)
+      @test_throws ArgumentError gradient!(aliased_g, fs, β)
+      @test_throws ArgumentError logistic_fused!(aliased_g, d, fs, η)
+    end
+    aliased_d = view(reinterpret(T, rowvals(S)), 1:4)
+    @test_throws ArgumentError logistic_fused!(g, aliased_d, fs, η)
+    @test rowvals(S) == oldrows && colptr == oldptr && nonzeros(S) == oldvalues
+    @test g == fill(T(2), 2) && d == fill(T(3), 4)
   end
 end
 

@@ -629,7 +629,7 @@ Ordinary calls share private scratch and require synchronization across tasks.
 Predictor calls can share a loss across tasks when model data stay read-only
 and the outputs are independent. Before writes, the oracles reject nonempty
 output overlaps reported by `Base.mightalias` with the input, other output,
-model arrays (including CSC numeric storage) or scratch. An input predictor or
+model arrays (including CSC values and indices) or scratch. An input predictor or
 coefficient vector must also be independent of the scratch.
 
 The scalar formulas preserve the small tail for saturated responses. A

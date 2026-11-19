@@ -74,11 +74,13 @@ Base.include_string(Reference, REFERENCE, "logistic-reference")
 Base.include_string(ReferenceControl, REFERENCE, "logistic-reference-control")
 
 function production_calls(PB, f, β, η, g, d)
+  gradient!, fused! = PB.gradient!, PB.value_and_gradient!
+  cached_value, cached_fused! = PB.value_from_predictor, PB.value_and_gradient_from_predictor!
   (value=() -> f(β),
-   gradient=() -> PB.gradient!(g, f, β),
-   fused=() -> PB.value_and_gradient!(g, f, β),
-   cached_value=() -> PB.value_from_predictor(f, η),
-   cached_fused=() -> PB.value_and_gradient_from_predictor!(g, d, f, η))
+   gradient=() -> gradient!(g, f, β),
+   fused=() -> fused!(g, f, β),
+   cached_value=() -> cached_value(f, η),
+   cached_fused=() -> cached_fused!(g, d, f, η))
 end
 
 function warm_trial(call, evals)

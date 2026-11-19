@@ -30,6 +30,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |
 | `src/functions/norml2.jl` | Euclidean/Frobenius norm and scalar-step proximal map |
 | `src/functions/normlinf.jl` | Maximum-entry norm and ℓ₁-threshold-based clipping proximal map |
+| `src/functions/indballl1.jl` | ℓ₁-ball feasibility and projection using the shared threshold selector |
 | `src/functions/groupnorml2.jl` | Disjoint-group norm, compact block proximal maps and group KKT scores |
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |

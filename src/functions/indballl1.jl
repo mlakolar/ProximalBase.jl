@@ -146,18 +146,13 @@ function _ball_l1_project!(y, f::IndBallL1, x)
     @inbounds y[1] = copysign(a, convert(T, x[1]))
     return y
   end
-  # An indexed view can refer to the same slot more than once. Read from a
-  # snapshot for in-place destinations whose entries may share storage.
-  if y === x && !(x isa Union{StridedArray, SparseIterate, BlockIterate})
-    x = Array(x)
-  end
   v = _stored_values(x)
   k == 0 || return _ball_l1_scaled_project!(y, f, x, v, a, s, k, m)
   rd = _AbsRead{T}()
-  if _ball_l1_may_cancel(a, s)
+  if a < floatmin(T) || _ball_l1_may_cancel(a, s)
     return _ball_l1_check_cancellation!(y, f, x, v, a, a, s, 0, T(_maximum_abs(v)), rd)
   end
-  _ball_l1_shrink!(y, x, _ball_l1_threshold(y, f, v, a, s, rd))
+  _ball_l1_shrink!(y, f, x, _ball_l1_threshold(y, f, v, a, s, rd))
 end
 
 # A finite sum above floatmax/2: the level is selected for the entries and the
@@ -171,7 +166,7 @@ end
   end
   τ = _ball_l1_threshold(y, f, v, a′, s, rd)
   # Scaling the largest read magnitude back can round above m.
-  _ball_l1_shrink!(y, x, min(ldexp(τ, k), m))
+  _ball_l1_shrink!(y, f, x, min(ldexp(τ, k), m))
 end
 
 # A small radius against the sum can still be large against the active entries.
@@ -181,8 +176,9 @@ end
   τ = _ball_l1_threshold(y, f, v, a′, s, rd)
   τ = k == 0 ? τ : min(ldexp(τ, k), m)
   mass = _linf_sum(v, w -> max(abs(T(w)) - τ, zero(T)), T)
-  abs(mass - a) > a / 16 && return _ball_l1_water_fill!(y, f, x, v, a)
-  _ball_l1_shrink!(y, x, τ)
+  tolerance = a < floatmin(T) ? zero(T) : 8 * eps(T) * a
+  abs(mass - a) > tolerance && return _ball_l1_water_fill!(y, f, x, v, a)
+  _ball_l1_shrink!(y, f, x, τ)
 end
 
 # The level from the shared ℓ1-ball threshold of NormLinf, clamped at zero.
@@ -197,15 +193,35 @@ end
   max(τ, zero(T))
 end
 
+# An indexed view can refer to a slot more than once. Once the level has
+# been chosen, reuse the magnitude buffer for the original input entries.
+@inline function _ball_l1_write_input(y, f, x, ::Type{T}) where {T}
+  if !(x isa Union{StridedArray, SparseIterate, BlockIterate}) && y === x
+    return _ball_l1_snapshot!(f, x, T)
+  end
+  x
+end
+
+@noinline function _ball_l1_snapshot!(f, x, ::Type{T}) where {T}
+  buf = _array_buffer!(f.scratch, T, (length(x),))
+  @inbounds for i in 1:length(x)
+    buf[i] = x[i]
+  end
+  buf
+end
+
 # y[i] = sign(x[i]) max(|x[i]| - τ, 0) for τ ≥ 0, with +0 at and below the level
-@inline function _ball_l1_shrink!(y::_DenseOutput, x, τ::T) where {T}
+@inline _ball_l1_shrink!(y, f, x, τ::T) where {T} =
+  _ball_l1_shrink_loop!(y, _ball_l1_write_input(y, f, x, T), τ)
+
+@inline function _ball_l1_shrink_loop!(y::_DenseOutput, x, τ::T) where {T}
   S = eltype(y)
   @inbounds @simd for i in 1:length(x)
     y[i] = convert(S, _shrink_nonneg(convert(T, x[i]), τ))
   end
   y
 end
-_ball_l1_shrink!(y, x, τ::T) where {T} = _ball_l2_map!(v -> _shrink_nonneg(convert(T, v), τ), y, x)
+_ball_l1_shrink_loop!(y, x, τ::T) where {T} = _ball_l2_map!(v -> _shrink_nonneg(convert(T, v), τ), y, x)
 
 # For x = [M, -M] with M = floatmax(Float64) and r = 1, the exact level is
 # M - 1/2. Storing that level in Float64 gives M and erases the projection.
@@ -226,21 +242,27 @@ _ball_l1_shrink!(y, x, τ::T) where {T} = _ball_l2_map!(v -> _shrink_nonneg(conv
   end
   sort!(b; rev = true)
   ρ = a
-  level, share = zero(T), zero(T)
   @inbounds for j in 1:n
-    gap = j * (b[j] - (j < n ? b[j + 1] : zero(T)))
+    level = b[j]
+    gap = j * (level - (j < n ? b[j + 1] : zero(T)))
     if ρ <= gap
-      level, share = b[j], ρ / j
-      break
+      source = _ball_l1_write_input(y, f, x, T)
+      # At a subnormal radius the active gaps and the remaining radius are
+      # small. Lift them before dividing so the share can be added to a gap
+      # before rounding back to the subnormal spacing.
+      lift = a < floatmin(T) ? ldexp(one(T), precision(T)) : one(T)
+      share = (ρ * lift) / j
+      unit = inv(lift)
+      return _ball_l2_map!(w -> _ball_l1_fill_entry(T(w), level, share, lift, unit), y, source)
     end
     ρ -= gap
   end
-  _ball_l2_map!(w -> _ball_l1_fill_entry(convert(T, w), level, share), y, x)
+  _ball_l2_copy!(y, x)
 end
 
-# (|v| - level) + share with the sign of v for |v| ≥ level, and +0 otherwise
-@inline function _ball_l1_fill_entry(v::T, level::T, share::T) where {T}
+@inline function _ball_l1_fill_entry(v::T, level::T, share::T, lift::T, unit::T) where {T}
   d = abs(v) - level
-  z = d + share
-  ifelse((d >= zero(T)) & (z > zero(T)), copysign(z, v), zero(T))
+  d < zero(T) && return zero(T)
+  z = (d * lift + share) * unit
+  iszero(z) ? zero(T) : copysign(z, v)
 end

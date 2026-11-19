@@ -207,8 +207,11 @@ A tiny radius can be lost when that level rounds to the largest magnitude.
 The fallback sorts the magnitudes and forms the output directly from their
 gaps at `O(n log n)` cost. It is used when the radius is tiny relative to the
 largest magnitude or when a small radius relative to the sum shows
-substantial loss in the tentative projection. With `M = floatmax(Float64)`
-and radius `1`, the projection of `[M, -M]` is `[0.5, -0.5]`.
+loss in the tentative projection beyond the mass check's rounding
+allowance. Subnormal radii also use the mass check. For a subnormal radius on
+the sorted path, the gaps and remaining radius are combined in scaled units
+and rounded back when storing the output. With `M = floatmax(Float64)` and
+radius `1`, the projection of `[M, -M]` is `[0.5, -0.5]`.
 
 `value_and_prox!` evaluates the stored point. Its value can be `Inf` when
 rounding puts that point outside the computed boundary. For example, with

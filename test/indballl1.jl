@@ -80,10 +80,20 @@ end
   y = view(destination, 2:2:4)
   @test prox!(y, IndBallL1(T(3)), x) === y
   @test destination ≈ T[0, 2.5, 0, -0.5]
-  x = view(T[3, 9], [1, 1])
-  @test prox!(x, IndBallL1(one(T)), x) === x
+  parent_x = T[3, 9]
+  x = view(parent_x, [1, 1])
+  f = IndBallL1(one(T))
+  @test prox!(x, f, x) === x
   @test collect(x) ≈ fill(T(0.5), 2)
-  @test parent(x)[2] == T(9)
+  @test parent_x[2] == T(9)
+  snapshot = f.scratch.buf
+  parent_x[1] = T(3)
+  @test prox!(x, f, x) === x
+  @test f.scratch.buf === snapshot
+  parent_x[1] = floatmax(T)
+  @test prox!(x, f, x) === x
+  @test collect(x) == fill(T(0.5), 2)
+  @test f.scratch.buf === snapshot
 
   r = prevfloat(T(4))
   @test IndBallL1(r)(T[3, -1]) === T(Inf)
@@ -167,6 +177,26 @@ end
   y = similar(T[M, -M])
   @test value_and_prox!(y, f, T[M, -M]) === T(Inf)
   @test y == T[2δ, -2δ]
+end
+
+@testset "cancellation close to the threshold ($T)" for T in (Float32, Float64)
+  e, δ, m = eps(T), nextfloat(zero(T)), floatmin(T)
+  cases = ((T[1, -1], 17 * e / 2),
+           (T[1 + 9 * e, -1], 37 * e / 4),
+           (T[δ, δ], δ),
+           (T[m, prevfloat(m)], 2δ))
+  for (x, r) in cases
+    f = IndBallL1(r)
+    ref = T.(reference_projection(x, r))
+    @test prox(f, x) == ref
+    y = copy(x)
+    @test isequal(value_and_prox!(y, f, y), f(y))
+    @test y == ref
+    # Shift the two active entries apart to exercise implicit sparse zeros.
+    sparse_x = SparseIterate(T[x[1], 0, x[2], 0])
+    @test prox!(sparse_x, f, sparse_x) === sparse_x
+    @test Array(sparse_x) == T[ref[1], 0, ref[2], 0]
+  end
 end
 
 @testset "nonfinite inputs and Scaled ($T)" for T in (Float32, Float64)

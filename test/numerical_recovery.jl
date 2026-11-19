@@ -5,7 +5,7 @@ module NumericalRecoveryTest
 # branch of the kernel under test: an intermediate product, difference, square or partial sum leaves the
 # range of Float32/Float64 (or cancels) while the final value is representable; or an input is a genuine
 # NaN/Inf, an exact or signed zero, or a subnormal. The oracle is BigFloat evaluated directly from the
-# mathematical formula on the exact (Float32/Float64) data; the package never runs in BigFloat here.
+# mathematical formula on the exact (Float32/Float64) data.
 #
 # Accuracy is stated in units in the last place (ulp) of the correctly rounded reference, with the bound each
 # algorithm gives: a recomputation from significands rounds a handful of times (<= 2-4 ulp; the documented
@@ -665,14 +665,11 @@ function test_normL1_values(::Type{T}) where {T<:AbstractFloat}
     @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[Inf, 1]) === T(Inf)
     @test isnan(NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[NaN, 1]))
     @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(zeros(T, 2)) === zero(T)
-    # the scaled sum with its compensated accumulation, and the dot of a coefficient array with scaled entries
+    # the scaled sum with its compensated accumulation
     xs = T[1, -2, 3] .* pow2(T, 40)
     sf = PB._power_factors(T, -40)
     @test PB._scaled_value_sum(xs, sf, abs) == T(6)
     @test PB._scaled_value_sum(T[1, 1e-8, -1], PB._power_factors(T, 0)) ≈ T(1e-8) rtol = 4 * eps(T)         # the small term survives the cancellation
-    @test PB._scaled_dot(T[1, 2, 3], T[4, 5, 6] .* pow2(T, 40), sf) == T(32)
-    @test PB._scaled_dot(2, T[4, 5, 6], PB._power_factors(T, 0)) == T(30)                    # an integer coefficient
-    @test_throws DimensionMismatch PB._scaled_dot(T[1, 2], T[1, 2, 3], sf)
   end
 end
 
@@ -1060,50 +1057,9 @@ function test_normL1_prox(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
-function test_pow2_sums(::Type{T}) where {T<:AbstractFloat}
-  E, e0 = emax(T), emin(T)
-  δ = nextfloat(zero(T))
-  precT = precision(T)
-  rng = Xoshiro(1009)
-  @testset "power-of-two sums (_pow2_weighted) and the recomputed-dot shift" begin
-    rng = Xoshiro(31)
-    # w Σ mᵢ 2^eᵢ over terms in different units, added from the largest exponent down so that terms that
-    # cancel do so before smaller ones are aligned; one rounding at the end
-    function ref_terms(w, terms)
-      big(w) * sum(big(t[1]) * big(2.0)^t[2] for t in terms; init = big(0))
-    end
-    for N in (1, 2, 3, 4), _ in 1:200
-      terms = ntuple(_ -> (signif(rng, T, rand(rng, -3:3)), rand(rng, -E:E)), N)
-      w = abs(signif(rng, T, rand(rng, -E ÷ 2:E ÷ 2)))
-      r = ref_terms(w, terms)
-      abs(r) > floatmax(T) || abs(r) < nextfloat(zero(T)) && continue
-      @test within(PB._pow2_weighted(T, w, terms...), r, 3)
-      @test within(PB._pow2_sum(T, terms...), ref_terms(1, terms), 3)
-    end
-    # exact cancellation of the large terms before a small one is aligned: no digit of the remainder is lost
-    big_ = signif(rng, T, 0)
-    terms = ((big_, E - 1), (T(0.75), -100), (-big_, E - 1))
-    @test PB._pow2_sum(T, terms...) === T(0.75) * pow2(T, -100)
-    terms = ((T(0.75), 100), (-T(0.75), 100), (T(0.625), -50))
-    @test PB._pow2_sum(T, terms...) === T(0.625) * pow2(T, -50)
-    # an exact zero sum is +0 times the weight; zero terms are skipped; a lone term is scaled
-    @test PB._pow2_sum(T, (T(0.75), 5), (-T(0.75), 5)) === zero(T)
-    @test PB._pow2_sum(T, (zero(T), 5), (T(0.75), 3)) === T(6)
-    @test PB._pow2_weighted(T, T(2), (T(0.75), 5), (-T(0.75), 5)) === zero(T)
-    @test PB._pow2_weighted(T, T(2), (T(0.5), 1)) === T(2)
-    # the result leaves the range only at the final conversion
-    @test PB._pow2_sum(T, (T(0.5), E + 10)) === T(Inf) && PB._pow2_sum(T, (-T(0.5), E + 10)) === -T(Inf)
-    @test PB._pow2_sum(T, (T(0.5), e0 - precT - 5)) === zero(T)
-    @test within(PB._pow2_sum(T, (T(0.75), e0 - 2)), big(0.75) * big(2.0)^(e0 - 2), 1)           # a subnormal result, rounded once
-    # genuine Inf and NaN terms give the ordinary sum
-    @test PB._pow2_sum(T, (T(Inf), 5), (T(0.5), 2)) === T(Inf)
-    @test isnan(PB._pow2_sum(T, (T(Inf), 5), (-T(Inf), 2)))
-    @test isnan(PB._pow2_weighted(T, T(3), (T(NaN), 5), (T(0.5), 2)))
-    # BigFloat terms whose exponents leave Int in the frame arithmetic: the large terms cancel, the small one stays
-    Bs = PB._pow2_sum(BigFloat, (big(0.75), 2^61), (big(0.625), -2^40), (-big(0.75), 2^61))
-    @test Bs == Base.ldexp(big(0.625), -2^40)
-    @test PB._pow2_sum(BigFloat, (big(0.75), 2^61), (big(0.5), 2^61)) == Base.ldexp(big(1.25), 2^61)
-    # the units of a recomputed dot: bound exponent, ceil(log2 n), and the shift
+function test_product_sum_shift(::Type{T}) where {T<:AbstractFloat}
+  E = emax(T)
+  @testset "power-of-two units of a recomputed dot" begin
     @test PB._bound_exponent(T(3)) == 2 && PB._bound_exponent(zero(T)) == 0 && PB._bound_exponent(T(Inf)) == 0 && PB._bound_exponent(T(NaN)) == 0
     @test PB._log2_ceil(1) == 0 && PB._log2_ceil(2) == 1 && PB._log2_ceil(3) == 2 && PB._log2_ceil(1024) == 10 && PB._log2_ceil(1025) == 11
     @test PB._max_exponent(T) == E
@@ -1372,10 +1328,6 @@ function test_linear_function(::Type{T}) where {T<:AbstractFloat}
       @test value_and_gradient!(SymmetricSparseIterate(T, p), fo, xo) === fo(xo)
       @test Matrix(go) == cm
     end
-    # the scaled dot of the stored entries of a sparse iterate: Σ cᵢ xᵢ 2^-k
-    sf = PB._power_factors(T, -(h + 4))
-    xsp3 = SparseIterate(T, 3); xsp3[1] = a; xsp3[3] = -a
-    @test within(PB._scaled_dot(T[1, 2, 3], xsp3, sf), (big(a) - 3 * big(a)) * big(2.0)^-(h + 4), 1)
   end
 end
 
@@ -1728,7 +1680,7 @@ setprecision(BigFloat, 2400) do
   test_normL1_value_entry_type(T)   # NormL1 value entries: the unweighted entry type (#684)
   test_normL1_value_underflow(T)   # NormL1 values: products that round below floatmin (#373)
   test_normL1_prox(T)   # NormL1 prox thresholds and the weight kernels
-  test_pow2_sums(T)   # power-of-two sums (_pow2_weighted) and the recomputed-dot shift
+  test_product_sum_shift(T)
   test_square_consumers(T)   # squared-residual consumers: the exceptional branches of the value
   test_sqrnorml2_oracles(T)   # SqrNormL2 oracles: ridge weights, owners, wide levels and centers
   test_leastsquares(T)   # LeastSquaresLoss: SVD prox, multi-response data and iterate arguments
@@ -1739,6 +1691,15 @@ setprecision(BigFloat, 2400) do
   test_scaled_single_factors(T)   # Scaled single factors, zero and infinite scales, aliases and nested wrappers
   test_recorded_defects(T)   # recorded defects (see the audit document): @test_broken against the independent reference
 end
+end
+
+@testset "least-squares recovery at the BigFloat exponent limit" begin
+  setprecision(BigFloat, 256) do
+    f = LeastSquaresLoss(BigFloat[0], reshape([floatmax(BigFloat)], 1, 1))
+    β = BigFloat[4]
+    @test f(β) == BigFloat(Inf)
+    @test value_and_gradient!(similar(β), f, β) == BigFloat(Inf)
+  end
 end
 
 end

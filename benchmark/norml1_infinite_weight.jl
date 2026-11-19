@@ -23,6 +23,21 @@ Base.include(First, joinpath(first_root, "src", "ProximalBase.jl"))
 Base.include(Second, joinpath(second_root, "src", "ProximalBase.jl"))
 Base.include(FirstControl, joinpath(first_root, "src", "ProximalBase.jl"))
 
+bindcall(fn, args...) = () -> (fn(args...); nothing)
+
+bindalias(prox!, out, f, x, γ) = () -> (copyto!(out, x); prox!(out, f, out, γ); nothing)
+
+function bindblocks(prox_block, out, f, x, n, γ)
+    return () -> begin
+        s = zero(eltype(x))
+        @inbounds for i in 1:n
+            s += prox_block(f, x[i], i, γ)
+        end
+        out[1] = s
+        nothing
+    end
+end
+
 function makeprobes(PB, ::Type{T}, n::Int) where {T}
     rng = Random.MersenneTwister(853 + n)
     x = T(2) .* randn(rng, T, n)
@@ -38,31 +53,25 @@ function makeprobes(PB, ::Type{T}, n::Int) where {T}
     f1 = PB.NormL1(λ, w)
     fi = PB.NormL1(λ, winf)
     fz = PB.NormL1(λ, wzero)
-    add("unweighted/scalar", () -> (PB.prox!(out, f0, x, γ); nothing), () -> copy(out))
-    add("unweighted/array", () -> (PB.prox!(out, f0, x, γs); nothing), () -> copy(out))
-    add("weighted/scalar", () -> (PB.prox!(out, f1, x, γ); nothing), () -> copy(out))
-    add("weighted/array", () -> (PB.prox!(out, f1, x, γs); nothing), () -> copy(out))
-    add("weighted_inf/scalar", () -> (PB.prox!(out, fi, x, γ); nothing), () -> copy(out))
-    add("weighted_inf/array", () -> (PB.prox!(out, fi, x, γs); nothing), () -> copy(out))
-    add("weighted_zero/scalar", () -> (PB.prox!(out, fz, x, γ); nothing), () -> copy(out))
-    add("weighted/value_and_prox", () -> (PB.value_and_prox!(out, f1, x, γ); nothing), () -> (PB.value_and_prox!(out, f1, x, γ), copy(out)))
-    add("weighted/alias", () -> (copyto!(out, x); PB.prox!(out, f1, out, γ); nothing), () -> copy(out))
-    add("weighted/prox_block_loop", () -> begin
-        s = zero(T)
-        @inbounds for i in 1:n
-            s += PB.prox_block(f1, x[i], i, γ)
-        end
-        out[1] = s; nothing
-    end, () -> out[1])
+    add("unweighted/scalar", bindcall(PB.prox!, out, f0, x, γ), () -> copy(out))
+    add("unweighted/array", bindcall(PB.prox!, out, f0, x, γs), () -> copy(out))
+    add("weighted/scalar", bindcall(PB.prox!, out, f1, x, γ), () -> copy(out))
+    add("weighted/array", bindcall(PB.prox!, out, f1, x, γs), () -> copy(out))
+    add("weighted_inf/scalar", bindcall(PB.prox!, out, fi, x, γ), () -> copy(out))
+    add("weighted_inf/array", bindcall(PB.prox!, out, fi, x, γs), () -> copy(out))
+    add("weighted_zero/scalar", bindcall(PB.prox!, out, fz, x, γ), () -> copy(out))
+    add("weighted/value_and_prox", bindcall(PB.value_and_prox!, out, f1, x, γ), () -> (PB.value_and_prox!(out, f1, x, γ), copy(out)))
+    add("weighted/alias", bindalias(PB.prox!, out, f1, x, γ), () -> copy(out))
+    add("weighted/prox_block_loop", bindblocks(PB.prox_block, out, f1, x, n, γ), () -> out[1])
     # stored-entry loops (they keep the per-entry kernel): 1/8 of the entries stored
     xsp = copy(x); xsp[mod.(1:n, 8) .!= 1] .= zero(T)
     sp = PB.SparseIterate(xsp); spout = copy(sp)
-    add("sparse_weighted/scalar", () -> (PB.prox!(spout, f1, sp, γ); nothing), () -> Vector(spout))
-    add("sparse_weighted/array", () -> (PB.prox!(spout, f1, sp, γs); nothing), () -> Vector(spout))
+    add("sparse_weighted/scalar", bindcall(PB.prox!, spout, f1, sp, γ), () -> Vector(spout))
+    add("sparse_weighted/array", bindcall(PB.prox!, spout, f1, sp, γs), () -> Vector(spout))
     groups = [collect(1:2:n), collect(2:2:n)]
     bl = PB.BlockIterate(copy(x), groups); blout = copy(bl)
-    add("block_weighted/scalar", () -> (PB.prox!(blout, f1, bl, γ); nothing), () -> Vector(blout))
-    add("block_weighted/array", () -> (PB.prox!(blout, f1, bl, γs); nothing), () -> Vector(blout))
+    add("block_weighted/scalar", bindcall(PB.prox!, blout, f1, bl, γ), () -> Vector(blout))
+    add("block_weighted/array", bindcall(PB.prox!, blout, f1, bl, γs), () -> Vector(blout))
     probes
 end
 sizes = (1024, 65536)

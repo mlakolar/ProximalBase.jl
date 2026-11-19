@@ -115,14 +115,14 @@ _checkparams(g::_L1OrdinarySteps, x) = _checkparams(g.f, x)
 # outside what the arrays here support.
 const _L1_STEP_PASS_MIN = 16
 @inline _prox_sep_dense!(y::AbstractArray, f::NormL1, x::AbstractArray, γ::AbstractArray) =
-  length(x) < _L1_STEP_PASS_MIN ? _l1_prox_entries!(y, f, x, γ) : _l1_prox_steps!(y, f, x, γ)
+  length(x) < _L1_STEP_PASS_MIN ? _prox_entries!(y, f, x, γ) : _l1_prox_steps!(y, f, x, γ)
 @noinline function _l1_prox_steps!(y, f::NormL1, x, γ)
   _checkwrite(prox!, f, y, x)
   _checkparam(γ, x)
   isconcretetype(eltype(x)) && isconcretetype(eltype(γ)) &&
     _l1_ordinary_steps(f, γ, float(eltype(x)), eachindex(IndexLinear(), y, x)) &&
-    return _l1_prox_entries!(y, _L1OrdinarySteps(f), x, γ)
-  _l1_prox_entries!(y, f, x, γ)
+    return _prox_entries!(y, _L1OrdinarySteps(f), x, γ)
+  _prox_entries!(y, f, x, γ)
 end
 function _l1_ordinary_steps(f::NormL1, γ, ::Type{S}, inds) where {S}
   for b in first(inds):256:last(inds)
@@ -134,7 +134,6 @@ function _l1_ordinary_steps(f::NormL1, γ, ::Type{S}, inds) where {S}
   end
   true
 end
-_l1_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
 
 # A scalar step on a host array (an Array, or a view or a reshape of one) of more than _L1_SELECT_BYTES bytes takes
 # shrink on the ordinary branch, and one of up to that size _shrink_nonneg. In a loop over arrays that do not fit the

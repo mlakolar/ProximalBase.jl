@@ -49,24 +49,23 @@ mutable struct LeastSquaresLoss{T<:AbstractFloat, Ty<:AbstractVecOrMat, Tx<:Abst
   # the proximal operator: X = U Diagonal(√s2) V', computed on first use
   V::Matrix{T}
   s2::Vector{T}
-  XtY::Array{T, N}        # only needed by an affine-constrained loss, built lazily
   sUtY::Array{T, N}       # Diagonal(s) U'Y, the right-hand side in the V basis
   w::Array{T, N}
   output::Scratch         # dense output for a non-strided destination
   svd_ready::Bool
 
-  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
+  function LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready) where {T<:AbstractFloat,
       Ty<:AbstractVecOrMat, Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}}
-    _check_one_based(Y, X, tmp, V, s2, XtY, sUtY, w)
+    _check_one_based(Y, X, tmp, V, s2, sUtY, w)
     all(a -> a === nothing || eltype(a) <: Real,
-        (Y, X, tmp, V, s2, XtY, sUtY, w)) || _real_error(:LeastSquaresLoss)
-    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+        (Y, X, tmp, V, s2, sUtY, w)) || _real_error(:LeastSquaresLoss)
+    new{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready)
   end
 end
-LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, XtY::Array{T, N}, sUtY::Array{T, N},
+LeastSquaresLoss(Y::Ty, X::Tx, tmp::A, V::Matrix{T}, s2::Vector{T}, sUtY::Array{T, N},
     w::Array{T, N}, output::Scratch, svd_ready::Bool) where {T<:AbstractFloat, Ty<:AbstractVecOrMat,
     Tx<:AbstractMatrix, N, A<:AbstractArray{T, N}} =
-  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, XtY, sUtY, w, output, svd_ready)
+  LeastSquaresLoss{T, Ty, Tx, N, A}(Y, X, tmp, V, s2, sUtY, w, output, svd_ready)
 
 function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   eltype(Y) <: Real || _real_error(:LeastSquaresLoss)
@@ -74,9 +73,8 @@ function LeastSquaresLoss(Y::AbstractVecOrMat, X::AbstractMatrix)
   size(X, 1) == size(Y, 1) || throw(DimensionMismatch("X has $(size(X, 1)) rows and Y has $(size(Y, 1))"))
   T = float(promote_type(eltype(Y), eltype(X)))
   N = ndims(Y)
-  tmp = _zeros_like(Y, T, size(Y))
+  tmp = zeros(T, size(Y))
   LeastSquaresLoss{T, typeof(Y), typeof(X), N, typeof(tmp)}(Y, X, tmp, Matrix{T}(undef, 0, 0), T[],
-                                                            Array{T, N}(undef, ntuple(_ -> 0, N)),
                                                             Array{T, N}(undef, ntuple(_ -> 0, N)),
                                                             Array{T, N}(undef, ntuple(_ -> 0, N)), Scratch(), false)
 end
@@ -232,15 +230,21 @@ end
   own = _leastsquares_own.(r, lim, Ref(up))                  # 2^k (X βs)ᵢ where representable
   Yo = _leastsquares_own_y.(r, Y, lim, T)
   r .= _leastsquares_big.(r, Y, lim, Ref(sc))
-  _pow2_sum(T, _leastsquares_squares(own, Yo), _leastsquares_squares(r, nothing, 2k))
+  acc = _expsum_add(_expsum_start(T), _leastsquares_squares(own, Yo)...)
+  acc = _expsum_add(acc, _leastsquares_squares(r, nothing, 2k)...)
+  _expsum_value(T, acc)
 end
 @inline _leastsquares_own(a::T, lim, up) where {T} = abs(a) <= lim ? _scale_value(a, up) : zero(T)
 @inline _leastsquares_own_y(a, y, lim, ::Type{T}) where {T} = abs(a) <= lim ? convert(T, y) : zero(T)
 @inline _leastsquares_big(a::T, y, lim, sc) where {T} = abs(a) <= lim ? zero(T) : a - _scale_value(convert(T, y), sc)
-# ‖x - y‖²/2 as a significand and an exponent, in units of 2^shift; the entries are finite here
+# 2^shift ‖x - y‖²/2 as a normalized significand and an exponent, for finite entries
 function _leastsquares_squares(x, y, shift = 0)
   s, k = _residual_squares(x, y, eltype(x))
-  (s, iszero(s) ? 0 : 2k - 1 + shift)
+  m, e = _frexp(s)
+  ex = _exponent_sum(eltype(x), e, 2k - 1 + shift)
+  # _ExpSum stores an Int exponent. For these nonnegative terms, saturation
+  # keeps a BigFloat exponent outside Int on the same side of MPFR's range.
+  (m, Int(clamp(ex, typemin(Int), typemax(Int))))
 end
 
 function gradient!(g::AbstractVecOrMat, f::LeastSquaresLoss, β::AbstractVecOrMat)
@@ -283,7 +287,9 @@ function _svd_cache!(f::LeastSquaresLoss{T, Ty, Tx, N}) where {T, Ty, Tx, N}
       f.svd_ready = true
       return f
     end
-    F = svd(Matrix{T}(f.X))
+    A = Matrix{T}(f.X)
+    all(isfinite, A) || throw(ArgumentError("design matrix X must have finite entries in the SVD computation type"))
+    F = svd(A)
     f.V = F.V
     f.s2 = F.S .^ 2
     f.sUtY = Array{T, N}(transpose(F.U) * f.Y)

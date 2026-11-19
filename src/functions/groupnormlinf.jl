@@ -66,13 +66,11 @@ julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
   `NaN` entry; `Inf` at a nonzero group, without `NaN`, when `λ₀` or `wₖ` is infinite. The sum of the terms may be recomputed in power-of-two units where it
   may have lost accuracy (below `K floatmin` for `K` groups) or class (at or above `floatmax/2`). `value_and_prox!`
   returns the value of the stored output.
-- The accuracy of each group's level is absolute, of order `n eps(T) max|x[Gₖ]| + δ` in the floating type `T` of the output
-  for a group of `n` entries and `δ = nextfloat(zero(T))`, as for [`NormLinf`](@ref): an entry far below the largest has
-  no relative guarantee. The entries are read as `abs(convert(T, xᵢ))`, and the level assumes `n eps(T) ≤ 1/2` for each
-  group (for `Float32` a group of at most `2^22` entries). The level comes from the threshold of the ℓ1 ball that
-  `NormLinf` shares; its Michelot fallback has a known failure on groups with large ties
-  ([#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)), which this statement does not cover. Float32 and
-  Float64 with arguments of the same type are the supported precisions.
+- For finite inputs and positive finite parameters of the same type `T` (`Float32` or `Float64`), the error of each
+  stored proximal entry in a group of size `n` is bounded by `8 n eps(T) max|x[Gₖ]| + (2n + 1)δ`, with
+  `δ = nextfloat(zero(T))`. This assumes round-to-nearest arithmetic and `n eps(T) ≤ 1/2` (unchecked, at most `2^22`
+  entries per group in `Float32`). The bound is absolute and compares with clipping at the exact product `γλ₀wₖ`.
+  The implementation uses the shared ℓ1-ball threshold of [`NormLinf`](@ref), with power-of-two scaling for large sums.
 - `kkt_violation(f, v, x, k)` is provided at a zero group (and at an entry in no group): the signed margin
   `‖v[Gₖ]‖₁ - λ₀wₖ`. A nonzero group, the full-point form `kkt_violation(f, v, x)` and the three-argument form `kkt_violation(f, v, i)`
   throw an `ArgumentError`.

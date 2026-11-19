@@ -17,6 +17,7 @@ step selection and stopping rule.
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |
 | Maximum absolute entry (ℓ∞ norm) | [`NormLinf(λ)`](@ref NormLinf) | Nonseparable; prox clips entries using an ℓ₁-ball threshold; matrix value is the largest entry magnitude |
+| Bound the sum of absolute entries (ℓ₁ ball) | [`IndBallL1(r)`](@ref IndBallL1) | Uses Euclidean projection at any nonnegative scalar step |
 | Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
 | Sum of maximum magnitudes over disjoint groups | [`GroupNormLinf(λ, groups, w)`](@ref GroupNormLinf) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are 1; the optimality score is provided at a zero group (and at an entry in no group) only |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |

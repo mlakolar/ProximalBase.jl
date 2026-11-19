@@ -170,8 +170,6 @@ function _elastic_ordinary_steps(f::ElasticNet, γ, ::Type{S}, inds) where {S}
   true
 end
 
-# the loops of separable.jl for these arguments, also for an ElasticNet whose step is not prepared
-_prox_entries!(y, f, x, γ) = invoke(_prox_sep_dense!, Tuple{AbstractArray, Any, AbstractArray, Any}, y, f, x, γ)
 _prox_stored!(y, f, x, γ) = invoke(_prox_sep!, Tuple{SparseIterate, Any, SparseIterate, Union{Real, AbstractArray}}, y, f, x, γ)
 _prox_coordinates!(y, f, x, γ) =
   invoke(_prox_sep!, Tuple{SymmetricSparseIterate, Any, Union{AbstractMatrix, SymmetricSparseIterate}, Real}, y, f, x, γ)

@@ -96,10 +96,6 @@ end
 @inline _one_based_arg(a::AbstractArray) = Base.require_one_based_indexing(a)
 @generated _one_based_arg(a::Tuple) = _blockwise(k -> :(_one_based_arg(a[$k])), fieldcount(a), nothing)
 
-# Allocate an ordinary Julia Array of zeros with element type T and size dims.
-# The argument a does not select a storage backend in the minimal core.
-_zeros_like(a, ::Type{T}, dims) where {T} = zeros(T, dims)
-
 # The stored values suffice for maxima; symmetric multiplicities do not matter.
 _stored_values(x::AbstractArray) = x
 _stored_values(x::SparseArrays.AbstractSparseArray) = nonzeros(x)
@@ -179,7 +175,7 @@ _all_finite(::Nothing) = true
 #
 ####################################
 
-# The scaled-value mechanism that `Scaled` uses when its value leaves the range (calculus.jl,
+# The scaled-value mechanism that `Scaled` uses when its value leaves the range (scaled.jl,
 # `_scaled_parts`). A function that implements it declares `_has_value_parts` and returns from
 # `_value_parts(f, x, v)`, given its ordinary value v (infinite, zero or subnormal), either
 # `nothing`, to keep the ordinary result, or (m, e): its value m 2^e, with m a finite float,
@@ -196,14 +192,9 @@ _value_parts(f, x, v) = nothing
 # improve on either; that accuracy is measured against the sum of the magnitudes of the terms, as the bound
 # of a recovered value is (numerics.md, "Overflow and underflow of values").
 _zero_value_exponent(f, x) = nothing
-# Is a zero or subnormal value of f exact for every argument, by its type? Then a factor above one
-# has nothing to recover from it, and `Scaled` does not try (the test folds away at compile time).
-_zero_value_exact(f) = false
 # the marker of an exact zero, outside every exponent range (no Int exponent can equal it)
 struct _ExactZero end
 const _EXACT_ZERO = _ExactZero()
-# Is an infinite ordinary value known to be the value, from the parameters and the size of x only?
-_infinite_value_exact(f, x) = false
 # Can the gradient output `out`, already written, share memory with a parameter that the
 # parts read? Decided from the identities of the arrays (O(1)).
 _parameter_alias(f, out) = false
@@ -267,7 +258,3 @@ function _model_precision(::Type{D}, types::Type...) where {D}
   promote_type(map(T -> real(float(T)), (D, types...))...)
 end
 
-# No device-specific specialization is shipped in the minimal core. The
-# default classifier is false for every AbstractArray, so host-copy branches
-# guarded by it are inactive unless an external method is supplied.
-_is_device_array(::AbstractArray) = false

@@ -1,0 +1,75 @@
+{
+  "anchor_parser_version": 2,
+  "anchor_profiles": {
+    "ci": {
+      "artifact_id": 14492512149,
+      "artifact_sha256": "35c8aa068d12a170ad9f43007b62fa701fcbea499dbefca60abf9cef45183af1",
+      "base_commit": "2a55362d374fa4299d29db7684659fce8cc8e149",
+      "documenter": "1.20.0",
+      "file": "anchors-ci.tsv",
+      "julia": "1.13.4",
+      "pr_head_commit": "db20ba7564992abadf0c1293a6ff4d10acd07ad5",
+      "prior_incomplete_sha256": "54065538a2e0e88c989eeb0e28678ee5f8e33af681e748d5ca50e82ff88797cf",
+      "sha256": "05e877deea11f4d85fd58db3fa987ed4c5ddd2c6d904fd9e2cd065a67f786c1e",
+      "source": "Retained Phase 0 CI artifact, re-extracted with nested-article depth",
+      "source_commit": "f08c07bbfb6d36dd9096cd94754e12a30300cef6",
+      "workflow_run_id": 44443622327
+    },
+    "local": {
+      "documenter": "1.20.0",
+      "file": "anchors.tsv",
+      "julia": "1.10.10",
+      "prior_incomplete_sha256": "12244f245010d94a54df747c474b1bd09e50ac46e560dbf90dfc30b20f5c09a5",
+      "sha256": "5ac8084ea14f9cf9e7bf8b8e61e4fc80a70c06bcc6c908151166745132732752",
+      "source": "Original strict local baseline build, re-extracted with nested-article depth",
+      "source_commit": "7ae86e2093060eb124211e2f21f043c6379f97ae"
+    }
+  },
+  "anchor_retirements": [
+    {
+      "baseline_sha": "f244858523943a19616296f040357e0623108b4ce0128a26d433d87529a185e7",
+      "block_id": "docs/src/api/functions.md::Function reference / Nonnegative orthant::13",
+      "evidence": "Independent authored-reference audit at b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45: 162 tracked text files covering the active manual, developer/design docs, README/CONTRIBUTING, examples, source/docstrings, and tests, plus nine directly referenced benchmark/audit resources fetched at that revision. No incoming authored link, @ref, reference definition, or raw HTML link to Nonnegative-orthant, Nonnegative-orthant-1, Box-and-nonnegative-orthant, or Box-and-nonnegative-orthant-1 was found. Both headings are plain automatic headings without explicit @id. Ordinary prose occurrences and generated self-permalinks/sidebar entries are not authored incoming references. The current upstream owner is the existing same-page Indicators heading.",
+      "fragments": [
+        "Nonnegative-orthant",
+        "Nonnegative-orthant-1"
+      ],
+      "page": "api/functions",
+      "reviewer": "plan_consistency@b0c4c8edc0ae1498b7eaf30faa71f542c97b4a45",
+      "target": "Indicators"
+    }
+  ],
+  "authored_pages": 42,
+  "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
+  "block_count": 2162,
+  "content_anchor_count": 713,
+  "example_scripts": {
+    "examples/block_prox_extension.jl": "0354ebf15cca157c9dfc69dce98fd686dd299da86af8aa68c0d2f69e8f20769e",
+    "examples/block_storage.jl": "b961008b3e7c6d57312688ddf0553a18bad9c564f5f11d06699d5969e53795f9",
+    "examples/coordinate_operations.jl": "2f899f0a7640f667a8536319216e8dd2dd266d8daceff71cbe0bad04d3216ac5",
+    "examples/custom_function.jl": "d37c669fccbaf68bfe151ac8a3b77a4288e0b382ef301043e428456bcc85e561",
+    "examples/group_lasso_prox.jl": "7ce9282c12ba2723cb955e7384a7d1065277033c9482217dc26d915cf632d4b6",
+    "examples/lasso.jl": "907a2e3b86096e4aca5f8f9838f4ce29dca47a04701c42cc1eb57506089cb06d",
+    "examples/proximal_gradient.jl": "018606bccca457654e183e9f42d3ca5b2556e1bc8848325a09958ab365f38d33",
+    "examples/sparse_working_sets.jl": "1552786446c789786af4d26ee7fbb28ab0deb97d63be785c95da760423c87cd0",
+    "examples/symmetric_storage.jl": "4081c2fb0281631106f9c4452254e11f53e046d010c98903a5c71675d15fe9b6"
+  },
+  "issue": 1019,
+  "measurements": {
+    "authored_page_headings": 256,
+    "authored_page_words": 56362,
+    "cross_page_fragment_links": 98,
+    "example_script_assertion_lines": 92,
+    "example_script_count": 9,
+    "executed_page_example_fences": 96,
+    "explicit_page_anchor_ids": 40,
+    "page_and_source_doctest_fences": 31,
+    "page_assertion_lines": 266,
+    "page_ref_links": 93,
+    "source_numerics_citation_lines": 34
+  },
+  "mode": "report-only",
+  "normalizer_version": 2,
+  "rendered_pages": 54,
+  "schema": 1
+}

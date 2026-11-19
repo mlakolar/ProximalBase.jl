@@ -191,6 +191,7 @@ terms must also be derived and included by the caller.
 
 | Function | What the method keeps | Omitted coordinates |
 |:--|:--|:--|
+| `NormL0` | The scalar level | Set to zero; their penalty is zero |
 | `NormL1` | Selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero |
 | `NormL1Nonneg` | The level and the selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero, and the domain `x ≥ 0` stays on the kept coordinates |
 | `ElasticNet` | Both levels and the selected entry weights (or the unweighted penalty) | Set to zero; their penalty is zero |
@@ -198,6 +199,7 @@ terms must also be derived and included by the caller.
 | `LinearFunction` | Selected coefficients and the original constant | Set to zero |
 | `QuadraticFunction` | Principal submatrix, selected linear term and constant | Set to zero |
 | `LeastSquaresLoss` (vector response) | Selected design columns and original response | Coefficients set to zero |
+| `IndBox` | Selected intervals | Set to zero. Throws if an omitted interval excludes zero, or if scalar bounds exclude zero and the original dimension is unspecified. |
 | `ZeroFunction` | Same zero-function object | No effect |
 | `Scaled` | Restricts its wrapped function, then preserves scaling | Depends on the wrapped function |
 

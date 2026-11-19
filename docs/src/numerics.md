@@ -110,21 +110,8 @@ recovery of a dense argument and in the recovery of the `LinearFunction` value a
 `d` beside a dot that cancels exactly is returned as `d` when the compensated sum of the
 products cancels to zero, which is not guaranteed for products of very different sizes.
 
-`NormL1` values also recover terms `λ0*w[i]*abs(x[i])` that round into the
-subnormal range, which loses accuracy even when the total is normal
-([#373](https://github.com/mlakolar/ProximalBase.jl/issues/373)). Each such
-rounding loses at most half the smallest subnormal spacing,
-`eps(T)*floatmin(T)/2`, so an ordinary sum `s ≥ n*floatmin(T)` of `n` terms
-loses at most `eps(T)/2` relative to `s` and is returned from the unchanged
-vectorized loop. A smaller sum, a zero one included, is recomputed: the
-products `w[i]*abs(x[i])` are accumulated with their exponents, and `λ0` is
-applied before the single conversion to `T`. This holds for dense arrays and
-for the stored entries of `SparseIterate`, `BlockIterate` and
-`SymmetricSparseIterate`, and for `value_and_prox!` at its stored output.
-Zero and infinite levels, infinite weights and NaN/Inf entries keep the rules
-below. Under an infinite `Scaled` factor a recovered positive value gives `Inf`,
-as the folded level `NormL1(Inf, w)` does; before #373 a value whose terms all
-rounded to zero gave `NaN` there. An exactly zero value still gives `0`.
+For `NormL1` value recovery, including subnormal terms, see the
+[NormL1 range clauses](@ref spec-norml1-range).
 
 `NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
 term of a negative entry; the rules for `NaN` and `Inf` entries are in the table below, and at a
@@ -185,6 +172,19 @@ the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide 
 which side the exact value lies, so a value that rounds to `floatmax(T)` may be
 returned as `Inf`, or the reverse: the same limit as the other recoveries above
 ([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904)).
+
+For `IndBallL2`, the value and projection compare the norm with the radius in
+scaled units when the ordinary sum of squares overflows or is too small.
+The domain has no fixed feasibility tolerance. Within the rounding error of
+the norm, the comparison can fall on either side of the boundary.
+`value_and_prox!` evaluates the stored point. Its value can be `Inf` when
+rounding of the projection puts the stored point outside the computed
+boundary. A positive finite radius projects a NaN input to an all-NaN output,
+including implicit zeros of a `SparseIterate`.
+
+See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball
+feasibility, power-of-two scaling, and tiny-radius projection.
+
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 `GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
@@ -195,21 +195,24 @@ squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range,
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
 
-The clip level `τ` of `NormLinf` has an **absolute** error of order `n eps(T) max|xᵢ| + δ` for `n` entries in the
-floating type `T` of the output, with `δ = nextfloat(zero(T))` (from the running sums of Condat's algorithm and the
-storage of a subnormal radius or output), unlike the relative bounds of the `NormL2` and `GroupNormL2` kernels: an entry
-far below `max|xᵢ|` has no relative guarantee, and `x = [δ]`, `λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is
-`δ/2`. A sum of magnitudes that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units, whose subnormal
-losses are below the nominal scale `n eps(T) max|xᵢ|` when `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and
-`2^51` in `Float64`) and the scaling of an entry or of the radius changes it by at most one subnormal spacing (the
-allowance covers the `ldexp` of Julia 1.10 noted above), two hypotheses of that argument that the code does not check.
-`GroupNormLinf` has this bound for each group, with `n` the size of the group and `n eps(T) ≤ 1/2`, except that the level
-comes from the shared ℓ1-ball threshold of `NormLinf`, whose Michelot fallback has a known failure on groups with large
-ties ([#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)), which the bound does not cover. It forms the radius `γ*λ0*w[k]` as `(γ*λ0)*w[k]`
-in the working type `_working_type(T, γ, λ0, w[k])` and converts it to the output type when `γ*λ0` is a normal number and the product is in the normal range, and otherwise
-from the significands and exponents of the three factors (the product `γ*λ0` alone can underflow or `λ0*w[k]` overflow
-while the radius is representable), also rounded to the output type; the entries of a group whose sum of magnitudes
-exceeds `floatmax(T)/2` are read scaled by a power of two as for `NormLinf`.
+The clip level `τ` of `NormLinf` has an **absolute** error. On the ordinary finite path, for `n ≥ 1` entries in the
+floating type `T` of the output with `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and `2^51` in `Float64`), a
+hypothesis that the code does not check, the level returned by the threshold satisfies
+`|τ - τ*| ≤ 2.25 n eps(T) max|xᵢ| + 2nδ`, where `τ*` is the root of `Σ(|xᵢ| - τ)₊ = a` for the entries
+`abs(convert(T, xᵢ))` and the radius `a` that the prox forms (the product `γλ` rounded in the promoted type of `γ`, `λ`
+and `T`, then to `T`), and `δ = nextfloat(zero(T))` (the storage of a subnormal radius or output adds `δ`; `x = [δ]`,
+`λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is `δ/2`). The prox clips at the larger of the level and zero,
+which is within the same bound of `max(τ*, 0)`. The derivation, in `src/functions/normlinf.jl`, bounds the excess
+`Σ(|xᵢ| - τ)₊ - a` for each of the four ways the threshold search ends, and it does not assume that the entries it found
+above the level are the entries above the exact level. Unlike the relative bounds of the `NormL2` and `GroupNormL2`
+kernels, the bound is absolute: an entry far below `max|xᵢ|` is not clipped to a relative accuracy. A sum of magnitudes
+that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units: the statement above then applies first to
+the scaled entries and the scaled radius, as they are rounded, and converting back carries the scaling allowances
+described here (the radius `γλ` rounded to `T` can itself be infinite there, as for `x = [M, M]`, `λ = 1.5`, `γ = M`
+with `M = floatmax(T)`, which is not the reference of the bound). The subnormal losses of the scaling are below the
+nominal scale `n eps(T) max|xᵢ|` under the same hypothesis on `n`, and the scaling of an entry or of the radius changes
+it by at most one subnormal spacing (the allowance covers the `ldexp` of Julia 1.10 noted above), a second hypothesis of
+that argument that the code does not check.
 Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
 `Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
 `floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the
@@ -217,6 +220,40 @@ output is `+0` where the exact result is about `floatmax/4`. For positive
 finite level and step, an infinite entry without `NaN` gives the identity; on the finite clipping branch the value is
 `λ τ`, computed from the largest stored magnitude `τ`, and `value_and_prox!` returns the value of the stored output,
 computed as `f(y)` computes it. Endpoint precedence is given in the table below.
+
+### [GroupNormLinf clip accuracy](@id groupnormlinf-clip-accuracy)
+
+For `GroupNormLinf`, let `T` be the common type of the input, output, level, weights and step (`Float32` or `Float64`).
+For finite data and positive finite parameters in round-to-nearest arithmetic with gradual underflow, each stored entry
+is within `8 n eps(T) M + (2n + 1)δ` of the exact proximal entry for `r = γλ0w[k]`. Here `n ≥ 1` is the size of the
+group, `M` its largest magnitude and `δ = nextfloat(zero(T))`. The bound assumes `n eps(T) ≤ 1/2`, which the code does
+not check. This applies to the direct array and compact block calls. The parameter precedence for zero and infinite
+factors is given in the table below.
+
+The exact nonnegative level at radius `r` is the maximum of zero and the levels
+`(sum(abs(x[i]) for i in A) - r) / length(A)` over nonempty subsets `A` of the group. Thus it changes by at most the
+largest entry perturbation and the absolute radius perturbation. A relative perturbation of the radius by at most `η`
+changes the level by at most `η M / (1 - η)`: at the smaller radius a subset with a positive level has radius per entry
+at most `M`. The radius uses two products in the working type, or two products of significands followed by exponent
+scaling if the normal-range products cannot be used. With `u = eps(T)/2`, the two products contribute at most `4u M`
+to the level error and subnormal radius rounding at most `δ`, including the Julia 1.10 `ldexp` allowance above.
+
+If the computed radius is below the computed sum, the shared threshold contributes at most `4.5 n u M + 2nδ` before
+accounting for the radius error. If the computed radius reaches the computed sum, that sum is at least
+`(1 - (n - 1)u)` times the exact sum. The subset formula then bounds the level for the computed radius by `(n - 1)u M`.
+If the rounded radius overflows in these units, the exact radius exceeds `floatmax(T)/(1 + u)^2`. The exact sum is
+at most `2 floatmax(T)/3` when its computed value is at most `floatmax(T)/2`, so zero is then the exact result.
+
+If the first sum exceeds `F/2`, where `F = floatmax(T)`, the group is read in units of `2^-k` with
+`k = ceil(log2(n)) + 2`. Under the size hypothesis the rounded scaled sum is at most `(F/4 + nδ)/(1 - n u) < F/2`,
+so the first scaling suffices. The scaled entries incur at most `δ` of perturbation in those units. Applying the
+unscaled bound there and multiplying back gives `(4.5n + 4)u M` plus at most
+`2^k [(2n + 2) + (4.5n + 4)u]δ`. Since `2^k < 8n`, the latter term is at most `48 n^2 δ`.
+The scaling trigger requires `M > F/(3n)`, and `144 n^2 δ ≤ u F` for `Float32` and `Float64` under the size
+hypothesis, so this term is at most `n u M`. Scaling the level back is exact where finite. Capping it at `M`, including
+when it overflows, can only decrease the error. Clipping selects an entry or the signed level, both already in `T`,
+so same-type storage adds no rounding error. With a different input or output type, entries are read in the floating
+type of the destination and the clipped values are converted to its element type on write.
 
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
@@ -300,11 +337,7 @@ all-NaN result or a particular exception.
 | Case | Retained behavior |
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
-| Unweighted `NormL1`, zero level | Zero value on dense float arrays, including NaN entries |
-| `NormL1`, zero weight | Unpenalized entry at every level |
-| `NormL1`, infinite weight | Finite input values map to zero, even with zero level or step. No fixed-zero guarantee for `NaN`/`±Inf` inputs with finite level; `shrink` can return `NaN`. Value is `Inf` away from zero. See [#853](https://github.com/mlakolar/ProximalBase.jl/issues/853). |
-| `NormL1`, infinite level, nonnegative step | Positive-weight entries prox to `+0`, including non-finite inputs; zero-weight entries stay free. See [the zero-step rule](@ref infinite-penalty-at-zero-step) |
-| `NormL1`, finite factors whose product overflows | Distinguished from genuinely infinite weights/levels; recovery handles representable finite results where supported. With an input of `±Inf`, an overflowed finite threshold can yield `NaN`; [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) is a documented, deferred limitation, not an authorized hot-loop fix. |
+| `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
 | `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
@@ -324,7 +357,11 @@ all-NaN result or a particular exception.
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
 | `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a caller precondition, a documented exception to [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)'s preflight rule. `prox_block` and `Scaled` routes do not check. The historical reasoning is in [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md) |
+| `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
+| `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |
 | `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
+| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL1` | See [ℓ₁-ball endpoint rules](@ref spec-indballl1-endpoints). |
 | `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
 | `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
 | `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
@@ -341,26 +378,19 @@ all-NaN result or a particular exception.
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `GroupNormL2` and `NormL2`: non-finite entries and coefficients | In this order, for the entries of `v_G` and `x_G` converted to `W`: a `NaN` gives `NaN`; otherwise an infinite entry gives `+Inf`. Then, at a nonzero block, an infinite `c` gives `+Inf` and `c = 0` gives `norm(v_G)`. At a zero block the rules of the screen stay, with one exception: an infinite entry of `v_G` with an infinite `c` is `+Inf`, where the screen is `NaN` (`Inf - Inf`). For a finite `v_G`, an infinite level or weight (with a positive weight) gives `-Inf` at a zero block; where `c` overflowed to infinity from finite parameters the screen recovers the difference from the finite factors, and the value can be finite (`GroupNormL2(floatmax(Float64), [[1]], [1.5])`, `v = [floatmax(Float64)]` and `x = [0.0]` give about `-floatmax(Float64)/2`). The full-point form keeps a `NaN` in its running maximum, so a `NaN` takes precedence over `+Inf` at another group or entry, and takes the maximum with zero of `W` otherwise (`-Inf` scores of zero blocks do not raise it). An entry in no group has `abs` of the converted entry, with `NaN` giving `NaN` and an infinite entry `+Inf` |
 | `kkt_violation(f,v,x,k)`, `GroupNormLinf` | The margin `‖v_G‖₁ - c` at a zero group (entries converted to the working type `W` of the row above, zero of either sign), `c = λ0 w[k]` formed by the helper of the three-argument screen and converted to `W`; an entry in no group has `abs` of the converted entry. In this order for the entries of `v_G`: a `NaN` gives `NaN`; an infinite entry, or a sum of magnitudes that overflows in `W`, gives `+Inf`, also when `c` is infinite; then an infinite `c` (an infinite weight, an infinite level with a positive weight, a zero level with an infinite weight, or a product that overflows in `W`) gives `-Inf`, and a zero weight gives `‖v_G‖₁`. A nonzero group (a `NaN` or infinite entry of `x_G` included), the full-point form and the three-argument form throw an `ArgumentError`; the call has no method under `Scaled` |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `GroupNormL2` and `NormL2`: accuracy | In the ordinary range, which is when the sums of squares of `x_G` and of the residual are finite and at least `n floatmin(W)/eps(W)` for a block of `n` entries and `c/norm(x_G)` is finite, a nonzero block is computed after the scan for a zero block by two arithmetic passes: the norm of the point (`t = c/√Σxⱼ²`), then the norm of the residual (`√Σ(vⱼ + t xⱼ)²`). To first order in `n u`, with `u = eps(W)/2`, its error is at most `(n + 8) u (norm(v_G) + c)`, where `c` is the coefficient as rounded to `W`. Rounding `λ0 w` to `W` adds a relative `u` for a normal finite product and an absolute term of the subnormal spacing where the product is subnormal or rounds to zero. The bound is relative to the size of the terms that cancel near stationarity, not to the score. The tests use this bound, plus the subnormal spacing of `W`, for zero blocks as well. The test of the ordinary range is on the sums, not on single entries: a block with a subnormal entry whose sums are ordinary stays on the ordinary path. Outside it (sums that overflow or underflow, a very large `c`) the block is computed in the recovery type (at least `Float64`) from the entries read in `W`, with the norm of `x_G` and the factor `c/norm(x_G)` kept as a significand and an exponent: this extends the range of the computation, not its precision, and the result is rounded once to `W`. The residuals are scaled by the exponent of the largest one so that the accumulated squares do not overflow; a scaled square far below the largest can underflow below the rounding scale of the norm. The `Float32` and `Float64` calls on arrays allocate nothing in either range (measured by the tests) |
+| `kkt_violation(f,v,x)`, `NormLinf`: forms, element types, level, face | The full-point form has a value; the forms for an entry or a group throw an `ArgumentError`, and so does the full-point form at a `SymmetricSparseIterate`. The working type `W` is `float(promote_type(eltype(v), eltype(x)))` and the result has type `W` (`zero(W)` for an empty `x`); a length `n` for which `n + 1` is not a finite number of `W` (`Float16` from `n = 65519`) throws an `ArgumentError` before any pass. The entries of `v` and `x` are converted to `W` before they are classified or compared, so each statement about a zero, tied, finite or infinite entry is about the converted value (an entry that does not fit `W` is infinite there). The level `c` is `λ` rounded once to `W` by the helper of the `GroupNormL2` and `NormL2` rows with the weight one; a level that overflows in `W` is an infinite level there. The point is the zero point when all entries of `x` are zeros of either sign after the conversion (a subnormal entry is not zero). Otherwise the face `J` is the set of entries whose magnitude equals the largest one, compared for equality in `W` with no tolerance: an entry one unit in the last place below the largest is not on the face, so for a positive finite level an exact tie can make the value discontinuous in `x` |
+| `kkt_violation(f,v,x)`, `NormLinf`: non-finite entries and levels | In this order, for the entries of `v` and `x` converted to `W`: a `NaN` gives `NaN`, also beside an infinite entry in `v` or in `x`; otherwise an infinite entry gives `+Inf`, also where the level is zero or infinite. Then an infinite level gives `0` at the zero point and `+Inf` at another point, and a zero level gives `norm(v)`, formed as a sum of squares of the entries read in `W` that is recomputed as below where it is outside the ordinary range. A finite positive level goes to the paths below |
+| `kkt_violation(f,v,x)`, `NormLinf`: accuracy and range | The ordinary path is used when the sum `sv` of `abs(vᵢ)` is at most `floatmax(W)/2` at the zero point, or `(n + 1) sv ≤ floatmax(W)/4` at another point (`n = length(x)`), the first level of the face, `S - c` divided by the number of entries of the face (`S` the sum of `-sign(xᵢ) vᵢ` over the face), is finite, and the sum of squares `Q` of the residual is finite and at least `n floatmin(W)/eps(W)`. At the zero point the value is `0` when the computed `sv` is at most `c`. Otherwise the level `τ` at the zero point comes from the iteration of the threshold of the prox (the routine that the prox of `NormLinf` has as its fallback, with its four returns) on `abs(vᵢ)`, started at the first level `(sv - c)/n` of the sum `sv` that the classification formed. At another point the closed form is used when the rounded first level `τ0` plus the rounded margin `3u abs(τ0) + 2u cnt maximum(abs, v)` is at most the smallest face value `-sign(xᵢ) vᵢ`, where `u = eps(W)/2` and `cnt` counts the maximal face. In the ordinary range for `Float32` and `Float64` the comparison certifies that the exact first level is the exact level. A tiny subnormal margin can round to zero and the comparison can accept without certifying exact support. Otherwise the iteration continues from `τ0` on the nonnegative shifted values `max(-sign(xᵢ) vᵢ - τ0, 0)` on the face (and `0` off it), from the level zero, and its level is added to `τ0`; the computed `τ0` can be above or below the exact first level and the exact level. The value is `√Q` for the residual `min(abs(vᵢ), τ)` at the zero point, and `min(-sign(xᵢ) vᵢ, τ)` on the face with `vᵢ` off it at another point. In the round-to-nearest relative-error model for the ordinary path for `Float32` and `Float64`, assuming `n u ≤ 1/4` (unchecked), the absolute error has first-order bound `(2n + √n + 5) u (norm(v) + λ)` with remainder `O_n(u² (norm(v) + λ))` for fixed `n`. This compares with the exact distance for `λ` and both inputs read in `W` and excludes additive subnormal-spacing effects. The signed-face argument interprets rounded shifted entries as exact excesses of perturbed face data, accounting for changes in the active set. The estimate scales with `norm(v) + λ`. The test tolerance adds `4n nextfloat(zero(W))`. Outside the ordinary path the value is formed in units of a power of two. When a sum of magnitudes or the first level is out of range, the level is computed from `v` and `c` scaled by `2^-k`, with `k` raised until the scaled sum is in the range of the ordinary path. When `Q` is not finite or is below `n floatmin(W)/eps(W)`, the residual is read again in the recovery type (at least `Float64`), scaled by the exponent of its largest entry, and the result is rounded once to `W`: it is `0` when all the residual entries are zero and `Inf` for an entry that is not finite. This extends the range of the computation, not its precision: the derivation covers the ordinary path, and the scaling of an entry or of `c` can lose up to a subnormal spacing of `W`. The tests compare these paths with the same reference and test tolerance, which they enlarge by a factor of 4 in some cases of overflowing sums, and they do not decide a band of relative width `100 eps(W)` around `floatmax(W)`, where the result may be `floatmax(W)` or `Inf`; they require `Inf` where the exact distance is above `floatmax(W)` by more than that band. Under `Scaled` with a finite positive factor `α` the tests accept `(2n + √n + 11) u (norm(v) + αλ)` against the exact distance for the level `αλ`, where the added `6 u` is an allowance for the rounding of `v/α` and of the product by `α`, not a derived constant. The same-type `Float32` and `Float64` array calls with a level of a hardware float type that the allocation tests use allocate nothing in either range, the first call included, and write neither `v`, `x` nor the buffer of the object (measured by the tests); wider parameter arithmetic such as a `BigFloat` level can allocate |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `Scaled` | For a finite positive `α` the call evaluates the existing score of the function on the lazy gradient `v/α`, with the rounding and range limits of that evaluation (the leaf's gradient entry or its sums can overflow or underflow although `1/α` and `v[i]/α` do not), and multiplies it by `α`; underflow, overflow and `NaN` are not recovered. The reciprocal of the factor takes part in the type promotion (an `Int` factor introduces `Float64`; `BigFloat` data stay `BigFloat`). Nested wrappers whose product of factors is not a normal number, an infinite factor, and the functions without a score are listed in the [scaling guide](@ref scaled-kkt). A stack that nests an infinite factor with another `Scaled` wrapper (a direct call of the parameterized constructor `Scaled{F,T}` builds it; `Scaled(f, α)` merges the factors) has unspecified three-argument and zero-coordinate values and throws an `ArgumentError` at a nonzero coordinate or group and in the full-point form |
 | Generic custom value/prox | Author-defined arithmetic; traits do not grant recovery or NaN policy |
 | Paired symmetric parameters, in `check_symmetric_parameters` | Exact equality, NaN matches NaN, signed zeros agree; the numerical oracles assume it and do not compare |
 | Opposing infinities in a symmetric iterate KKT gradient pair | ArgumentError at that chosen pair |
 
-```@example numerical_endpoints
+The `NormL1` assertions are retained in its
+[executed endpoint example](@ref spec-norml1-endpoints).
+
+```@setup numerical_endpoints
 using ProximalBase
-@assert NormL1(0.0)([NaN,Inf]) == 0
-@assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]
-@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)
-@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])
-@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold
-@assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]
-@assert isnan(shrink(NaN,1.0))
-@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero
-@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step
-@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)
-@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)
-@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)
-prox(NormL1(Inf),[NaN,Inf],1.0)
 ```
 
 ```@example numerical_endpoints
@@ -381,16 +411,43 @@ prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
 prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)
 ```
 
-**Decision on `NormL1` non-finite inputs (#853 and #866).** A genuinely infinite
-coordinate weight maps a *finite input value* to zero, even at zero level and step.
-For inputs of `NaN` or `±Inf` with finite level, that fixed-zero guarantee is
-intentionally not extended: retained soft-threshold arithmetic may return
-`NaN`. Separately, a threshold made from *finite* factors can overflow to
-`Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
-though the mathematical threshold is finite. These examples characterize
-present behavior, not additional non-finite-output guarantees. A genuinely
-infinite **level** at any nonnegative step retains its distinct fixed-zero rule
-for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
+The decision on `NormL1` non-finite inputs is retained with the
+[NormL1 endpoint clauses](@ref spec-norml1-endpoints).
+
+### Cardinality penalty endpoints
+
+For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
+distance cost of setting a finite input `v` to zero with the penalty cost
+of keeping it. The comparison uses the exact products of the represented
+homogeneous `Float32` or `Float64` inputs. A tie gives positive zero,
+including when the candidate costs fall outside the floating-point range.
+
+| Level and valid step | Proximal entry |
+|:--|:--|
+| `λ = 0`, including at `γ = Inf` | Identity |
+| `λ = Inf`, including at `γ = 0` | Positive zero |
+| `0 < λ < Inf`, `γ = 0` | Identity |
+| `0 < λ < Inf`, `γ = Inf` | Positive zero |
+| `0 < λ < Inf`, `0 < γ < Inf` | Hard thresholding for finite inputs. NaN and signed infinities pass through |
+
+At a zero level the value is zero, including for NaN input. At a positive
+level, a NaN entry gives a NaN value ([E2, #560](https://github.com/mlakolar/ProximalBase.jl/issues/560)).
+Either infinity is a nonzero entry. With fixed positive finite level and
+step, the signed infinity output follows the limit from finite inputs
+([E3, #469](https://github.com/mlakolar/ProximalBase.jl/issues/469)).
+The constant-zero map at an infinite step is the endpoint convention.
+The value sums the entry contributions in the result precision, which
+can incur rounding.
+
+Direct array oracles reject negative and NaN steps before writing.
+Array steps are matched by linear index and checked in full, with work
+proportional to their length. A scalar step is required for a symmetric
+sparse iterate output. Value and scalar-step proximal calls between
+same-kind sparse iterates traverse stored entries, with the value
+counting each symmetric off-diagonal entry twice. A sparse iterate can
+omit a zero from storage and read it back as positive zero. Fused calls
+return the value at the stored output. Use a nonnegative, non-NaN step
+with `prox_block` and in calls through `Scaled`.
 
 ### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
 
@@ -416,8 +473,8 @@ before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate. `NormL1Nonneg` applies it to an infinite level (positive-weight entries become `+0`; zero-weight entries are projected onto the orthant, not left unchanged). `GroupNormL2` and `GroupNormLinf` apply the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight, and `NormL2` and `NormLinf` to an
-infinite level; no other function
+a positive weight become `+0`) and to an infinite group weight. `NormL0`, `NormL2` and `NormLinf` apply
+it to an infinite level. No other function
 is claimed to implement a zero-step projection rule.
 
 The [endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md)
@@ -509,6 +566,9 @@ output, `Scaled`, and a counting element type for the stored entries of sparse a
 `test/kkt_point.jl` (the scores of `kkt_violation` for the five entrywise families against
 BigFloat references written from the definition, and the non-finite rules above), `test/kkt_block.jl` (the block scores of
 `GroupNormL2` and `NormL2` and the scores of `Scaled` against BigFloat references of the definition, with the bound above),
+`test/kkt_linf.jl` (the full-point `NormLinf` score and its `Scaled` forms against BigFloat references of the definition with
+sort-based levels, within the bound of the `NormLinf` accuracy row: six families of data, both branches of the face, ties, the zero point, the exceptional
+levels and entries, the ranges, no allocation and no write, and the refused forms),
 `test/groupnorml2.jl` and `test/norml2.jl` (BigFloat references for `GroupNormL2`
 and `NormL2` values and proximal points, and for the `GroupNormL2` KKT screens,
 including the exceptional cases above), `test/normlinf.jl` (a sort-based ℓ1-ball reference in `BigFloat` for the

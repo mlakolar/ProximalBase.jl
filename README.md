@@ -60,9 +60,9 @@ blocks; the code does not solve the full optimization problem.
 ## Available functionality
 
 The [function library](docs/src/function_library.md) covers
-`LeastSquaresLoss`, `SqrtLeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
-`ZeroFunction`, `LinearFunction`, `NormL1`, `NormL1Nonneg`, `ElasticNet`, `IndNonnegative`, `NormL2`,
-`GroupNormL2` and `Scaled`.
+`LeastSquaresLoss`, `SqrtLeastSquaresLoss`, `LogDetLoss`, `SqrNormL2`, `QuadraticFunction`,
+`ZeroFunction`, `LinearFunction`, `NormL1`, `NormL1Nonneg`, `ElasticNet`,
+`IndNonnegative`, `IndBox`, `IndBallL2`, `NormL2`, `NormLinf`, `GroupNormL2` and `Scaled`.
 The [iterate guide](docs/src/iterates.md) covers
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`.
 
@@ -81,3 +81,14 @@ The documented `master` interface is under development and may differ
 from a tagged or registered release. See
 [Compatibility and migration](docs/src/migration.md) for the
 pre-rebuild implementation and its archival references.
+
+## Documentation tracks
+
+The manual offers three reading tracks, with the User guide, Examples and API
+reference shared by all readers.
+
+| Track | Start here |
+|:--|:--|
+| Learn: mathematics and worked calculations | [A first lasso problem](docs/src/getting_started.md) |
+| Developer guide: package structure and implementation | [Developer overview](docs/src/developer/index.md) |
+| Numerical contracts: supported behavior and its limits | [How to read the contracts](docs/src/spec/index.md) |

@@ -31,10 +31,6 @@ abstract type AbstractFunction end
 # SymmetricSparseIterate, does not accept it.
 const _ArrayOrSymmetricIterate = Union{AbstractArray, SymmetricSparseIterate}
 
-# the number of entries of the array, or of the matrix that the symmetric iterate represents
-_nentries(x::AbstractArray) = length(x)
-_nentries(x::SymmetricSparseIterate) = x.p^2
-
 function value_and_prox! end
 function gradient! end
 
@@ -481,12 +477,19 @@ that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-
 to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
 that range the sums are scaled by an exponent, which extends the range and not the precision.
 
+`NormLinf(λ)` has the full-point form (its forms for an entry or a group throw an `ArgumentError`) and returns the
+Euclidean distance from `-v` to the subdifferential of `λ*maximum(abs, x)` at `x`. At `x = 0` that is the distance from `v`
+to the ℓ1 ball of radius `λ`, which is `0` when `sum(abs, v) <= λ`. At `x ≠ 0` the face is the set of entries whose
+magnitude equals the largest one after conversion to the working type, with no tolerance, so for a positive finite level
+an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
+type (`Float16` from `n = 65519`) throws an `ArgumentError`.
+
 [`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
 screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
 group, the full-point form and the three-argument form throw an `ArgumentError`, and the four-argument and full-point forms have no method under `Scaled`.
 
-`Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above but `GroupNormLinf`; `NormL2` in
-the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
+`Scaled` with a finite positive factor `α` evaluates the supported score on the lazy gradient `v/α`
+(the full-point form for `NormL2` and `NormLinf`), with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
 of `LinearFunction` and `SqrNormL2` (the three-argument form too), and folded into the level of the other functions where
 that gives a normal level. Where it does not, the three-argument form and a zero coordinate or group have a value, and a
@@ -559,8 +562,10 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 Restrict a retained function's entry parameters to the integer index vector S.
 NormL1, NormL1Nonneg and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
-linear term, vector-response LeastSquaresLoss selects design columns, and
-Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+linear term, vector-response LeastSquaresLoss selects design columns, IndBox
+selects intervals, and Scaled forwards. For least squares, quadratics and
+IndBox, omitted coordinates are fixed at zero. IndBox throws ArgumentError
+if an omitted interval excludes zero, or if scalar bounds exclude zero.
 Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
 when finite, it changes values but not restricted minimizers/gradients/prox.
 Add it back for full-value comparisons. A nonzero fixed point needs separately

@@ -220,10 +220,13 @@ the parameters of the particular object.
 | `QuadraticFunction` | yes | yes | no | no¹ | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `SqrtLeastSquaresLoss` | no | no | no | yes | no |
+| `LogDetLoss` | yes | yes | no | yes | no |
 | `NormL1` | no | yes | yes | yes | yes |
 | `NormL1Nonneg` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
+| `IndBox` | no | yes | yes | yes | every interval contains zero |
 | `IndNonnegative` | no | yes | yes | yes | yes |
+| `IndBallL2` | no | yes | no | yes | no |
 | `NormL2` | no | yes | no | yes | no |
 | `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |

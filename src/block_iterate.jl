@@ -399,7 +399,7 @@ function Base.copyto!(dest::BlockIterate{T}, src::BlockIterate{S}) where {T, S}
   for a in 1:src.nactive
     k = src.active[a]
     activate!(dest, k)
-    copyto!(_block_storage(dest, k), bufs === nothing ? _block_storage(src, k) : bufs[a])
+    copyto!(_block_storage(dest, k), bufs[a])
   end
   dest
 end

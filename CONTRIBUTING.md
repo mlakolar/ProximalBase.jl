@@ -45,6 +45,12 @@ as `R1` or `D2`; `@testset` names state what the test checks in the same way.
 `julia docs/check_source_labels.jl` checks for such labels in the comments of both
 directories and in `@testset` names.
 
+New function families put their numerical rules in
+`docs/src/spec/<family>.md`, using the fourteen-section schema and links to
+existing shared-rule owners. Follow the
+[new-family writing rules](docs/src/developer/writing_documentation.md#New-function-families)
+and update the contract family map and navigation.
+
 CI gates pull requests with current Julia 1.x on Linux. Three independent
 test shards cover the complete retained inventory with bounds checks. The
 frozen benchmark differential, repository hygiene checks and strict docs

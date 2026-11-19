@@ -11,13 +11,16 @@ API. This development reduction is not a release announcement.
 ## Retained and removed scope
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties, logistic/Poisson/robust-loss families, constraints and indicators other than `IndNonnegative`,
+other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties,
+logistic/Poisson/robust-loss families, constraints and indicators other than
+`IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
-the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956) separately, without the other group penalties and norms; the indicator
-`IndNonnegative` was restored separately (#948), without the other indicators.
+the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restored indicators are
+`IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954) and
+`IndBallL2` (#950).
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
@@ -78,13 +81,13 @@ the block mismatch ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2``, which is ze
 | 3, 4 | zero | `-0.5` |
 
 The full-point value is the maximum of `0` and of the positive block scores, here about `0`; it is a
-maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` has the full-point form and no other.
+maximum of block 2-norms, not an ``\ell_\infty`` distance. `NormL2` and `NormLinf` have the full-point form and no other.
 
 What did not change, for the unscaled functions and for a single wrapper with a finite positive factor (nested wrappers
 with a product of factors that is not a normal number, and infinite factors, have the changes listed below):
 
 * Three-argument calls `kkt_violation(g,v,i)`, except the screen of a nested wrapper around `LinearFunction` and a
-  centered `SqrNormL2` (corrected below) and of `NormL2` (an `ArgumentError` below).
+  centered `SqrNormL2` (corrected below) and of `NormL2` and `NormLinf` (an `ArgumentError` below).
 * Four-argument calls at zero coordinates, when `x`, `v` and the function's parameters
   (levels, weights, centers and coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is finite and
   the function is not a `SqrNormL2` with an infinite level: they return the same values as
@@ -119,17 +122,25 @@ What changed besides the values of the table:
   gave the type of `v`. The branches of the scaled forms are in the [numerical contract](numerics.md).
 * `NormL2` has the full-point form `kkt_violation(f,v,x)`. Its three-argument and four-argument
   forms, which were a `MethodError`, throw an `ArgumentError` that names the full-point form.
+* `NormLinf` has the full-point form `kkt_violation(f,v,x)`: the Euclidean distance from `-v` to the
+  subdifferential of `λ*maximum(abs, x)` at `x`, with the face of the largest entries decided by
+  equality after conversion to the working type (see [the ℓ∞ norm](@ref norm-linf-kkt)). In 0.5.4 the three-argument and four-argument calls were a `MethodError`; a call on a positive `Scaled`
+  was forwarded to the inner function, so that the error named `NormLinf`, and there was no full-point form of any function.
+  Now the full-point form
+  has the value, also under `Scaled` with the limits of the [scaling guide](@ref scaled-kkt), and the three-argument and
+  four-argument forms throw an `ArgumentError` that names the full-point form; the full-point form at a
+  `SymmetricSparseIterate` throws an `ArgumentError`.
 * Nested `Scaled` wrappers whose product of factors is not a normal number: around
   `LinearFunction` and a centered `SqrNormL2` the three-argument screen returned the screen of the function
   at the unscaled `v` and omitted the product; it now applies the product to the gradient entry of the
   function (`Scaled(Scaled(LinearFunction([1.0]), 1e-200), 1e-200)` at `v = [0.25]` was `1.25` and is `0.25`). Around
-  `NormL1`, `ElasticNet`, `GroupNormL2` and `NormL2` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
-  `GroupNormL2` or `NormL2` chain now scores with the folded level (a `GroupNormL2` chain at a zero group
+  `NormL1`, `ElasticNet`, `GroupNormL2`, `NormL2` and `NormLinf` whose level folds (to a nonzero finite level that its type accepts: a normal one, or a subnormal one for a `Float32` or `Float64` level), a
+  `GroupNormL2`, `NormL2` or `NormLinf` chain now scores with the folded level (for `NormLinf` the full-point form, which is its one form) (a `GroupNormL2` chain at a zero group
   was computed from `v` divided by the product, which overflows for an ordinary `v`). Where the level does not fold, the
   three-argument screen of `NormL1` and `ElasticNet` and the four-argument form of `NormL1`, `ElasticNet` and `GroupNormL2` at a zero
   coordinate or group have the value of the definition at finite entries of `v` (`NaN` and infinite entries as the [scaling guide](@ref scaled-kkt) states), computed from the coefficient `a·λ·w`, with the exponents of the three applied in
   one last step for a positive finite `λ` and `w` (a zero weight gives the coefficient 0, an infinite weight or level gives `Inf`, and an
-  `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`); a nonzero coordinate or group and the
+  `ElasticNet` with an infinite `λ2` gives `-Inf`) (`Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` was `Inf` and is `0.25`). `NormLinf` has no screen: around a chain whose level does not fold it was a `MethodError` in the three-argument form and at a zero coordinate, and it is now an `ArgumentError` there and in the full-point form. A nonzero coordinate or group and the
   full-point form throw an `ArgumentError`, as does an infinite factor (see the [scaling guide](@ref scaled-kkt)). A stack that
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
@@ -138,7 +149,7 @@ What changed besides the values of the table:
   nonzero group, in the full-point form and in the three-argument form. Before 0.6 (the legacy implementation) it returned that
   screen for a group of a `BlockIterate`, also where the group was nonzero, and `abs(v[i])` at an entry of a nonzero group of an
   array point, neither of which is a score of the nonzero group; the Euclidean screen of `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)).
-* `Scaled` over a function of the package without a score (`NormLinf`, the losses, and `GroupNormLinf` in the four-argument and full-point forms) throws a
+* `Scaled` over a function of the package without a score (the losses and `GroupNormLinf` in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero
@@ -164,6 +175,9 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | `ElasticNet(λ1, λ2, w)` ([#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)) | Constructor, fields `λ1`, `λ2`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` folds and zero scaling | Built on the retained `NormL1` threshold and `SqrNormL2` ridge kernels, so ordinary results can differ in the last bits (multiplication by the rounded `1/(1 + γλ2)`). An infinite `λ1` follows the current `NormL1` rule (`+0` for positive weights, also at `γ = 0` and for `NaN`/`±Inf` inputs) where the archive returned `NaN`. An infinite `λ2` is the indicator of `{0}`. A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic |
 | `NormL1Nonneg(λ0, w)` ([#947](https://github.com/mlakolar/ProximalBase.jl/issues/947)) | Constructor, fields `λ0`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` zero scaling and level folds | The domain test is exact: `x ≥ 0` with `-0.0` feasible, where the archive accepted entries down to `-sqrt(eps)` and clamped them at zero (the value rules are in the [numerical contract](numerics.md)). An infinite level follows the current `NormL1` rule (`+0` for positive weights at every `γ ≥ 0`, `NaN` and `±Inf` inputs included). With a `Float32` level and an unweighted `Float32` entry, `value_entry` returns `Float32` rather than the archive's `Float64` ([#684](https://github.com/mlakolar/ProximalBase.jl/issues/684)). A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic. New: the point-aware `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)` |
 | `IndNonnegative()` ([#948](https://github.com/mlakolar/ProximalBase.jl/issues/948)) | The type, `isconvex`, `iszeropreserving`, `value_entry`, `prox_block`, the screen `kkt_violation(f,v,i) = -v[i]`, `restrict`, and zero scaling (`Scaled(f, 0)` is `f`) | The value is exact: `0` at a point with no negative entry, `Inf` at a negative entry of any size (the archive accepted `v >= -_tol`), and `NaN` at a `NaN` entry (the archive gave `Inf`). `value_and_prox!` returns the value at the stored output, so `NaN` where an output entry is `NaN` (the archive returned `0`). A negative or `NaN` scalar step throws `ArgumentError` before writes in `prox`, `prox!` and `value_and_prox!`; the archive did not check the step. The point-aware `kkt_violation` forms, conjugates, `Constrained` and the envelope slopes are not restored |
+| `IndBox(l, u)` ([#949](https://github.com/mlakolar/ProximalBase.jl/issues/949)) | Scalar and per-entry bounds, value, coordinatewise projection, and restriction | Array bounds are copied, feasibility uses exact interval comparisons, and a `NaN` entry gives value `NaN` |
+| `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps |
+| `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
 
 ## Names, coordinates and writes
 
@@ -192,6 +206,7 @@ assuming conventional dense-array behavior.
 |:--|:--|:--|
 | `NormL1(Inf, w)` at step `γ = 0` ([#665](https://github.com/mlakolar/ProximalBase.jl/issues/665)) | Input returned unchanged (`shrink(x, 0⋅Inf)` read as a zero threshold) | Projection onto the closure of the domain: `+0` where `w[i] > 0`, including `NaN`/`±Inf` inputs; unchanged where `w[i] = 0`. Unweighted `NormL1(Inf)` gives all `+0` |
 | `LinearFunction(c, d)(x)` at a matrix `SparseIterate` `x`, with `NaN` or `±Inf` in `c` at a position that `x` does not store or stores as `+0` or `-0` | `NaN`: the value was `dot(c, x) + d`, which formed the product of the coefficient and the zero at each position it visited (all `mn` positions for a dense `c`, the `p` diagonal positions for a `Diagonal`) | The value of the stored nonzero entries plus `d`, with `c` not read at a zero, in `O(nactive(x))` (`O(p)` for a `Diagonal` `c`, which scans the `p` diagonal positions). A nonzero entry of `x` keeps ordinary arithmetic, a `NaN` coefficient there gives `NaN`. The overflow recovery requires the coefficients at the nonzero entries to be finite, not all of `c`. `f(Matrix(x))` and `dot(c, x)` are unchanged and give `NaN` there |
+| `maximum(prox(NormLinf(0.5f0), [fill(0.17933106f0, 100_000); 1f0], 1f0))`, the clip level of `NormLinf` ([#1003](https://github.com/mlakolar/ProximalBase.jl/issues/1003), [#987](https://github.com/mlakolar/ProximalBase.jl/issues/987)) | `0.17933007f0` where the exact level is `0.5` (Julia 1.10.13, default mode, AMD Zen 3; the result depends on the order of the vectorized sums). The level was wrong where a large group of equal or nearly equal entries lay within the rounding of a sum of the entries from the level | `0.5f0`. The level now changes by roundings where the old level was accurate, and by more on inputs of this kind; the bound `2.25 n eps(T) ‖x‖∞ + 2nδ` is in the [numerical contract](numerics.md) |
 
 Positive steps, finite levels at `γ = 0`, infinite coordinate weights at a
 finite level (#853) and finite-factor overflow (#866) are unchanged. See

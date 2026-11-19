@@ -165,9 +165,8 @@ end
 @inline _scaled_chain(f, a) = (f, a)
 @inline _scaled_chain(f::Scaled, a) = _scaled_chain(f.f, _projection_accumulate(a, f.α))
 @inline _scaled_chain(s::Scaled) = _scaled_chain(s.f, _scale_start(s.α))
-# Nested wrappers also arise with ordinary products (a block of a conjugate keeps its own scale in
-# a wrapper of its own), and those keep their recursive oracles. Only a chain whose product is
-# not a normal number takes the methods that combine the factors.
+# The direct Scaled{F,T} constructor can nest wrappers with ordinary products.
+# Such wrappers keep their recursive oracles.
 @inline _chained(::Scaled) = false
 @inline _chained(s::Scaled{<:Scaled}) = _chain_exceptional(s.f, s.α)
 @inline _chain_exceptional(f, a) = false
@@ -417,7 +416,7 @@ end
 @inline function _scaled_value_by(f, α, x, v, recover_inner_small = true, out = nothing)
   r = _apply_scale(α, v)
   if (!isfinite(r) && _scale_below_one(α)) || (_scaled_small(r) && !iszero(v)) ||
-     (recover_inner_small && !_zero_value_exact(f) && _scaled_small(v) && _scale_above_one(α))
+     (recover_inner_small && _scaled_small(v) && _scale_above_one(α))
     return _scaled_value_recover(f, α, x, v, r, out)
   end
   r
@@ -438,26 +437,24 @@ _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scale
 # is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
 # value, whatever they hold, as in the function's own value. Any other function: false.
 _exactly_zero_at(f, x) = _isindicator(f)
-_host_entries(x::AbstractArray) = _is_device_array(x) ? Array(x) : x
-_host_entries(::Nothing) = nothing
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)
 @inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
 function _exactly_zero_at(f::NormL1, x::AbstractArray)
-  h, w = _host_entries(x), _host_entries(f.w)
-  w === nothing || length(w) == length(h) || return false
+  w = f.w
+  w === nothing || length(w) == length(x) || return false
   λ = f.λ0
-  for (j, i) in enumerate(eachindex(h))
+  for (j, i) in enumerate(eachindex(x))
     wi = w === nothing ? one(λ) : w[j]
-    _penalized(λ, wi) && !iszero(h[i]) && return false
+    _penalized(λ, wi) && !iszero(x[i]) && return false
   end
   true
 end
 # Exact zero also requires nonnegative entries.
-_exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), _host_entries(x)) && _exactly_zero_at(f.l1, x)
+_exactly_zero_at(f::NormL1Nonneg, x::AbstractArray) = all(>=(0), x) && _exactly_zero_at(f.l1, x)
 # a positive ridge level penalizes every entry (an infinite one is the indicator of {0}, #908); a zero
 # one leaves the entries that the ℓ1 part penalizes, as for NormL1
 _exactly_zero_at(f::ElasticNet, x::AbstractArray) =
-  f.λ2 > 0 ? _all_zero(_host_entries(x)) : _exactly_zero_at(f.l1, x)
+  f.λ2 > 0 ? _all_zero(x) : _exactly_zero_at(f.l1, x)
 
 # The recovery of α f(x) for an ElasticNet f: the recovery of every function first (the fold of the factor into both
 # levels, the partial fold and the fold into a subnormal level, the rule of an infinite factor at a point where f is 0,
@@ -509,9 +506,7 @@ _elastic_finite_scale(α) = false
     # the larger of the two exponents decides.
     E === nothing || E + _scale_upper_exponent(α) >
       max(exponent(floatmin(_valtype(x))), exponent(floatmin(typeof(float(_apply_scale(α, v)))))) || return false
-  elseif isinf(v)
-    _infinite_value_exact(f, x) && return false
-  elseif isnan(v) || abs(v) >= floatmin(v)
+  elseif !isinf(v) && (isnan(v) || abs(v) >= floatmin(v))
     return false
   end
   out === nothing || !_parameter_alias(f, out)
@@ -541,10 +536,26 @@ end
 _checkvalue(s::Scaled, x) = _checkvalue(s.f, x)
 _scale!(g::AbstractArray, α) = (g .*= α)
 _scale!(g::AbstractArray, α::_ProjectionScale) = (g .= _apply_scale.(α, g))
-# a symmetric iterate gradient: every coordinate that is stored, which are the coordinates of the symmetric gradient
-# that are not zero
-_scale!(g::SymmetricSparseIterate, α) = (v = activevalues(g); v .*= α; g)
-_scale!(g::SymmetricSparseIterate, α::_ProjectionScale) = (v = activevalues(g); v .= _apply_scale.(α, v); g)
+# Finite scales preserve the active set, including explicitly stored zeros.
+# Non-finite scales can turn an implicit zero into NaN and activate it.
+function _scale!(g::SymmetricSparseIterate, α)
+  if isfinite(α)
+    v = activevalues(g)
+    v .*= α
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
+function _scale!(g::SymmetricSparseIterate, α::_ProjectionScale)
+  if isfinite(α)
+    v = activevalues(g)
+    v .= _apply_scale.(α, v)
+  else
+    _scale!(coordinates(g), α)
+  end
+  g
+end
 @generated _scale!(g::Tuple, α) = _blockwise(k -> :(_scale!(g[$k], α)), fieldcount(g), :g)
 value_and_gradient!(g, s::Scaled, x) =
   (_check_oracle_arrays(value_and_gradient!, s, g, x); _value_and_gradient_unchecked!(g, s, x))
@@ -661,18 +672,20 @@ iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
 _isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _screen_chain(s, g, i) :
+   _isindicator(_kkt_innermost(s.f)) ? kkt_violation(s.f, g, i) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 
 # ---- the point-aware scores of a scaled function ----
 # Which leaves have the four-argument and full-point scores: _KktScore for the functions of this package that have them
-# (NormL2 has the full-point form and throws an ArgumentError in the others), _KktNone for the other functions of this
-# package, _KktCustom for a function defined outside it. The class of a Scaled is that of the function under all its
-# wrappers. The class is a singleton type chosen by dispatch, or by the module of the type, which inference folds.
+# (NormL2 and NormLinf have the full-point form and throw an ArgumentError in the others), _KktNone for the other
+# functions of this package, _KktCustom for a function defined outside it. The class of a Scaled is that of the function
+# under all its wrappers. The class is a singleton type chosen by dispatch, or by the module of the type, which inference
+# folds.
 struct _KktScore end
 struct _KktNone end
 struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
-_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2}}) = _KktScore()
+_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
 _kkt_innermost(f::AbstractFunction) = f
@@ -710,13 +723,15 @@ _kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
 #   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
 #   NormL1, NormL1Nonneg, ElasticNet
 #                                the function with the folded levels (_fold_level);
-#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel).
+#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel);
+#   NormLinf                     the full-point kernel with the level folded by _folded_level (_KktLevel).
 # Levels that do not fold to a normal number, and a function defined outside the package, have none.
 _kkt_resolve(f::ZeroFunction, a) = f
 _kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
 _kkt_resolve(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a) = _fold_level(f, a)
 _kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f::NormLinf, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f, a) = nothing
 
 # |vᵢ + a dᵢ| with dᵢ the entry of the gradient of f at x, multiplied by a as the gradient of the chain multiplies it
@@ -789,7 +804,7 @@ end
   W = promote_type(float(promote_type(eltype(v), eltype(x))), _kkt_factor_type(λ.a))
   _l2_zero_score(_chain_coefficient(W, λ.λ, w, λ.a), true, v, G, W)
 end
-# a GroupNormL2 or NormL2 with the level λ that the chain folds into it
+# a GroupNormL2, NormL2 or NormLinf with the level λ that the chain folds into it
 struct _KktLevel{F, T}
   f::F
   λ::T
@@ -994,7 +1009,10 @@ function _kkt_chain_point(s::Scaled, v, x)
   _kkt_full(h, v, x)
 end
 kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
-  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_point_error(s) : throw(MethodError(kkt_violation, (s, v, x)))
+  _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_scaled_error(s, _kkt_innermost(s)) : throw(MethodError(kkt_violation, (s, v, x)))
+# the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
+_kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
+_kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 
 # The parts of a scaled function inside another wrapper: those of the function under the chain,
@@ -1031,7 +1049,6 @@ function _zero_value_exponent(s::Scaled, x)
   E === _EXACT_ZERO ? U : max(E + _upper_exponent(s.α), U)
 end
 _parameter_alias(s::Scaled, out) = _parameter_alias(s.f, out)
-_infinite_value_exact(s::Scaled, x) = _infinite_value_exact(s.f, x)
 # The functions that a stored infinite level fixes, for a positive finite factor and step. The infinite level
 # makes the map the constant map of its domain, whatever positive finite number the factors and the step
 # are, so the call needs no factor and no step folded into a finite level: `_hard_function(f)` is f without the

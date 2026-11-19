@@ -145,7 +145,7 @@ off-diagonal coordinate is `-1.0` while the distance is `0`. The score assumes
 symmetric parameters. The full-point form `kkt_violation(f,v,x)` throws an
 `ArgumentError` for these functions and `NormL1Nonneg` on a symmetric iterate: use the coordinate form.
 `Scaled` over one of them evaluates the score of the function on `v/α` and multiplies it by `α` (an infinite
-factor throws an `ArgumentError` at a nonzero stored coordinate). `GroupNormL2`, `GroupNormLinf` and `NormL2` have no
+factor throws an `ArgumentError` at a nonzero stored coordinate). `GroupNormL2`, `GroupNormLinf`, `NormL2` and `NormLinf` have no
 symmetric form: the call throws an `ArgumentError`. A function defined outside the package
 gets its three-argument value at a zero stored coordinate and an `ArgumentError`
 at a nonzero one, also under `Scaled`, unless it defines the four-argument method (and, under

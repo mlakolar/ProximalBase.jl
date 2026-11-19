@@ -1,9 +1,9 @@
 module GroupNormLinfTest
 # GroupNormLinf (#956): f(x) = λ0 Σₖ wₖ max_{i∈Gₖ} |xᵢ| and its proximal operators, the clip of each group at the level τₖ
 # with Σ_{i∈Gₖ}(|xᵢ| - τₖ)₊ = γλ0wₖ (and +0 when γλ0wₖ ≥ ‖x[Gₖ]‖₁), against an independent sort-based ℓ1-ball threshold
-# written in this file in BigFloat, in Float32 and Float64. The tolerance of an output entry is TOL_C n eps(T) max|xᵢ| plus
-# two subnormal spacings over the group of n entries: the absolute accuracy O(n eps(T) max|xᵢ| + δ) of the level that the
-# docstring states, with the constants TOL_C and 2 (δ = nextfloat(zero(T))). A group equal to the whole argument is also
+# written in this file in BigFloat, in Float32 and Float64. The established reference cases keep their tolerance of
+# TOL_C n eps(T) max|xᵢ| plus two subnormal spacings. The documented bound allows (2n + 1) subnormal spacings to
+# account for the shared threshold and the rounded radius. A group equal to the whole argument is also
 # compared with NormLinf, and singleton groups with NormL1: the proximal outputs bit for bit, the values within a tolerance.
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
@@ -385,6 +385,23 @@ end
   end
 end
 
+@testset "large ties through the shared threshold ($T)" for T in (Float32, Float64)
+  # #987 puts the level just below a long tie. #1003 puts it above the tie, at the level of the head alone.
+  for (u, r, lower) in (([T(0.2); fill(T(0.1), 100_000)], T(0.3), T(0.09)),
+                       ([fill(T(0.17933106), 100_000); one(T)], T(0.5), T(0.49)))
+    n = length(u)
+    f = GroupNormLinf(r, [1:n])
+    ref, _ = ref_prox(u, f.groups, f.w, one(T), r)
+    y = prox(f, u, one(T))
+    @test close_prox(y, ref, u) && maximum(y) > lower
+    ui = copy(u)
+    @test same(prox!(ui, f, ui, one(T)), y)
+    out = similar(u)
+    @test close_prox(prox_block!(out, f, u, 1, one(T)), ref, u)
+    @test same_value(value_and_prox!(out, f, u, one(T)), f(out)) && same(out, y)
+  end
+end
+
 @testset "compact blocks equal the array operators ($T)" for T in (Float32, Float64)
   rng = Xoshiro(959)
   groups, p = partition(rng, [1, 2, 5, 17, 40], :perm)
@@ -670,9 +687,9 @@ end
       @test close_prox(prox(hh, x, gam), ref, x)
     end
   end
-  # a radius of one half spacing: the stored result is within the additive term of the accuracy of the exact δ/2
+  # A radius of one half spacing puts the exact result midway between zero and δ.
   y = prox(GroupNormLinf(δ, [1:1]), T[δ], T(0.5))
-  @test abs(big(y[1]) - big(δ) / 2) <= tol(T, 1, δ)
+  @test abs(big(y[1]) - big(δ) / 2) == big(δ) / 2
   # a subnormal weight leaves entries of order one unchanged to rounding
   xs = T[1, 1]
   @test close_prox(prox(GroupNormLinf(one(T), [1:2], T[δ]), xs, one(T)), ref_prox(xs, [1:2], T[δ], one(T), one(T))[1], xs)

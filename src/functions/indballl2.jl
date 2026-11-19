@@ -102,9 +102,14 @@ _value_and_prox_unchecked!(y::_ArrayOrSymmetricIterate, f::IndBallL2,
 # An indicator ignores the scale. Keep the original step for validation,
 # including a negative step whose product with a small scale rounds to -0.
 _scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
+@inline _ball_l2_leaf(::Type) = false
+@inline _ball_l2_leaf(::Type{<:IndBallL2}) = true
+@inline _ball_l2_leaf(::Type{<:Scaled{F}}) where {F} = _ball_l2_leaf(F)
+@inline _scaled_step(s::Scaled{<:Scaled}, γ::Real) =
+  _ball_l2_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
 
 @inline function _ball_l2_project!(y, r, x)
-  iszero(r) && return fill!(y, zero(eltype(y)))
+  iszero(r) && return _ball_l2_zero!(y)
   isinf(r) && return _ball_l2_copy!(y, x)
   n, k = _ball_l2_norm(x)
   isfinite(n) || return _ball_l2_nonfinite!(y, r, x, n)
@@ -112,6 +117,11 @@ _scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
   if length(x) == 1
     @inbounds y[1] = copysign(float(r), float(x[1]))
     return y
+  end
+  # An indexed view can refer to the same slot more than once. Read from a
+  # snapshot for in-place destinations whose entries may share storage.
+  if y === x && !(x isa Union{StridedArray, SparseIterate, BlockIterate})
+    x = Array(x)
   end
   if k == 0
     a = r / n
@@ -121,6 +131,10 @@ _scaled_step(::Scaled{<:IndBallL2}, γ::Real) = γ
 end
 
 _ball_l2_copy!(y, x) = (y === x ? y : copyto!(y, x))
+# Inactive groups can contain signed zeros, which the block state copy skips.
+_ball_l2_copy!(y::BlockIterate, x::BlockIterate) = (y === x ? y : _ball_l2_map!(identity, y, x))
+_ball_l2_zero!(y) = fill!(y, zero(eltype(y)))
+_ball_l2_zero!(y::BlockIterate) = (fill!(y.storage, zero(eltype(y))); y)
 
 @inline function _ball_l2_scale!(y, x, a)
   _l2_scale!(y, x, Base.OneTo(length(x)), a)
@@ -165,7 +179,14 @@ function _ball_l2_map!(op, y::SparseIterate, x::SparseIterate)
   else
     fill!(y, zero(eltype(y)))
     @inbounds for j in 1:x.nnz
-      y[x.nzval2ind[j]] = op(x.nzval[j])
+      i = x.nzval2ind[j]
+      v = convert(eltype(y), op(x.nzval[j]))
+      # An implicit sparse zero would lose the sign of this rounded result.
+      if iszero(v) && signbit(v) && iszero(y.ind2nzval[i])
+        _store!(y, i, v)
+      else
+        y[i] = v
+      end
     end
   end
   y
@@ -193,7 +214,7 @@ _ball_l2_infinite_entries(x::SparseIterate) = (view(x.nzval2ind, 1:x.nnz), _stor
       vertex = T(copysign(float(r), float(v)))
     end
   end
-  fill!(y, zero(T))
-  @inbounds y[at] = vertex
+  _ball_l2_zero!(y)
+  y[at] = vertex
   y
 end

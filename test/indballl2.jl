@@ -169,4 +169,43 @@ end
   end
 end
 
+@testset "IndBallL2 alias and storage edge cases" begin
+  for T in (Float32, Float64)
+    δ = nextfloat(zero(T))
+    f = IndBallL2(one(T))
+    inner = Scaled(f, T(0.5))
+    nested = Scaled{typeof(inner), T}(inner, T(0.5))
+    x = T[3, 4]
+    y = fill(T(9), 2)
+    @test_throws ArgumentError prox(nested, x, -δ)
+    for op in (prox!, value_and_prox!)
+      @test_throws ArgumentError op(y, nested, x, -δ)
+      @test y == fill(T(9), 2)
+    end
+    @test prox(nested, x, zero(T)) == prox(f, x, zero(T))
+
+    z = BlockIterate(T[-0.0, 0, -0.0], 3)
+    @test nactive(z) == 0
+    @test isequal(collect(prox(IndBallL2(T(Inf)), z)), collect(z))
+    @test isequal(collect(prox(f, z)), collect(z))
+    @test prox!(z, IndBallL2(zero(T)), z) === z
+    @test isequal(collect(z), zeros(T, 3)) && nactive(z) == 0
+
+    for a in (T(4), floatmax(T))
+      z = view(T[a, 9], [1, 1])
+      expected = prox(f, z)
+      @test prox!(z, f, z) === z
+      @test collect(z) == expected
+      @test parent(z)[2] == T(9)
+    end
+
+    x = SparseIterate(T[floatmax(T), -floatmax(T)/2])
+    f = IndBallL2(δ)
+    z = prox(f, x)
+    @test isequal(Array(z), T[δ, -0.0])
+    @test isactive(z, 2)
+    @test isequal(Array(prox!(x, f, x)), Array(z))
+  end
+end
+
 end

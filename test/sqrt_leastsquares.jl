@@ -32,11 +32,18 @@ end
 # round-to-nearest overflow threshold and e = (n/2 + 4) eps(T) the relative error bound:
 #   (a) |ref| (1 + e) <= floatmax: finite and within e |ref| (plus two units of the smallest subnormal where
 #       |ref| < floatmin);
-#   (d) between that margin and thr: finite within e |ref|, or not finite;
-#   (b) thr <= |ref| <= thr (1 + e), the boundary region: not finite, or finite within e |ref| (the recomputation does not
+#   (d) between that margin and thr: finite within e |ref|, or +Inf;
+#   (b) thr <= |ref| <= thr (1 + e), the boundary region: +Inf, or finite within e |ref| (the recomputation does not
 #       decide on which side of thr the value lies within the relative error bound of thr);
-#   (c) above that region: not finite.
+#   (c) above that region: +Inf.
 function value_ok(v, ref, ::Type{T}, n) where {T}
+  # For the supported positive-scale losses, the reference is nonnegative.
+  if isnan(ref)
+    return isnan(v)
+  elseif isinf(ref)
+    return v == T(Inf)
+  end
+  v >= zero(T) || return false
   with256() do
     m, fm, e = abs(ref), big(floatmax(T)), (n / 2 + 4) * big(eps(T))
     thr = fm + (fm - big(prevfloat(floatmax(T)))) / 2
@@ -49,6 +56,46 @@ function value_ok(v, ref, ::Type{T}, n) where {T}
       !isfinite(v) || close_enough
     else
       !isfinite(v)
+    end
+  end
+end
+
+@testset "value_ok reference classes" begin
+  with256() do
+    for T in (Float32, Float64)
+      nan, inf = T(NaN), T(Inf)
+      @test value_ok(one(T), BigFloat(1), T, 1)
+      for v in (nan, inf, -inf, -one(T))
+        @test !value_ok(v, BigFloat(1), T, 1)
+      end
+
+      fm = BigFloat(floatmax(T))
+      @test value_ok(inf, 2 * fm, T, 1)
+      for v in (nan, -inf, floatmax(T))
+        @test !value_ok(v, 2 * fm, T, 1)
+      end
+
+      @test value_ok(inf, BigFloat(Inf), T, 1)
+      @test value_ok(nan, BigFloat(NaN), T, 1)
+      for v in (nan, -inf, one(T))
+        @test !value_ok(v, BigFloat(Inf), T, 1)
+      end
+      for v in (inf, -inf, one(T))
+        @test !value_ok(v, BigFloat(NaN), T, 1)
+      end
+
+      below = BigFloat(prevfloat(floatmax(T)))
+      thr = fm + (fm - below) / 2
+      for ref in (below, thr)
+        @test value_ok(floatmax(T), ref, T, 1)
+        @test value_ok(inf, ref, T, 1)
+        @test !value_ok(nan, ref, T, 1)
+        @test !value_ok(-inf, ref, T, 1)
+      end
+
+      tiny = nextfloat(zero(T))
+      @test value_ok(3 * tiny, BigFloat(tiny), T, 1)
+      @test !value_ok(4 * tiny, BigFloat(tiny), T, 1)
     end
   end
 end

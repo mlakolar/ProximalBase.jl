@@ -674,6 +674,418 @@ function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
 end
 
 ####################################
+#  Optimality
+####################################
+
+# kkt_violation(f, v, x) of f = λ‖·‖∞ is the Euclidean distance from -v to the subdifferential of f at x. The norm is not
+# separable, so it has the full-point form and no form for an entry or a group. With W = float(promote_type(eltype(v),
+# eltype(x))), the entries read as convert(W, ·) and c the level λ rounded once to W (_kkt_coefficient, as _l2_score forms it),
+# the value is
+#   x = 0:  the distance from v to the ℓ1 ball of radius c: 0 when Σ|vᵢ| ≤ c, and otherwise sqrt(Σ min(|vᵢ|, τ)²) with
+#           Σ (|vᵢ| - τ)₊ = c, that is the norm of prox_{c‖·‖∞}(v);
+#   x ≠ 0:  with m = max|xᵢ|, the face J = {i : |xᵢ| == m} (equality after conversion to W, no tolerance) and uᵢ = -sign(xᵢ) vᵢ
+#           on J, sqrt(Σ_{i∉J} vᵢ² + Σ_{i∈J} min(uᵢ, τ)²) with Σ_{i∈J} (uᵢ - τ)₊ = c. Here τ can be negative.
+# A length n for which n + 1 is not a finite number of W (Float16 from n = 65519) is refused with an ArgumentError before any pass:
+# the counts of the kernel (cnt, n + 1) are formed in W.
+# Rules, in this order. v and x are classified in one pass each (_linf_classify, on abs(convert(W, ·))): sums sv, sx and
+# largest magnitudes mv, m.
+#   1. A NaN sum (isnan(sx) | isnan(sv)) gives NaN: for a type other than Float32 and Float64 the maximum of _linf_classify
+#      does not carry a NaN, its sum does. Otherwise an infinite mv or m gives Inf.
+#   2. An infinite c gives 0 at x = 0 and Inf at x ≠ 0. c = 0 gives ‖v‖₂.
+#   3. Otherwise τ and the sum of squares of the residual, as below. An overflow of sv with finite entries goes to the scaled
+#      path (_linf_scaled) unless an exit of rules 1 and 2 applies. An overflow of sx with a finite m does not: the point is a
+#      zero point or a face by m, and the range is decided by sv.
+#
+# The ordinary path forms τ and the sum of squares in W. It uses no buffer, and allocates nothing for Array arguments of
+# Float32 or Float64. The level comes from `_l1ball_iterate`, the iteration of the threshold of the ℓ1 ball (its four returns
+# and claims 1 to 5 are in the header of that section), which reads nonnegative entries through a read.
+#   Zero point: sv ≤ c gives 0. Otherwise τ = max(level, 0), with the level from `_l1ball_iterate` on the magnitudes |vᵢ| from the
+#      plain first level (sv - c)/n of the sum sv of the classification pass (the handover of the prox starts the same way).
+#      The conditions of that routine hold: the |vᵢ| are finite and nonnegative since sv is finite, 0 ≤ c < sv ≤ floatmax(W)/2
+#      (the tests of this function), so the start is nonnegative and all the levels are, and n eps(W) ≤ 1/2, which is not
+#      checked (as for the prox).
+#   Face: one pass for S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ, and the first level τ0 = (S - c)/cnt, in floating point. The
+#      closed form uses τ = τ0 when the rounded comparison τ0 + b ≤ μ succeeds, with b = 3u|τ0| + 2u cnt mv, u = eps(W)/2,
+#      and mv = max|vᵢ|. For the ordinary Float32 and Float64 path this certifies that the exact level is the exact first level
+#      (see the rounded comparison below). In the subnormal range this comparison can accept without certifying support.
+#      The face level can be negative. Otherwise the shifted values Lᵢ = max(uᵢ - τ0, 0) on J and 0 off J (the lazy _LinfShifted)
+#      go to `_l1ball_iterate` from the level 0, and τ = τ0 + level. Level 0 of the Lᵢ is the first level τ0, so the
+#      iteration continues Michelot's from there, with one pass less than a start from the sum of the Lᵢ, and no sum of them
+#      is formed. The levels are nonnegative (claim 1), so the entries off J, which are 0, are not above any level that is
+#      visited. For any σ ≤ τ, Σ_J (uᵢ - τ)₊ = Σ_J (max(uᵢ - σ, 0) - (τ - σ))₊, so the level of the Lᵢ for the radius c is τ - σ.
+#      The shift is by τ0 and not by μ: with the shift by μ each Lᵢ has the size of |μ| when one face entry is far below the
+#      level, and the level inherits an error of order a u |μ|. The computed τ0 can be above or below the exact first level
+#      and the exact level, the case that the certificate does not exclude: the derivation does not assume that the entries
+#      above the returned level are the entries above the exact level. The routine's condition 0 ≤ a < s is not established here
+#      (no sum of the Lᵢ is formed, and Σ_J Lᵢ ≤ c is possible when τ0 is above the exact level); the derivation uses the
+#      statements of the kernel that do not need it (claims 1 and 3, and the proofs of claims 2 and 3 for a step).
+#      Range: when the certificate fails, fl(τ0 + b) > μ ≥ -mv, so τ0 + b > -mv (fl is monotone and fl(-mv) = -mv); for τ0 < 0
+#      this gives |τ0| < (1 + 2.001 cnt u) mv/(1 - 3.001u) ≤ 1.6 mv (n u ≤ 1/4, the factor 1.001 covers the rounding of b).
+#      Hence each Lᵢ ≤ mv + max(-τ0, 0) ≤ 2.6 mv, their exact sum is at most 2.6 cnt mv ≤ 2.6 n sv (mv ≤ sv, a computed sum
+#      of nonnegative terms), and (n + 1) sv ≤ floatmax(W)/4 on the ordinary path (_linf_in_range) bounds it by
+#      0.65 floatmax(W). A pass sum at a level ≥ 0 is at most (1 + θ) times the exact sum of the computed Lᵢ (θ = (1 + u)^n - 1
+#      ≤ 0.29, and Lᵢ ≤ (1 + u) times its exact value), below 0.85 floatmax(W), and the step t ≤ C M with C = (1 + u)²/(1 -
+#      n u) ≤ 1.335 and M = max Lᵢ ≤ 2.6 mv ≤ 0.33 floatmax(W) (mv ≤ sv ≤ floatmax(W)/8) is finite, as in the Range
+#      paragraph of the kernel. The sum S is finite, and τ0 is finite unless S - c overflows (c close to floatmax(W) and S
+#      negative), which the test isfinite(τ0) sends to the scaled path.
+#   Squares: one loop for Q = Σ rᵢ², with rᵢ = min(|vᵢ|, τ) at the zero point (τ = Inf for c = 0, where rᵢ = |vᵢ|), and on a face
+#   uᵢ clipped at τ on J and vᵢ off J. sqrt(Q) is returned when Q is finite and not below n floatmin/eps (_squares_normal).
+#   Otherwise _linf_cold passes the lazy residual to `_residual_squares`, which scans it for its largest exponent and then sums
+#   the squares scaled by it (as _l2_score_cold). It gives zero when all the residual entries are zero, and Inf for an entry
+#   that is not finite.
+#   Range: the scaled path is used when sv > floatmax(W)/2 at the zero point, when (n + 1) sv > floatmax(W)/4 on a face,
+#   and when τ0 is not finite. That path forms τ in units of a power of two.
+#
+# Ordinary-path error. In the round-to-nearest relative-error model for Float32 and Float64, the absolute score error
+# is
+# at most (2n + √n + 5)uΛ to first order, with u=eps(W)/2, n u ≤ 1/4, and Λ=‖v‖₂+λ. The remainder is O_n(u²Λ) for
+# fixed n.
+# This estimate excludes additive subnormal-spacing effects and the scaled or cold branches. Both x and v are read in
+# W,
+# and the penalty λ is rounded once. Let δ=nextfloat(zero(W)).
+#
+# Write V = ‖v‖₂, c for the working penalty, m for the number of tied coordinates, and y for their sign-adjusted
+# gradients. Off-face gradients are identical throughout. For signed data w define H_w(s) = Σ(wᵢ−s)₊, R_w(s) as the
+# norm of the clipped residual, and D_w(c) as the exact distance. For c>0 there is a unique root p_w of H_w(p_w)=c.
+# For an empty-radius ball take the ordinary norm separately. The radius form |R_w(s)−D_w(c)| ≤ |H_w(s)−c| follows
+# from the Hausdorff distance between scaled simplexes. Also D_w is 1-Lipschitz in w, as distance to a fixed closed
+# set. For any s and w,w′ the clipped-coordinate map is 1-Lipschitz, hence |R_w(s)−R_w′(s)|≤‖w−w′‖₂. The strict count
+# K=#{wᵢ>p_w} yields |R_w(s)−D_w(c)|≤√K (s−p_w) for s≥p_w, including exact ties at p_w. All four statements also
+# permit ordinary off-face coordinates in the norm.
+#
+#
+# A backward perturbation of the shifted reads
+#
+# Let σ be the actual first level from the signed sum, e=(Σ yᵢ−c)/m its exact counterpart, aᵢ=(yᵢ−σ)₊, Lᵢ=fl(aᵢ),
+# zᵢ=yᵢ+Lᵢ−aᵢ mathematically (these are real numbers). At every nonnegative t,
+#
+#     H_z(σ+t) = Σ(Lᵢ−t)₊.
+#
+# Off-face zeros used by the iteration make zero contribution for these t. The signed data z and their root exist also
+# when p_z<σ. No assertion about the root of a padded nonnegative vector at a negative t is needed.
+#
+# Put A=‖a‖₂ and A₀=V+c/√m. The possibly signed first-level sum has error ≤γ_{m−1}‖y‖₁ with γ_j=ju/(1−ju). At most m−1
+# additions of nonzero terms affect any summand. Division by m is by an exactly represented integer. The first-level
+# bound below gives √m |σ−e|=O(mu V+u c/√m), ignoring δ. Exact centering at ȳ yields
+#
+#     A ≤ ‖y−σ1‖₂ ≤ (‖y−ȳ1‖₂²+c²/m)^(1/2)+√m |σ−e|
+#       ≤ A₀+O(mu V+u c/√m).
+#
+# ‖L‖₂≤(1+u)A and ‖z−y‖₂≤uA. Together the two Lipschitz comparisons transfer a clipped distance for z to y at cost
+# ≤2uA. This avoids transferring an active count between problems.
+#
+# The implementation adds σ to the returned t, rounded once. Let ℓ=σ+t and ℓ′=fl(ℓ). When |ℓ′−ℓ|≤u|ℓ|, the clipped
+# values differ by at most u times the old clipped magnitude.
+# For positive levels this follows by clipping the positive entries from above, and for negative levels by clipping
+# their residual
+# magnitudes from below. This contributes uD_y(c) to first order, since the comparisons below bound the exact residual
+# error by
+# O_n(uΛ). The sum of squares and its rounded root contribute (n/2+1)uD_y(c)+O_n(u²Λ), from one product and at most
+# n−1 additions
+# per term. Terms underflowing on squaring can contribute at most O(nδ) to the sum and hence O(u²) relative error to
+# an accepted Q≥n floatmin/eps. Rounding λ to c costs at most uλ by the radius inequality, when the coefficient is
+# rounded once. The total allowance beyond a kernel error for z, for a non-initial return, is therefore
+#
+#     2uA₀+(n/2+2)uD_y(c)+uλ,   D_y(c)≤V+c.
+#
+# In the budgets below replace c by λ in first-order terms, and ignore second-order terms as declared above.
+#
+#
+# Certified and vanished steps (c) and (d)
+#
+# The local (P) pass bound and the local return inequalities for E_c and E_v of the shared kernel, apply to the
+# rounded L. They depend on finite sums, n u≤1/4, the return comparisons, and positive c. They hold regardless of
+# which side of the root the pass visits and require no precomputed total. At (c) the trial is strictly below the
+# smallest active entry; at (d) the trial equals the current pass level, also below that entry. The k active entries
+# all satisfy Lᵢ>t. Thus k t ≤√k ‖L‖₂ ≤√m ‖L‖₂. The local residual |H_z(σ+t)−c| is at most
+#
+#     (1.5k+0.5)u c+k u t  at (c), and  k u t  at (d)
+#
+# to first order. Apply the radius inequality and add all three rounding allowances just given. A common coefficient
+# on V is n/2+√m+4, and on c it is 1.5m+n/2+4.5+2/√m. For n≥2 both are at most 2n+√n+5. Indeed 1.5m+2/√m increases for
+# m≥1, and 2/√n≤√n when n≥2.
+#
+#
+# Returns (a) and (b) after a step
+#
+# Let η=p_z−σ, possibly negative, and K=#{zᵢ>p_z}≥1. For η≥0 each of the K coordinates has Lᵢ≥η. Therefore √K
+# max(η,0)≤‖L‖₂ in both sign cases. At a previous pass t′≥0 with k′>0 write g′=H_z(σ+t′) and r′ for its finite
+# computed sum. A step requires r′>c. Its exact-Newton counterpart N=t′+(g′−c)/k′ satisfies N≤η, since σ+N=(Σ_{i
+# active}zᵢ−c)/k′ is the subset level and H_z(σ+N)≥c. This holds for either sign of g′−c and for any computed active
+# subset of the read data. The pass estimate is |r′−g′|≤γ_{k′}g′. Comparing the rounded trial t with this SAME N gives
+#
+#     t−η ≤ [γ_{k′}g′+(2u+u²)(r′−c)]/k′ + u|t|,
+#
+# up to an additive division-underflow term. Relative error in both subtraction and division gives the factor 2u+u².
+# Addition error measured at its output gives u|t|. If the final pass returns its maximum (a), its returned t-hat is
+# ≤t, and σ+t-hat is the maximum signed entry and thus ≥p_z. If it returns its pass level (b), t-hat=t. For t-hat≤η at
+# (b), (P) directly yields 0≤H_z(σ+t-hat)−c≤γ_k c. Use the radius form in that case.
+#
+# In the remaining case t≥η, an overshoot of size d_t=√K(t−η) costs at most d_t in distance. Bound √K t ≤ ‖L‖₂+d_t. If
+# g′≥c, monotonicity gives t′≤η and K≤k′. Cauchy–Schwarz gives g′≤√k′ ‖L‖₂, since each positive excess is ≤ its own
+# Lᵢ. The first additive term of the last display multiplied by √K contributes at most k′u‖L‖₂ to first order. The
+# second contributes at most 2u‖L‖₂, using r′≤(1+γ_{k′})g′ and √K/k′ ≤1/√k′. Absorb u d_t on the left. The overshoot
+# costs ≤(k′+3)u‖L‖₂ to first order. If g′<c<r′, then r′−c≤γ_{k′}g′≤γ_{k′}c, so its factor 2u+u² contributes only
+# second order. The first term contributes ≤√m u c, and the last ≤u‖L‖₂ to first order. The constants in the
+# second-order terms are controlled by denominators 1−nu and 1−u. In particular no potentially discontinuous indicator
+# is replaced by its limit.
+#
+# Adding transfer, final rounding and norm error yields, for the overshoot cases, a common coefficient on V of 1.5n+7,
+# and on c of n/2+3+√m+5/√m. For g′<c this envelope follows directly from (2+1)/√m+√m≤5/√m+√m. For the (b) undershoot
+# bound γ_k c add the same allowances, giving on c at most m+n/2+3+2/√m, which also lies below the target
+# independently, and on V at most n/2+4.
+#
+# For n≥2, 1.5n+7≤2n+√n+5. Moreover √m+5/√m attains its maximum on [1,n] at an endpoint. At m=1 the full coefficient
+# is n/2+9, and at m=n it is n/2+3+√n+5/√n. Each is at most 2n+√n+5 for n≥2. These inequalities use only m≤n.
+#
+#
+# Initial returns, zero point, and singleton
+#
+# For first-pass (a) on the signed problem all aᵢ vanish, so σ≥max yᵢ>p_y. For first-pass (b) with σ≥p_y the same
+# level bound applies: the subset-level property e≤p_y yields √K_y(σ−p_y)≤√K_y|σ−e|. With B₀=q|σ|+γ_{m−1}‖y‖₁/m and
+# q=(2+u)u this is at most [qD_y(c)+γ_{m−1}V]/(1−q), since √K_y |σ|≤D_y(c)+√K_y |σ−e|. When first-pass (b) has σ<p_y,
+# (P) and Lᵢ≥(1−u)aᵢ give H_y(σ)≤c/[(1−k u)(1−u)]. The resulting distance error is ≤(k+1)u c to first order. Neither
+# return requires a positive shifted root. The certified closed form has the same B₀ distance bound, with K replaced
+# by m. The certificate's validity in the ordinary range is shown below.
+#
+# At the zero point outside the computed ball, all hypotheses of #1004 claim 5(ii) hold, including the plain
+# nonnegative starting level. Its nonnegative-radius distance bound is (n+3)u V+(1.5n+0.5)u c to first order. The
+# ordinary norm costs at most (n/2+1)u V since the residual is clipped coordinatewise at a nonnegative level. The
+# rounded early membership exit obeys D≤γ_{n−1}V by radial scaling onto the ball. Zero penalty uses just the norm.
+# These bounds all fit the original coefficient, including rounding of λ.
+#
+# For n=m=1, write y for the signed input scalar and d=|y−c|. Its first level is σ=fl(y−c), giving |σ−(y−c)|≤u d. When
+# the shift returns zero immediately, clipping at σ changes the exact residual by at most this amount. Otherwise a
+# step requires L>c (only one summand), y>σ, and L=c+O(uΛ), since y−σ=c+O(u d). At any pass with r>c and t′<L,
+# r=fl(L−t′). The trial is fl(t′+fl(r−c)), division by one being exact. Relative errors give |t−(L−c)|≤3uL+O(u²Λ),
+# uniformly over the passes: |r−(L−t′)|≤uL, |fl(r−c)−(r−c)|≤u(1+u)L, and before the final rounding the trial is at
+# most L+O(uL). At (c) and (d) the returned value is this trial. At (a) capping a trial that reached L can only reduce
+# its overshoot. At (b) the pass level was a preceding trial. These estimates apply to every final return after a
+# step. Replacing L by y−σ costs u c, the final addition costs u d, and the norm and penalty cost 1.5u d+uλ. The total
+# is ≤7.5uΛ to first order, below the original coefficient of 8.
+#
+# The rounded closed-form comparison
+#
+# With M=max |vᵢ| and e=(Σyᵢ−c)/m, the signed summation, subtraction and division give
+# |σ−e| ≤ B₀ = (2+u)u|σ| + γ_{m−1}‖y‖₁/m + (1+u)δ/2.
+# The additive term accounts for division into the subnormal range. Sums and differences there are exact multiples of
+# δ.
+# The rounded margin b̂ is at least 2.99u|σ|+1.99umM−δ for binary32 and binary64. Each of the two products with u can
+# lose
+# δ/2, and mM is exact if subnormal. If fl(σ+b̂)≤μ then σ+b̂≤μ+uM by monotonicity, since |μ|≤M.
+# Using γ_{m−1}≤(4/3)(m−1)u leaves b̂−B₀−uM ≥ 0.98u(|σ|+M)−(1.5+u/2)δ.
+# Thus u(|σ|+M)≥2δ suffices for e≤μ, so precisely the all-active formula gives the exact level. The ordinary squared
+# norm
+# cannot pass its range test below this scale, where all residual squares round to zero. For tiny subnormals the
+# comparison can
+# accept without certifying exact support. The cold residual norm recovers squares from the computed level.
+
+# Entry reads with the sign: convert(W, v), and the same scaled by 2^-k (the scaled path).
+struct _ValRead{W} end
+@inline (::_ValRead{W})(v) where {W} = convert(W, v)
+struct _ScaledValRead{W}
+  k::Int
+end
+@inline (g::_ScaledValRead{W})(v) where {W} = ldexp(convert(W, v), -g.k)
+
+# The values Lᵢ = max(uᵢ - σ, 0) for the face J = {i : |xᵢ| == m} and 0 off J, where uᵢ = -sign(xᵢ) rd(vᵢ), as a vector of
+# length(x) that `_l1ball_iterate` reads without a copy. rd is _ValRead{W}() or the scaled read, and the shift σ (the
+# computed first level τ0 of the face) is in the units of rd.
+struct _LinfShifted{W, V, X, R} <: AbstractVector{W}
+  v::V
+  x::X
+  rd::R
+  m::W
+  σ::W
+end
+Base.size(a::_LinfShifted) = (length(a.x),)
+Base.IndexStyle(::Type{<:_LinfShifted}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_LinfShifted{W}, i::Int) where {W}
+  @boundscheck checkbounds(a, i)
+  @inbounds begin
+    xi = convert(W, a.x[i])
+    vi = a.rd(a.v[i])
+  end
+  ifelse(abs(xi) == a.m, max(ifelse(xi > 0, -vi, vi) - a.σ, zero(W)), zero(W))
+end
+
+# The residual of the distance, in the units of v: min(|vᵢ|, τ) when m = 0 (the zero point, and c = 0 with τ = Inf), and on
+# a face with the largest magnitude m: min(uᵢ, τ) on J and vᵢ off J.
+struct _LinfResidual{W, V, X} <: AbstractVector{W}
+  v::V
+  x::X
+  m::W
+  τ::W
+end
+Base.size(a::_LinfResidual) = (length(a.v),)
+Base.IndexStyle(::Type{<:_LinfResidual}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(a::_LinfResidual{W}, i::Int) where {W}
+  @boundscheck checkbounds(a, i)
+  @inbounds vi = convert(W, a.v[i])
+  iszero(a.m) && return min(abs(vi), a.τ)
+  @inbounds xi = convert(W, a.x[i])
+  abs(xi) == a.m ? min(ifelse(xi > 0, -vi, vi), a.τ) : vi
+end
+
+# S = Σ_J uᵢ, cnt = |J| and μ = min_J uᵢ in one pass, for the face J = {i : |xᵢ| == m} and uᵢ = -sign(xᵢ) rd(vᵢ)
+@inline function _linf_face_sums(v, x, m::W, rd, ::Type{W}) where {W}
+  S = zero(W)
+  cnt = 0
+  μ = W(Inf)
+  @inbounds @simd for i in 1:length(x)
+    xi = convert(W, x[i])
+    vi = rd(v[i])
+    on = abs(xi) == m
+    u = ifelse(xi > 0, -vi, vi)
+    S += ifelse(on, u, zero(W))
+    cnt += on
+    μ = ifelse(on, min(μ, u), μ)
+  end
+  S, cnt, μ
+end
+
+# the sums of squares of the three residuals, for the ordinary path
+@inline function _linf_squares_zero(v, τ::W, ::Type{W}) where {W}
+  Q = zero(W)
+  @inbounds @simd for i in 1:length(v)
+    Q += abs2(min(abs(convert(W, v[i])), τ))
+  end
+  Q
+end
+@inline function _linf_squares_face(v, x, m::W, τ::W, ::Type{W}) where {W}
+  Q = zero(W)
+  @inbounds @simd for i in 1:length(x)
+    xi = convert(W, x[i])
+    vi = convert(W, v[i])
+    Q += abs2(ifelse(abs(xi) == m, min(ifelse(xi > 0, -vi, vi), τ), vi))
+  end
+  Q
+end
+
+# sqrt(Q) when Q is finite and normal in the sense of _squares_normal, and the recomputation otherwise
+@inline function _linf_finish(Q::W, v, x, m::W, τ::W) where {W}
+  (isfinite(Q) & _squares_normal(Q, length(v), W)) && return sqrt(Q)
+  _linf_cold(v, x, m, τ, W)
+end
+
+# The norm of the residual, by the squared-residual kernel (units of the exponent of its largest entry, as _l2_score_cold). A
+# residual entry that is not finite gives Inf.
+@noinline function _linf_cold(v, x, m::W, τ::W, ::Type{W}) where {W}
+  R = _recovery_type(W)
+  q = _residual_squares(_LinfResidual(v, x, m, τ), nothing, R)
+  q === nothing && return W(Inf)
+  s, k = q
+  convert(W, _scaled_product(sqrt(s), one(R), k))
+end
+
+# Rounded test for the closed-form level. The ordinary-range certificate and its subnormal qualification are given above.
+# The range test gives cnt mv ≤ floatmax/4 for an ordinary face.
+@inline function _linf_certified(τ0::W, cnt::Int, μ::W, mv::W) where {W}
+  u = eps(W) / 2
+  τ0 + (3u * abs(τ0) + 2u * (cnt * mv)) <= μ
+end
+
+# Whether the sum sv of the magnitudes of v is within the range of the ordinary path (see above)
+@inline _linf_in_range(sv::W, n::Int, zp::Bool, ::Type{W}) where {W} =
+  zp ? sv <= floatmax(W) / 2 : convert(W, n + 1) * sv <= floatmax(W) / 4
+
+# The value for the arguments of the same length n ≥ 1, the level c (a number of type W), and W.
+function _linf_point(c::W, v, x, ::Type{W}) where {W}
+  n = length(x)
+  sx, m = _linf_classify(x, _AbsRead{W}(), W)
+  sv, mv = _linf_classify(v, _AbsRead{W}(), W)
+  (isnan(sx) | isnan(sv)) && return W(NaN)
+  (isinf(m) | isinf(mv)) && return W(Inf)
+  isinf(c) && return iszero(m) ? zero(W) : W(Inf)
+  iszero(c) && return _linf_finish(_linf_squares_zero(v, W(Inf), W), v, x, zero(W), W(Inf))
+  zp = iszero(m)
+  zp && sv <= c && return zero(W)
+  _linf_in_range(sv, n, zp, W) || return _linf_scaled(c, v, x, m, mv, W)
+  if zp
+    τ = max(_l1ball_iterate(v, n, c, _AbsRead{W}(), (sv - c) / n), zero(W))
+    return _linf_finish(_linf_squares_zero(v, τ, W), v, x, m, τ)
+  end
+  S, cnt, μ = _linf_face_sums(v, x, m, _ValRead{W}(), W)
+  τ0 = (S - c) / cnt
+  isfinite(τ0) || return _linf_scaled(c, v, x, m, mv, W)
+  τ = τ0
+  if !_linf_certified(τ0, cnt, μ, mv)
+    τ = τ0 + _l1ball_iterate(_LinfShifted(v, x, _ValRead{W}(), m, τ0), n, c, _AbsRead{W}(), zero(W))
+  end
+  _linf_finish(_linf_squares_face(v, x, m, τ, W), v, x, m, τ)
+end
+
+# The same out of the ordinary range, for finite entries and a finite positive c, in units of 2^k as `_linf_exceptional!` does
+# for the prox: v is read as 2^-k vᵢ (the scaled reads), the level is 2^-k c (`_linf_scaled_radius`, formed from the significand
+# and the exponent), and τ = 2^k τ′. k starts at ceil(log2 n) + 2, where the scaled magnitudes sum to at most floatmax/4 before
+# rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`); the pass that forms the
+# scaled sum also gives the largest scaled magnitude mv′, which the certificate of the face needs. The loop ends: the scaled
+# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because
+# `_level_point` has refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
+# units, with the same preconditions: the scaled sum is within the limits of `_linf_in_range`, c′ ≤ c/4 is finite (k ≥ 2, as
+# _linf_exponent(n) ≥ 2), S′ is finite, the zero point has 0 ≤ c′ < sv′ when it does not return, and τ0′ = (S′ - c′)/cnt is finite as
+# |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4; the range of the shifted values is as above, with mv′
+# in place of mv. The scaling of an entry or of c can lose up to a subnormal spacing of W,
+# as in the prox. τ is capped at the largest |vᵢ|, mv, which the exact τ does not exceed (it is below the largest uᵢ), so that
+# the rounding of 2^k τ′ does not overflow; a τ below -floatmax is -Inf, and the cold path then gives Inf, as the distance
+# is then above floatmax. A scaled level at least the scaled sum gives 0 at the zero point. This path sends the residual
+# directly to _linf_cold, without testing an ordinary sum of squares.
+@noinline function _linf_scaled(c::W, v, x, m::W, mv::W, ::Type{W}) where {W}
+  n = length(x)
+  zp = iszero(m)
+  k = _linf_exponent(n)
+  local sv′, mv′
+  while true
+    sv′, mv′ = _linf_classify(v, _ScaledAbsRead{W}(k), W)
+    _linf_in_range(sv′, n, zp, W) && break
+    k += 1
+  end
+  c′ = _linf_scaled_radius(W, one(W), c, k)
+  if zp
+    c′ >= sv′ && return zero(W)
+    τ′ = max(_l1ball_iterate(v, n, c′, _ScaledAbsRead{W}(k), (sv′ - c′) / n), zero(W))
+    τ = min(ldexp(τ′, k), mv)
+    return _linf_cold(v, x, m, τ, W)
+  end
+  rd = _ScaledValRead{W}(k)
+  S′, cnt, μ′ = _linf_face_sums(v, x, m, rd, W)
+  τ0′ = (S′ - c′) / cnt
+  τ′ = τ0′
+  if !_linf_certified(τ0′, cnt, μ′, mv′)
+    τ′ = τ0′ + _l1ball_iterate(_LinfShifted(v, x, rd, m, τ0′), n, c′, _AbsRead{W}(), zero(W))
+  end
+  _linf_cold(v, x, m, min(ldexp(τ′, k), mv), W)
+end
+
+# The forms that select an entry or a group throw an ArgumentError, as private methods, so that they do not meet the generic
+# methods for a BlockIterate (as for NormL2). The public four-argument methods are those of interface.jl, which reach them.
+@noinline _normlinf_local_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has the full-point form kkt_violation(f, v, x), and no form for an entry or a group: the norm is not separable"))
+_level_score(f::NormLinf, λ, g, x, k) = _normlinf_local_error(f)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::AbstractArray, i::Integer) = _level_score(f, f.λ, g, x, i)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+_kkt_violation(f::NormLinf, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ, g, x, k)
+
+kkt_violation(f::NormLinf, g::AbstractArray, i::Integer) = (eltype(g) <: Real || _real_error(:kkt_violation); _normlinf_local_error(f))
+@noinline _linf_length_error(f, n, ::Type{W}) where {W} = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))): the length $n is not representable in the working type $W (n + 1 overflows it)"))
+@noinline _normlinf_symmetric_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has no form for a SymmetricSparseIterate point; use the full-point form on a dense matrix such as Matrix(x)"))
+# the level λ is passed in, not read from f: a chain of Scaled wrappers passes the level folded with its factors
+function _level_point(f::NormLinf, λ, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  W = float(promote_type(eltype(v), eltype(x)))
+  isempty(x) && return zero(W)
+  isfinite(convert(W, length(x) + 1)) || _linf_length_error(f, length(x), W)
+  _linf_point(_kkt_coefficient(W, λ, true), v, x, W)
+end
+kkt_violation(f::NormLinf, v::AbstractArray, x::AbstractArray) = _level_point(f, f.λ, v, x)
+kkt_violation(f::NormLinf, ::AbstractArray, ::SymmetricSparseIterate) = _normlinf_symmetric_error(f)
+
+####################################
 #  Scaled
 ####################################
 

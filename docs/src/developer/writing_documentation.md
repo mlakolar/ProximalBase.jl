@@ -30,6 +30,23 @@ Use the [numerical contract](../numerics.md) for precision and endpoint rules,
 function or iterate guides for their method-specific behavior. Brief safety
 reminders can appear in several help entries; a long rationale needs one owner.
 
+## New function families
+
+Put a new family's numerical rules in `docs/src/spec/<family>.md`, using all
+fourteen headings in the [family-page schema](../spec/index.md#Family-page-schema).
+That page owns its family-specific rules and links to shared rules by their
+named anchors. Shared range and endpoint rules remain in
+[the numerical hub](../numerics.md); shared array and ownership rules remain in
+[array and precision conventions](../numerical_usage.md). A section containing
+only links must say so. Add source and test evidence, executable examples where
+useful, and entries in the contract family map and navigation. User guides and
+API help link to the detailed contract.
+
+This rule routes newly authored documentation. Converting existing numerical
+prose into clauses remains held until the token and example checks in
+[migration #1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019) protect
+`reword` and `split`, including exact reviewed allowances for intentional changes.
+
 ## Examples and cross-references
 
 Use `jldoctest` for a transcript whose exact output matters. Prefer small
@@ -48,6 +65,14 @@ keep their explicit reference entries and coverage rows. Adding or removing a
 function family means updating the first-use [chooser](../choosing.md), the
 [function library](../function_library.md), the API coverage matrix, navigation
 and the architectural source map. Do not leave obsolete references behind.
+
+When a heading is renamed or its content moves, retain a forwarding stub for
+an explicit `@id` or a heading with an authored incoming link or source citation.
+Check the manual, docstrings, repository entry documents and examples before
+retiring an automatic heading fragment. Generated self-permalinks and navigation
+links do not require a stub. Record an uncited automatic heading's retirement
+and its successor in the migration audit; preserve the frozen inventory as
+evidence of the earlier page.
 
 ## Review and validation
 

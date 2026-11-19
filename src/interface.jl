@@ -477,6 +477,13 @@ that of `f`. The value of `kkt_violation(f, v, x)` is then a maximum of block 2-
 to first order in `n*u`, with `n` the size of the block and `u = eps(W)/2` for the working type `W` of `v` and `x`; outside
 that range the sums are scaled by an exponent, which extends the range and not the precision.
 
+`NormLinf(λ)` has the full-point form (its forms for an entry or a group throw an `ArgumentError`) and returns the
+Euclidean distance from `-v` to the subdifferential of `λ*maximum(abs, x)` at `x`. At `x = 0` that is the distance from `v`
+to the ℓ1 ball of radius `λ`, which is `0` when `sum(abs, v) <= λ`. At `x ≠ 0` the face is the set of entries whose
+magnitude equals the largest one after conversion to the working type, with no tolerance, so for a positive finite level
+an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
+type (`Float16` from `n = 65519`) throws an `ArgumentError`.
+
 `Scaled` with a finite positive factor `α` evaluates the existing score of its function (the functions above; `NormL2` in
 the full-point form) on the lazy gradient `v/α`, with the rounding and range limits of that evaluation, and multiplies it by
 `α`; underflow, overflow and `NaN` are not recovered. For a chain of wrappers whose factors do not multiply to a normal number, the product is applied to the gradient
@@ -551,8 +558,10 @@ _gradient_extent(x::SymmetricSparseIterate) = x.p^2
 Restrict a retained function's entry parameters to the integer index vector S.
 NormL1, NormL1Nonneg and ElasticNet slice weights, centered SqrNormL2 slices its center, LinearFunction
 slices coefficients, QuadraticFunction selects its principal submatrix and
-linear term, vector-response LeastSquaresLoss selects design columns, and
-Scaled forwards. For least squares and quadratics, omitted coordinates are fixed at zero.
+linear term, vector-response LeastSquaresLoss selects design columns, IndBox
+selects intervals, and Scaled forwards. For least squares, quadratics and
+IndBox, omitted coordinates are fixed at zero. IndBox throws ArgumentError
+if an omitted interval excludes zero, or if scalar bounds exclude zero.
 Centered SqrNormL2 drops the omitted-coordinate constant λ*sum(y[j]^2)/2;
 when finite, it changes values but not restricted minimizers/gradients/prox.
 Add it back for full-value comparisons. A nonzero fixed point needs separately

@@ -207,7 +207,7 @@ and [Validation, aliasing and evidence](../numerics.md#Validation,-aliasing-and-
 
 The shared comparison of `NormL1`, `NormL1Nonneg` and `ElasticNet` under `Scaled`
 remains with its conditions and preceding example in the
-[numerical hub](../numerics.md). The dedicated retained limitation follows.
+[shared range guarantees](@ref numerical-value-range). The dedicated retained limitation follows.
 
 A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
 for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`

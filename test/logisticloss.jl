@@ -147,9 +147,9 @@ end
                                (T(1e-18), zero(T))),
         sign in (-one(T), one(T))
       z = T[sign * magnitude]
-      w = weight === nothing ? ones(T, 1) : T[weight]
-      f = LogisticLoss(response, M; weights=weight === nothing ? nothing : w)
-      vref, dref, gref = logistic_reference(M, z, response, w)
+      midpoint_weights = weight === nothing ? ones(T, 1) : T[weight]
+      f = LogisticLoss(response, M; weights=weight === nothing ? nothing : midpoint_weights)
+      vref, dref, gref = logistic_reference(M, z, response, midpoint_weights)
       grad = gradient(f, z)
       v, fused = value_and_gradient(f, z)
       g, d = similar(grad), similar(grad)

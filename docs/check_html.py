@@ -10,6 +10,9 @@ import subprocess
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / 'build'
 
+# The reader tracks share the User guide, Examples, API reference and Project.
+EXPECTED_CATEGORIES = 7
+
 class Page(HTMLParser):
     def __init__(self, path):
         super().__init__(convert_charrefs=True)
@@ -128,7 +131,9 @@ def main():
                 'math or code inside a rendered table cell'
             )
         assert page.footer, f'Missing previous/next footer: {page.path}'
-        assert len(page.toggles) == 7, f'Expected seven shallow expandable categories: {page.path}'
+        assert len(page.toggles) == EXPECTED_CATEGORIES, (
+            f'Expected {EXPECTED_CATEGORIES} shallow expandable categories: {page.path}'
+        )
     # These pages are generated from docs/design/*.md. Their math and code
     # must render as formatted elements, not plain prose in the HTML.
     contracts = [

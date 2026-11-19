@@ -64,10 +64,14 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
     K = length(U)
     add(name, op, check) = push!(probes, (id = "$id/$name", op = op, check = check, n = length(x)))
     T = eltype(x)
-    if layout === :range                         # the compact kernel does not see the layout
+    compact_buffers = if layout === :range       # the compact kernel does not see the layout
         k1 = findfirst(u -> any(!iszero, u), U)
-        u, out = U[k1], outs[k1]
-        add("prox_block1", () -> (prox_block!(out, f, u, k1, γ); nothing), () -> copy(out))
+        buffers = Ref((U[k1], outs[k1]))
+        add("prox_block1", () -> begin
+            u, out = buffers[]
+            prox_block!(out, f, u, k1, γ)
+            nothing
+        end, () -> copy(last(buffers[])))
         kz = findfirst(u -> all(iszero, u), U)
         if kz !== nothing
             uz, oz = U[kz], outs[kz]
@@ -79,6 +83,9 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
             end
             nothing
         end, () -> reduce(vcat, outs))
+        buffers
+    else
+        nothing
     end
     if pattern !== :partial
         # a block-coordinate sweep as a solver runs it: for every group, the trial u = x[G] - s g[G]
@@ -93,6 +100,10 @@ function addgroup!(probes, id, d, layout, pattern, ::Type{G}, ::Type{B},
             for k in 1:K
                 indices = blockindices(xb, k)
                 trial, result = Uu[k], Ou[k]
+                # Keep the compact probe's buffers in step with the sweep's scratch selection.
+                if compact_buffers !== nothing
+                    compact_buffers[] = (trial, result)
+                end
                 @inbounds for a in eachindex(trial)
                     i = indices[a]
                     trial[a] = xb[i] - T(0.5) * g[i]

@@ -200,7 +200,7 @@ function kkt_violation(f::QuadraticFunction{T}, v::AbstractArray, x::AbstractArr
   _check_smooth_kkt_alias(d, v, x)
   W = float(promote_type(eltype(v), eltype(x), T))
   isempty(x) && return zero(W)
-  _smooth_kkt_allfinite(x) && _smooth_kkt_allfinite(v) || return _smooth_kkt_nonfinite(W, v, x)
+  _smooth_kkt_inputs_finite(v, x) || return _smooth_kkt_nonfinite(W, v, x)
   gradient!(d, f, x)
   _smooth_kkt_residual(W, v, d)
 end

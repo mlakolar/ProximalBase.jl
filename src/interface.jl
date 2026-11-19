@@ -778,6 +778,15 @@ _smooth_kkt_overlap(buf, a::Tridiagonal) =
   end
   finite
 end
+@inline _smooth_kkt_inputs_finite(v, x) = _smooth_kkt_allfinite(x) && _smooth_kkt_allfinite(v)
+@inline function _smooth_kkt_inputs_finite(v::Array{T}, x::Array{T}) where {T<:Union{Float32, Float64}}
+  finite = true
+  limit = floatmax(T)
+  @inbounds @simd for i in eachindex(x)
+    finite &= (abs(x[i]) <= limit) & (abs(v[i]) <= limit)
+  end
+  finite
+end
 @noinline _smooth_kkt_nonfinite(::Type{W}, v, x) where {W} =
   any(isnan, v) || any(isnan, x) ? W(NaN) : W(Inf)
 

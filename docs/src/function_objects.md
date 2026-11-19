@@ -224,6 +224,7 @@ the parameters of the particular object.
 | `NormL1Nonneg` | no | yes | yes | yes | yes |
 | `ElasticNet` | no | yes | yes | yes | yes |
 | `IndNonnegative` | no | yes | yes | yes | yes |
+| `IndBallL2` | no | yes | no | yes | no |
 | `NormL2` | no | yes | no | yes | no |
 | `NormLinf` | no | yes | no | yes | no |
 | `GroupNormL2` | no | yes | no | yes | no |

@@ -43,10 +43,11 @@ NormL1Nonneg
 ElasticNet
 ```
 
-## Nonnegative orthant
+## Indicators
 
 ```@docs
 IndNonnegative
+IndBallL2
 ```
 
 ## ℓ₂ and group ℓ₂ norms

@@ -1671,6 +1671,38 @@ function test_scaled_fused_small_values(::Type{T}) where {T<:AbstractFloat}
     end
   end
 
+  @testset "Weighted Scaled distinguishes exact zero from rounded zero" begin
+    function strided_copy(a)
+      x = view(zeros(T, 2length(a)), 1:2:2length(a))
+      copyto!(x, a)
+    end
+    δ = nextfloat(zero(T))
+    large_factor = pow2(T, precision(T) + 2)
+    for wrap in (copy, strided_copy), (input, weights, α, γ, inner, zero_certified) in (
+        (T[-3, 4], T[1, 2], T(2), T(4), zero(T), true),
+        (T[3, 1], T[0, 1], T(2), T(2), zero(T), true),
+        (T[δ, 3], T[1, 0], large_factor, zero(T), zero(T), false),
+        (T[3δ, 3], T[1, 0], large_factor, zero(T), T(2) * δ, false))
+      λ = T(0.5)
+      f = NormL1(λ, wrap(weights))
+      h = Scaled(f, α)
+      for step in (γ, wrap(fill(γ, length(input))))
+        x = wrap(input)
+        y = wrap(zeros(T, length(x)))
+        leaf_step = step isa Real ? α * step : PB._ScaledArray(step, α)
+        leaf_value, exact_zero = PB._scaled_leaf_value_and_prox!(y, f, x, leaf_step)
+        @test leaf_value === inner && exact_zero === zero_certified
+        r = T(big(α) * l1val(λ, weights, y))
+        @test iszero(r) == zero_certified
+        @test value_and_prox!(y, h, x, step) === r && h(y) === r
+        @test y == prox!(wrap(zeros(T, length(x))), h, x, step)
+        alias = wrap(input)
+        @test value_and_prox!(alias, h, alias, step) === r
+        @test alias == y
+      end
+    end
+  end
+
   @testset "Scaled fused norm endpoints and ordinary values" begin
     x = T[3, -4]
     α = T(2)

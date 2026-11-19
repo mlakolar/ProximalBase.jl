@@ -648,11 +648,13 @@ end
 @inline _scaled_leaf_value_and_prox!(y, f, x, γ) = (_value_and_prox_unchecked!(y, f, x, γ), false)
 @inline _scaled_leaf_value_and_prox!(y::AbstractArray, f::NormL2, x::AbstractArray, γ::Real) =
   _norml2_value_and_prox!(y, f, x, γ)
-@inline function _scaled_leaf_value_and_prox!(y::Array{T}, f::NormL1{T, Nothing}, x::Array{T},
-                                              γ::Union{Real, AbstractArray}) where {T<:Union{Float32, Float64}}
-  _prox_sep!(y, f, x, γ)
-  s = invoke(_value_dense, Tuple{Any, AbstractArray}, f, y)
-  _sum_kept(s, length(y)) ? (s, false) : _l1_underflow_result(f, y, s)
+@inline function _scaled_leaf_value_and_prox!(y::_HostArray, f::NormL1{T,<:Union{Nothing, AbstractArray{T}}},
+                                              x::_HostArray, γ::Union{Real, AbstractArray}) where {T<:Union{Float32, Float64}}
+  if eltype(y) === T && eltype(x) === T
+    _prox_sep!(y, f, x, γ)
+    return _l1_dense_result(f, y)
+  end
+  _value_and_prox_unchecked!(y, f, x, γ), false
 end
 
 value_and_prox!(y, s::Scaled, x, γ::Real) =

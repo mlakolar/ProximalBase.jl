@@ -227,24 +227,35 @@ end
 
 # Preserve the original ordinary loop; the checks of its result are scalar tests after it. Every pass
 # checks intermediates, not just the final sum.
-function _value_dense(
+_value_dense(f::NormL1{T,<:Array{T}}, x::Array{T}) where {T<:Union{Float32,Float64}} =
+  first(_l1_dense_result(f, x))
+
+function _l1_dense_result(
     f::NormL1{T,<:Array{T}},
     x::Array{T}) where {T<:Union{Float32,Float64}}
   s, ordinary = _l1_value_sum(f, x, false)
-  ordinary && _sum_kept(s, length(x)) && return s
-  _l1_exceptional_value(f, x, s, ordinary)
+  ordinary && _sum_kept(s, length(x)) && return s, false
+  _l1_exceptional_result(f, x, s, ordinary)
+end
+
+@inline function _l1_dense_result(f::NormL1, x::_HostArray)
+  s = invoke(_value_dense, Tuple{Any, AbstractArray}, f, x)
+  _l1_result_from_sum(f, x, s)
 end
 
 # The cold paths of the loop above: a coefficient out of range or zero is retried with SIMD exempting zero
 # factors, and 0*Inf/NaN takes the entrywise zero-factor and domain priorities of value_entry; then the sum
 # is checked for products that rounded below floatmin.
-@noinline function _l1_exceptional_value(f, x, s, ordinary)
+@noinline function _l1_exceptional_result(f, x, s, ordinary)
   if !ordinary
     s, ordinary = _l1_value_sum(f, x, true)
     ordinary && !isnan(s) || (s = invoke(_value_dense, Tuple{Any,AbstractArray}, f, x))
   end
-  _l1_underflow_checked(f, x, s, length(x))
+  _l1_result_from_sum(f, x, s)
 end
+
+@inline _l1_result_from_sum(f, x, s) =
+  _sum_kept(s, length(x)) ? (s, false) : _l1_underflow_result(f, x, s)
 
 # The value s of f at x from its ordinary loop, a sum of at most n rounded terms, recomputed where those
 # terms may have lost more than ordinary rounding (#373, see _sum_kept in numerical_kernels.jl); only
@@ -273,8 +284,11 @@ end
   (λ > 0 && isfinite(λ)) || return s, false
   iszero(s) && _all_zero(_stored_values(x)) && return s, true
   R = promote_type(T, Float64, _factor_type(λ), _l1_factor_type(f.w), _l1_factor_type(_stored_values(x)))
-  v = _expsum_value(T, _l1_weighted_abs(_expsum_start(R), f.w, x), λ)::T
-  v, false
+  acc = _l1_weighted_abs(_expsum_start(R), f.w, x)
+  v = _expsum_value(T, acc, λ)::T
+  # A positive term leaves a nonzero significand in the largest term's frame.
+  # The accumulator can stay zero when every nonzero stored entry has zero weight.
+  v, iszero(acc.s) && iszero(acc.c)
 end
 
 # The floating type that holds every entry of a factor array without narrowing it: from the element type, or,

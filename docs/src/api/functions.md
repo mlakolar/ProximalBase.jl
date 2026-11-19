@@ -46,6 +46,7 @@ ElasticNet
 ## Indicators
 
 ```@docs
+IndBox
 IndNonnegative
 IndBallL2
 ```

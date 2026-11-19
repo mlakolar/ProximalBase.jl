@@ -198,6 +198,7 @@ terms must also be derived and included by the caller.
 | `LinearFunction` | Selected coefficients and the original constant | Set to zero |
 | `QuadraticFunction` | Principal submatrix, selected linear term and constant | Set to zero |
 | `LeastSquaresLoss` (vector response) | Selected design columns and original response | Coefficients set to zero |
+| `IndBox` | Selected intervals | Set to zero. Throws if an omitted interval excludes zero, or if scalar bounds exclude zero and the original dimension is unspecified. |
 | `ZeroFunction` | Same zero-function object | No effect |
 | `Scaled` | Restricts its wrapped function, then preserves scaling | Depends on the wrapped function |
 

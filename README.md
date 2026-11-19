@@ -62,7 +62,7 @@ blocks; the code does not solve the full optimization problem.
 The [function library](docs/src/function_library.md) covers
 `LeastSquaresLoss`, `SqrtLeastSquaresLoss`, `SqrNormL2`, `QuadraticFunction`,
 `ZeroFunction`, `LinearFunction`, `NormL1`, `NormL1Nonneg`, `ElasticNet`,
-`IndNonnegative`, `IndBallL2`, `NormL2`, `NormLinf`, `GroupNormL2` and `Scaled`.
+`IndNonnegative`, `IndBox`, `IndBallL2`, `NormL2`, `NormLinf`, `GroupNormL2` and `Scaled`.
 The [iterate guide](docs/src/iterates.md) covers
 `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`.
 

@@ -12,6 +12,7 @@ quick = [
   "elasticnet_extremes",
   "groupnorml2",
   "indballl2",
+  "indbox",
   "indnonnegative",
   "infinite_weights",
   "iterate_invariants",

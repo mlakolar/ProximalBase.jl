@@ -35,6 +35,12 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
+## Cardinality penalty
+
+```@docs
+NormL0
+```
+
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs

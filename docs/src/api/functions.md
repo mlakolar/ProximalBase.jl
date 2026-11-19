@@ -35,10 +35,11 @@ ProximalBase.value_from_residual
 ProximalBase.leastsquares_data
 ```
 
-## Cardinality penalty
+## Cardinality and minimax concave penalties
 
 ```@docs
 NormL0
+MCP
 ```
 
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net

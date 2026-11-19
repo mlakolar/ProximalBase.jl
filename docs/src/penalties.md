@@ -470,3 +470,30 @@ r = restrict(h, [3, 1])
 s = Scaled(h, 2.0)
 @assert s([1.0, 1.0, 1.0]) == 2.0 * h([1.0, 1.0, 1.0])
 ```
+
+## [Minimax concave penalty](@id mcp-guide)
+
+[`MCP(λ, a)`](@ref MCP) applies a nonconvex penalty separately to each
+entry. For finite positive parameters it grows as
+``\lambda |x_i|-x_i^2/(2a)`` up to ``|x_i|=a\lambda``, where it
+saturates at ``a\lambda^2/2``. The default shape is `a = 3`.
+
+For a positive step ``\gamma<a``, the proximal map sets entries of
+magnitude up to ``\gamma\lambda`` to zero, shrinks entries between
+``\gamma\lambda`` and ``a\lambda``, and retains entries of larger
+magnitude. When ``\gamma\geq a``, a finite step gives a global
+minimizer by retaining entries of magnitude strictly above
+``\lambda\sqrt{a\gamma}`` and returning positive zero at and below
+the threshold.
+
+```@example mcp
+using ProximalBase
+
+f = MCP(0.5, 2.0)
+x = [0.25, -0.75, 2.0, -3.0]
+@assert prox(f, x, 1.0) == [0.0, -0.5, 2.0, -3.0]
+@assert prox(f, x, 8.0) == [0.0, 0.0, 0.0, -3.0]
+```
+
+See the [MCP numerical contract](@ref spec-mcp) for endpoint behavior and
+supported step routes.

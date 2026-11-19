@@ -402,6 +402,48 @@ omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
 
+### [Minimax concave penalty](@id spec-mcp)
+
+For `MCP(λ, a)`, the level is nonnegative and the shape is strictly
+positive. Both admit positive infinity. The following rows are applied
+from top to bottom for nonnegative, non-NaN steps.
+
+| Level and step | Proximal entry |
+|:--|:--|
+| `λ = 0` | Identity, including at an infinite step |
+| `λ = Inf` | Positive zero, including at a zero step |
+| `0 < λ < Inf`, `γ = 0` | Identity |
+| `0 < λ < Inf`, `γ = Inf` | Positive zero |
+| `0 < λ, γ < Inf` | NaN and signed infinities pass through. Finite entries use the threshold rules below. |
+
+The identity preserves a stored negative zero when the destination can
+represent it. At a zero level the value is zero, including at nonfinite
+inputs. At any positive level a NaN entry gives a NaN value and a zero
+entry gives zero. An infinite level gives an infinite value at all other
+entries. For finite positive parameters the value at an infinite entry is
+the saturated penalty `aλ²/2`, subject to rounding in the working type.
+With infinite shape and finite positive level the value is `λ*abs(x)`.
+
+A finite positive step gives firm thresholding when `γ < a < Inf`
+and soft thresholding when `a = Inf`. For `γ ≥ a` with finite positive
+parameters the operator keeps a finite entry when its squared magnitude
+exceeds `aγλ²`. This comparison uses the exact products of the represented
+homogeneous Float32 or Float64 inputs. Mathematical ties give positive
+zero. Interior firm points and values are computed with floating-point
+rounding. A nonzero firm or soft optimum that rounds to zero retains its
+sign. Within a few ulps of the value's overflow boundary, rounding in
+the products can give `floatmax(T)` or `Inf`.
+
+Direct array and iterate oracles reject negative and NaN steps before
+writes. Array steps are matched by linear index and checked in full,
+including at inactive positions. Symmetric sparse iterate oracles use
+scalar steps. Same-kind sparse value and scalar-step prox paths visit
+stored entries. An off-diagonal symmetric entry contributes twice to the
+value. Fused calls evaluate the penalty at the stored proximal point.
+Valid steps are a caller precondition for `prox_block` and `Scaled`
+forwarding. `Scaled` accepts ordinary positive finite factors, and its
+zero-factor constructor rejects MCP.
+
 ### [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)
 
 For `NormL1(Inf, w)`, the `γ = 0` endpoint is `lim_{γ→0+} prox_{γf}(x)` with the

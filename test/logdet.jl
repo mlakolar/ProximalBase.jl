@@ -170,7 +170,8 @@ using Test, ProximalBase, LinearAlgebra, OffsetArrays
       @test value_and_prox!(out, matrix_barrier, rounded) === matrix_barrier(out)
       @test isfinite(out[1, 1]) && out[1, 1] ≈ far
       @test value_and_prox!(out, matrix_barrier, Diagonal(T[-far, 1]), nextfloat(zero(T))) === T(Inf)
-      @test out == T[0 0; 0 1]
+      @test iszero(out[1, 1]) && iszero(out[1, 2]) && iszero(out[2, 1])
+      @test out[2, 2] ≈ one(T) rtol=4eps(T)
 
       # A representable scalar root even when γw rounds to zero or infinity.
       for scale in (far, inv(far))

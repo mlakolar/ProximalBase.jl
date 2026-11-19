@@ -45,6 +45,12 @@ NormL0
 SCAD
 ```
 
+## Off-diagonal cardinality penalty
+
+```@docs
+NormL0OffDiag
+```
+
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs

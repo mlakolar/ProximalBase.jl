@@ -274,3 +274,13 @@ references check the value and both gradient spaces, including weighted tails.
 and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
 transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
 and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
+
+## NormL0OffDiag coverage
+
+`norml0offdiag` compares the proximal map with an exact `Rational{BigInt}` minimization over the
+keep and drop patterns of the pairs: exhaustively for `p = 2, 3` over values below, at and above the
+threshold with both signs and the four zero pairs, and on seeded samples for `p = 4`. It checks the
+diagonal, symmetry, ties, the value and the fused value, agreement with the all-entry `NormL0` off
+the diagonal for `p` up to 64 with mixed level and step types, the contrast on the diagonal, the
+refusals with a sentinel output, strided views and reshapes, default steps, scaling and warmed
+allocations on both kernel routes.

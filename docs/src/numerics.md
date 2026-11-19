@@ -478,6 +478,29 @@ omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
 
+### Off-diagonal cardinality penalty
+
+`NormL0OffDiag(λ)` is defined for a finite level `λ ≥ 0`, finite dense
+matrices of one element type, `Float32` or `Float64`, that are symmetric under
+`==`, and finite steps `γ > 0`. An infinite or NaN level, a zero or infinite
+step and a non-finite entry each throw `ArgumentError`; the proximal oracles
+throw before any write.
+
+| Case | Result |
+|:--|:--|
+| Diagonal entry | Copied bit for bit, `-0.0` included |
+| Off-diagonal entry, `λ > 0` | The entry of `prox(NormL0(λ), V, γ)`: kept when its square exceeds `2γλ`, positive zero otherwise, so a tie gives zero |
+| Off-diagonal entry, `λ = 0` | Identity, so a `(+0.0, -0.0)` pair stays as it is |
+| Value | `zero(T)` when no off-diagonal entry is nonzero or `λ = 0`; otherwise `convert(T, R(λ) * R(k))` for `k` nonzero off-diagonal entries and `R = promote_type(T, float(typeof(λ)))`. It is `Inf` when the product exceeds the range of `T` |
+
+Each off-diagonal entry is computed from its own input entry and not
+mirrored from the other triangle. Exact `Y === X` is supported, and an
+output that may share memory with a different input is refused. A matrix that
+is not a `StridedMatrix`, a mismatch of element types and offset axes throw
+`ArgumentError`. A non-square matrix and an output of another size throw
+`DimensionMismatch`. A non-matrix argument and an array step give
+`MethodError`.
+
 ### SCAD endpoints
 
 See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and

@@ -14,6 +14,7 @@ step selection and stopping rule.
 | General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |
 | Separable penalty that levels off at large magnitudes | [`SCAD(λ, a)`](@ref SCAD) | Nonconvex penalty with a global scalar proximal operator |
+| Count of nonzero off-diagonal entries of a symmetric matrix, with the diagonal unpenalized | [`NormL0OffDiag(λ)`](@ref NormL0OffDiag) | Nonconvex; finite, symmetric `Float32` or `Float64` dense matrices; the proximal map copies the diagonal |
 | Lasso on nonnegative variables | [`NormL1Nonneg(λ0, w)`](@ref NormL1Nonneg) | The function is defined on `x ≥ 0`; for `NaN`, infinite and extreme inputs see the [numerical contract](numerics.md) |
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |
 | One Euclidean norm | [`NormL2(λ)`](@ref NormL2) | This is a norm, not its square; a matrix uses its Frobenius norm |

@@ -338,13 +338,13 @@ end
 # count is tested without multiplying the number of stored pairs.
 @inline _l0_feasible(s, d, e) = d <= s && e <= (s - d) ÷ 2
 
-# Make the trusted triangle accessible as lower-triangle entries. In particular,
-# an upper-triangle source does not read the unselected half of the parent.
-@inline _l0_lower(x::Symmetric) = x.uplo == 'L' ? parent(x) : transpose(parent(x))
-
-function (f::IndBallL0)(x::Union{_L0Symmetric{T}, SymmetricSparseIterate{T}}) where {T<:_L0Float}
-  _l0_symmetric_value(T, f, x isa Symmetric ? _l0_lower(x) : x)
+# Dispatch with either the parent or its transpose to read just the selected
+# triangle. Each call passes a concrete type to the kernel.
+function (f::IndBallL0)(x::_L0Symmetric{T}) where {T<:_L0Float}
+  A = parent(x)
+  x.uplo == 'L' ? _l0_symmetric_value(T, f, A) : _l0_symmetric_value(T, f, transpose(A))
 end
+(f::IndBallL0)(x::SymmetricSparseIterate{T}) where {T<:_L0Float} = _l0_symmetric_value(T, f, x)
 function _l0_symmetric_value(::Type{T}, f, x) where {T}
   d, e, nan = _l0_symmetric_stats(x, f.diagonal, Val(:value))
   nan ? T(NaN) : _l0_feasible(f.s, d, e) ? zero(T) : T(Inf)
@@ -359,7 +359,8 @@ prox(f::IndBallL0, x::SymmetricSparseIterate, γ::AbstractArray) =
 
 function _l0_project!(y::Matrix{T}, f::IndBallL0, x::_L0Symmetric{T}, γ) where {T<:_L0Float}
   _l0_preflight(y, x, γ)
-  _l0_project_symmetric!(y, f, _l0_lower(x))
+  A = parent(x)
+  x.uplo == 'L' ? _l0_project_symmetric!(y, f, A) : _l0_project_symmetric!(y, f, transpose(A))
 end
 
 function _l0_project_symmetric!(y::Matrix{T}, f, x) where {T}

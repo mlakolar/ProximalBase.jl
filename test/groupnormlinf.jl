@@ -966,8 +966,8 @@ function kk_margin_ok(r, λ0, w, v, G; factor = 1, extra = 0)
 end
 
 # the families of nonzero groups: (name, far, generator (rng, m, s) -> (v, x, c0)) with v and x the m entries of the group, s the scale of
-# v and c0 the coefficient. A far family has a distance of at least s (the entries of the face have uᵢ < 0, so that each face term of the
-# distance is at least |uᵢ|, or the entry far below the level is large).
+# v and c0 the coefficient. A far family has a distance of at least s/2 (the entries of the face have uᵢ < 0, so that each face term of the
+# distance is at least |uᵢ|, or the entry far below the level is large, or, for zero gradients on the face, the distance is the coefficient s/2).
 function kk_families(::Type{T}) where {T}
   t = T(1.5)
   aligned(rng, x, s, J) = [i in J ? kk_sgn(x[i]) * s * (1 + rand(rng, T)) : s * randn(rng, T) for i in eachindex(x)]
@@ -1379,7 +1379,7 @@ end
   @test_throws DimensionMismatch kkt_violation(f, v, x[1:17])
   @test_throws DimensionMismatch kkt_violation(f, v[1:15], x[1:15])
   @test_throws ArgumentError kkt_violation(f, ones(T, 9), SymmetricSparseIterate(T, 3))
-  # a range, a view and a transposed matrix are points
+  # a view and a reshaped matrix are points
   @test kk_close(kkt_violation(f, view(v, 1:18), view(x, 1:18)), R, T, s)
   fm = GroupNormLinf(T(0.8), [[1, 3], [2, 4]], T[1, 1])
   vm, xm = T[1, 2, 3, 4], T[0, 1, 0, 0]
@@ -1417,8 +1417,8 @@ end
       end
     end
   end
-  # the coefficient zero (a zero weight, or a zero level with a finite weight, also with an infinite level or weight against the zero)
-  # gives the 2-norm of v[G] at any point
+  # the coefficient zero (a zero weight, or a zero level with a finite weight, also with an infinite level against the zero weight)
+  # gives the 2-norm of v[G] at a nonzero group, in both forms
   vg = T[3, -4, 12]
   for (λ, w) in ((zero(T), one(T)), (one(T), zero(T)), (zero(T), T(7)), (Infs, zero(T)))
     h = GroupNormLinf(λ, [1:3], T[w])
@@ -1447,7 +1447,7 @@ end
   @test kkt_violation(f2, T[1, 2, NaN, 4, Inf, 6], T[1, 0, 1, Inf, 0, NaN], 1) === r1
   @test isnan(kkt_violation(f2, T[1, 2, NaN, 4, Inf, 6], x)) && isnan(kkt_violation(f2, v, T[1, 0, 1, Inf, 0, NaN]))
   @test kkt_violation(f2, T[1, 2, 3, Inf, 5, 6], x) === Infs && kkt_violation(f2, v, T[1, 0, 1, Inf, 0, 0]) === Infs
-  # an infinite entry beside the face and an entry at the level of floatmax
+  # entries and a level at floatmax, with no infinite entry: the distance, √5 floatmax, is above floatmax, so the score is Inf
   @test kkt_violation(GroupNormLinf(M, [1:2]), T[M, M], T[1, 0], 1) === Infs
 end
 
@@ -1635,7 +1635,7 @@ end
   @test_throws ArgumentError kkt_violation(si, v, T[1, 0, 0, 0])
   @test occursin("infinite factor", kk_msg(() -> kkt_violation(si, v, T[1, 0, 0, 0])))
   # stacks that nest an infinite factor with other wrappers, built by the parameterized constructor, are refused in the same cases. The
-  # stack decides the route, so the first stack is tried on every kind of point and the other two on arrays
+  # stack decides the route, so the first stack is tried on an array, a SparseIterate and a BlockIterate and the other two on arrays
   stacks = (kk_raw(kk_raw(Scaled(f, inf), t), t), kk_raw(kk_raw(Scaled(f, t), inf), t), kk_raw(kk_chain(T, f), inf))
   rows = ((T[1, 0, 0, 0], 1), (T[1, 0, 0, 0], 2), (T[0, 0, 0, 1], 4))
   allrows = (rows..., (SparseIterate(T[1, 0, 0, 0]), 2), (BlockIterate(T[1, 0, 0], [[1, 2], [3]]), 1))
@@ -1731,7 +1731,7 @@ end
 end
 
 # warmed allocations of the scores for Array and Matrix arguments, range and vector groups, a BlockIterate point and one Scaled
-# wrapper; the arguments are not written
+# wrapper; v and x are compared with copies afterwards
 @testset "allocations and inference of the scores ($T, $layout)" for T in (Float32, Float64), layout in (:range, :perm)
   rng = Xoshiro(1017)
   sizes = [4, 33, 130, 1, 7]

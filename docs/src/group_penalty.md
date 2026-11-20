@@ -440,7 +440,7 @@ off ``J_k``, ``s_i=\operatorname{sign}(x_i)\sigma_i`` with ``\sigma_i\ge0`` on `
 
 | Group of `x` | `kkt_violation(g, v, x, k)` | Term of `kkt_violation(g, v, x)` |
 |:--|:--|:--|
-| zero | the margin ``\lVert v_{G_k}\rVert_1-c_k``, signed; a positive value means that zero violates the condition | the distance from ``v_{G_k}`` to the ℓ₁ ball of radius ``c_k``, which is ``0`` when ``\lVert v_{G_k}\rVert_1\le c_k`` (the call tests its computed sum of magnitudes) |
+| zero | the margin ``\lVert v_{G_k}\rVert_1-c_k``, signed; a positive value means that zero violates the condition | the distance from ``v_{G_k}`` to the ℓ₁ ball of radius ``c_k``, which is ``0`` for finite entries when ``\lVert v_{G_k}\rVert_1\le c_k`` (the call tests its computed sum of magnitudes) |
 | not zero | the Euclidean distance from ``-v_{G_k}`` to the subdifferential at ``x_{G_k}`` | the same distance |
 | an entry in no group | ``\lvert v_i\rvert`` | ``\lvert v_i\rvert`` |
 
@@ -460,7 +460,7 @@ group and of the distance of **every** group, a zero group included: a maximum o
 groups scores ``\lvert v_i\rvert`` of every entry. The three-argument form `kkt_violation(g, v, k)` throws an `ArgumentError` because the penalty is not
 separable, and so does a `SymmetricSparseIterate`, which has no groups.
 
-At a zero group the four-argument score is the margin and the term of the full-point value is the distance, and they are different numbers.
+At a zero group the four-argument score is the margin and the term of the full-point value is the distance, and they are in general different numbers (equal where ``v_{G_k}`` has one nonzero entry or the margin is zero; a negative margin has the term ``0``).
 With ``d=v_{G_k}-\operatorname{proj}(v_{G_k})``, the residual of the projection onto the ℓ₁ ball of radius ``c_k``, a positive margin is
 ``\lVert d\rVert_1`` and the distance is ``\lVert d\rVert_2``, so in exact arithmetic ``\text{distance}\le\text{margin}\le\sqrt{n}\,\text{distance}`` for a group of
 ``n`` entries, and both are positive for the same groups (in exact arithmetic); computed values can break these inequalities by rounding near the boundary. For the gradient `(5/8, 5/8)` with ``\lambda_0=w=1`` the margin is ``0.25`` and the
@@ -508,8 +508,8 @@ For `Float32` and `Float64` the error of a distance is, to first order in ``nu``
 with ``u=`` `eps(W)/2` for the working type `W`, ``n`` the group size and ``c_k`` as rounded to `W`, assuming ``nu\le1/4``, which is not
 checked (at most 512 entries per group in `Float16`); out of the ordinary range the value is formed in units of a power of two or
 recomputed in a wider type, which extends the range and not the precision (see the [numerical contract](numerics.md)). In the tests, the calls on `Array`
-arguments of these types allocate nothing after the first call, and write neither `v` nor `x`. A call reads each group in two classification
-passes; apart from the early exits of the exceptional values and of a zero group inside the ball, a nonzero group runs the pass of the face, the
+arguments of these types allocate nothing after the first call, and write neither `v` nor `x`. The four-argument call reads one group: a zero group has the zero test of ``x_{G_k}`` and one sum of ``\lvert v_i\rvert``, with no classification pass, and at a nonzero group the zero test comes before the passes below.
+The full-point call reads every group; apart from the early exits of the exceptional values and of a zero group inside the ball, a nonzero group runs the pass of the face, the
 level iteration where the closed-form level is not certified, and the pass of the squares, and a zero group outside the ball runs the level iteration and the
 pass of the squares; the paths for values out of the ordinary range add passes. The speed of the call is not tuned.
 

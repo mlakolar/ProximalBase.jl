@@ -427,7 +427,7 @@ end
 #              whose magnitude, after the conversion to W, equals the largest one, with no tolerance; the exceptional values and
 #              the accuracy bound are those of _linf_point, for the n entries of the group.
 # The full-point form scores every group by that distance, a zero group included, where it is the distance from v[G] to the ℓ1
-# ball of radius c (zero when the sum of the magnitudes of v[G], as computed in W, is at most c), not the margin of the four-argument form. BlockIterate(x, f), the three-argument form
+# ball of radius c (zero for finite entries when the sum of the magnitudes of v[G], as computed in W, is at most c), not the margin of the four-argument form. BlockIterate(x, f), the three-argument form
 # and the symmetric iterate follow GroupNormL2.
 kkt_violation(f::GroupNormLinf, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _not_separable_error(f))
@@ -463,8 +463,8 @@ end
 end
 
 # The score of a group (_linf_group_score) with the level λ of the call. Group k of f is selected by the entry i of an array
-# point (an entry in no group has the score |vᵢ|) or by the group number k of a BlockIterate, whose layout is compared with that
-# of f at group k alone. A SymmetricSparseIterate has no groups.
+# point (an entry in no group has the score |vᵢ|) or by the group number k of a BlockIterate, whose group count and
+# layout at group k are compared with those of f. A SymmetricSparseIterate has no groups.
 function _level_score(f::GroupNormLinf, λ, g::AbstractArray, x::AbstractArray, i::Integer)
   length(g) == length(x) || _gradient_length_error(g, x)
   _check_group_extent(f, x)

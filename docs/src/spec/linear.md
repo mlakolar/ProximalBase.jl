@@ -104,6 +104,8 @@ f(x)
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
 
+**`LinearFunction`**
+
 Non-finite entries follow arithmetic,
 except at a zero of a matrix `SparseIterate` (below); finite-data overflowed values
 have a scaled recovery path.

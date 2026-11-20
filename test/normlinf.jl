@@ -141,8 +141,9 @@ end
 
 @testset "Michelot fallback and its stopping rule ($T)" for T in (Float32, Float64)
   δ = nextfloat(zero(T))
-  # a level that rounds onto the entries: ones with a radius below the spacing of the sum. At n = 2000 and 2001 the
-  # candidate set passes max(1024, n ÷ 8) and Michelot's algorithm takes over; the level (n - r)/n rounds to 1
+  # a level that rounds onto the entries: ones with a radius below the spacing of the sum. At n = 2000 and 2001 (the prox gives
+  # the routine the sum of its pass) the candidates pass the early count max(8, n ÷ 8) = 250 while the level of Condat's pass is
+  # below the plain level of all the entries, and Michelot's iteration takes over; the level (n - r)/n rounds to 1
   r0 = T == Float64 ? T(8e-14) : T(4.5e-5)
   for n in (2000, 2001)
     f = NormLinf(r0)
@@ -176,11 +177,14 @@ end
     ref, _ = ref_prox(x, T(r), one(T))
     @test close_prox(y, ref, x) && kkt_ok(y, x, T(r), one(T))
   end
-  # the branch is taken: Condat's pass hands over when more than max(1024, n ÷ 8) entries are candidates, so a buffer of
-  # that length suffices for it and the call returns Michelot's level (checked where a write past the buffer throws)
+  # the branch is taken: without the caller's sum Condat's pass hands over when more than max(1024, n ÷ 8) = 1024 entries are
+  # candidates. The count is tested after each group of four entries, after the steps have stored their entries, so it can pass
+  # that limit by up to four before the handover (the early count 250 is more than four below 1024, and these entries do not
+  # restart the candidates): a buffer of 1024 + 4 entries suffices, and the call returns Michelot's level (checked where a write
+  # past the buffer throws; the pass stores 1025 entries here)
   if Base.JLOptions().check_bounds == 1
     x = ones(T, 2001)
-    buf = Vector{T}(undef, 1024)
+    buf = Vector{T}(undef, 1024 + 4)
     τ = PB._l1ball_threshold!(buf, x, r0, PB._AbsRead{T}())
     @test τ == 1 && τ == PB._l1ball_michelot(x, r0, PB._AbsRead{T}(), T)
   end
@@ -745,7 +749,8 @@ function prox_msg(::Type{T}, x, groups, λ; entry_points = true, scaled = true) 
 end
 
 # a head of h entries H above m ties y0, in an entry order: heads first, last, in the middle, or last followed by zeros (the padding
-# keeps the number of candidates of Condat's pass below the handover, so that the pass runs alone)
+# makes n ÷ 8 larger than the number of nonzero entries, so that the count of candidates stays below both counts of the handover
+# when the level of Condat's pass is not negative at the zeros, and the pass runs alone)
 function place_input(ties::Vector{T}, heads::Vector{T}, order) where {T}
   m = length(ties)
   order === :first && return vcat(heads, ties)
@@ -759,8 +764,9 @@ const ORDERS = (:first, :last, :middle, :padded)
 # the inputs of #1003, measured at the base: levels 0.17933007, 0.29999998, 0.8999997002396832 and 0.0027803732 where the levels
 # of the issue are about 0.5, 0.93, 0.9 and 0.5 (the last field of each tuple is that approximate target: the exact level of the
 # stored data of input 2 is 0.9300000429153442, and that of input 3 is 1 - BigFloat(0.1); each test compares with the exact
-# level of the data). Input 1: Condat's pass hands over to Michelot's iteration (10^5 candidates); input 2: the pass alone (the
-# zeros keep the candidates below the handover); inputs 3 and 4: Michelot's iteration after the handover.
+# level of the data). Input 1: Condat's pass hands over to Michelot's iteration (its ties are candidates, and their count passes
+# n ÷ 8); input 2: the pass alone (the zeros keep the candidates below the handover); inputs 3 and 4: Michelot's iteration after
+# the handover.
 function issue1003_inputs()
   y0, y1, y2 = 0.17933106f0, 0.8999997002398832, 0.0027806521f0
   (("1", Float32, [fill(y0, 100_000); 1f0], 0.5f0, 0.5),
@@ -889,8 +895,9 @@ end
 
 @testset "a grid of clusters around the breakpoint: the prox against the exact level ($T)" for T in (Float32, Float64)
   # one head entry above m equal entries, the radius just above the breakpoint y1 - y0 by a multiple of the rounding error of
-  # the sum of the entries (read from the sum that the kernel forms): Condat's pass hands over for m ≥ 1024, and the returns of
-  # Michelot's iteration are those near a tie
+  # the sum of the entries (read from the sum that the kernel forms): Condat's pass hands over to Michelot's iteration (at the
+  # early count max(8, n ÷ 8) for m = 1000 and 3000, while its level is below the plain level of all the entries, and at n ÷ 8
+  # for m = 10^4), and the returns of Michelot's iteration are those near a tie
   bad = 0
   for m in (1000, 3000, 10_000), y0f in (0.1, 0.3, 1 / 3, 0.9), mult in (2, 10), pos in (:first, :last), θ in (0.05, 0.6, 1.5)
     y0 = T(y0f)
@@ -910,8 +917,12 @@ end
 end
 
 @testset "head and ties where the first level lies within the rounding of the sum ($T)" for T in (Float32, Float64)
-  # heads first, last, in the middle and padded with zeros (Condat's pass alone); the inputs of #1003 are of this form (Float32,
-  # m ≥ 10^4). All entry points on the small inputs and on one radius of the large ones
+  # heads first, last, in the middle and padded with zeros; the inputs of #1003 are of this form (Float32, m ≥ 10^4). Paths:
+  # with the head first the ties are discarded and Condat's pass runs alone on at most four stored entries (the plain pass),
+  # except for some inputs with m = 10, which hand over at the early count; padded, the pass runs alone; with the ties first or
+  # around the head they are candidates and the pass hands over (at the early count for m = 10 and 1000, at n ÷ 8 for m ≥ 10^4),
+  # except with m = 10 in the middle, where the head restarts the candidates before the count is passed. All entry points on the
+  # small inputs and on one radius of the large ones
   bad = 0
   ncase = 0
   for (m, cf, ρ, order, x) in head_ties_cases(T)
@@ -973,8 +984,9 @@ end
 
 @testset "Condat's pass alone, with a restart and with the handover ($T)" for T in (Float32, Float64)
   rd = PB._AbsRead{T}()
-  # the pass alone reads each entry once (the buffer is read through `identity`); the exact level of these three inputs is 3/2
-  # (the entries 3 and 2 are above it: 3/2 + 1/2 = 2 = a) and the pass returns it
+  # the pass alone reads each entry once (the stored entries, two or three here, are read by the plain pass, through
+  # `_plain_read`); the exact level of these three inputs is 3/2 (the entries 3 and 2 are above it: 3/2 + 1/2 = 2 = a) and the
+  # pass returns it
   for x in (T[3, 2, 1, 0.5], T[1, 3, 2, 0.5], T[1, 3, 2, 0.5, 0.25, 0.125, 0, 0])
     # the second input restarts the candidates at the entry 3 (the test of the join, 1 > (3 - 2)·1, fails), and the third has
     # entries that are discarded below the level of the candidates
@@ -984,18 +996,166 @@ end
     length(x) == 4 && @test PB._l1ball_michelot(x, T(2), rd, T) == T(3) / 2    # the plain level 9/8 and one step: exact in binary
     @test level_msg(arith(T), ref_groups(x), length(x), 3, T(2), PB._l1ball_michelot(x, T(2), rd, T)) === nothing
   end
-  # the handover: more than max(1024, n ÷ 8) candidates (2001 equal entries) go to Michelot's iteration, which reads the argument
-  # again; the level is the entries' value, as the existing test of the Michelot fallback has it
+  # the handover: 2001 equal entries with a radius below half the spacing of their sum. Each entry joins the candidates, so after
+  # g groups of four the count is 1 + 4g. Without the caller's sum only the count max(1024, n ÷ 8) = 1024 applies, and the count
+  # 1025 at g = 256 hands over after 1025 reads; the handover sums the entries (2001 reads), its start (2001 - a0)/2001 rounds to
+  # 1, the value of the entries, so the pass at 1 finds no entry above it (2001 reads), and the largest entry is returned (2001
+  # reads). The level is the entries' value, as the test of the Michelot fallback has it
   a0 = T == Float64 ? T(8e-14) : T(4.5e-5)
   c = CountRead{T}()
   x = ones(T, 2001)
   @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c) == 1
-  @test c.calls[] > 2001
-  # the callers give the sum of their own pass: the handover then starts at its level, and the pass that sums the entries is not
-  # made
+  @test c.calls[] == 1025 + 3 * 2001
+  # the callers give the sum of their own pass: then the early count max(8, n ÷ 8) = 250 applies, the count 253 at g = 63 is
+  # above it while the level of the pass (below 1) is below the plain level 1 of all the entries, and the pass hands over after
+  # 253 reads; the handover starts at that plain level and does not sum the entries (2 · 2001 more reads)
   c2 = CountRead{T}()
   @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c2, PB._linf_sum(x, rd, T)) == 1
-  @test c.calls[] - c2.calls[] == 2001
+  @test c2.calls[] == 253 + 2 * 2001
+end
+
+@testset "the counts of the handover of Condat's pass, read by a counting reader ($T)" for T in (Float32, Float64)
+  rd = PB._AbsRead{T}()
+  # ones(n) with the radius a = eps/2: 1 - a = prevfloat(1) and nv (1 - a) rounds below nv, so every entry joins the candidates;
+  # the sum n - a rounds to n, so the plain level of all the entries is 1, while the level ρ of the pass stays below 1. With the
+  # caller's sum the pass hands over at the first test of the count above c = max(8, n ÷ 8): after g groups of four the count is
+  # 1 + 4g, so the pass reads 1 + 4(⌊(c - 1)/4⌋ + 1) entries: 9 for n = 9 to 71 (c = 8), 13 at n = 72 (c = 9), and 1025 at n =
+  # 8191 (c = 1023, below the count max(1024, n ÷ 8) = 1024, and the level is tested) and at n = 8192 (c = 1024: the count
+  # decides without the test of the level). The handover starts at 1, where no entry is above the level, and returns the largest
+  # entry: 2n more reads. At n = 8 the count is not tested above 5 (one group of four; the last three entries are not tested), so
+  # the pass runs alone and reads the argument once
+  a = eps(T) / 2
+  reads(x; sum = true) = begin
+    c = CountRead{T}()
+    buf = Vector{T}(undef, length(x))
+    τ = sum ? PB._l1ball_threshold!(buf, x, a, c, PB._linf_sum(x, rd, T)) : PB._l1ball_threshold!(buf, x, a, c)
+    τ, c.calls[]
+  end
+  condat_reads(n) = (c = max(8, n ÷ 8); 1 + 4 * (div(c - 1, 4) + 1))
+  @test all(==(9), condat_reads.(9:71)) && condat_reads(72) == 13 && condat_reads(8191) == condat_reads(8192) == 1025
+  @test reads(ones(T, 8)) == (1, 8)
+  for n in [9:72; 8191; 8192]
+    @test reads(ones(T, n)) == (1, condat_reads(n) + 2n)
+  end
+  # without the caller's sum only the count max(1024, n ÷ 8) applies, and the handover sums the entries (n more reads). At
+  # n = 2001 the count 253 above c = 250 raises the count to test to 1024, and the count 1025 hands over; at n = 8191 the count
+  # 1025 above c = 1023 raises it to 1024, and the next group hands over at 1029 (four above the limit, after a test that left
+  # the count above it); at n = 8192 the count 1025 hands over
+  @test reads(ones(T, 2001); sum = false) == (1, 1025 + 3 * 2001)
+  @test reads(ones(T, 8191); sum = false) == (1, 1029 + 3 * 8191)
+  @test reads(ones(T, 8192); sum = false) == (1, 1025 + 3 * 8192)
+  # the count is not tested in the loop of the last one to three entries: eight ones and a zero, so that the count after the two
+  # groups of four is 8 (not above c = 8), and k = 1, 2, 3 more ones, which bring it to 8 + k without a handover
+  for k in 1:3
+    x = [ones(T, 8); zero(T); ones(T, k)]
+    τ, r = reads(x)
+    @test r == length(x)
+    @test level_msg(arith(T), ref_groups(x), length(x), 1, a, τ) === nothing
+  end
+  # the level decides: [ones(200); zeros(800)] with the radius 10^-3 and the caller's sum. The count 129 after 32 groups is above
+  # c = 125, but the level of the pass (about 1 - 10^-3/129) has passed the plain level (200 - 10^-3)/1000 of all the entries,
+  # so the pass continues, the 200 candidates stay below the count 1024, and the argument is read once (a handover by the count
+  # alone would read it again)
+  x = [ones(T, 200); zeros(T, 800)]
+  c = CountRead{T}()
+  τ = PB._l1ball_threshold!(Vector{T}(undef, 1000), x, T(1e-3), c, PB._linf_sum(x, rd, T))
+  @test c.calls[] == 1000
+  @test level_msg(arith(T), ref_groups(x), 1000, 1, T(1e-3), τ) === nothing
+  # the start of the handover: [ones(1500); zeros(500)] with the radius a3 = 10^-3 and the caller's sum. The level passes the
+  # plain level (1500 - a3)/2000 by the count 253 (above c = 250), so the pass hands over at the count 1025 > 1024 (1025 reads),
+  # and the handover starts at ρ, above the plain level. In Float64 the join values increase with the count here (a3/nv² is above
+  # u), and ρ ≈ 1 - a3/1025: the pass at ρ gives the excess 1500 (1 - ρ) ≈ 1.463 a3, within a3/2 of the radius, and the step to
+  # about 1 - a3/1500 stays below the entries, so it is returned after one pass; from the plain level the first step comes from
+  # the excess of about 375 and is not returned, and a second pass follows. In Float32 the join values peak near √(a3/u) ≈ 130
+  # candidates, and ρ ≈ 1 - 1.6e-5: the excess 1500 (1 - ρ), a sum of equal multiples of 2^-24, is exact and above 1.5 a3, the step
+  # lands on 1 - 11·2^-24 (the exact level is about 1 - 11.18·2^-24), and the second pass returns it (its excess 16500·2^-24 is
+  # at most a3)
+  x = [ones(T, 1500); zeros(T, 500)]
+  a3 = T(1e-3)
+  s = PB._linf_sum(x, rd, T)
+  c = CountRead{T}()
+  τ = PB._l1ball_threshold!(Vector{T}(undef, 2000), x, a3, c, s)
+  @test level_msg(arith(T), ref_groups(x), 2000, 1, a3, τ) === nothing
+  @test c.calls[] == 1025 + (T == Float64 ? 1 : 2) * 2000
+  if T == Float64
+    c3 = CountRead{T}()
+    τ3 = PB._l1ball_iterate(x, 2000, a3, c3, (s - a3) / 2000)
+    @test c3.calls[] == 2 * 2000 && level_msg(arith(T), ref_groups(x), 2000, 1, a3, τ3) === nothing
+  end
+end
+
+# a vector that counts the reads of its entries (the plain pass reads the buffer through getindex)
+struct CountVec{T} <: AbstractVector{T}
+  v::Vector{T}
+  calls::Base.RefValue{Int}
+end
+CountVec(v::Vector{T}) where {T} = CountVec{T}(v, Ref(0))
+Base.size(c::CountVec) = size(c.v)
+Base.@propagate_inbounds Base.getindex(c::CountVec, i::Int) = (c.calls[] += 1; c.v[i])
+
+@testset "the pass over at most four stored entries against the sequential iteration ($T)" for T in (Float32, Float64)
+  # The plain pass (the reader `_plain_read`) sums in the order of the buffer, so `_l1ball_iterate` with it returns the level of
+  # `seq_iterate` bit for bit, and reads each entry once per pass and once more for the largest entry at the return (a): a vector
+  # that counts its reads gives the number of passes. Each return for 1 to 4 entries: (a) the level 1 with the entries at most 1;
+  # (b) m entries 2 with the radius m from the level 1 (the excess m); (c) the first radius of a grid for which the plain level
+  # gives a certified step at the first pass, and a radius with more than one pass; (d) m entries 1 + eps from the level 1 with
+  # the radius 0.625 m eps (and one such entry with entries below 1 and the radius 0.625 eps): the excess is 0.375 eps per entry
+  # above the level beyond the radius, above half the radius, and the step 0.375 eps is below half the spacing eps above 1, so
+  # the level does not move (in Float64 one entry 1 + 2^-52 with the radius 1.25·2^-53; in Float32 1 + 2^-23 with 1.25·2^-24)
+  e = eps(T)
+  rd = PB._AbsRead{T}()
+  seen = Dict{Symbol, Int}()
+  function check(y, a, τ0, want)
+    cv = CountVec(copy(y))
+    τ = PB._l1ball_iterate(cv, length(y), a, PB._plain_read, τ0)
+    τs, exit, _, passes = seq_iterate(y, a, τ0)
+    seen[exit] = get(seen, exit, 0) + 1
+    @test bits(τ) == bits(τs)
+    @test cv.calls[] == (passes + (exit === :top)) * length(y)
+    want === nothing || @test exit === want
+    passes
+  end
+  for m in 1:4
+    check(T[1, 0.5, 0.25, 0.75][1:m], T(0.1), one(T), :top)
+    check(fill(T(2), m), T(m), one(T), :level)
+    check(fill(1 + e, m), T(0.625) * m * e, one(T), :vanish)
+    check([1 + e; T[0.5, 0.25, 0.75][1:(m - 1)]], T(0.625) * e, one(T), :vanish)
+    y = T[1, 0.75, 1.5, 1.25][1:m]
+    grid = T.(0.02:0.001:0.98)
+    i = findfirst(a -> seq_iterate(y, a, (sum(y) - a) / m)[2:2:4] == (:cert, 1), grid)
+    @test i !== nothing
+    i === nothing || check(y, grid[i], (sum(y) - grid[i]) / m, :cert)
+    grid = T.(0.05:0.05:0.95)
+    i = findfirst(a -> seq_iterate(y, a, (sum(y) - a) / m)[4] >= 2, grid)
+    m >= 2 && @test i !== nothing
+    i === nothing || @test check(y, grid[i], (sum(y) - grid[i]) / m, nothing) >= 2
+  end
+  @test all(haskey(seen, x) for x in (:top, :level, :cert, :vanish))
+  # inputs of 1 to 4 entries through the routine (with the caller's sum, as the callers call it): Condat's pass reads them one by
+  # one (no group of four) and stores at most four of them, and its level equals that of `seq_iterate` from the same start on the
+  # same stored entries, formed here with the package's step
+  rng = Xoshiro(1015)
+  u = eps(T) / 2
+  bad = 0
+  for n in 1:4, _ in 1:100
+    x = T[rand(rng, (T(1), T(2), T(0.5), T(3), rand(rng, T))) for _ in 1:n]
+    s = PB._linf_sum(x, rd, T)
+    for f in (1e-3, 0.1, 0.5, 0.9)
+      a = T(f) * s
+      a < s || continue
+      buf = Vector{T}(undef, n)
+      buf[1] = x[1]
+      nt, nv, sv, ρ = 0, 1, x[1], prevfloat(x[1] - a)
+      for j in 2:n
+        nt, nv, sv, ρ = PB._condat_step!(buf, x[j], nt, nv, sv, ρ, a, u)
+      end
+      lv = nv == 1 ? sv - a : (sv - a) / nv
+      τs = seq_iterate(buf[1:(nt + nv)], a, ifelse(lv > ρ, lv, ρ))[1]
+      τ = PB._l1ball_threshold!(Vector{T}(undef, n), x, a, rd, s)
+      bad += bits(τ) != bits(τs) || level_msg(arith(T), ref_groups(x), n, maximum(x), a, τ) !== nothing
+    end
+  end
+  @test bad == 0
 end
 
 @testset "the discard level of Condat's pass does not decrease (Float32)" begin
@@ -1027,7 +1187,9 @@ end
   # x = [δ (25 times), 1], a = 1/2: at each join the numerator of the join value is negative (the sum of the candidates is
   # subnormal and a is normal, so the difference is not exact). The value is then at most zero, and not at most L_V + δ/2 with
   # L_V = (Σ_V - a)/nv the exact level of the candidates: in Float32 the value at 25 candidates, -0.02f0, is above L_V + δ/2 by
-  # about 4.5e-10. The level that the routine returns is within the bounds of the exact level 1/2
+  # about 4.5e-10. The level that the routine returns is within the bounds of the exact level 1/2: called without the caller's
+  # sum (Condat's pass alone, through these 25 candidates and a restart at the entry 1), and through the prox, which gives its
+  # sum (the pass hands over at the early count max(8, n ÷ 8) = 8, its level being below the plain level of all the entries)
   δ = nextfloat(zero(T))
   a = T(0.5)
   x = [fill(δ, 25); one(T)]
@@ -1035,7 +1197,7 @@ end
   buf[1] = δ
   nt, nv, s, ρ = 0, 1, δ, prevfloat(δ - a)
   for i in 2:25
-    nt, nv, s, ρ, _ = PB._condat_step!(buf, x[i], nt, nv, s, ρ, a, 1024, eps(T) / 2)
+    nt, nv, s, ρ = PB._condat_step!(buf, x[i], nt, nv, s, ρ, a, eps(T) / 2)
   end
   @test nv == 25 && s < floatmin(T) && ρ <= 0
   T == Float32 && @test big(ρ) > (25 * big(δ) - big(a)) / 25 + big(δ) / 2
@@ -1145,8 +1307,10 @@ end
   ncase = 0
   report(tag, msg) = (ncase += 1; msg === nothing || (bad += 1; @info "family" T tag msg))
   # equal entries with 1, 2 and 10 larger ones, n from 2 to 10^5, the radius around the breakpoint h (H - y0) where the level
-  # reaches the ties (H = y0 + 0.7 up to a rounding). Paths: Condat's pass alone when the ties are not candidates, or when the zeros
-  # of the padded order keep the candidates below the handover, and the handover to Michelot's iteration otherwise (m ≥ 1024)
+  # reaches the ties (H = y0 + 0.7 up to a rounding). Paths: Condat's pass alone when the ties are not candidates (the plain pass
+  # when at most four entries are stored), or when the zeros of the padded order keep the candidates below the counts of the
+  # handover, and the handover to Michelot's iteration otherwise (at the early count max(8, n ÷ 8) up to m = 1000, at n ÷ 8 for
+  # m = 10^4)
   for m in (1, 2, 9, 1000, 10^4), h in (1, 2, 10), y0f in (0.1, 0.3, 0.9), order in ORDERS, f in (0.2, 0.95, 1.0, 1.05, 3.0)
     x = tie_input(T, y0f, m, y0f + 0.7, h, order)
     a = T(f * h * 0.7)
@@ -1179,7 +1343,8 @@ end
   rd = PB._AbsRead{T}()
   bad = 0
   # equal entries and a radius below the spacing of their sum: some radii round the plain level onto the entries, and the grid
-  # also has levels just below them (Michelot's iteration after the handover for n > 2000, Condat's pass alone below)
+  # also has levels just below them. Paths: the plain pass at n = 4; at the other sizes, depending on the radius, Condat's pass
+  # alone or the handover to Michelot's iteration (at the early count for n = 100 and 2001, at n ÷ 8 for n = 20001)
   for n in (4, 100, 2001, 20_001), y0 in T[1, 0.3, 0.7], a in (eps(y0) / 4, eps(y0), 3 * eps(y0), T(1.25) * eps(T), eps(T) * n * y0 / 1000)
     x = fill(y0, n)
     bad += prox_msg(T, x, ref_groups(x), a; entry_points = n < 1000, scaled = n < 1000) !== nothing
@@ -1233,12 +1398,31 @@ end
       for f in (1e-4, 0.01, 0.3, 0.9, 0.99)
         a = T(f * Float64(sum(Float64, x)))
         τ = PB._l1ball_threshold!(Vector{T}(undef, n), x, a, PB._AbsRead{T}())
+        τs = PB._l1ball_threshold!(Vector{T}(undef, n), x, a, PB._AbsRead{T}(), PB._linf_sum(x, PB._AbsRead{T}(), T))
         τm = PB._l1ball_michelot(x, a, PB._AbsRead{T}(), T)
-        ok &= level_msg(ar, groups, n, M, a, τ) === nothing && level_msg(ar, groups, n, M, a, τm) === nothing
+        ok &= all(t -> level_msg(ar, groups, n, M, a, t) === nothing, (τ, τs, τm))
       end
     end
     T === BigFloat ? setprecision(run, BigFloat, bits) : run()
     @test ok
+  end
+  # the test of the level for these types, with the caller's sum: ones(100) with the radius eps/2 hand over at the first test (the
+  # count 13 above max(8, 100 ÷ 8) = 12, the level of the pass below the plain level 1 of all the entries): 13 reads, then the
+  # pass at 1 and the largest entry (200 reads). [ones(20); zeros(80)] with the radius 0.01 passes that count with a level above
+  # the plain level (about 1 against 0.2), and the argument is read once
+  for T in (BigFloat, Float16)
+    counts() = begin
+      rd = PB._AbsRead{T}()
+      x = ones(T, 100)
+      c = CountRead{T}()
+      τ = PB._l1ball_threshold!(Vector{T}(undef, 100), x, eps(T) / 2, c, PB._linf_sum(x, rd, T))
+      x2 = [ones(T, 20); zeros(T, 80)]
+      c2 = CountRead{T}()
+      τ2 = PB._l1ball_threshold!(Vector{T}(undef, 100), x2, T(0.01), c2, PB._linf_sum(x2, rd, T))
+      ar = T === BigFloat ? (u = big(2.0)^-64, δ = big(nextfloat(zero(BigFloat)))) : arith(T)
+      (τ == 1 && c.calls[] == 13 + 200, c2.calls[] == 100 && level_msg(ar, ref_groups(x2), 100, 1, T(0.01), τ2) === nothing)
+    end
+    @test all(T === BigFloat ? setprecision(counts, BigFloat, 64) : counts())
   end
 end
 
@@ -1284,12 +1468,18 @@ end
 @testset "the threshold routines do not allocate ($T)" for T in (Float32, Float64)
   rng = Xoshiro(1005)
   rd = PB._AbsRead{T}()
-  # Condat's pass alone (random entries and ties with a head), the handover, and a start far below the level (several passes)
+  # each input with and without the caller's sum. "random": with the sum the handover at the early count max(8, n ÷ 8), without
+  # it Condat's pass alone; "heads and ties": Condat's pass alone on 10001 stored entries; "ones", and "ramp" (a start far below
+  # the level, several passes): with the sum the handover at the early count, without it at max(1024, n ÷ 8); "one stored entry":
+  # Condat's pass alone with the plain pass; "level passed": the handover at max(1024, n ÷ 8) from the level of the pass, which
+  # has passed the plain level of all the entries
   x1 = gen(rng, T, 1000, 1)
   inputs = (("random", x1, T(0.3) * sum(abs, x1)),
             ("heads and ties", tie_input(T, 0.3, 10^4, 1.0, 1, :padded), T(0.4)),
-            ("handover", ones(T, 5000), T(1.5)),
-            ("ramp", T.(range(1, 2; length = 3000)), T(100)))
+            ("ones", ones(T, 5000), T(1.5)),
+            ("ramp", T.(range(1, 2; length = 3000)), T(100)),
+            ("one stored entry", [T(5); fill(T(0.1), 999)], T(1)),
+            ("level passed", [ones(T, 1500); zeros(T, 500)], T(1e-3)))
   for (name, x, a) in inputs
     buf = Vector{T}(undef, length(x))
     @test allocs(PB._l1ball_threshold!, buf, x, a, rd) == 0

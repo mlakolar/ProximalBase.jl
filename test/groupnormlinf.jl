@@ -257,8 +257,8 @@ end
   rng = Xoshiro(956)
   λ = T(0.7)
   checked = 0
-  # Condat's pass decides these (at most 1024 candidates), with a normal γλ and values in the ordinary range: the level,
-  # the clip and the value agree bit for bit
+  # Condat's pass decides these, alone or with the handover to Michelot's iteration at the early count max(8, n ÷ 8) (from n = 16
+  # on), with a normal γλ and values in the ordinary range: the level, the clip and the value agree bit for bit
   for n in (1, 2, 3, 5, 16, 17, 100, 300, 1000), kind in 1:3
     x = gen(rng, T, n, kind)
     s1 = sum(abs, x)
@@ -363,7 +363,8 @@ end
     @test same(vec(Y)[1:p], y)
   end
   @test nclipped > 20 && nzero > 5 && ncopied > 3
-  # a group of 5000 entries without ties: more than 1024 candidates, so that Michelot's pass decides
+  # a group of 5000 entries without ties: through the prox (with the sum of the group) its candidates pass the early count
+  # max(8, n ÷ 8) = 625 while the level of Condat's pass is below the plain level of all the entries, so that Michelot's pass decides
   n = 5000
   x = T[rand(rng, T) for _ in 1:n]
   s1 = sum(abs, x)
@@ -375,9 +376,12 @@ end
   @test close_prox(y, ref, xx, f.groups)
   @test kkt_ok(y[1:n], xx[1:n], γ, λ0, f.w[1]) && kkt_ok(y[n+1:n+3], xx[n+1:n+3], γ, λ0, f.w[2])
   if Base.JLOptions().check_bounds == 1
-    # the pass hands over at max(1024, n ÷ 8) candidates: a buffer of that length suffices for it, and the call returns
-    # Michelot's level (checked where a write past the buffer throws)
-    buf = Vector{T}(undef, 1024)
+    # without the caller's sum the pass hands over when more than max(1024, n ÷ 8) = 1024 entries are candidates. The count is
+    # tested after each group of four entries, after the steps have stored their entries, so it can pass that limit by up to four
+    # before the handover (the early count 625 is more than four below 1024, and these entries, all below the radius, do not
+    # restart the candidates): a buffer of 1024 + 4 entries suffices, and the call returns Michelot's level (checked where a write
+    # past the buffer throws)
+    buf = Vector{T}(undef, 1024 + 4)
     xv = PB._IndexedValues(xx, f.groups[1], T)
     r = T(0.5) * s1
     τ = PB._l1ball_threshold!(buf, xv, r, PB._AbsRead{T}())

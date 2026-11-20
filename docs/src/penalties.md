@@ -498,7 +498,10 @@ matrix and nothing for the diagonal, so a nonzero symmetric pair costs `2λ`.
 It accepts finite dense `Float32` or `Float64` matrices that are symmetric
 under `==`. The proximal map copies the diagonal and decides each
 off-diagonal entry with the rule of [`NormL0`](@ref): an entry is kept when
-its square exceeds `2γλ` and is positive zero otherwise. The all-entry
+its square exceeds `2γλ` and is positive zero otherwise, with the
+comparison exact when `λ` and `γ` convert exactly to the working type of
+`NormL0`; other levels and steps, for example a `Rational` or an `Int` above
+`2^53`, are rounded to that type first. The all-entry
 `NormL0` applies the same rule to the diagonal, which can set a small
 diagonal entry to zero.
 

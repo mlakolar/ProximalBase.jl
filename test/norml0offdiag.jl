@@ -190,7 +190,7 @@ end
   end
 end
 
-# The pairs of an all-entry prox! of NormL0 off the diagonal, and its diagonal.
+# A random exactly symmetric matrix, and entries planted at and next to the threshold t.
 function symmetric_random(rng, ::Type{T}, p) where {T}
   A = randn(rng, T, p, p)
   A .+ A'
@@ -336,8 +336,9 @@ end
     refuses(ArgumentError, f, sentinel()', S)
     refuses(ArgumentError, f, sentinel(), view(S, [1, 2, 3, 4, 5], :); value = true)
     refuses(ArgumentError, f, view(sentinel(), [1, 2, 3, 4, 5], :), S)
-    refuses(ArgumentError, f, sentinel(), matrixview(SymmetricSparseIterate(S)); watch = (sentinel(),), value = true)
-    refuses(ArgumentError, f, sentinel(), SparseIterate(S); watch = (sentinel(),), value = true)
+    Y = sentinel()
+    refuses(ArgumentError, f, Y, matrixview(SymmetricSparseIterate(S)); watch = (Y,), value = true)
+    refuses(ArgumentError, f, Y, SparseIterate(S); watch = (Y,), value = true)
     refuses(ArgumentError, f, sentinel(), Diagonal(diag(S)); value = true)
     refuses(ArgumentError, f, sentinel(), OffsetArray(S, 0:p - 1, 0:p - 1); value = true)
     refuses(ArgumentError, f, OffsetArray(sentinel(), 0:p - 1, 0:p - 1), S)
@@ -587,6 +588,50 @@ end
   A[1, 2] += 1
   @test_throws ArgumentError prox(Scaled(f, T(2)), A)
   @test_throws ArgumentError Scaled(f, T(2))(A)
+end
+
+# A Float32 matrix stored in a reinterpreted Float64 or ComplexF32 array.
+function reinterpreted(::Type{P}, A::Matrix{Float32}) where {P}
+  p = size(A, 1)
+  R = reinterpret(Float32, Matrix{P}(undef, p ÷ 2, p))
+  for j in 1:p, i in 1:p
+    R[i, j] = A[i, j]
+  end
+  R
+end
+
+@testset "reinterpreted matrices, $P parent, p = $p" for P in (Float64, ComplexF32), p in (4, 8, 10)
+  rng = Xoshiro(900 + p)
+  S = symmetric_random(rng, Float32, p)
+  γ = 1f0
+  for λ in (0.5f0, 0.5)
+    f = NormL0OffDiag(λ)
+    expected = prox(f, S, γ)
+    ev = f(expected)
+    nans() = fill(NaN32, p, p)
+    # as the input only
+    X = reinterpreted(P, S)
+    @test X isa StridedMatrix{Float32} && isequal(Matrix(X), S)
+    Y = nans()
+    @test prox!(Y, f, X, γ) === Y && isequal(Y, expected)
+    Y = nans()
+    @test value_and_prox!(Y, f, X, γ) === ev && isequal(Y, expected)
+    @test isequal(prox(f, X, γ), expected)
+    @test f(X) === f(S)
+    @test isequal(Matrix(X), S)
+    # as the output only
+    Y = reinterpreted(P, nans())
+    @test prox!(Y, f, S, γ) === Y && isequal(Matrix(Y), expected)
+    Y = reinterpreted(P, nans())
+    @test value_and_prox!(Y, f, S, γ) === ev && isequal(Matrix(Y), expected)
+    # as the input and the output, with another matrix and in place
+    Y = reinterpreted(P, nans())
+    @test prox!(Y, f, reinterpreted(P, S), γ) === Y && isequal(Matrix(Y), expected)
+    Z = reinterpreted(P, S)
+    @test prox!(Z, f, Z, γ) === Z && isequal(Matrix(Z), expected)
+    Z = reinterpreted(P, S)
+    @test value_and_prox!(Z, f, Z, γ) === ev && isequal(Matrix(Z), expected)
+  end
 end
 
 # Bytes allocated by one call after warm-up calls, measured inside a function.

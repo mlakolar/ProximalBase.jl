@@ -16,11 +16,15 @@ accepted. The step `γ` is a finite real number that is positive.
 the element type `T` of `X`. It is `zero(T)` when `k = 0` or `λ = 0`.
 Otherwise it is `convert(T, R(λ) * R(k))` with
 `R = promote_type(T, float(typeof(λ)))`, so a `Float64` level is not rounded to
-`Float32` before the product. The result is `Inf` when the product exceeds the
-range of `T`.
+`Float32` before the product. The result can overflow to `Inf` when the product
+rounds beyond `floatmax(T)`.
 
 **Proximal map.** For `V` that meets the input conditions, the output `Y` of
-`prox!(Y, g, V, γ)` minimizes `g(Z) + ‖Z - V‖²_F / (2γ)` over symmetric `Z`:
+`prox!(Y, g, V, γ)` minimizes `g(Z) + ‖Z - V‖²_F / (2γ)` over symmetric `Z`,
+when `λ` and `γ` convert exactly to the working type of [`NormL0`](@ref)
+(`Float32` and `Float64`, and integers up to `2^53`). Other levels and steps,
+for example a `Rational` or an `Int` above `2^53`, are rounded to that type
+first, and the decision below is made with the rounded values:
 - The diagonal is copied bit for bit, including `-0.0`.
 - Each entry `(i, j)` with `i ≠ j` is the `(i, j)` entry of
   `prox(NormL0(λ), V, γ)`, computed from `Vᵢⱼ` alone and not mirrored from
@@ -34,7 +38,8 @@ range of `T`.
 
 `value_and_prox!` returns the value at the stored `Y`. `Y === X` is
 supported. A different `Y` for which `Base.mightalias(Y, X)` is true throws
-`ArgumentError` before any write. `prox` returns a new `Matrix`.
+`ArgumentError` before any write. `prox` returns `similar(X, T)`, a `Matrix` for
+Base arrays.
 
 **Refused before any write.** `X` and `Y` are left unchanged. `ArgumentError`:
 a matrix that is not a `StridedMatrix` (`Symmetric`, `Hermitian`, sparse
@@ -47,7 +52,8 @@ size. Arguments that are not matrices, such as vectors, tuples,
 `MethodError`.
 
 `Scaled(NormL0OffDiag(λ), α)` multiplies the value by `α`, and its proximal
-map at step `γ` is this map at step `α * γ`, for positive finite `α`.
+map at step `γ` is this map at step `α * γ`, for positive finite `α` when the
+rounded product `α * γ` is finite and positive.
 
 Not provided: positive definiteness of the output, `restrict`,
 `prox_block` and `kkt_violation` (each throws `MethodError`), steps `0` and
@@ -68,7 +74,7 @@ isproximable(::Type{<:NormL0OffDiag}) = true
 
 @noinline _l0od_error(what) = throw(ArgumentError("NormL0OffDiag $what"))
 
-# The checks on the matrix X shared by the value and the proximal oracles.
+# The checks on the matrix X of the value oracle; the proximal oracles use _l0od_check_pair.
 function _l0od_check_matrix(X)
   _check_one_based(X)
   checksquare(X)
@@ -175,7 +181,7 @@ function _l0od_loop!(Y::StridedMatrix, g, X::StridedMatrix, γ)
   p = size(X, 1)
   @inbounds for j in 1:p
     d = X[j, j]
-    @simd ivdep for i in 1:p
+    @simd for i in 1:p
       Y[i, j] = prox_block(g, X[i, j], 1, γ)
     end
     Y[j, j] = d

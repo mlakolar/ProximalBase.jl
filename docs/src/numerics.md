@@ -489,13 +489,13 @@ throw before any write.
 | Case | Result |
 |:--|:--|
 | Diagonal entry | Copied bit for bit, `-0.0` included |
-| Off-diagonal entry, `λ > 0` | The entry of `prox(NormL0(λ), V, γ)`: kept when its square exceeds `2γλ`, positive zero otherwise, so a tie gives zero |
+| Off-diagonal entry, `λ > 0` | The entry of `prox(NormL0(λ), V, γ)`: kept when its square exceeds `2γλ`, positive zero otherwise, so a tie gives zero. This is exact when `λ` and `γ` convert exactly to the working type of `NormL0`; other levels and steps, for example a `Rational` or an `Int` above `2^53`, are rounded to that type first |
 | Off-diagonal entry, `λ = 0` | Identity, so a `(+0.0, -0.0)` pair stays as it is |
-| Value | `zero(T)` when no off-diagonal entry is nonzero or `λ = 0`; otherwise `convert(T, R(λ) * R(k))` for `k` nonzero off-diagonal entries and `R = promote_type(T, float(typeof(λ)))`. It is `Inf` when the product exceeds the range of `T` |
+| Value | `zero(T)` when no off-diagonal entry is nonzero or `λ = 0`; otherwise `convert(T, R(λ) * R(k))` for `k` nonzero off-diagonal entries and `R = promote_type(T, float(typeof(λ)))`. It can overflow to `Inf` when the product rounds beyond `floatmax(T)` |
 
 Each off-diagonal entry is computed from its own input entry and not
 mirrored from the other triangle. Exact `Y === X` is supported, and an
-output that may share memory with a different input is refused. A matrix that
+output `Y` for which `Base.mightalias(Y, X)` is true is refused. A matrix that
 is not a `StridedMatrix`, a mismatch of element types and offset axes throw
 `ArgumentError`. A non-square matrix and an output of another size throw
 `DimensionMismatch`. A non-matrix argument and an array step give

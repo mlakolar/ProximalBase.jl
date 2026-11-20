@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "family": "indbox",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 27785,
+      "source_end": 28192,
+      "source_line": 336,
+      "text": "| `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |",
+      "destination": "docs/src/spec/indbox.md",
+      "anchor": "spec-indbox-endpoints",
+      "destination_text": "| `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |",
+      "source_sha256": "28c74a596f1e64cd6a41b13d0bd923724df0d1a0e544b1543589784268d19be8",
+      "destination_sha256": "28c74a596f1e64cd6a41b13d0bd923724df0d1a0e544b1543589784268d19be8",
+      "forwarding_text": "| `IndBox` | See the [IndBox endpoint clauses](@ref spec-indbox-endpoints) |"
+    },
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 28193,
+      "source_end": 28481,
+      "source_line": 337,
+      "text": "| `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |\n",
+      "destination": "docs/src/spec/indbox.md",
+      "anchor": "spec-indbox-endpoints",
+      "destination_text": "| `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |\n",
+      "source_sha256": "5de6373c7c5b974f373d96ab3d963e143b5187d1cbcb678a7a05bd923aff1f4f",
+      "destination_sha256": "5de6373c7c5b974f373d96ab3d963e143b5187d1cbcb678a7a05bd923aff1f4f",
+      "forwarding_text": ""
+    }
+  ]
+}

@@ -150,8 +150,9 @@ coefficients) are `Float32` or `Float64` arrays and values of one type, `v` is f
 four-argument form takes the maximum of the entry scores of the group for the
 functions above, and `GroupNormL2` scores the group (see
 [The ℓ₂ and group ℓ₂ norms](group_penalty.md)). `GroupNormLinf` gives the ℓ₁ screen `‖v_G‖₁ - λ0 w[k]` of its dual norm at a zero group
-([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)), not the Euclidean screen of `GroupNormL2`, and throws an
-`ArgumentError` at a nonzero group; the positive part of that screen is not a stationarity distance.
+([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)), not the Euclidean screen of `GroupNormL2`, and the Euclidean distance from `-v_G` to
+the subdifferential at a nonzero group; the positive part of the screen is not a stationarity distance, and the full-point form scores a zero group by its
+distance to the ℓ₁ ball and not by its screen.
 
 A working-set procedure optimizes selected coordinates, computes a full
 gradient to screen excluded zeros, adds violations, and repeats until both

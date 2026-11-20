@@ -7,6 +7,10 @@ module GroupNormLinfTest
 # compared with NormLinf (bit for bit up to 8 entries, and above that both within the bound of the reference, since the passes
 # of a handover sum in an order that depends on the layout), and singleton groups with NormL1: the proximal outputs bit for
 # bit, the values within a tolerance.
+# kkt_violation: the margin of a zero group, the distance of a nonzero group to the subdifferential of the penalty, the full-point form
+# (the maximum over the groups of that distance, zero groups included, and over the entries in no group of |vᵢ|) and the scores under
+# Scaled, against BigFloat references written in this file, by sorting: the distances within the first-order bound of the kernel of
+# NormLinf, the margins within the bound of a sum of magnitudes.
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
 
@@ -908,7 +912,209 @@ end
   @test_throws ArgumentError 0 * f
 end
 
-@testset "optimality at a zero group ($T)" for T in (Float32, Float64)
+# ---- the score of a group: references and data ----
+# The references are BigFloat evaluations of the definitions, by sorting, for the group G of the point (v, x) read in
+# W = float(promote_type(eltype(v), eltype(x))) and the coefficient c = big(λ0) big(w), the exact product of the stored level and weight;
+# none calls a kernel or a coefficient helper of the package. With J the set of the entries of x[G] of largest magnitude (equality
+# after the conversion to W) and uᵢ = -sign(xᵢ) vᵢ:
+#   x[G] = 0:  the margin ‖v[G]‖₁ - c (four-argument form), and the distance from v[G] to the ℓ1 ball of radius c (full-point form),
+#              sqrt(Σ min(|vᵢ|, τ)²) with Σ (|vᵢ| - τ)₊ = c, and 0 when ‖v[G]‖₁ ≤ c;
+#   x[G] ≠ 0:  the distance from -v[G] to the subdifferential of c‖·‖∞ at x[G], sqrt(Σ_{i∉J} vᵢ² + Σ_{i∈J} min(uᵢ, τ)²) with
+#              Σ_{i∈J} (uᵢ - τ)₊ = c (τ can be negative);
+#   c = 0:     ‖v[G]‖₂ in both cases.
+# A value is accepted within (2n + √n + 5) u (‖v[G]‖₂ + c) + 4 n nextfloat(zero(W)) of its reference, u = eps(W)/2, the first-order bound
+# of the kernel plus the subnormal spacing of W.
+kk_sgn(x) = x > 0 ? one(x) : x < 0 ? -one(x) : zero(x)
+kk_msg(f) = try f(); "" catch e; sprint(showerror, e) end
+kk_close(a, b, ::Type{T}, s) where {T} = abs(a - b) <= 16 * eps(T) * s
+
+# the level τ with Σ (uᵢ - τ)₊ = c, c > 0, by sorting
+function kk_level(u::Vector{BigFloat}, c::BigFloat)
+  s = sort(u; rev = true)
+  acc = zero(BigFloat)
+  τ = s[1]
+  for j in eachindex(s)
+    acc += s[j]
+    t = (acc - c) / j
+    s[j] > t || break
+    τ = t
+  end
+  τ
+end
+# the distance from -V to the subdifferential at X of c max|xᵢ|, for BigFloat vectors of finite entries and a finite c ≥ 0
+function kk_dist(c::BigFloat, V::Vector{BigFloat}, X::Vector{BigFloat})
+  iszero(c) && return sqrt(sum(abs2, V))
+  m = maximum(abs, X)
+  if iszero(m)
+    sum(abs, V) <= c && return zero(BigFloat)
+    τ = kk_level(abs.(V), c)
+    return sqrt(sum(abs2, [kk_sgn(t) * min(abs(t), τ) for t in V]))
+  end
+  J = abs.(X) .== m
+  u = [-kk_sgn(X[i]) * V[i] for i in eachindex(V)]
+  τ = kk_level(u[J], c)
+  sqrt(sum(abs2, [J[i] ? min(u[i], τ) : V[i] for i in eachindex(V)]))
+end
+kk_linf_bound(n) = 2n + sqrt(n) + 5
+function kk_bound(::Type{W}, V, c, n; slack = 1) where {W}
+  slack * (big(kk_linf_bound(n)) * big(eps(W)) / 2 * (sqrt(sum(abs2, V)) + c) + 4n * big(nextfloat(zero(W))))
+end
+# the entries of the group read in W, and the reference of the distance with its bound
+function kk_entries(v, x, G, ::Type{W}) where {W}
+  [big(convert(W, v[i])) for i in G], [big(convert(W, x[i])) for i in G]
+end
+function kk_ref(λ0, w, v, x, G; slack = 1)
+  W = float(promote_type(eltype(v), eltype(x)))
+  setprecision(BigFloat, PREC) do
+    c = BigFloat(λ0) * BigFloat(w)
+    V, X = kk_entries(v, x, G, W)
+    kk_dist(c, V, X), kk_bound(W, V, c, length(G); slack)
+  end
+end
+# r is the distance for the group G: of the type W, within the bound of the reference where that is in the range of W, and Inf where the
+# reference is above floatmax(W); the band of relative width 100 eps(W) around floatmax(W) is not decided. With far, the reference
+# must also exceed 10 times the bound, so that a zero return fails.
+function kk_ok(r, λ0, w, v, x, G; slack = 1, far = false)
+  W = float(promote_type(eltype(v), eltype(x)))
+  r isa W || return false
+  setprecision(BigFloat, PREC) do
+    ref, bound = kk_ref(λ0, w, v, x, G; slack)
+    far && !(ref > 10 * bound) && return false
+    lim, e = big(floatmax(W)), 100 * big(eps(W))
+    ref > lim * (1 + e) && return r == W(Inf)
+    ref > lim * (1 - e) && return true
+    isfinite(r) && abs(big(r) - ref) <= bound
+  end
+end
+# the margin of the zero group G: ‖v[G]‖₁ - c, with the bound of a sum of n magnitudes and a difference
+function kk_margin_ok(r, λ0, w, v, G; factor = 1, extra = 0)
+  W = eltype(v)
+  r isa W || return false
+  setprecision(BigFloat, PREC) do
+    c = BigFloat(factor) * BigFloat(λ0) * BigFloat(w)
+    V = [big(v[i]) for i in G]
+    ref = sum(abs, V) - c
+    isfinite(r) && abs(big(r) - ref) <= (length(G) + 6 + extra) * big(eps(W)) / 2 * (sum(abs, V) + c) + 4 * length(G) * big(nextfloat(zero(W)))
+  end
+end
+
+# the families of nonzero groups: (name, far, generator (rng, m, s) -> (v, x, c0)) with v and x the m entries of the group, s the scale of
+# v and c0 the coefficient. A far family has a distance of at least s/2 (the entries of the face have uᵢ < 0, so that each face term of the
+# distance is at least |uᵢ|, or the entry far below the level is large, or, for zero gradients on the face, the distance is the coefficient s/2).
+function kk_families(::Type{T}) where {T}
+  t = T(1.5)
+  aligned(rng, x, s, J) = [i in J ? kk_sgn(x[i]) * s * (1 + rand(rng, T)) : s * randn(rng, T) for i in eachindex(x)]
+  coef(rng, s) = s * T(rand(rng, (0.01, 0.5, 3)))
+  (("one largest entry", true, (rng, m, s) -> begin
+      x = T(0.25) .* randn(rng, T, m); x[1] = rand(rng, Bool) ? T(3) : T(-3)
+      (aligned(rng, x, s, 1:1), x, coef(rng, s))
+    end),
+   ("ties of the largest magnitude with mixed signs", true, (rng, m, s) -> begin
+      x = T(0.25) .* randn(rng, T, m)
+      for i in 1:m
+        rand(rng) < 0.5 && (x[i] = rand(rng, Bool) ? t : -t)
+      end
+      x[1] = t
+      (aligned(rng, x, s, findall(a -> abs(a) == t, x)), x, coef(rng, s))
+    end),
+   ("a face of all entries with an aligned gradient", true, (rng, m, s) -> begin
+      x = T[rand(rng, Bool) ? 2 : -2 for _ in 1:m]
+      (aligned(rng, x, s, 1:m), x, coef(rng, s))
+    end),
+   ("a face of all entries with a random gradient", false, (rng, m, s) -> begin
+      x = T[rand(rng, Bool) ? 2 : -2 for _ in 1:m]
+      v = s .* randn(rng, T, m)
+      (v, x, sum(abs, v) * T(rand(rng, (0.01, 0.3, 0.8, 1.2))))
+    end),
+   ("a face entry far below the level", true, (rng, m, s) -> begin
+      x = fill(T(3), m)
+      v = -s .* rand(rng, T, m); v[1] = -50 * s
+      (v, x, s / 2)
+    end),
+   ("zero gradients on the face", true, (rng, m, s) -> begin
+      x = fill(T(-1), m)
+      v = zeros(T, m); m > 1 && (v[end] = s)
+      (v, x, s / 2)
+    end),
+   ("an entry one unit in the last place below the largest", false, (rng, m, s) -> begin
+      x = T(0.25) .* randn(rng, T, m); x[1] = t; m > 1 && (x[2] = prevfloat(t))
+      (s .* randn(rng, T, m), x, coef(rng, s))
+    end),
+   ("a stationary point", false, (rng, m, s) -> begin
+      x = T(0.25) .* randn(rng, T, m)
+      for i in 1:m
+        rand(rng) < 0.5 && (x[i] = rand(rng, Bool) ? t : -t)
+      end
+      x[1] = t
+      J = findall(a -> abs(a) == t, x)
+      c0 = coef(rng, s)
+      σ = rand(rng, T, length(J)) .+ T(0.1)
+      σ .*= c0 / sum(σ)
+      v = zeros(T, m)
+      for (j, i) in enumerate(J)
+        v[i] = -kk_sgn(x[i]) * σ[j]
+      end
+      (v, x, c0)
+    end))
+end
+
+# the group G of m entries inside a point of p entries (the other entries random), as the first group of a function whose other groups
+# are the single entries left; ranges or vectors of indices. λ0 w = c0 for a normal number c0 (w is a power of two).
+function kk_instance(rng, ::Type{T}, gen, m, layout, s) where {T}
+  p = m + 6 + m % 2
+  if layout === :range
+    a = rand(rng, 1:p - m + 1)
+    G = a:a + m - 1
+    groups = vcat([G], [i:i for i in 1:p if !(i in G)])
+  else
+    G = randperm(rng, p)[1:m]
+    groups = vcat([G], [[i] for i in 1:p if !(i in G)])
+  end
+  v, x = s .* randn(rng, T, p), randn(rng, T, p)
+  vg, xg, c0 = gen(rng, m, s)
+  for (j, i) in enumerate(G)
+    v[i], x[i] = vg[j], xg[j]
+  end
+  w = T(rand(rng, (0.5, 1, 2)))
+  f = GroupNormLinf(c0 / w, groups, vcat(w, ones(T, length(groups) - 1)))
+  f, v, x, G
+end
+
+# the full-point value against the reference: the maximum of zero, the distance of every group (a zero group included) with the coefficient
+# α λ0 w, and |vᵢ| of the entries in no group; the bound is the largest bound of a group (the entries in no group are exact)
+function kk_full_ok(r, f, v, x; α = 1, slack = 1)
+  W = float(promote_type(eltype(v), eltype(x)))
+  r isa W || return false
+  setprecision(BigFloat, PREC) do
+    best, b = big(0), big(0)
+    for k in eachindex(f.groups)
+      d, bd = kk_ref(big(α) * big(f.λ0), f.w[k], v, x, f.groups[k]; slack)
+      best, b = max(best, d), max(b, bd)
+    end
+    for i in vcat(f.free, length(f.group_of) + 1:length(x))
+      best = max(best, abs(big(convert(W, v[i]))))
+    end
+    isfinite(r) && abs(big(r) - best) <= b
+  end
+end
+
+# a point whose face has several entries: entries of the largest magnitude, with their signs
+function kk_tie_face(rng, ::Type{T}, n) where {T}
+  x = randn(rng, T, n)
+  m = maximum(abs, x)
+  for i in 1:n
+    rand(rng) < 0.5 && (x[i] = copysign(m, x[i]))
+  end
+  x
+end
+
+# chains of two wrappers whose product of factors is not a normal number, and a level that folds into it (tiny² lvl is a normal number)
+kk_tiny(T) = ldexp(one(T), T === Float32 ? -100 : -600)
+kk_lvl(T) = ldexp(one(T), T === Float32 ? 100 : 1000)
+kk_chain(T, f) = (c = Scaled(Scaled(f, kk_tiny(T)), kk_tiny(T)); c.f isa Scaled || error("the wrappers merged"); c)
+kk_raw(f, a) = Scaled{typeof(f), typeof(a)}(f, a)
+
+@testset "optimality: the margin of a zero group and the examples of the other scores ($T)" for T in (Float32, Float64)
   f = GroupNormLinf(one(T), [1:2, 3:3], T[1, 0.5])
   z = zeros(T, 4)                                    # entry 4 is in no group
   g = T[5 // 8, 5 // 8, -2, 3]
@@ -949,7 +1155,7 @@ end
   fb = GroupNormLinf(one(T), [1:2, 3:3, 4:4], T[1, 1, 1])
   @test kkt_violation(fb, g, B, 1) === T(0.25) && kkt_violation(fb, g, B, 2) === T(1)
   copyto!(blockview(B, 2), T[1])
-  @test_throws ArgumentError kkt_violation(fb, g, B, 2)                         # a nonzero group
+  @test kkt_violation(fb, g, B, 2) === T(1)                                     # a nonzero group: |v + c sign(x)| = |-2 + 1|
   @test kkt_violation(fb, g, B, 1) === T(0.25)
   @test_throws DimensionMismatch kkt_violation(fb, g, BlockIterate(T, 4, [1:1, 2:3, 4:4]), 1)   # a group differs
   @test_throws DimensionMismatch kkt_violation(fb, g, BlockIterate(T, 4, [1:3, 4:4]), 1)        # the group count differs
@@ -959,26 +1165,650 @@ end
   @test_throws DimensionMismatch kkt_violation(f, T[1, 2, 3], z, 1)
   @test_throws DimensionMismatch kkt_violation(f, T[1, 2], T[0, 0], 1)           # the groups reach index 3
   @test_throws BoundsError kkt_violation(f, g, z, 5)
-  # a nonzero group (NaN and infinite entries included): the entry selects its group
-  for (xnz, i) in ((T[0, 1, 0, 0], 1), (T[NaN, 0, 0, 0], 2), (T[0, 0, Inf, 0], 3), (T[1e-30, 0, 0, 0], 1), (T[0, 0, 1, 0], 3))
-    @test_throws ArgumentError kkt_violation(f, g, xnz, i)
-  end
-  @test kkt_violation(f, g, T[0, 0, 1, 0], 1) === T(0.25)
-  # the full-point and three-argument forms are not provided
-  @test_throws ArgumentError kkt_violation(f, g, z)
-  @test_throws ArgumentError kkt_violation(f, g, T[0, 1, 0, 0])
-  @test_throws ArgumentError kkt_violation(fb, g, B)
-  @test_throws ArgumentError kkt_violation(f, g, 1)
-  @test_throws ArgumentError kkt_violation(GroupNormLinf(one(T), Vector{Vector{Int}}()), T[], T[])
+  # a nonzero group: the entry selects its group, and the score is the distance from -v[G] to the subdifferential at x[G]. For group 1,
+  # v = (5/8, 5/8) and c = 1, the face is the entry of x that is nonzero: sqrt((5/8)² + (1 + 5/8)²). Group 2 is the entry 3 with c = 1/2.
+  d1 = sqrt(T(194)) / 8
+  @test isapprox(kkt_violation(f, g, T[0, 1, 0, 0], 1), d1; rtol = 8 * eps(T))
+  @test isapprox(kkt_violation(f, g, T[1e-30, 0, 0, 0], 1), d1; rtol = 8 * eps(T))
+  @test kkt_violation(f, g, T[0, 0, 1, 0], 3) === T(1.5)                        # |-2 + 1/2|
+  # NaN and infinite entries of x give NaN and Inf
+  @test isnan(kkt_violation(f, g, T[NaN, 0, 0, 0], 2))
+  @test kkt_violation(f, g, T[0, 0, Inf, 0], 3) === T(Inf)
+  @test kkt_violation(f, g, T[0, 0, 1, 0], 1) === T(0.25)                       # group 1 is still zero
+  # the full-point form: the maximum of zero, |vᵢ| of the entries in no group and the distance of every group, a zero group included
+  # (here the entry 4 decides: group 1 has the distance sqrt(2)/8 to the ball, and group 2 has 3/2)
+  @test kkt_violation(f, g, z) === T(3)
+  @test kkt_violation(f, g, T[0, 1, 0, 0]) === T(3)
+  @test isapprox(kkt_violation(fb, g, B), T(2); rtol = 8 * eps(T))              # the zero group 3 (entry 4, v = 3, c = 1) has the distance 2
+  @test_throws ArgumentError kkt_violation(f, g, 1)                            # the three-argument form is not separable
+  @test kkt_violation(GroupNormLinf(one(T), Vector{Vector{Int}}()), T[], T[]) === zero(T)
   # a symmetric iterate has no groups
   S = SymmetricSparseIterate(T, 3)
   @test_throws ArgumentError kkt_violation(GroupNormLinf(one(T), [1:2]), zeros(T, 9), S, 1)
   @test_throws ArgumentError kkt_violation(GroupNormLinf(one(T), [1:2]), zeros(T, 9), S)
-  # a function of this package without a score under Scaled has a MethodError
-  @test_throws MethodError kkt_violation(Scaled(f, T(2)), g, z, 1)
-  @test_throws MethodError kkt_violation(Scaled(f, T(2)), g, z)
+  # under Scaled with a finite factor: α times the score at v/α. At the zero group 1 that is 2 (‖(5/16, 5/16)‖₁ - 1), and the full-point
+  # value is 2 max(0, 0, 1/2, 3/2) with the zero groups at their distances
+  @test kkt_violation(Scaled(f, T(2)), g, z, 1) === T(-0.75)
+  @test kkt_violation(Scaled(f, T(2)), g, z) === T(3)
   @test allocs(kkt_violation, f, g, z, 1) == 0 && allocs(kkt_violation, f, g, z, 4) == 0
   @test allocs(kkt_violation, fb, g, B, 1) == 0
+end
+
+@testset "nonzero groups against the BigFloat reference ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1014)
+  for (name, far, gen) in kk_families(T), layout in (:range, :perm), m in (1, 2, 3, 5, 17, 64, 257)
+    bad = 0
+    for rep in 1:(m <= 17 ? 8 : m <= 64 ? 3 : 2)
+      s = T(2)^rand(rng, (-30, -3, 0, 0, 4, 20))
+      f, v, x, G = kk_instance(rng, T, gen, m, layout, s)
+      rep == 1 && m >= 2 && (x[last(G)] = zero(T))        # a zero entry inside the group, stored as a zero by the SparseIterate below
+      r = kkt_violation(f, v, x, first(G))
+      bad += !kk_ok(r, f.λ0, f.w[1], v, x, G; far)
+      if rep == 1
+        # the same group read from a Matrix, a SparseIterate with a stored zero and a BlockIterate (group 1)
+        sx = SparseIterate(x)
+        m >= 2 && (sx[last(G)] = 0)
+        for (pt, k) in ((reshape(copy(x), 2, :), first(G)), (sx, first(G)), (BlockIterate(copy(x), f.groups), 1))
+          bad += !kk_ok(kkt_violation(f, v, pt, k), f.λ0, f.w[1], v, x, G; far)
+        end
+        bad += !kk_ok(kkt_violation(f, reshape(copy(v), 2, :), x, first(G)), f.λ0, f.w[1], v, x, G; far)
+      end
+    end
+    @test bad == 0
+  end
+end
+
+# an entry one unit in the last place below the largest is not on the face, so that the value differs from that of the tie
+@testset "an entry one unit in the last place below the largest is off the face ($T)" for T in (Float32, Float64)
+  f = GroupNormLinf(one(T), [1:2])
+  v = T[-0.4, 0.3]
+  tied, broken = T[2, 2], T[2, prevfloat(T(2))]
+  rt, rb = kkt_violation(f, v, tied, 1), kkt_violation(f, v, broken, 1)
+  @test kk_ok(rt, one(T), one(T), v, tied, 1:2) && kk_ok(rb, one(T), one(T), v, broken, 1:2)
+  @test isapprox(rt, T(0.45) * sqrt(T(2)); rtol = 32 * eps(T))             # both entries at -0.45
+  @test isapprox(rb, sqrt(T(0.45)); rtol = 32 * eps(T))                    # the face is the first entry alone
+  @test rt != rb
+  # the reference of the other face is far outside the bound of this call
+  @test !kk_ok(rb, one(T), one(T), v, tied, 1:2) && !kk_ok(rt, one(T), one(T), v, broken, 1:2)
+  # the same pair inside a larger point and a group of vector indices
+  fv = GroupNormLinf(one(T), [[5, 2], [1], [3], [4]])
+  vv, xv = T[9, 0.3, 4, 5, -0.4], T[1, prevfloat(T(2)), 7, 8, 2]
+  @test kk_ok(kkt_violation(fv, vv, xv, 5), one(T), one(T), vv, xv, [5, 2])
+  @test !kk_ok(kkt_violation(fv, vv, xv, 5), one(T), one(T), vv, T[1, 2, 7, 8, 2], [5, 2])
+end
+
+# The branches of the kernel through a group, each by a case that reaches it (confirmed by calling the helpers of the kernel on the
+# same inputs: the range test `_linf_in_range`, the first level τ0, and the sum of squares Q):
+#   - the range test sends the face to the scaled path (the sum of magnitudes times n + 1 is above floatmax/4);
+#   - the range test sends the zero point to the scaled path (the sum of magnitudes is above floatmax/2, or overflows);
+#   - the range test passes and the first level τ0 of the face is -Inf, which sends it to the scaled path;
+#   - the ordinary sum of squares Q is not normal (the squares underflow), which sends it to the recomputation.
+# The entries around the group are NaN and Inf and do not reach the result of the four-argument form.
+@testset "branches of the kernel through a group ($T)" for T in (Float32, Float64)
+  M, δ = floatmax(T), nextfloat(zero(T))
+  emax, emin = exponent(M), exponent(floatmin(T))
+  function embed(λ0, w, v, x)
+    p = length(v) + 3
+    vv, xx = fill(T(NaN), p), fill(T(Inf), p)
+    vv[2:end - 2] .= v
+    xx[2:end - 2] .= x
+    GroupNormLinf(λ0, [2:length(v) + 1], [w]), vv, xx, 2:length(v) + 1
+  end
+  check(λ0, w, v, x; slack = 1, far = false) = begin
+    f, vv, xx, G = embed(λ0, w, v, x)
+    r = kkt_violation(f, vv, xx, 2)
+    @test kk_ok(r, f.λ0, f.w[1], vv, xx, G; slack, far)
+    @test allocs(kkt_violation, f, vv, xx, 2) == 0
+    r
+  end
+  # entries near floatmax: (n + 1) times the sum of magnitudes is above floatmax/4, so that the range test sends the face to the scaled
+  # path (faces of three entries, of one entry, and of all four)
+  v = T[0.9, -0.8, 0.7, 0.2] .* (M / 8)
+  for x in (T[1, -1, 1, 0], T[0, 1, 0, 0], T[1, 1, 1, 1]), λ0 in (M / 64, M / 8, M / 3)
+    check(λ0, one(T), v, x; slack = 4)
+  end
+  # the same for a face of 300 entries, with a level at floatmax: the range test sends it to the scaled path
+  check(M, one(T), fill(M / (5 * 301), 300), ones(T, 300); slack = 4)
+  # the range test passes ((n + 1) times the sum of magnitudes is at most floatmax/4) and the first level (S - c)/cnt is -Inf, because
+  # S - c is below -floatmax: the exit of the ordinary path to the scaled path
+  check(M * (1 - T(2)^-6), one(T), T[M / 32, M / 32], T[1, 1]; slack = 4)
+  # the zero point, by the full-point form: the sum of magnitudes is above floatmax/2 (0.6 floatmax), and it overflows (4/3 floatmax, with
+  # a distance of about 0.94 floatmax in each type): the range test sends the zero point to the scaled path
+  for v0 in (T[0.3 * M, 0.3 * M], fill(M / T(1.5), 2))
+    f0 = GroupNormLinf(one(T), [1:2])
+    r0 = kkt_violation(f0, v0, zeros(T, 2))
+    @test kk_ok(r0, one(T), one(T), v0, zeros(T, 2), 1:2; slack = 4)
+    @test isfinite(r0) && allocs(kkt_violation, f0, v0, zeros(T, 2)) == 0
+    @test kkt_violation(f0, v0, zeros(T, 2), 1) > M / 2                       # the margin of the zero group
+  end
+  # a distance above floatmax is Inf, and an entry at floatmax against a level at floatmax cancels
+  @test check(M, one(T), T[M], T[1]) === T(Inf)
+  @test check(M, one(T), T[-M], T[1]) === zero(T)
+  # a residual far below the level, whose square underflows to zero: Q is not normal, and the value is the residual (the recomputation)
+  small = ldexp(one(T), emin ÷ 2 - 30)
+  r = check(one(T), one(T), T[-1, small], T[1, 0.5]; far = false)
+  @test isapprox(r, small; rtol = 16 * eps(T))
+  r = check(zero(T), one(T), fill(small, 7), T[1, 0, 0, 0, 0, 0, 0])
+  @test isapprox(r, sqrt(T(7)) * small; rtol = 16 * eps(T))
+  # subnormal entries and level
+  check(T(2) * δ, one(T), T[3δ, -7δ, 2δ], T[δ, 3δ, -3δ])
+  check(floatmin(T), one(T), T[1, 1] .* floatmin(T), T[1, 0])
+  # a point at the bottom of the range with entries of the size of one
+  check(one(T), one(T), T[1.5, -1, 0.25], T[δ, 0, 0])
+  # the entries near floatmax with many of them: the squares and the sums are out of the ordinary range
+  for n in (2, 10, 100)
+    check(one(T), one(T), fill(M / T(n) * T(0.9), n), T[i == 1 ? 1 : 0.5 for i in 1:n]; slack = 4)
+  end
+end
+
+@testset "full-point form ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1015)
+  # entries 6, 8, 11 are in no group below the largest index of a group, and 17 and 18 are past it; group 4 has the weight zero
+  groups = [[2, 7, 3], [9], [1, 5], [4, 10, 12], [13, 14, 15, 16]]
+  f = GroupNormLinf(T(0.8), groups, T[1, 0.5, 2, 0, 1])
+  free = [6, 8, 11, 17, 18]
+  v = 2 .* randn(rng, T, 18)
+  x = randn(rng, T, 18)
+  x[[2, 7]] .= T(1.5); x[3] = T(0.5)        # a tie on the face of group 1
+  x[[1, 5, 9, 13, 14, 15, 16]] .= 0        # groups 2, 3 and 5 are zero
+  x[free] .= T[5, 0, 3, 0, -2]
+  # the value against the reference: the maximum of zero, the distance of every group and |vᵢ| of the entries in no group
+  full_ok(h, vv, xx) = kk_full_ok(kkt_violation(h, vv, xx), h, vv, xx)
+  @test full_ok(f, v, x)
+  R = kkt_violation(f, v, x)
+  @test typeof(R) === T
+  # one score per group: the entries of a group give the same value, and the full-point value agrees (within 16 eps of the scale) with
+  # the maximum of zero, the four-argument scores of the nonzero groups and of the entries in no group, and the distances of the zero groups
+  s = norm(v) + 8
+  nonzero = [k for k in 1:5 if any(!iszero, x[groups[k]])]
+  @test nonzero == [1, 4]
+  locals = [kkt_violation(f, v, x, first(groups[k])) for k in nonzero]
+  zero_dist = [kkt_violation(GroupNormLinf(f.λ0, [1:length(G)], [f.w[k]]), v[G], zeros(T, length(G))) for (k, G) in enumerate(groups) if !(k in nonzero)]
+  uncovered = abs.(v[free])
+  @test kk_close(R, max(zero(T), maximum(locals), maximum(zero_dist), maximum(uncovered)), T, s)
+  for k in 1:5, i in groups[k]
+    @test kkt_violation(f, v, x, i) === kkt_violation(f, v, x, first(groups[k]))
+  end
+  # the entries in no group decide when they are the largest, and x is not read there
+  v2, x2 = copy(v), copy(x)
+  v2[11], x2[11] = 100, T(NaN)
+  @test kkt_violation(f, v2, x2) === T(100) && kkt_violation(f, v2, x2, 11) === T(100)
+  v2[11] = -100
+  @test kkt_violation(f, v2, x2) === T(100)
+  # a zero point: every group is scored by its distance to the ℓ1 ball, so that the small gradient of a group with a positive
+  # coefficient gives zero and that of the group with the weight zero gives its 2-norm
+  z = zeros(T, 18)
+  vs = T(0.01) .* v
+  @test full_ok(f, vs, z)
+  @test kk_close(kkt_violation(f, vs, z), max(norm(vs[groups[4]]), maximum(abs.(vs[free]))), T, 1)
+  # this point has the value zero: the zero group 1 has the sum of magnitudes 0.35, below its level 1, and the nonzero group 2 has a face
+  # (entries 4 and 5) whose sum of -sign(xᵢ) vᵢ is the level 1, with a zero gradient off the face
+  f0 = GroupNormLinf(one(T), [1:3, 4:6], T[1, 1])
+  @test kkt_violation(f0, T[0.1, -0.2, 0.05, -0.25, 0.75, 0, -0.0], T[0, 0, 0, 2, -2, 1, 5]) === zero(T)
+  # a zero group with a positive margin contributes its distance and not its margin: (5/8, 5/8) at the level one
+  f1 = GroupNormLinf(one(T), [1:2])
+  g1 = T[5 // 8, 5 // 8]
+  @test kkt_violation(f1, g1, zeros(T, 2), 1) === T(0.25)
+  d = kkt_violation(f1, g1, zeros(T, 2))
+  @test isapprox(d, sqrt(T(2)) / 8; rtol = 8 * eps(T)) && d < T(0.25)
+  @test T(0.25) <= sqrt(T(2)) * d + 8 * eps(T)                         # distance ≤ margin ≤ √n distance in exact arithmetic, with equality on the right here (up to rounding)
+  # and where the margin is positive in general: distance ≤ margin ≤ √n distance in exact arithmetic, within the bound of the calls
+  # for the computed values
+  for n in (1, 2, 5, 17, 64), _ in 1:6
+    vg = randn(rng, T, n)
+    c = T(rand(rng, (0.1, 0.3, 0.6))) * sum(abs, vg)
+    h = GroupNormLinf(c, [1:n])
+    mg, dist = kkt_violation(h, vg, zeros(T, n), 1), kkt_violation(h, vg, zeros(T, n))
+    tolr = 16 * (n + 8) * eps(T) * (sum(abs, vg) + c)
+    @test mg > 0 && dist <= mg + tolr && mg <= sqrt(T(n)) * dist + tolr
+    @test kk_ok(dist, c, one(T), vg, zeros(T, n), 1:n)
+  end
+  # one group over all of x agrees with NormLinf with the level λ0 w, at the zero point and at another point: both calls are within
+  # the bound of the same reference (they are not compared bit for bit)
+  for n in (1, 2, 17, 64), x0 in (zeros(T, n), kk_tie_face(rng, T, n))
+    vg = randn(rng, T, n)
+    h = GroupNormLinf(T(0.7), [1:n], T[2])
+    c = T(0.7) * T(2)
+    a, b = kkt_violation(h, vg, x0), kkt_violation(NormLinf(c), vg, x0)
+    @test kk_ok(a, T(0.7), T(2), vg, x0, 1:n) && kk_ok(b, c, one(T), vg, x0, 1:n)
+  end
+  # a NaN term wins over an Inf term, in either order of the groups and for an entry in no group; Inf alone gives Inf
+  for gs in ([1:2, 3:4], [3:4, 1:2]), pt in (zeros(T, 4), T[1, 0, 1, 0], T[1, 1, 1, 1])
+    h = GroupNormLinf(one(T), gs)
+    @test isnan(kkt_violation(h, T[NaN, 1, Inf, 1], pt))
+    @test kkt_violation(h, T[1, 1, Inf, 1], pt) === T(Inf)
+    @test isnan(kkt_violation(h, T[Inf, 1, NaN, 1], pt))
+  end
+  hf = GroupNormLinf(one(T), [1:2])
+  @test isnan(kkt_violation(hf, T[Inf, 1, NaN], T[1, 0, 0])) && isnan(kkt_violation(hf, T[NaN, 1, Inf], T[1, 0, 0]))
+  @test kkt_violation(hf, T[1, 1, Inf], T[1, 0, 0]) === T(Inf)
+  # an empty point without groups, and a function without groups: every entry is in no group
+  @test kkt_violation(GroupNormLinf(one(T), Vector{Vector{Int}}()), T[], T[]) === zero(T)
+  @test kkt_violation(GroupNormLinf(one(T), Vector{Vector{Int}}()), T[3, -7, 2], T[1, 1, 1]) === T(7)
+  # a BlockIterate point: the whole layout is checked by the full-point form, the layout of the selected group by the four-argument form
+  bg = [[2, 7, 3], [9], [1, 5], [4, 10, 12], [6, 8, 11, 13, 14, 15, 16, 17, 18]]
+  fb = GroupNormLinf(T(0.8), bg, T[1, 0.5, 2, 0, 1])
+  bx = BlockIterate(copy(x), bg)
+  @test kk_ok(kkt_violation(fb, v, bx, 1), fb.λ0, fb.w[1], v, x, bg[1]) && kk_ok(kkt_violation(fb, v, bx, 4), fb.λ0, fb.w[4], v, x, bg[4])
+  @test full_ok(fb, v, bx)
+  mixed = BlockIterate(copy(x), [[2, 7, 3], [9], [1, 5], [10, 4, 12], [6, 8, 11, 13, 14, 15, 16, 17, 18]])
+  @test kkt_violation(fb, v, mixed, 1) isa T
+  @test_throws DimensionMismatch kkt_violation(fb, v, mixed, 4)
+  @test_throws DimensionMismatch kkt_violation(fb, v, mixed)
+  @test_throws DimensionMismatch kkt_violation(fb, v, BlockIterate(copy(x), [collect(1:18)]))
+  @test_throws DimensionMismatch kkt_violation(fb, v, BlockIterate(copy(x), [[2, 7, 3], collect(setdiff(1:18, [2, 7, 3]))]), 1)
+  # a SparseIterate point
+  sx = SparseIterate(x)
+  sx[1] = 0
+  @test kk_close(kkt_violation(f, v, sx), R, T, s)
+  # validation: complex entries, offset axes, lengths, groups that reach past the point, a symmetric iterate
+  cv, cx = Complex{T}.(v), Complex{T}.(x)
+  off(a) = OffsetArray(a, 0:length(a) - 1)
+  @test_throws ArgumentError kkt_violation(f, cv, x)
+  @test_throws ArgumentError kkt_violation(f, v, cx)
+  @test occursin("offset arrays", kk_msg(() -> kkt_violation(f, off(v), x)))
+  @test occursin("offset arrays", kk_msg(() -> kkt_violation(f, v, off(x))))
+  @test_throws DimensionMismatch kkt_violation(f, v[1:17], x)
+  @test_throws DimensionMismatch kkt_violation(f, v, x[1:17])
+  @test_throws DimensionMismatch kkt_violation(f, v[1:15], x[1:15])
+  @test_throws ArgumentError kkt_violation(f, ones(T, 9), SymmetricSparseIterate(T, 3))
+  # a view and a reshaped matrix are points
+  @test kk_close(kkt_violation(f, view(v, 1:18), view(x, 1:18)), R, T, s)
+  fm = GroupNormLinf(T(0.8), [[1, 3], [2, 4]], T[1, 1])
+  vm, xm = T[1, 2, 3, 4], T[0, 1, 0, 0]
+  @test kk_close(kkt_violation(fm, reshape(vm, 2, 2), reshape(xm, 2, 2)), kkt_violation(fm, vm, xm), T, 10)
+  # no write
+  v0, x0 = copy(v), copy(x)
+  kkt_violation(f, v, x); kkt_violation(f, v, x, 3); kkt_violation(f, v, x, 9)
+  @test v == v0 && x == x0
+end
+
+@testset "exceptional values at a nonzero group ($T)" for T in (Float32, Float64)
+  NaNs, Infs, M = T(NaN), T(Inf), floatmax(T)
+  # a NaN in v[G] or x[G] gives NaN, also beside an Inf; otherwise an Inf entry gives Inf, also at the level zero and at an infinite level
+  for n in (1, 3, 64, 130), pos in unique((1, max(1, n ÷ 2), n))
+    for x0 in (ones(T, n), T[i == 1 ? 1 : 0 for i in 1:n]), λ in (zero(T), T(0.5), T(5), Infs)
+      v = ones(T, n)
+      f = GroupNormLinf(λ, [1:n])
+      vn, vi, xn, xi = copy(v), copy(v), copy(x0), copy(x0)
+      vn[pos] = NaNs; vi[pos] = Infs; xn[pos] = NaNs; xi[pos] = Infs
+      for call in (kkt_violation(f, vn, x0, 1), kkt_violation(f, v, xn, 1), kkt_violation(f, vn, x0), kkt_violation(f, v, xn))
+        @test isnan(call)
+      end
+      for call in (kkt_violation(f, vi, x0, 1), kkt_violation(f, v, xi, 1), kkt_violation(f, -vi, x0, 1), kkt_violation(f, v, -xi, 1),
+                   kkt_violation(f, vi, x0), kkt_violation(f, v, xi))
+        @test call === Infs
+      end
+      if n >= 2
+        other = pos == 1 ? 2 : 1
+        a, b = copy(vi), copy(xi)
+        a[other] = NaNs
+        @test isnan(kkt_violation(f, a, x0, 1)) && isnan(kkt_violation(f, a, x0))
+        b[other] = NaNs
+        @test isnan(kkt_violation(f, v, b, 1)) && isnan(kkt_violation(f, v, b))
+        @test isnan(kkt_violation(f, vi, xn, 1)) && isnan(kkt_violation(f, vn, xi, 1))
+      end
+    end
+  end
+  # the coefficient zero (a zero weight, or a zero level with a finite weight, also with an infinite level against the zero weight)
+  # gives the 2-norm of v[G] at a nonzero group, in both forms
+  vg = T[3, -4, 12]
+  for (λ, w) in ((zero(T), one(T)), (one(T), zero(T)), (zero(T), T(7)), (Infs, zero(T)))
+    h = GroupNormLinf(λ, [1:3], T[w])
+    for x0 in (T[1, 0, 0], T[1, -1, 0.5], T[0, 2, 0])
+      @test isapprox(kkt_violation(h, vg, x0, 1), T(13); rtol = 16 * eps(T))
+      @test isapprox(kkt_violation(h, vg, x0), T(13); rtol = 16 * eps(T))
+    end
+  end
+  # an infinite coefficient (an infinite weight or level, a zero level with an infinite weight, a product that overflows in the type of
+  # the arguments) gives Inf at a nonzero group; at a zero group the four-argument form keeps its margin -Inf and the full-point form,
+  # where the distance to the ball of infinite radius is zero, gives zero
+  for (λ, w) in ((one(T), Infs), (Infs, one(T)), (zero(T), Infs), (M, T(4)))
+    h = GroupNormLinf(λ, [1:3], T[w])
+    for x0 in (T[1, 0, 0], T[1, -1, 0.5])
+      @test kkt_violation(h, vg, x0, 1) === Infs && kkt_violation(h, vg, x0) === Infs
+    end
+    @test kkt_violation(h, vg, zeros(T, 3), 1) === -Infs
+    @test kkt_violation(h, vg, zeros(T, 3)) === zero(T)
+  end
+  # a level of a type that overflows the type of the entries is an infinite level there
+  T === Float32 && @test kkt_violation(GroupNormLinf(1e300, [1:2]), Float32[1, 2], Float32[1, 0], 1) === Infs
+  # a non-finite entry in another group does not reach the four-argument score of a group, and does reach the full-point value
+  f2 = GroupNormLinf(T(0.5), [1:2, 3:4, 5:6])
+  v, x = T[1, 2, 3, 4, 5, 6], T[1, 0, 1, 1, 0, 0]
+  r1 = kkt_violation(f2, v, x, 1)
+  @test kkt_violation(f2, T[1, 2, NaN, 4, Inf, 6], T[1, 0, 1, Inf, 0, NaN], 1) === r1
+  @test isnan(kkt_violation(f2, T[1, 2, NaN, 4, Inf, 6], x)) && isnan(kkt_violation(f2, v, T[1, 0, 1, Inf, 0, NaN]))
+  @test kkt_violation(f2, T[1, 2, 3, Inf, 5, 6], x) === Infs && kkt_violation(f2, v, T[1, 0, 1, Inf, 0, 0]) === Infs
+  # entries and a level at floatmax, with no infinite entry: the distance, √5 floatmax, is above floatmax, so the score is Inf
+  @test kkt_violation(GroupNormLinf(M, [1:2]), T[M, M], T[1, 0], 1) === Infs
+end
+
+# a group of n entries needs n + 1 to be a finite number of the working type: Float16 from n = 65519. The test for a zero group comes first
+# in the four-argument form, and the full-point form checks every group
+@testset "a group whose size the working type refuses (Float16)" begin
+  n = 65519
+  f = GroupNormLinf(Float16(1), [1:n])
+  vz, xz = zeros(Float16, n), zeros(Float16, n)
+  x1 = copy(xz); x1[1] = 1
+  @test kkt_violation(f, vz, xz, 1) === Float16(-1)                           # a zero group keeps its margin ‖v‖₁ - c
+  @test_throws ArgumentError kkt_violation(f, vz, x1, 1)
+  m = kk_msg(() -> kkt_violation(f, vz, x1, 1))
+  @test occursin("65519", m) && occursin("Float16", m)
+  @test_throws ArgumentError kkt_violation(f, vz, x1)
+  @test_throws ArgumentError kkt_violation(f, vz, xz)                          # also a zero group
+  @test_throws ArgumentError kkt_violation(Scaled(f, Float16(2)), vz, x1, 1)
+  @test_throws ArgumentError kkt_violation(Scaled(f, Float16(2)), vz, x1)
+  @test kkt_violation(Scaled(f, Float16(2)), vz, xz, 1) isa Float16
+  # a group of 65518 entries is accepted
+  fs = GroupNormLinf(Float16(1), [1:n - 1])
+  r = kkt_violation(fs, vz[1:n - 1], x1[1:n - 1], 1)
+  @test r isa Float16 && isapprox(r, Float16(1); rtol = 0.01)
+  # a Float32 point of the same size is not refused
+  @test kkt_violation(GroupNormLinf(1f0, [1:n]), zeros(Float32, n), Float32[i == 1 ? 1 : 0 for i in 1:n], 1) isa Float32
+end
+
+@testset "element types of the scores" begin
+  # integer v and x: the working type is Float64
+  f = GroupNormLinf(1.0, [1:3, 4:5], [1.0, 2.0])
+  v, x = [3, 1, -2, 5, 5], [2, -2, 1, 0, 0]
+  r = kkt_violation(f, v, x, 1)
+  @test r isa Float64 && kk_ok(r, f.λ0, f.w[1], v, x, 1:3)
+  @test kkt_violation(f, v, x, 4) === 8.0                                      # the margin 10 - 2 of a zero group
+  @test kkt_violation(f, v, x) isa Float64
+  @inferred kkt_violation(f, v, x, 1)
+  @inferred kkt_violation(f, v, x)
+  # a level that is not of the type of the entries: the coefficient is formed in the working type; Float32 v with a Float64 x is Float64
+  # and uses the Float64 coefficient 0.1, which is not a Float32
+  f1 = GroupNormLinf(0.1, [1:3])
+  v32, x64 = Float32[3, 1, -2], [2.0, -2.0, 1.0]
+  for (vv, xx) in ((v32, x64), (Float64.(v32), Float32.(x64)), (v32, Float32.(x64)))
+    r = kkt_violation(f1, vv, xx, 1)
+    W = float(promote_type(eltype(vv), eltype(xx)))
+    @test r isa W && kk_ok(r, f1.λ0, 1.0, vv, xx, 1:3)
+    @test kkt_violation(f1, vv, xx) isa W
+    @inferred kkt_violation(f1, vv, xx, 1)
+    @inferred kkt_violation(f1, vv, xx)
+  end
+  # Int8 and Int16 give Float64; an integer level
+  @test kkt_violation(GroupNormLinf(1, [1:2]), Int8[3, 1], Int16[2, 2], 1) isa Float64
+  @test kk_ok(kkt_violation(GroupNormLinf(1, [1:2]), Int8[3, 1], Int16[2, 2], 1), 1, 1, Int8[3, 1], Int16[2, 2], 1:2)
+  # Float16: the bound of the type
+  for (vv, xx, λ) in ((Float16[3, 1, -2], Float16[2, -2, 1], 1), (Float16[3, 1, -2], Float16[0, 0, 0.5], 1), (Float16[-3, 1, 2], Float16[2, 2, -2], 0.5))
+    h = GroupNormLinf(Float16(λ), [1:3])
+    r = kkt_violation(h, vv, xx, 1)
+    @test r isa Float16 && kk_ok(r, Float16(λ), one(Float16), vv, xx, 1:3)
+    @test kkt_violation(h, vv, xx) isa Float16
+    @inferred kkt_violation(h, vv, xx, 1)
+    @inferred kkt_violation(h, vv, xx)
+  end
+  # BigFloat arrays in the working precision, against a reference at four times the precision
+  λb = setprecision(BigFloat, 256) do
+    BigFloat(3) / 10
+  end
+  vb, xb = BigFloat[3, 1, 2], BigFloat[2, -2, 1]
+  for x0 in (xb, zeros(BigFloat, 3))
+    r, rf = setprecision(BigFloat, 256) do
+      f = GroupNormLinf(λb, [1:3])
+      kkt_violation(f, vb, x0, 1), kkt_violation(f, vb, x0)
+    end
+    @test r isa BigFloat && rf isa BigFloat
+    setprecision(BigFloat, 1024) do
+      ref = kk_dist(big(λb), vb, x0)
+      allowed = 64 * big(2)^-256 * (sqrt(sum(abs2, vb)) + λb)
+      @test abs(rf - ref) <= allowed
+      # the four-argument form: the distance at a nonzero group and the margin at a zero group
+      @test abs(r - (all(iszero, x0) ? sum(abs, vb) - λb : ref)) <= allowed
+    end
+  end
+  @test kkt_violation(GroupNormLinf(1.0, [1:2]), [3.0, 1.0], BigFloat[1, 0], 1) isa BigFloat
+end
+
+@testset "a group of one entry has the score of NormL1 ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1018)
+  p = 60
+  v, x = 2 .* randn(rng, T, p), randn(rng, T, p)
+  x[1:10] .= 0
+  w = T(0.2) .+ rand(rng, T, p)
+  fl, f1 = GroupNormLinf(T(0.7), [[i] for i in 1:p], w), NormL1(T(0.7), w)
+  for i in 11:p
+    @test kkt_violation(fl, v, x, i) === kkt_violation(f1, v, x, i)            # the nonzero entries
+  end
+  for i in 1:10
+    @test kk_close(kkt_violation(fl, v, x, i), kkt_violation(f1, v, x, i), T, 4)   # the zero entries: the margin |vᵢ| - cᵢ
+  end
+  # the full-point values agree within a few ulps: the maximum of zero and the scores of the entries, where a zero entry has the positive
+  # part of its margin
+  @test kk_close(kkt_violation(fl, v, x), kkt_violation(f1, v, x), T, 4)
+  @test kk_close(kkt_violation(fl, v, zeros(T, p)), kkt_violation(f1, v, zeros(T, p)), T, 4)
+end
+
+# ---- Scaled: one wrapper, an infinite factor, chains ----
+@testset "Scaled with one factor ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(1016)
+  groups = [[2, 7, 3], [9], [1, 5], [4, 10, 12]]       # entries 6, 8 and 11 are in no group, and entry 13 is past the groups
+  w = T[1, 0.5, 2, 0]
+  f = GroupNormLinf(T(0.8), groups, w)
+  gb = vcat(groups, [[6, 8, 11, 13]])
+  fb = GroupNormLinf(T(0.8), gb, vcat(w, T(1)))
+  v = 2 .* randn(rng, T, 13)
+  x = randn(rng, T, 13)
+  x[[2, 7]] .= T(1.5); x[3] = T(0.5)                   # a tie on the face of group 1
+  x[[1, 5, 9]] .= 0                                    # groups 2 and 3 are zero; groups 1 and 4 are not
+  x[[6, 13]] .= T[0.3, 0]
+  sx = SparseIterate(x)
+  bx = BlockIterate(copy(x), gb)
+  sc(α) = norm(v) + 8 * α + 8
+  for α in (T(0.5), T(2), T(3.7), T(1e-3), T(1e3))
+    s, sb = Scaled(f, α), Scaled(fb, α)
+    fa = GroupNormLinf(α * f.λ0, groups, w)
+    # the score of each group against the definition with the coefficient α λ0 w: the margin at a zero group and the distance at a
+    # nonzero one (the route multiplies the score at the lazy gradient v/α by α, so its bound has a few more roundings)
+    for (k, G) in enumerate(groups)
+      i = first(G)
+      r = kkt_violation(s, v, x, i)
+      @test r isa T
+      if k in (2, 3)
+        @test kk_margin_ok(r, f.λ0, w[k], v, G; factor = α)
+      else
+        @test kk_ok(r, big(α) * big(f.λ0), w[k], v, x, G; slack = 1 + 6 / kk_linf_bound(length(G)))
+      end
+      @test kk_close(r, α * kkt_violation(f, v ./ α, x, i), T, sc(α))
+      @test kk_close(r, kkt_violation(fa, v, x, i), T, sc(α))
+      @test kk_close(kkt_violation(s, v, sx, i), r, T, sc(α))
+      @test kk_close(kkt_violation(sb, v, bx, k), r, T, sc(α))
+    end
+    # an entry in no group scores |vᵢ|, also where x is nonzero
+    @test isapprox(kkt_violation(s, v, x, 6), abs(v[6]); rtol = 8 * eps(T))
+    # the full-point value
+    R = kkt_violation(s, v, x)
+    @test R isa T && kk_full_ok(R, f, v, x; α, slack = 1 + 6 / kk_linf_bound(1))
+    @test kk_close(R, α * kkt_violation(f, v ./ α, x), T, sc(α))
+    @test kk_full_ok(kkt_violation(sb, v, bx), fb, v, x; α, slack = 1 + 6 / kk_linf_bound(1))
+  end
+  # factors that merge: the product decides
+  for (α1, α2) in ((T(2), T(3)), (T(0.5), T(1e-3)), (T(1e3), T(7)))
+    s = Scaled(Scaled(f, α1), α2)
+    a = setprecision(BigFloat, PREC) do
+      big(α1) * big(α2)
+    end
+    @test kk_ok(kkt_violation(s, v, x, 2), a * big(f.λ0), w[1], v, x, groups[1]; slack = 1 + 12 / kk_linf_bound(3))
+    @test kk_margin_ok(kkt_violation(s, v, x, 9), f.λ0, w[2], v, [9]; factor = a, extra = 6)
+  end
+  # the three-argument form is refused, as for the function itself
+  @test_throws ArgumentError kkt_violation(Scaled(f, T(2)), v, 1)
+  @test_throws ArgumentError kkt_violation(kk_chain(T, f), v, 1)
+  # a zero factor has no representation for this function
+  @test_throws ArgumentError Scaled(f, zero(T))
+  # the arguments are checked before the factor is applied
+  @test_throws ArgumentError kkt_violation(Scaled(f, T(2)), Complex{T}.(v), x, 2)
+  @test_throws DimensionMismatch kkt_violation(Scaled(f, T(2)), v[1:12], x, 2)
+  @test_throws DimensionMismatch kkt_violation(Scaled(f, T(2)), v[1:12], x)
+  @test_throws BoundsError kkt_violation(Scaled(f, T(2)), v, x, 14)
+  @test_throws DimensionMismatch kkt_violation(Scaled(fb, T(2)), v, BlockIterate(copy(x), [collect(1:13)]), 1)
+  # the class of a function with a score
+  @test @inferred(PB._kkt_class(typeof(Scaled(f, T(2))))) isa PB._KktScore
+end
+
+@testset "Scaled with an infinite factor ($T)" for T in (Float32, Float64)
+  inf, t = T(Inf), kk_tiny(T)
+  f = GroupNormLinf(T(0.8), [1:2, 3:3], T[1, 0])
+  v = T[0.25, 0.5, 0.75, 1]                            # entry 4 is in no group
+  si = Scaled(f, inf)
+  # at a zero group the formula Inf times the score at v/α = 0: -Inf for a positive coefficient, and NaN for the coefficient zero
+  @test kkt_violation(si, v, zeros(T, 4), 1) === -inf
+  @test isnan(kkt_violation(si, v, zeros(T, 4), 3)) && isnan(kkt_violation(si, v, zeros(T, 4), 4))
+  # at a nonzero group (a zero entry inside it included), at a nonzero entry in no group and in the full-point form: refused
+  for (pt, k) in ((T[1, 0, 0, 0], 1), (T[1, 0, 0, 0], 2), (T[0, 0, 1, 0], 3), (T[0, 0, 0, 1], 4), (SparseIterate(T[1, 0, 0, 0]), 2),
+                  (BlockIterate(T[1, 0, 0], [[1, 2], [3]]), 1))
+    @test_throws ArgumentError kkt_violation(si, pt isa BlockIterate ? v[1:3] : v, pt, k)
+  end
+  @test occursin("infinite factor", kk_msg(() -> kkt_violation(si, v, T[1, 0, 0, 0], 1)))
+  @test_throws ArgumentError kkt_violation(si, v, zeros(T, 4))
+  @test_throws ArgumentError kkt_violation(si, v, T[1, 0, 0, 0])
+  @test occursin("infinite factor", kk_msg(() -> kkt_violation(si, v, T[1, 0, 0, 0])))
+  # stacks that nest an infinite factor with other wrappers, built by the parameterized constructor, are refused in the same cases. The
+  # stack decides the route, so the first stack is tried on an array, a SparseIterate and a BlockIterate and the other two on arrays
+  stacks = (kk_raw(kk_raw(Scaled(f, inf), t), t), kk_raw(kk_raw(Scaled(f, t), inf), t), kk_raw(kk_chain(T, f), inf))
+  rows = ((T[1, 0, 0, 0], 1), (T[1, 0, 0, 0], 2), (T[0, 0, 0, 1], 4))
+  allrows = (rows..., (SparseIterate(T[1, 0, 0, 0]), 2), (BlockIterate(T[1, 0, 0], [[1, 2], [3]]), 1))
+  for (depth, st) in enumerate(stacks)
+    @test st.f isa Scaled
+    depth == 1 && @test PB._chained(st)
+    depth == 1 && @test occursin("infinite factor", kk_msg(() -> kkt_violation(st, v, T[1, 0, 0, 0], 1)))
+    @test_throws ArgumentError kkt_violation(st, v, zeros(T, 4))
+    @test_throws ArgumentError kkt_violation(st, v, T[1, 0, 0, 0])
+    for (pt, k) in (depth == 1 ? allrows : rows)
+      @test_throws ArgumentError kkt_violation(st, pt isa BlockIterate ? v[1:3] : v, pt, k)
+    end
+  end
+end
+
+# a chain of two wrappers whose product of factors is not a normal number: where the level folds into a normal level of the function the
+# chain has the score of that function, where it does not the zero groups have the margin with the coefficient a λ w, formed from the
+# significands and the exponents of the three, and a nonzero group, a zero entry inside it, a nonzero entry in no group and the
+# full-point form are refused
+@testset "chains of Scaled around GroupNormLinf ($T)" for T in (Float32, Float64)
+  groups = [[1], [2, 3], [4, 5, 6]]                    # sizes 1, 2 and 3; entry 7 is in no group
+  base = T[0.3, -0.4, 0.5, -0.2, 0.7, 0.1, 0.9]
+  tiny, lvl, folded = kk_tiny(T), kk_lvl(T), ldexp(one(T), T === Float32 ? -100 : -200)
+  a = setprecision(BigFloat, PREC) do
+    big(tiny)^2
+  end
+  # the level folds: tiny² lvl = folded
+  w = T[1, 2, 0.5]
+  h = kk_chain(T, GroupNormLinf(lvl, groups, w))
+  fl, p = PB._scaled_chain(h)
+  @test PB._chained(h) && PB._kkt_resolve(fl, p) !== nothing
+  fo = GroupNormLinf(folded, groups, w)
+  v = folded .* base
+  x0 = zeros(T, 7)
+  x1 = T[0, 1, 0, 0.5, -0.5, 0.5, 4]                   # group 1 is zero, group 2 has a zero entry, entry 7 is in no group
+  bx = BlockIterate(copy(x1[1:6]), groups)
+  for (k, G) in enumerate(groups), i in G
+    @test kk_margin_ok(kkt_violation(h, v, x0, i), folded, w[k], v, G)
+    @test kk_close(kkt_violation(h, v, x0, i), kkt_violation(fo, v, x0, i), T, 4 * folded)
+    k == 1 || @test kk_ok(kkt_violation(h, v, x1, i), folded, w[k], v, x1, G; slack = 1)
+    k == 1 || @test kk_close(kkt_violation(h, v, x1, i), kkt_violation(fo, v, x1, i), T, 8 * folded)
+  end
+  @test kkt_violation(h, v, x1, 7) === abs(v[7])
+  @test kk_ok(kkt_violation(h, v[1:6], bx, 3), folded, w[3], v, x1, groups[3])
+  @test kk_full_ok(kkt_violation(h, v, x1), fo, v, x1)
+  @test kk_full_ok(kkt_violation(h, v, x0), fo, v, x0)
+  @test kkt_violation(h, v, x0) isa T
+  # the level does not fold: the coefficient is a λ w with a λ that underflows in the product tiny² λ
+  λn, wn = T === Float32 ? (ldexp(one(T), -40), ldexp(one(T), 120)) : (ldexp(one(T), -300), ldexp(one(T), 1000))
+  c1 = T === Float32 ? ldexp(one(T), -120) : ldexp(one(T), -500)      # tiny² λn wn = 2^-120 or 2^-500, the coefficient of group 1
+  wk = T[wn, wn / 2, wn / 4]
+  hn = kk_chain(T, GroupNormLinf(λn, groups, wk))
+  fn, pn = PB._scaled_chain(hn)
+  @test PB._chained(hn) && PB._kkt_resolve(fn, pn) === nothing
+  vn = c1 .* base
+  bz = BlockIterate(zeros(T, 6), groups)
+  for (k, G) in enumerate(groups)
+    ref(i) = kkt_violation(hn, vn, x0, i)
+    for i in G
+      @test kk_margin_ok(ref(i), λn, wk[k], vn, G; factor = a)
+    end
+    @test kk_margin_ok(kkt_violation(hn, vn[1:6], bz, k), λn, wk[k], vn, G; factor = a)
+  end
+  @test kkt_violation(hn, vn, x0, 7) === abs(vn[7])                       # an entry in no group keeps |vᵢ|
+  # the refusals, after the validation of the arguments
+  xz = copy(x0); xz[2] = 1                              # group 2 is nonzero and entry 3 is zero inside it
+  xf = copy(x0); xf[7] = 1                              # a nonzero entry in no group
+  @test_throws ArgumentError kkt_violation(hn, vn, xz, 2)
+  @test_throws ArgumentError kkt_violation(hn, vn, xz, 3)
+  @test occursin("Scaled wrappers around GroupNormLinf", kk_msg(() -> kkt_violation(hn, vn, xz, 2)))
+  @test_throws ArgumentError kkt_violation(hn, vn, xf, 7)
+  @test kkt_violation(hn, vn, xz, 1) isa T && kkt_violation(hn, vn, xf, 1) isa T       # the zero group 1 is scored
+  @test_throws ArgumentError kkt_violation(hn, vn[1:6], BlockIterate(T[0, 1, 0, 0, 0, 0], groups), 2)
+  @test_throws ArgumentError kkt_violation(hn, vn, SparseIterate(xz), 3)
+  @test_throws ArgumentError kkt_violation(hn, vn, x0)
+  @test_throws ArgumentError kkt_violation(hn, vn, xz)
+  @test occursin("Scaled wrappers around GroupNormLinf", kk_msg(() -> kkt_violation(hn, vn, x0)))
+  @test_throws DimensionMismatch kkt_violation(hn, vn[1:5], xz, 2)
+  @test_throws BoundsError kkt_violation(hn, vn, xz, 8)
+  @test_throws DimensionMismatch kkt_violation(hn, vn[1:6], BlockIterate(T[0, 1, 1, 0, 0, 0], [[1, 2], [3], [4, 5, 6]]), 1)
+  # the three-argument form is refused for both chains
+  @test_throws ArgumentError kkt_violation(h, v, 2)
+  @test_throws ArgumentError kkt_violation(hn, vn, 2)
+  # a symmetric iterate has no groups: the refusal names the function and does not advise a form that it lacks
+  S = SymmetricSparseIterate(T[0 1; 1 0])
+  for g in (Scaled(GroupNormLinf(T(0.8), groups, w), T(2)), h, hn)
+    for call in (() -> kkt_violation(g, ones(T, 2, 2), S), () -> kkt_violation(g, ones(T, 2, 2), S, 1), () -> kkt_violation(g, ones(T, 2, 2), S, 2))
+      @test_throws ArgumentError call()
+      m = kk_msg(call)
+      @test occursin("GroupNormLinf", m) && occursin("SymmetricSparseIterate", m) && !occursin("use the coordinate form", m)
+    end
+  end
+end
+
+# warmed allocations of the scores for Array and Matrix arguments, range and vector groups, a BlockIterate point and one Scaled
+# wrapper; v and x are compared with copies afterwards
+@testset "allocations and inference of the scores ($T, $layout)" for T in (Float32, Float64), layout in (:range, :perm)
+  rng = Xoshiro(1017)
+  sizes = [4, 33, 130, 1, 7]
+  groups, p = partition(rng, sizes, layout)
+  f = GroupNormLinf(T(0.3), groups, T[1, 0.5, 2, 1, 0.25])
+  v, x = randn(rng, T, p), randn(rng, T, p)
+  x[groups[2]] .= 0                                   # group 2 is zero
+  zg, nz = first(groups[2]), first(groups[3])
+  v0, x0 = copy(v), copy(x)
+  q = p - p % 2
+  Mv, Mx = reshape(v[1:q], 2, :), reshape(x[1:q], 2, :)
+  parts = layout === :range ? [1:4, 5:37, 38:167, 168:168, 169:175] : [collect(1:4), collect(5:37), collect(38:167), [168], collect(169:175)]
+  fp = GroupNormLinf(T(0.3), parts, T[1, 0.5, 2, 1, 0.25])
+  xb = x[1:175]
+  xb[parts[2]] .= 0
+  bx = BlockIterate(xb, parts)
+  for h in (f, Scaled(f, T(2.5)))
+    for (g, pt) in ((v, x), (Mv, Mx))
+      @test (@inferred kkt_violation(h, g, pt)) isa T
+      @test (@inferred kkt_violation(h, g, pt, zg)) isa T
+      @test (@inferred kkt_violation(h, g, pt, nz)) isa T
+      @test allocs(kkt_violation, h, g, pt) == 0
+      @test allocs(kkt_violation, h, g, pt, zg) == 0
+      @test allocs(kkt_violation, h, g, pt, nz) == 0
+    end
+  end
+  for h in (fp, Scaled(fp, T(2.5)))
+    @test (@inferred kkt_violation(h, v[1:175], bx)) isa T
+    @test (@inferred kkt_violation(h, v[1:175], bx, 2)) isa T
+    @test (@inferred kkt_violation(h, v[1:175], bx, 3)) isa T
+    @test allocs(kkt_violation, h, v[1:175], bx) == 0
+    @test allocs(kkt_violation, h, v[1:175], bx, 2) == 0
+    @test allocs(kkt_violation, h, v[1:175], bx, 3) == 0
+  end
+  # four more inputs, each with all x equal (so that the face of a group is the whole group) or zero. What they reach in the group nz
+  # (130 entries, level 0.6; the other groups are not claimed to reach the same path): a gradient of 1e-30 at x = 2, a certified face whose
+  # residual is the level and whose sum of squares is normal (the ordinary path, with no underflow in the squares); a gradient of
+  # floatmax/8 at x = 1, a sum of magnitudes that fails the range test, so the scaled path; a NaN gradient, the early exit; and the gradient 1
+  # at the zero point, the ordinary zero-point path (the margin for the four-argument form, as nz is then a zero group)
+  for (vv, xx) in ((fill(T(1e-30), p), fill(T(2), p)), (fill(floatmax(T) / 8, p), ones(T, p)), (fill(T(NaN), p), ones(T, p)), (ones(T, p), zeros(T, p)))
+    @test allocs(kkt_violation, f, vv, xx, nz) == 0
+    @test allocs(kkt_violation, f, vv, xx) == 0
+  end
+  @test v == v0 && x == x0
 end
 
 @testset "allocations ($T)" for T in (Float32, Float64)

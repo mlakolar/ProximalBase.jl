@@ -21,7 +21,7 @@ step selection and stopping rule.
 | Bound the sum of absolute entries (ℓ₁ ball) | [`IndBallL1(r)`](@ref IndBallL1) | Uses Euclidean projection at any nonnegative scalar step |
 | Sum of norms over disjoint groups | [`GroupNormL2(λ, groups, w)`](@ref GroupNormL2) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are √group size |
 | Entry and group sparsity on disjoint groups | [`SparseGroupNormL2(λ1, λ2, groups, w)`](@ref SparseGroupNormL2) | Both terms act on the listed entries. A zero weight removes the group ℓ₂ term. |
-| Sum of maximum magnitudes over disjoint groups | [`GroupNormLinf(λ, groups, w)`](@ref GroupNormLinf) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are 1; the optimality score is provided at a zero group (and at an entry in no group) only |
+| Sum of maximum magnitudes over disjoint groups | [`GroupNormLinf(λ, groups, w)`](@ref GroupNormLinf) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are 1; the optimality score is the margin of the dual norm at a zero group and the distance to the subdifferential at a nonzero one, and the full-point form is the maximum of zero, of `abs(v[i])` over the unlisted indices and of the distances of the groups |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
 

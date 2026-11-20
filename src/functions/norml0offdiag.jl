@@ -133,7 +133,7 @@ function _l0od_check_float(X)
 end
 
 # A reinterpreted array whose parent has padding can be writable and not readable, or the reverse
-# (Base.PaddingError). The check uses Base's own tests, through every strided wrapper, before any write.
+# (Base.PaddingError). The check uses Base's own tests, through SubArray and ReshapedArray wrappers, before any write.
 _l0od_accessible(A) = true
 _l0od_accessible(A::Union{SubArray, Base.ReshapedArray}) = _l0od_accessible(parent(A))
 function _l0od_accessible(A::Base.ReinterpretArray)

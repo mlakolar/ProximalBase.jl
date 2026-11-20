@@ -175,13 +175,20 @@ end
   end
 end
 
-@testset "Dense value classification in a single pass" begin
+@testset "Dense value classification with exceptional sums" begin
   for T in (Float32, Float64)
     f = IndBallL0(2)
     @test f(T[-Inf, Inf]) === zero(T)
+    @test IndBallL0(1)(T[-Inf, Inf]) === T(Inf)
     @test f(T[-floatmax(T), floatmax(T)]) === zero(T)
     @test isnan(f(T[NaN, Inf]))
     @test isnan(f(T[Inf, -NaN]))
+    h = floatmax(T)
+    x = repeat(T[h, h, -h, -h], 1024)
+    @test IndBallL0(length(x))(x) === zero(T)
+    @test IndBallL0(length(x) - 1)(x) === T(Inf)
+    @test IndBallL0(0)(T[-0.0, 0.0]) === zero(T)
+    @test IndBallL0(0)(T[-0.0, nextfloat(zero(T))]) === T(Inf)
     y = T[1, 1]
     @test_throws ArgumentError prox!(y, f, T[-Inf, Inf])
     @test y == T[1, 1]

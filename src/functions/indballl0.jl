@@ -150,17 +150,16 @@ function _l0_dense_stats(x, ::Nothing, mode)
 end
 _l0_dense_stats(x, diag::Tuple, mode) = _l0_entry_stats(x, eachindex(x), diag, mode)
 
-# Squares let the classifier use a fused multiply-add. Overflow to
-# positive infinity is harmless: the sum is NaN exactly when a counted
-# entry is NaN, even with infinities of both signs.
+# A NaN sum can come from a counted NaN, opposite infinities, or overflow
+# in the SIMD reduction. Inspect the entries when the sum is NaN.
 function _l0_dense_count(x, ::Val{:value}, ::Type{I}) where {I}
   n, total = zero(I), zero(eltype(x))
   @inbounds @simd for i in eachindex(x)
     v = x[i]
     n += I(!iszero(v))
-    total += v * v
+    total += v
   end
-  Int(n), isnan(total)
+  Int(n), isnan(total) && any(isnan, x)
 end
 
 function _l0_dense_count(x, ::Val{:prox}, ::Type{I}) where {I}

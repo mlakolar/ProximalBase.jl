@@ -386,6 +386,54 @@ end
   @test_throws ArgumentError kkt_violation(g, x, 1)
 end
 
+@testset "signed-zero copies to sparse array outputs ($T)" for T in (Float32, Float64)
+  G = [[4, 2, 7]]
+  f = SparseGroupNormL2(one(T), T(2), G, T[1])
+  unpenalized = SparseGroupNormL2(zero(T), zero(T), G)
+  for dims in ((8,), (2, 4))
+    dense = reshape(T[-0.0, 1.5, 0, -0.0, 0, 0, 0, -0.0], dims)
+    sparse = SparseIterate(T, dims...)
+    # Indices 1 and 8 are free negative zeros, index 4 is covered, and
+    # index 5 is an explicitly stored positive zero next to absent zeros.
+    for i in (1, 2, 4, 5, 8)
+      activate!(sparse, i)
+      sparse[i] = dense[i]
+    end
+    @test isactive(sparse, 5) && !isactive(sparse, 3) && !isactive(sparse, 7)
+    @test isequal(collect(sparse), dense)
+
+    for (g, γ, identity) in ((f, T(0.5), false), (f, zero(T), true),
+                             (unpenalized, one(T), true), (unpenalized, T(Inf), true))
+      for x in (dense, sparse)
+        out = SparseIterate(T, dims...)
+        fused = SparseIterate(T, dims...)
+        @test prox!(out, g, x, γ) === out
+        value_and_prox!(fused, g, x, γ)
+        for y in (prox(g, x, γ), out, fused)
+          @test y[1] === -zero(T)
+          @test y[8] === -zero(T)
+          @test y[3] === zero(T)
+          @test y[5] === zero(T)
+          if identity
+            @test y[4] === -zero(T)
+            @test y[2] === T(1.5)
+            @test y[7] === zero(T)
+          else
+            @test all(iszero(y[i]) for i in only(G))
+          end
+          if y isa SparseIterate
+            @test !isactive(y, 3)
+            if identity
+              @test !isactive(y, 7)
+            end
+          end
+        end
+        @test isequal(collect(x), dense)
+      end
+    end
+  end
+end
+
 @testset "sparse and block storage, pure block calculations ($T)" for T in (Float32, Float64)
   G = [[4, 1], [5, 2], [3, 6]]
   a, b, γ = T(0.5), T(0.75), T(0.5)

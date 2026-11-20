@@ -486,7 +486,7 @@ magnitude equals the largest one after conversion to the working type, with no t
 an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
 type (`Float16` from `n = 65519`) throws an `ArgumentError`.
 
-[`GroupNormLinf`](@ref) scores a group `G` with `c = λ0*w_G`. At a zero group the score is the margin (the computed sum of the magnitudes of `v_G` minus `c`) of the dual
+[`GroupNormLinf`](@ref) scores a group `G` with `c = λ0*w_G`. At a zero group the score is the margin (the computed sum of the magnitudes of `v_G` minus `c`, when that sum is finite) of the dual
 (ℓ1) norm of its ∞-norm: the screen of the group, not the Euclidean screen of `GroupNormL2` (#634), and its positive part is not a
 stationarity distance. At a nonzero group it is the Euclidean distance from `-v_G` to the subdifferential of `c*maximum(abs, x_G)` at
 `x_G`, computed as for `NormLinf` on the entries of the group: the face is the set of entries whose magnitude equals the largest one

@@ -167,7 +167,10 @@ and zero cases use their analytical results. `sparse_value_cost` ports the count
 historical suite: the `NormL2` value of a 100 × 100 sparse or symmetric iterate with a
 few stored entries creates no zero of that type, on the ordinary and the recovery
 paths (#808).
-`leastsquares_predictor` checks the least-squares oracles at a caller-supplied predictor or residual
+For dense matrix responses, `leastsquares_predictor` checks both predictor oracles
+against 256-bit references, including strided buffers, range recovery and
+pre-write alias and shape refusals.
+`leastsquares_predictor` also checks the least-squares oracles at a caller-supplied predictor or residual
 (`value_from_predictor`, `value_and_gradient_from_predictor!`, `value_from_residual`, #915) and the accessor
 `leastsquares_data` in Float32/64, raw and `Scaled`, against 256-bit BigFloat references formed from the exact
 bits of X, Y, z (or r) and the scale as supplied: ordinary, exact-fit, near-fit, cancelling, underflowing,

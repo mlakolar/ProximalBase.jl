@@ -47,8 +47,9 @@ described with the [smooth functions](../smooth.md#Least-squares-at-a-predictor-
 take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
 value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
 For strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value
-whose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with
-the length, does not decide between a finite value and `Inf`.
+whose ordinary computation `α s / 2` is above `floatmax(T)/2`. The two matrix predictor
+oracles reuse that guard and the same squared-residual recovery. The guard keeps rounding
+in the ordinary sum from deciding between a finite value and `Inf`.
 
 The complete [predictor and residual oracle section](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds) retains its domain, rounding, range, gradient and buffer rules. It remains one shared owner for these related operations.
 

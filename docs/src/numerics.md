@@ -75,8 +75,7 @@ Ordinary finite calls use efficient numerical paths. Exceptional paths
 selectively recover representable values when an intermediate product or sum
 would overflow or underflow. These include scaled square sums, finite-data
 affine/quadratic values and products of nonnegative level/step/weight factors.
-`SqrNormL2` also recovers gradient differences and proximal convex-combination
-coefficients. `SqrNormL2` and `LeastSquaresLoss` share one squared-residual
+See [SqrNormL2 range clauses](@ref spec-sqrnorml2-range) for its gradient and proximal recovery. `SqrNormL2` and `LeastSquaresLoss` share one squared-residual
 recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
 binade up, when `x - y` itself overflows) and the squares are summed in units
 of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
@@ -330,8 +329,7 @@ all-NaN result or a particular exception.
 | `GroupNormLinf`, positive finite level and weight, infinite step | `+0` for every input, `NaN` and `±Inf` entries included |
 | `GroupNormLinf`, positive finite level, weight and step | A `NaN` entry makes the group `NaN` and leaves the other groups to their own rules; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite product `γ*λ0*w[k]` overflows; otherwise the clip of the group at `τ` with `Σ(abs(xᵢ) - τ)₊ = γ λ0 w[k]`, and `+0` when the computed radius reaches the computed sum of magnitudes or overflows while that sum is finite |
 | `GroupNormLinf`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!`; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
-| `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
-| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
+| `SqrNormL2` | See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints) |
 | `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
 | `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
 | `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |

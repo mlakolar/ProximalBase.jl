@@ -288,6 +288,10 @@ a newer master push cancelled its workflow.
 [Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
 and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
 
+The 56-file snapshot adds a provisional 35-second weight for `norml0offdiag`.
+This rounds up to the next five seconds a single Julia 1.13.4 observation of
+30.8 seconds on a development cluster; no CI timing exists yet for the file.
+
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
 Update the affected weights and record the timing sources. If a new test has

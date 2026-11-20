@@ -267,30 +267,52 @@ end
   S = symmetric_random(rng, T, p)
   sentinel(n = p, m = n) = fill(T(7.5), n, m)
 
-  @testset "asymmetric input" begin
-    X = copy(S)
-    X[2, 4] += one(T)
-    refuses(ArgumentError, f, sentinel(), X; value = true)
-    X = copy(S)
-    X[5, 1] = -X[5, 1]
-    refuses(ArgumentError, f, sentinel(), X; value = true)
+  @testset "asymmetric input gives the entrywise result" begin
+    checks(X, γ) = begin
+      n = size(X, 1)
+      Xc = copy(X)
+      W = prox(NormL0(f.λ), X, γ)
+      Y = fill(T(NaN), n, n)
+      v = value_and_prox!(Y, f, X, γ)
+      k = nonzero_offdiagonal(Y)
+      ok = isequal(X, Xc) && v === f(Y) && v === expected_value(T, f.λ, k)
+      ok &= all(i -> isequal(Y[i, i], X[i, i]), 1:n)
+      ok &= all(ij -> ij[1] == ij[2] || isequal(Y[ij...], W[ij...]), Iterators.product(1:n, 1:n))
+      ok &= isequal(prox(f, X, γ), Y) && f(X) === expected_value(T, f.λ, nonzero_offdiagonal(X))
+      Z = copy(X)
+      ok &= prox!(Z, f, Z, γ) === Z && isequal(Z, Y)
+      Z = copy(X)
+      ok &= value_and_prox!(Z, f, Z, γ) === v && isequal(Z, Y)
+      ok
+    end
+    for γ in (T(1), 1, T(0.4))
+      X = copy(S)
+      X[2, 4] = T(5)
+      X[4, 2] = T(0.1)
+      @test checks(X, γ)
+      Y = prox(f, X, γ)
+      @test Y[2, 4] === T(5) && isequal(Y[4, 2], zero(T)) && Y != transpose(Y)
+      X = copy(S)
+      X[5, 1] = -X[5, 1]
+      @test checks(X, γ)
+      X = copy(S)
+      X[1, 5] = zero(T)
+      @test checks(X, γ)
+      # an asymmetric pair in a block away from the first one, at a size on the cutoff route
+      q = 70
+      X = symmetric_random(rng, T, q)
+      X[q, 3] = X[3, q] + one(T)
+      X[40, 36] = nextfloat(X[36, 40])
+      @test checks(X, γ)
+    end
     X = copy(S)
     X[3, 3] = T(-0.0)
     X[1, 2] = T(0.0)
     X[2, 1] = T(-0.0)
     @test prox(f, X) isa Matrix{T}
-    # an asymmetric pair in a block away from the first one
-    q = 70
-    X = symmetric_random(rng, T, q)
-    X[q, 3] = X[3, q] + one(T)
-    refuses(ArgumentError, f, sentinel(q), X; value = true)
-    X = symmetric_random(rng, T, q)
-    X[40, 36] = nextfloat(X[36, 40])
-    refuses(ArgumentError, f, sentinel(q), X; value = true)
-    # an upper entry differs, so neither triangle is selected
-    X = copy(S)
-    X[1, 5] = zero(T)
-    refuses(ArgumentError, f, sentinel(), X; value = true)
+    # the value counts every nonzero off-diagonal entry of the given matrix
+    @test NormL0OffDiag(3)(T[1 2 0; 0 1 0; 0 0 1]) === T(3)
+    @test NormL0OffDiag(3)(T[1 2 0; 4 1 0; 0 0 1]) === T(6)
   end
 
   @testset "non-finite input" begin
@@ -300,13 +322,16 @@ end
         X[i, j] = bad
         i == j || (X[j, i] = bad)
         refuses(ArgumentError, f, sentinel(), X; value = true)
+        # the mirror entry is finite
+        X = copy(S)
+        X[i, j] = bad
+        refuses(ArgumentError, f, sentinel(), X; value = true)
       end
       q = 70
       X = symmetric_random(rng, T, q)
       X[65, 66] = X[66, 65] = bad
       refuses(ArgumentError, f, sentinel(q), X; value = true)
     end
-    # a NaN pair is reported although it is not equal to itself
     X = copy(S)
     X[1, 2] = X[2, 1] = T(NaN)
     @test_throws ArgumentError f(X)
@@ -586,8 +611,8 @@ end
   @test_throws ArgumentError prox(Scaled(f, T(2)), Symmetric(S))
   A = copy(S)
   A[1, 2] += 1
-  @test_throws ArgumentError prox(Scaled(f, T(2)), A)
-  @test_throws ArgumentError Scaled(f, T(2))(A)
+  @test isequal(prox(Scaled(f, T(2)), A, T(0.5)), prox(f, A, T(1)))
+  @test Scaled(f, T(2))(A) === T(2) * f(A)
 end
 
 # A Float32 matrix stored in a reinterpreted Float64 or ComplexF32 array.

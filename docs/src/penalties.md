@@ -370,8 +370,9 @@ supported storage and endpoint rules.
 
 `NormL0OffDiag(λ)` charges `λ` for each nonzero off-diagonal entry of a
 matrix and nothing for the diagonal, so a nonzero symmetric pair costs `2λ`.
-It accepts finite dense `Float32` or `Float64` matrices that are symmetric
-under `==`. The proximal map copies the diagonal and decides each
+It accepts finite dense `Float32` or `Float64` matrices. Symmetry under `==`
+is a precondition of the symmetric problem and is not checked; for an
+asymmetric matrix each entry is decided from its own value. The proximal map copies the diagonal and decides each
 off-diagonal entry with the rule of [`NormL0`](@ref): an entry is kept when
 its square exceeds `2γλ` and is positive zero otherwise. The comparison is
 exact when `λ` and `γ` convert exactly to a `Float32` or `Float64` working
@@ -395,7 +396,7 @@ nothing # hide
 
 At step one and level two the threshold is four, so an entry of magnitude
 two is a tie and gives zero. The oracle throws `ArgumentError` before it
-writes anything for an asymmetric or non-finite matrix, a matrix type that is
+writes anything for a non-finite matrix, a matrix type that is
 not strided, mixed element types and a step that is not finite and positive.
 It does not promise that the output is positive definite. See the
 [`NormL0OffDiag`](@ref) entry and the

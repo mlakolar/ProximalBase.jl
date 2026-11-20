@@ -3,14 +3,16 @@
 
 The nonconvex penalty `g(X) = λ ⋅ #{(i, j) : i ≠ j, Xᵢⱼ ≠ 0}` on a square
 matrix: each nonzero off-diagonal entry costs `λ` and the diagonal costs
-nothing. A pair `Xᵢⱼ = Xⱼᵢ ≠ 0` with `i < j` contributes `2λ`. The level `λ`
+nothing. For a symmetric `X`, a pair `Xᵢⱼ = Xⱼᵢ ≠ 0` with `i < j` contributes `2λ`. The level `λ`
 must be a finite real number that is not negative; the constructor throws
 `ArgumentError` otherwise. Both signed zeros count as zero.
 
 **Inputs.** `X` and the output `Y` are one-based strided `p × p` matrices
 (`p = 0` is allowed) with the same element type, `Float32` or `Float64`. `X`
-has finite entries and is symmetric under `==`, so a pair `(+0.0, -0.0)` is
-accepted. The step `γ` is a finite real number that is positive.
+has finite entries. Symmetry of `X` under `==` is a precondition of the
+statements below about the symmetric problem, and it is not checked: a pair
+`(+0.0, -0.0)` is symmetric. The step `γ` is a finite real number that is
+positive.
 
 **Value.** With `k` the number of nonzero entries off the diagonal, `g(X)` has
 the element type `T` of `X`. It is `zero(T)` when `k = 0` or `λ = 0`.
@@ -19,7 +21,8 @@ Otherwise it is `convert(T, R(λ) * R(k))` with
 `Float32` before the product. The result can overflow to `Inf` when the product
 rounds beyond `floatmax(T)`.
 
-**Proximal map.** For `V` that meets the input conditions, the output `Y` of
+**Proximal map.** For `V` that meets the input conditions and is symmetric under
+`==`, the output `Y` of
 `prox!(Y, g, V, γ)` minimizes `g(Z) + ‖Z - V‖²_F / (2γ)` over symmetric `Z`,
 when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type of
 [`NormL0`](@ref). Other levels and steps, for example a `Rational` or an `Int`
@@ -37,6 +40,11 @@ rounded values:
   diagonal term `(x - v)²/(2γ)` has the minimizer `x = v`.
 - `Y` is symmetric under `==` when `V` is.
 
+For an asymmetric `X` the same entrywise rule is applied to each entry, so
+neither triangle is selected. The result is then not the proximal point over
+symmetric matrices, and the value counts every nonzero off-diagonal entry of
+the given matrix.
+
 `value_and_prox!` returns the value at the stored `Y`. `Y === X` is
 supported. A different `Y` for which `Base.mightalias(Y, X)` is true throws
 `ArgumentError` before any write. `prox` returns `similar(X, T)`, a `Matrix` for
@@ -46,8 +54,8 @@ Base arrays.
 a matrix that is not a `StridedMatrix` (`Symmetric`, `Hermitian`, sparse
 matrices, `Adjoint`, `Transpose`, [`matrixview`](@ref)), offset axes, an element
 type other than `Float32` and `Float64` or differing types of `X` and `Y`, a
-step that is not finite and positive, a non-finite entry of `X`, and an
-asymmetric `X`. `DimensionMismatch`: a non-square `X`, or a `Y` of another
+step that is not finite and positive, and a non-finite entry of `X`.
+`DimensionMismatch`: a non-square `X`, or a `Y` of another
 size. Arguments that are not matrices, such as vectors, tuples,
 [`SymmetricSparseIterate`](@ref) and [`BlockIterate`](@ref), and array steps give
 `MethodError`, or `ArgumentError` where a generic fallback rejects them first.
@@ -88,41 +96,23 @@ function _l0od_check_float(X)
   nothing
 end
 
-# One pass over both triangles, in blocks as in _check_pairs, counting the entries that are
-# non-finite or differ from their mirror image under ==. The diagnosis of a failure is separate.
+# A pass over the columns, in memory order, counting the entries that are not finite. The diagnosis of
+# a failure is separate. Symmetry of X is not read.
 function _l0od_scan(X::StridedMatrix)
   p = size(X, 1)
   bad = 0
-  @inbounds for cb in 1:32:p
-    ce = min(cb + 31, p)
-    for c in cb:ce
-      bad += !isfinite(X[c, c])
+  @inbounds for j in 1:p
+    s = 0
+    @simd for i in 1:p
+      s += !isfinite(X[i, j])
     end
-    for rb in cb:32:p
-      for c in cb:ce
-        s = 0
-        @simd for r in max(c + 1, rb):min(rb + 31, p)
-          u = X[r, c]
-          v = X[c, r]
-          s += !(isfinite(u) & isfinite(v) & (u == v))
-        end
-        bad += s
-      end
-    end
+    bad += s
   end
-  bad == 0 || _l0od_diagnose(X)
+  bad == 0 || _l0od_nonfinite_error()
   nothing
 end
 
-# A non-finite entry is reported before an asymmetric pair.
-@noinline function _l0od_diagnose(X)
-  all(isfinite, X) || _l0od_error("requires finite entries in X")
-  p = size(X, 1)
-  for c in 1:p, r in c + 1:p
-    X[r, c] == X[c, r] || _l0od_error("requires X to be symmetric under ==")
-  end
-  _l0od_error("requires finite entries in X that are symmetric under ==")
-end
+@noinline _l0od_nonfinite_error() = _l0od_error("requires finite entries in X")
 
 # The number of nonzero entries off the diagonal. A column sum has the integer width of the entries.
 _l0od_zero(::Type{Float32}) = Int32(0)

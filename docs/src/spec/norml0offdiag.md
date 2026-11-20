@@ -18,13 +18,15 @@ matrix ``X`` it is
 g(X)=\lambda\,\#\{(i,j):i\neq j,\ X_{ij}\neq0\}.
 ```
 
-A pair ``X_{ij}=X_{ji}\neq0`` with ``i<j`` contributes ``2\lambda`` and the
-diagonal contributes nothing. Both signed zeros count as zero.
+For a symmetric ``X``, a pair ``X_{ij}=X_{ji}\neq0`` with ``i<j`` contributes
+``2\lambda``; the diagonal contributes nothing. Both signed zeros count as zero.
 
 The oracles accept a one-based, strided ``p\times p`` matrix of `Float32` or
-`Float64` (``p=0`` is allowed) with finite entries that is symmetric under
-`==`, so a pair `(+0.0, -0.0)` is symmetric. The step ``\gamma`` is a finite
-positive real number. For such ``V``, when the comparison of the
+`Float64` (``p=0`` is allowed) with finite entries. The step ``\gamma`` is a
+finite positive real number. Symmetry of the matrix under `==` is a precondition
+of the statements about the symmetric problem on this page, and it is not
+checked; a pair `(+0.0, -0.0)` is symmetric. For a finite ``V`` that is
+symmetric under `==`, when the comparison of the
 [ordinary-path clauses](@ref spec-norml0offdiag-ordinary) is exact, the proximal
 map solves
 
@@ -58,7 +60,8 @@ and give `MethodError`.
 Exact input/output identity `Y === X` is supported. A different output `Y` for
 which `Base.mightalias(Y, X)` is true is refused. Other ownership rules follow
 the [array and precision conventions](@ref numerical-usage). The step is
-checked before any entry is read.
+checked before any entry is read. The caller establishes the symmetry of the
+matrix; see the definition above.
 
 `Scaled(NormL0OffDiag(λ), α)` takes the value ``\alpha g`` and the proximal map
 of `NormL0OffDiag(λ)` at step `α * γ`, for positive finite `α` when the rounded
@@ -83,6 +86,11 @@ The diagonal is copied bit for bit, including `-0.0`. Each entry ``(i,j)`` with
 comparison is exact as described below, a mathematical tie gives zero. At ``\lambda=0`` the map is the identity, and a pair
 `(+0.0, -0.0)` stays as it is. At ``\lambda>0`` the same pair becomes
 `(+0.0, +0.0)`. The output is symmetric under `==` when the input is.
+
+For an asymmetric input the same rule is applied to each entry, so neither
+triangle is selected. The output is then the entrywise map, which is not the
+proximal point over symmetric matrices, and the value counts every nonzero
+off-diagonal entry of the given matrix.
 
 The comparison is exact when `λ` and `γ` convert exactly to a `Float32` or
 `Float64` working type. Other levels and steps, for example a `Rational` or an
@@ -122,10 +130,9 @@ unchanged by a refused call.
    `X` and `Y`: `ArgumentError`.
 5. A different `Y` with `Base.mightalias(Y, X)` true: `ArgumentError`.
 6. A step that is not finite and positive: `ArgumentError`.
-7. A non-finite entry of `X`, then an asymmetric `X` (both triangles are
-   compared and neither is selected): `ArgumentError`.
+7. A non-finite entry of `X`: `ArgumentError`.
 
-The value oracle runs the checks that concern `X`. `prox(f, Symmetric(A))`
+An asymmetric `X` is not refused. The value oracle runs the checks that concern `X`. `prox(f, Symmetric(A))`
 reaches the strided check and throws `ArgumentError`.
 
 ## [Limitations and non-guarantees](@id spec-norml0offdiag-limitations)
@@ -144,7 +151,7 @@ view as `Y` is not detected as self-aliased, as in `Base.mightalias`.
 `prox_block(NormL0(λ), v, 1, γ)`. When `λ`, `γ` and the element type are the
 same float type and the matrix has at least 64 entries, the implementation
 uses the certified magnitude cutoff of the dense `NormL0` kernel instead when a
-cutoff can be certified, behind a function barrier. The validation reads both triangles in one blocked pass
+cutoff can be certified, behind a function barrier. The validation reads every entry once, column by column,
 before the first write. The write loop uses `@simd` without `ivdep`, because on
 Julia 1.10 the loop with `ivdep` gave wrong entries for a reinterpreted
 `Float32` matrix over `Float64` or `ComplexF32` storage. `Y === X` has its own
@@ -167,7 +174,7 @@ compares the proximal map with an exact `Rational{BigInt}` minimization over the
 keep and drop patterns of the pairs, and with `NormL0` off the diagonal for
 mixed level and step types. It covers ties, signed zeros, the diagonal, the
 refusals listed in the failure section, with an unchanged sentinel output where
-the caller passes one, the `MethodError` refusals of non-matrix arguments, strided views, reshapes and
+the caller passes one, the entrywise result for an asymmetric input, the `MethodError` refusals of non-matrix arguments, strided views, reshapes and
 reinterpreted matrices as input and output, and strided views and reinterpreted matrices in place, `Scaled`, and zero
 allocation on both routes. The
 [penalty guide](@ref norml0offdiag-guide) contains an executable example, and

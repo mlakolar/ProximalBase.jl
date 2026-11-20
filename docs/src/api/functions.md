@@ -45,6 +45,12 @@ NormL0
 SCAD
 ```
 
+## Minimax concave penalty
+
+```@docs
+MCP
+```
+
 ## Off-diagonal cardinality penalty
 
 ```@docs

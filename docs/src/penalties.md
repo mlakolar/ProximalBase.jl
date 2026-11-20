@@ -257,67 +257,13 @@ xh = [2.0, -3.0, 0.25]
 
 ### Weights, shapes and representations
 
-The array `w` has one weight per entry of the argument, paired by Julia's
-linear index, and is stored by reference. `ElasticNet` accepts real dense
-vectors and matrices (views included), `SparseIterate`, `BlockIterate` and
-`SymmetricSparseIterate`, with a scalar step or, except as noted below, an
-array of per-entry steps. On a `SparseIterate` or a
-`SymmetricSparseIterate` the value reads the stored entries only, and so
-does the proximal operator from such an iterate into an iterate of the same
-kind; with a dense destination it writes, and reads the weights of, every
-entry. This is the traversal of the entries: a value whose two parts are
-recomputed together (above) also reads every entry of a weight array whose
-element type is not concrete, such as a `Vector{Real}`, to choose the type of
-its accumulator. An entry stored in an iterate destination stays stored, possibly as
-a zero, and a zero result does not activate an absent entry. On a
-`SymmetricSparseIterate` the weights
-are a `p × p` matrix read at both positions of an off-diagonal
-coordinate, and the value counts such a coordinate twice, as the matrix
-it represents does. The weights must then be exactly symmetric, a
-precondition that the oracles assume and `check_symmetric_parameters`
-validates (see [Symmetric parameters](symmetric_parameters.md)).
-
-Not supported: an array of steps with a `SymmetricSparseIterate`
-destination (an `ArgumentError` before any write), or with a dense
-destination and a `SymmetricSparseIterate` argument (a `MethodError`);
-the vector form of `prox_block`; complex arguments or weights.
+The weights, shapes, supported representations and unsupported combinations now live in
+[Supported arguments](@ref spec-elasticnet-arguments).
 
 ### [Steps and endpoint rules](@id elastic-net-steps)
 
-`prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a
-negative or `NaN` scalar step before anything is written. The entries of
-an array of steps are not checked: they must be nonnegative, a documented
-precondition. `prox_block` does not check its step, and `Scaled` keeps its own step rule.
-
-The optimized array-step loop and the general loop store the same results,
-bit for bit. See the [implementation notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/function-docs-history-921.md#elastic-net-step-traversal)
-for branch-selection conditions and the reason array-step validation remains a
-caller precondition.
-
-```@example library_l1
-y = [7.0, 7.0, 7.0]
-refused = try prox!(y, h, x, -1.0); false catch e; e isa ArgumentError end
-@assert refused && y == [7.0, 7.0, 7.0]
-```
-
-An infinite ridge level makes `g` the indicator of ``\{0\}``: at every
-step ``\gamma\geq0``, ``\gamma=0`` included, each entry of the proximal
-point is `+0`, also for `NaN` and `±Inf` inputs; the value is `0` at the
-zero vector, `NaN` if an entry is `NaN`, and `Inf` otherwise; and
-the screen `kkt_violation(g, v, i)` is `-Inf`, as is `kkt_violation(g, v, x, i)`
-at a zero entry of `x` with a finite `v[i]`, while that form is `Inf` at a nonzero
-entry of `x` with finite `v[i]`. An infinite `λ1` and infinite weights follow
-the [ℓ₁ endpoint rules](@ref l1-endpoints), and a threshold that overflows from
-finite factors keeps their documented limitation for infinite inputs.
-
-```@example library_l1
-hard = ElasticNet(1.0, Inf)
-@assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]
-@assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf
-@assert kkt_violation(hard, [5.0], 1) == -Inf
-@assert kkt_violation(hard, [5.0], [0.0], 1) == -Inf
-@assert kkt_violation(hard, [5.0], [1.0], 1) == Inf
-```
+The scalar-step validation, endpoint rules and executed examples now live in
+[Endpoint clauses](@ref spec-elasticnet-endpoints).
 
 ## [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty)
 
@@ -342,7 +288,7 @@ one-sided soft threshold, with the threshold ``\gamma\lambda_0w_i`` that `NormL1
 [\operatorname{prox}_{\gamma g}(v)]_i=\max\bigl(v_i-\gamma\lambda_0w_i,\ 0\bigr).
 ```
 
-```@example nonneg_l1
+```@example nonneg_l1_introduction
 using ProximalBase
 f = NormL1Nonneg(0.5, [1.0, 2.0])
 @assert f([2.0, 1.0]) == 0.5 * (2.0 + 2.0)
@@ -355,121 +301,50 @@ f([2.0, 1.0])
 
 ### The domain
 
-The domain is ``x_i\geq0`` exactly: `-0.0` and `+Inf` are feasible, and any negative number,
-a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and
-`NaN` where one is `NaN`; `NaN` takes precedence over `Inf`. A `+Inf` entry whose positive finite coefficient
-``\lambda_0w_i`` rounds to zero also gives `NaN`, as for `NormL1`
-([#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)), which then takes precedence over the `Inf` of a negative
-entry. A zero level or a zero weight keeps the domain. With finite weights, `NormL1Nonneg(0.0)` is the indicator of the orthant, with value `0` at a
-feasible point (`+Inf` entries included), and its proximal operator is the
-projection ``\max(v,0)`` onto the orthant, not the identity: `-0.0` and `-Inf` give `+0`, `+Inf` is
-kept and `NaN` stays `NaN`. The projection is the result for an entry in these cases:
-
-* a zero weight, at every level and step (an infinite level and an infinite step included);
-* a zero level with a finite weight;
-* a zero step with a finite level and a finite weight;
-* an infinite step with a zero level or a zero weight.
-
-An infinite weight, and an infinite level with a positive weight, follow the rules below instead
-(`NormL1Nonneg(0.0, [Inf])([1.0])` is `Inf`, and `prox(NormL1Nonneg(Inf), [3.0], 0.0)` is `[0.0]`). An infinite step with a
-positive finite level and a positive finite weight maps finite inputs and `-Inf` to `+0` and `+Inf` and `NaN`
-to `NaN`.
-
-```@example nonneg_l1
-@assert f([0.0, -0.0]) == 0 && f([1.0, -1e-300]) == Inf
-@assert isnan(f([NaN, -1.0]))
-@assert NormL1Nonneg(0.0)([Inf, 1.0]) == 0 && NormL1Nonneg(0.0)([-1.0]) == Inf
-@assert isequal(prox(NormL1Nonneg(0.0), [-2.0, -0.0, 3.0, Inf, -Inf, NaN], 1.0), [0.0, 0.0, 3.0, Inf, 0.0, NaN])
-@assert prox(f, [3.0, 3.0], 0.0) == [3.0, 3.0]
-```
-
-At a feasible point the value is the value of `NormL1` with the same level and weights, with its
-recovery of terms below `floatmin` (see the [numerical contract](numerics.md)): bit for bit on a
-`SparseIterate`, a `BlockIterate` and a `SymmetricSparseIterate`, and within the error bound of the sum on a
-dense array. `value_and_prox!` returns the value at the stored output.
+The numerical details and executed checks are in the
+[NormL1Nonneg contract](@ref spec-norml1nonneg-definition).
 
 ### Weights, shapes and representations
 
-The array `w` has one weight per entry of the argument, paired by Julia's linear index, and is
-stored by reference. `NormL1Nonneg` accepts real dense vectors and matrices (views included),
-`SparseIterate`, `BlockIterate` and `SymmetricSparseIterate`, with a scalar step or, except as
-noted below, an array of per-entry steps. On a `SparseIterate` or a `SymmetricSparseIterate` the
-value reads the stored entries only, and so does the proximal operator from such an iterate into an
-iterate of the same kind; an entry stored in an iterate destination stays stored, possibly as a zero,
-and a zero result does not activate an absent entry. On a `SymmetricSparseIterate` the weights, which may be omitted,
-have `p²` entries in full-matrix linear order, read as a `p × p` array at both positions of an off-diagonal
-coordinate, and the value counts such a coordinate twice. The weights must then be exactly symmetric, a
-precondition that the oracles assume and `check_symmetric_parameters` validates (see
-[Symmetric parameters](symmetric_parameters.md)).
-
-Not supported: an array of steps with a `SymmetricSparseIterate` destination (an `ArgumentError`
-before any write), or with a dense destination and a `SymmetricSparseIterate` argument (a
-`MethodError`); the vector form of `prox_block`; complex arguments or weights.
+The numerical details and executed checks are in the
+[NormL1Nonneg contract](@ref spec-norml1nonneg-arguments).
 
 ### Steps and endpoint rules
 
-`prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a negative or `NaN` scalar step
-before anything is written. The entries of an array of steps are not checked: they must be
-nonnegative, a documented precondition. `prox_block` does not check its step, and `Scaled` keeps
-its own step rule; a negative step that reaches the function through `Scaled` violates the
-precondition ``\gamma\geq0``, and its result can depend on the representation: a sparse iterate and
-a dense array disagree only where the negative step gives a strictly negative threshold at an entry that is not stored,
-whose proximal point is then positive and is not visited by a loop over the stored entries.
-
-```@example nonneg_l1
-y = [7.0, 7.0]
-refused = try prox!(y, f, [3.0, -2.0], -1.0); false catch e; e isa ArgumentError end
-@assert refused && y == [7.0, 7.0]
-```
-
-An infinite level fixes each entry with a positive weight at `+0` at every step ``\gamma\geq0``,
-``\gamma=0`` included, for `NaN` and `±Inf` inputs too (the rule of `NormL1`); entries with a zero
-weight are projected onto the orthant. An infinite weight at a finite level maps finite inputs and
-`-Inf` to `+0`, also at zero level and step, and `+Inf` and `NaN` to `NaN` (see
-[#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)); its value is `0` at `0` and `Inf`
-at any other number, also at a zero level. A threshold formed from finite factors that overflows
-keeps the documented limitation of `NormL1` for an input of `+Inf`
-([#866](https://github.com/mlakolar/ProximalBase.jl/issues/866)).
-
-```@example nonneg_l1
-@assert prox(NormL1Nonneg(Inf, [1.0, 0.0]), [NaN, -2.0], 0.0) == [0.0, 0.0]
-@assert prox(NormL1Nonneg(Inf, [1.0, 0.0]), [NaN, 4.0], 0.0) == [0.0, 4.0]
-@assert prox(NormL1Nonneg(1.0, [Inf]), [3.0], 1.0) == [0.0]
-@assert isnan(prox(NormL1Nonneg(1.0, [Inf]), [Inf], 1.0)[1])
-@assert NormL1Nonneg(1.0, [Inf, 1.0])([0.0, 2.0]) == 2.0 && NormL1Nonneg(1.0, [Inf, 1.0])([1e-300, 2.0]) == Inf
-```
+The numerical details and executed checks are in the
+[NormL1Nonneg contract](@ref spec-norml1nonneg-endpoints).
 
 ### KKT scores, restriction and scaling
 
-For finite inputs and ``c_i=\lambda_0w_i``, the screen of a coordinate assumed zero is ``-v_i-c_i``, and
-`kkt_violation(g,v,x,k)` is ``-v_k-c_k`` at a zero coordinate, ``\lvert v_k+c_k\rvert`` at a
-positive one and `Inf` at a negative one, which is outside the domain. The full-point value is the
-``\ell_\infty`` distance from ``-v`` to ``\partial g(x)`` for a finite point in the domain, and `Inf` at a
-finite point with a negative entry. The rules for `NaN` and infinite entries are in the
-[numerical contract](numerics.md).
+The numerical details and executed checks are in the
+[NormL1Nonneg contract](@ref spec-norml1nonneg-ordinary).
 
-```@example nonneg_l1
-h = NormL1Nonneg(0.5, [1.0, 2.0, 4.0])
-v = [0.1, -4.0, 0.8]
-@assert kkt_violation(h, v, 2) ≈ 4.0 - 0.5 * 2.0
-@assert kkt_violation(h, v, [0.0, 0.0, 0.25], 1) ≈ -0.1 - 0.5
-@assert kkt_violation(h, v, [0.0, 0.0, 0.25], 3) ≈ 0.8 + 0.5 * 4.0
-@assert kkt_violation(h, v, [0.0, -1.0, 0.25], 2) == Inf
-@assert kkt_violation(h, v, [0.0, 0.0, 0.25]) ≈ 3.0
-@assert kkt_violation(h, v, [0.0, -1.0, 0.25]) == Inf
+## [Minimax concave penalty](@id mcp-guide)
+
+[`MCP(λ, a)`](@ref MCP) applies a nonconvex penalty separately to each
+entry. For finite positive parameters it grows as
+``\lambda |x_i|-x_i^2/(2a)`` up to ``|x_i|=a\lambda``, where it
+saturates at ``a\lambda^2/2``. The default shape is `a = 3`.
+
+For a positive step ``\gamma<a``, the proximal map sets entries of
+magnitude up to ``\gamma\lambda`` to zero, shrinks entries between
+``\gamma\lambda`` and ``a\lambda``, and retains entries of larger
+magnitude. When ``\gamma\geq a``, a finite step gives a global
+minimizer by retaining entries of magnitude strictly above
+``\lambda\sqrt{a\gamma}`` and returning positive zero at and below
+the threshold.
+
+```@example mcp
+using ProximalBase
+
+f = MCP(0.5, 2.0)
+x = [0.25, -0.75, 2.0, -3.0]
+@assert prox(f, x, 1.0) == [0.0, -0.5, 2.0, -3.0]
+@assert prox(f, x, 8.0) == [0.0, 0.0, 0.0, -3.0]
 ```
 
-`restrict(h, S)` keeps the level and selects the weights. `Scaled` folds a factor into the level where the
-product is a level that the type can hold, and otherwise takes the other routes of
-[Scaling a function](calculus.md). For a finite level a zero factor keeps the domain and the infinite weights:
-`0 * NormL1Nonneg(λ0, w)` is `NormL1Nonneg(0, w)`. An infinite level with a zero factor throws an `ArgumentError`.
-
-```@example nonneg_l1
-r = restrict(h, [3, 1])
-@assert r isa NormL1Nonneg && r.w == [4.0, 1.0] && r([1.0, 1.0]) == 0.5 * 5.0
-s = Scaled(h, 2.0)
-@assert s([1.0, 1.0, 1.0]) == 2.0 * h([1.0, 1.0, 1.0])
-```
+See the [MCP numerical contract](@ref mcp-contract) for endpoint behavior and
+supported step routes.
 
 ## SCAD penalty
 

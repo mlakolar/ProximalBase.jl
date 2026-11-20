@@ -13,7 +13,7 @@ step selection and stopping rule.
 | Squared distance or ridge penalty, `λ*sum(abs2, x - y)/2` | [`SqrNormL2(λ, y)`](@ref SqrNormL2) | Omit the center for ridge at zero |
 | General quadratic, `x' * A * x / 2 + b' * x + c` | [`QuadraticFunction(A, b, c)`](@ref QuadraticFunction) | `A` must be symmetric (not checked); indefinite matrices restrict proximal steps |
 | Lasso or weighted absolute values | [`NormL1(λ, w)`](@ref NormL1) | Weights are optional; scalar prox is soft thresholding |
-| Separable penalty that levels off at large magnitudes | [`SCAD(λ, a)`](@ref SCAD) | Nonconvex penalty with a global scalar proximal operator |
+| Separable penalty that levels off at large magnitudes | [`MCP(λ, a)`](@ref MCP) or [`SCAD(λ, a)`](@ref SCAD) | Nonconvex penalties with global scalar proximal operators |
 | Count of nonzero off-diagonal entries of a symmetric matrix, with the diagonal unpenalized | [`NormL0OffDiag(λ)`](@ref NormL0OffDiag) | Nonconvex; finite, symmetric `Float32` or `Float64` dense matrices; the proximal map copies the diagonal |
 | Lasso on nonnegative variables | [`NormL1Nonneg(λ0, w)`](@ref NormL1Nonneg) | The function is defined on `x ≥ 0`; for `NaN`, infinite and extreme inputs see the [numerical contract](numerics.md) |
 | Lasso plus ridge | [`ElasticNet(λ1, λ2, w)`](@ref ElasticNet) | Weights affect only the ℓ₁ term |

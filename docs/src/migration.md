@@ -55,6 +55,17 @@ For squared-norm regularization, use `SqrNormL2`. Code that relied on this inter
 implement the operations it needs through the [`AbstractFunction` interface](extending.md),
 or keep its own scalar-loss types and functions.
 
+### Mixed-type range in squared and absolute norms (0.6)
+
+`SqrNormL2`, `NormL1`, and `NormL1Nonneg` use the ordinary conversions
+described in the [numerical contract](@ref numerics) when the affected
+mixed-type calls narrow a center or level. For example,
+`gradient(SqrNormL2(2.0^160), Float32[2f0^-80])` gives `Float32[Inf]`
+because the level rounds to `Inf32`. The previous development path produced
+a finite result by multiplying in the wider type. Use homogeneous
+`Float64` inputs if a center or level needs its range.
+See [#1010](https://github.com/mlakolar/ProximalBase.jl/issues/1010).
+
 ### The four-argument `kkt_violation` reads the point (0.6, breaking)
 
 Before 0.6, for `NormL1`, `ElasticNet`, `ZeroFunction`, `LinearFunction` and `SqrNormL2`,

@@ -42,6 +42,14 @@ only links must say so. Add source and test evidence, executable examples where
 useful, and entries in the contract family map and navigation. User guides and
 API help link to the detailed contract.
 
+State results and accuracy in the contract; put path-selection thresholds and
+algorithm steps in a paragraph labelled **Implementation notes (not guarantees)**.
+Give all fourteen section headings stable `spec-<family>-<section>` IDs, using
+the suffixes in the family-page schema; preserve any existing explicit ID.
+A thin constructor that only wraps another family gets a family-map row linking
+to that family's owner, without a separate contract page. Until that owner moves,
+link to its existing detailed rules.
+
 This rule routes newly authored documentation. Converting existing numerical
 prose into clauses remains held until the token and example checks in
 [migration #1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019) protect

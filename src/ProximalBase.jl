@@ -25,6 +25,8 @@ export AbstractFunction, SeparableFunction,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
   activate!, blockview, blockindices, nnz, dropzeros!, shrink, norm_diff, tril_index, tril_cartesian
 
+export MCP
+
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
   :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data))
@@ -49,6 +51,7 @@ include("functions/norml1.jl")
 include("functions/elasticnet.jl")
 include("functions/norml0.jl")
 include("functions/norml0offdiag.jl")
+include("functions/mcp.jl")
 include("functions/scad.jl")
 include("functions/norml1nonneg.jl")
 include("functions/indnonnegative.jl")

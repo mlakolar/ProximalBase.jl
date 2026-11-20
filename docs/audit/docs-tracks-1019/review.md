@@ -1,5 +1,152 @@
 # NormL1 pilot review
 
+## Fourth round: the ElasticNet move
+
+The second family change starts from the fully accounted `NormL1Nonneg` head
+`b27e0d264fddf10c67a65d0e6765fabc3239cc2e`. It moves 39 additional original roots:
+the complete weights/representations and steps/endpoints subsections from
+`penalties.md`, and the family-specific value/recovery paragraph, four endpoint
+rows, endpoint example and dedicated scaled-prox limitation from `numerics.md`.
+The mathematical introduction, ordinary examples and KKT tutorial remain in
+the guide. Shared scaling comparisons, KKT rows, zero-step rules and evidence
+summaries retain their current owners. Contextual links identify the owners
+referred to by the preserved words “above” and “below”.
+
+Public content revision `b1d3e327473ee75b12aca909c1a28ac5fa902536` contains the
+relocation. Thirty-six roots use exact `move` mappings and three use bounded
+sandbox-label repairs with unchanged complete bodies. Hidden setups restore the
+same imports, `h` and `x` used by the retained guide. The independent public
+revision receipt is `elasticnet-review.json`. No paragraph is physically split,
+no clause identifier or status is assigned, and no numerical claim is rewritten.
+The later final edit only changes an added contextual link from the numerical
+hub root to the specific shared range-guarantees heading.
+
+Both original guide subsection headings remain as compatibility forwards,
+including the explicit `elastic-net-steps` target. Once the last consumer moves,
+the now-unused hidden `numerical_endpoints` setup is removed from the hub. It was
+added after the frozen baseline and has no original ledger root; its exact
+three-line deletion is reviewed directly rather than assigned an invented row.
+
+The removed-lines report against the preceding family head finds 130 removed
+nonblank lines and 124 exact added matches. Its six reviewed differences are
+three example sandbox labels, the removed setup label, one relative Markdown
+link prefix, and the changed family-map row. The setup's import and closing
+fence have exact added matches. All other removed lines reappear unchanged,
+including every numerical statement and assertion body.
+
+Together the two new moves relocate 82 original roots. The ledger now contains
+1,981 stay, 114 exact move, six reviewed sandbox-label reword, two intact-paragraph
+parser mappings and 59 upstream rows, retaining all 2,162 original identities.
+Five of the six sandbox-label repairs are on relocated examples; one is on the
+retained `NormL1Nonneg` introduction. There are 121 relocated original roots in
+total when the pilot's one example repair and the two intact-paragraph mappings
+are included. The 59 upstream receipts retain all 93 recorded transitions.
+
+The strict local Julia 1.10.10 build executes all nine isolated scripts, manual
+examples and doctests. The final render has 60 pages, 6,629 checked local
+links/assets, 161 repository-source links, seven top-level collapsible groups,
+and no broken links or orphan pages. All five family contract pages have the
+fourteen schema sections and no assigned clause identifiers. The family map has
+17 existing-page entries, three verbatim migrations, two authored contracts and
+one thin constructor. The `reword`/`split` accounting hold still applies to clause
+conversion, and the three-guide sentence refinement remains required before
+partial-paragraph migrations there.
+
+All six preservation checks pass in blocking mode against the preceding family
+head, including all 713 frozen fragments (711 present and the same two approved
+retirements). The checker implementation is unchanged from the independently
+reviewed 79-fixture checkpoint. Markdown, schema, rendered links and repository
+hygiene pass, with no source, test or example-script diff in this family change.
+
+## Fourth round: conventions and the NormL1Nonneg move
+
+The owner's fourth-round review accepted the three previous tooling fixes and
+asked for actual family migration progress. The next two moves are the complete
+numerical subsections of `NormL1Nonneg` and `ElasticNet`; the sentence refinement
+needed for partial paragraphs in the other guides does not block these moves.
+Clause conversion remains on hold.
+
+The writing guide now separates results/accuracy from a paragraph labelled
+**Implementation notes (not guarantees)**, requires stable IDs on all fourteen
+sections, and routes thin constructors to their underlying family's owner.
+`IndBallL1` keeps every line of its range discussion: the path-selection and
+sorting paragraph carries that label, while the result example and conditional
+rounding bound remain separate paragraphs. Its thirteen missing section IDs and
+the thirteen missing `SCAD` IDs are added; both published endpoint IDs remain.
+`IndBallLinf` points to the current `IndBox` owner. The map also includes the
+new `LogDetLoss`, `LogisticLoss` and `GroupNormLinf` guide owners, bringing the
+pre-move existing-page backlog to 19 and the post-`NormL1Nonneg` backlog to 18.
+
+### Reconciled checkpoint before the move
+
+Public checkpoint `4d9574ab2068ed3828f98a3f56080bf96cfd2772`, based on actual
+master `c54241b15d0d435f4a87f0da0ddea9449f14a106`, has an all-pass six-check
+report before any manual text moves. It retains all 2,162 original ID/hash/kind
+tuples and all fifteen earlier upstream events. There are 59 receipt records
+and 93 events, including 78 new transitions verified by `norml1_pilot` against
+actual landed first parents, file blobs and complete replacement spans.
+
+This reconciliation exposed two concrete ownership cases in the existing
+upstream checker: neighboring table rows edited in one diff hunk, and unchanged
+sentences sharing an edited line. The narrow correction separates table rows
+only when their unique first-cell keys and order agree, and corroborates already
+paired unchanged blocks by exact character positions. It changes neither the
+receipt schema nor occurrence accounting, and does not touch `reword`/`split`
+accounting. `migration_checks` authored the fix. `plan_consistency` independently
+reviewed it, ran all 79 fixtures, and exercised twelve further real-Git cases
+outside the repository. Wrong-neighbor, missing-piece and duplicate-copy
+receipts remain rejected.
+
+Reviewed checker blobs are `4e343acc118f3cd8f0d81499b71a49bde8f92f1c` and
+`e0c1cf7d055c3c7a8723e90afbf47207b4e3765e` for the implementation and fixtures.
+The strict local Julia 1.10.10 checkpoint build executed all nine isolated
+scripts and manual examples/doctests. All 713 frozen fragments are accounted
+for: 711 remain present and the same two automatic API fragments are retired.
+
+### Exact relocation and bounded review receipts
+
+The public content revision is `dcfc56dec0cdf72cee0f30916782f8fec72582e9`.
+The move covers 43 frozen roots: four complete numerical subsection bodies from
+`penalties.md`, and the family-specific recovery paragraph, six endpoint rows
+and executed endpoint example from `numerics.md`. The mathematical introduction
+and ordinary introductory example stay in the guide. The shared KKT rows,
+infinite-penalty summary, scaling comparisons and common evidence list keep
+their existing owners and receive specific links from the contract.
+
+Forty roots use exact `move` mappings. Two whole KKT paragraphs become three and
+four parsed destination units without changing their paragraphs or sentence
+order. Their `split` mappings are solely provenance granularity, with exact
+ordered hashes and an independently reviewed contiguous-text comparison.
+They are not clause conversion. One moved endpoint fence receives a unique
+sandbox name. The retained guide's introductory fence also receives a unique
+name, allowing all five moved guide fences to retain their original names and
+complete bodies. Hidden setups restore the original import and `f` definition.
+Every original assertion remains unchanged. `norml1nonneg-review.json` binds
+these four bounded receipts to the independently reviewed public revision.
+
+The old subsection headings stay in their original order as temporary
+compatibility forwards, including both occurrences of the weights heading.
+The authored-inbound search did not find references to the four nonnegative
+subheadings. These entries preserve the frozen page/fragment pairs during the
+mechanical move; they do not expand the durable forwarding rule. The audit
+README records their final cleanup review.
+
+The removed-lines report on the move alone (base
+`798d6f2839de81b5c8818d8be0b0ffde869d9f6e`) finds 119 removed nonblank lines,
+113 exact added matches and six reviewed differences: two sandbox fence labels
+and four relative Markdown link prefixes. No numerical line or assertion body
+is lost. The complete PR report also exposes 26 heading-ID edits and five
+family-map introductory/routing lines, for 37 reviewed differences in total.
+Those are navigation/editorial changes, with the original contract prose kept.
+
+The completed local strict build passes all moved examples and doctests. A
+subsequent render, after joining the implementation-note label to its paragraph,
+confirms that the threshold paragraph excludes the separate result example and
+accuracy bound. The rendered manual has 59 pages, 6,407 checked local
+links/assets, 154 repository-source links, seven top-level collapsible groups,
+and no broken links or orphan pages. All fourteen new section IDs render.
+This is rendered-HTML validation, not a claim that a browser preview was opened.
+
 ## Independent review
 
 Reviewer: `plan_consistency`, an agent that did not author the migration.

@@ -233,6 +233,12 @@ block-coordinate KKT semantics. `ci_contract` protects required Linux gates and
 inventory rejection. The local helper contains only allocation measurement and
 frozen storage bookkeeping checks, with no packaged Testing extension.
 
+`mcp` checks the minimax concave penalty and its global proximal operator
+against a `BigFloat` evaluation of the full objective on each region and a
+separate numerical search. It covers `Float32` and `Float64` ties and adjacent
+inputs, parameter and step endpoints, overflow and subnormals, stored-output
+fused values, and pre-write validation for arrays and iterates.
+
 This is the complete minimal suite, not the historical package full suite.
 The removed historical catalog is preserved at the frozen baseline and
 legacy/full. No retained failure is skipped to accommodate the reduction.
@@ -240,10 +246,53 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 ## CI sharding
 
 The full declared inventory is split across three Linux/current-Julia runners.
-The shards are computed from the same sorted inventory as the unsharded local
-run, round-robin, so each declared test runs exactly once across the three
-shards. Every shard validates the complete inventory before selecting files,
-and each file still runs in a fresh Julia process with bounds checks enabled.
+The runner assigns selected files longest-processing-time first. It considers
+files in descending weight order, breaking ties by file name, and assigns each
+file to the shard with the smallest cumulative weight, breaking ties by shard
+index. Within each shard, files run in their original sorted selection order.
+Each declared test is assigned to exactly one of the three full CI shards.
+The runner validates the complete inventory and weight table before selection,
+and runs each selected file in a fresh Julia process with bounds checks enabled.
+
+The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
+time in seconds. The initial snapshot uses medians of three measurements,
+rounded to one decimal second, from these Julia 1.13.4 GitHub Actions runs of
+the 50-file inventory.
+[44576422943](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44576422943/attempts/1),
+[44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
+and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578535495/attempts/1).
+
+The 51-file snapshot used provisional weights of 30 seconds for
+`logisticloss` and 140 seconds for the expanded `numerical_recovery`.
+Both use a single observation rounded up to the next five seconds. The
+observed wall times were 27.848 and 135.210 seconds, respectively, on Julia
+1.13.4. [51-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44592628040/attempts/1)
+
+The 53-file snapshot used provisional weights of 80 seconds for
+`kkt_smooth`, 15 seconds for `scad`, and 145 seconds for the expanded
+`numerical_recovery`. Each rounded one observation
+up to the next five seconds. The measured times were 78.011, 13.374,
+and 142.804 seconds on Julia 1.13.4. [53-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44604834492/attempts/1)
+
+The 54-file snapshot uses provisional weights of 35 seconds for
+`groupnormlinf`, 85 for `kkt_smooth`, 15 for `scad`, and 150 for
+`numerical_recovery`. Each rounds one observation from the successor
+checkout up to the next five seconds. The measured times were 33.898,
+84.136, 14.302, and 149.517 seconds on Julia 1.13.4.
+[54-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44615346170/attempts/1)
+
+The 55-file snapshot adds a provisional 15-second weight for `mcp`. This
+rounds the slower of two passing Julia 1.13.4 observations, 10.808 and
+14.887 seconds, up to the next five seconds. The second file passed before
+a newer master push cancelled its workflow.
+[Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
+and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
+
+After a significant inventory or runtime change, collect fresh timings from
+representative successful CI runs with a matching inventory and Julia version.
+Update the affected weights and record the timing sources. If a new test has
+no representative timings yet, assign an explicit conservative provisional
+weight and record its justification.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
@@ -254,8 +303,7 @@ each test-file subprocess, including startup and compilation. Its `status` is
 subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
 for the selected files, including runner overhead, and uses `shard=all` for
 unsharded runs. Find both records in the GitHub Actions test job logs and the
-`package-validation-logs-linux-current-julia-shard-*` artifacts. The timing
-records measure the existing shard assignments.
+`package-validation-logs-linux-current-julia-shard-*` artifacts.
 
 The inventory/partition contract is checked by `ci_contract`. All three
 shards, the frozen differential check, and the strict documentation build are

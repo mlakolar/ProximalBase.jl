@@ -9,12 +9,12 @@ and weights, preserves their order, and defaults to wₖ = √|Gₖ|.
 
 Array and compact-block proximal operators apply soft thresholding followed
 by Euclidean group shrinkage. Compact buffers follow the order of groups[k].
-Use an independent output buffer for [prox_block!](@ref). Both proximal
+Use an independent output buffer for [`prox_block!`](@ref). Both proximal
 interfaces accept a scalar nonnegative step and support exact input/output
 identity. Infinite levels or weights can impose hard-zero constraints even
 at zero step.
 
-The point-aware [kkt_violation](@ref) reports signed slack at a zero group
+The point-aware [`kkt_violation`](@ref) reports signed slack at a zero group
 and Euclidean subgradient distance at an active group. Array points select
 a group by entry index and BlockIterate points select it by group number.
 The full-point score takes the maximum with zero across group scores and

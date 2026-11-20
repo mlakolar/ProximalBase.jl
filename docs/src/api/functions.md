@@ -76,6 +76,12 @@ NormL2
 GroupNormL2
 ```
 
+## Sparse-group ℓ₂ penalty
+
+```@docs
+SparseGroupNormL2
+```
+
 ## Maximum-magnitude norm
 
 ```@docs

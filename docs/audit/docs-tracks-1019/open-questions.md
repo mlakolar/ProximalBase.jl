@@ -12,6 +12,13 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
+- `docs/src/migration.md`, “Retained and removed scope”, can be read as a
+  history of the #850 reduction or as an inventory of what is unavailable
+  today. The paragraph mentions some later restorations. The current exports
+  and [function library](../../src/function_library.md) also include `NormL0`,
+  `MCP`, `SCAD` and `IndBallL1`. The scope of the statement awaits the owner's
+  decision.
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at
@@ -22,8 +29,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The current reconciliation through `c54241b`
-has 59 receipts covering 93 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `c05fa8576`
+has 60 receipts covering 106 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

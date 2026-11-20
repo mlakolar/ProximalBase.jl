@@ -122,6 +122,7 @@ makedocs(;
             "GroupNormL2" => "spec/groupnorml2.md",
             "Scaled" => "spec/scaled.md",
             "KKT scores" => "spec/kkt_violation.md",
+            "NormL0" => "spec/norml0.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

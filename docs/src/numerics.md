@@ -301,38 +301,7 @@ The decision on `NormL1` non-finite inputs is retained with the
 
 ### Cardinality penalty endpoints
 
-For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
-distance cost of setting a finite input `v` to zero with the penalty cost
-of keeping it. The comparison uses the exact products of the represented
-homogeneous `Float32` or `Float64` inputs. A tie gives positive zero,
-including when the candidate costs fall outside the floating-point range.
-
-| Level and valid step | Proximal entry |
-|:--|:--|
-| `λ = 0`, including at `γ = Inf` | Identity |
-| `λ = Inf`, including at `γ = 0` | Positive zero |
-| `0 < λ < Inf`, `γ = 0` | Identity |
-| `0 < λ < Inf`, `γ = Inf` | Positive zero |
-| `0 < λ < Inf`, `0 < γ < Inf` | Hard thresholding for finite inputs. NaN and signed infinities pass through |
-
-At a zero level the value is zero, including for NaN input. At a positive
-level, a NaN entry gives a NaN value ([E2, #560](https://github.com/mlakolar/ProximalBase.jl/issues/560)).
-Either infinity is a nonzero entry. With fixed positive finite level and
-step, the signed infinity output follows the limit from finite inputs
-([E3, #469](https://github.com/mlakolar/ProximalBase.jl/issues/469)).
-The constant-zero map at an infinite step is the endpoint convention.
-The value sums the entry contributions in the result precision, which
-can incur rounding.
-
-Direct array oracles reject negative and NaN steps before writing.
-Array steps are matched by linear index and checked in full, with work
-proportional to their length. A scalar step is required for a symmetric
-sparse iterate output. Value and scalar-step proximal calls between
-same-kind sparse iterates traverse stored entries, with the value
-counting each symmetric off-diagonal entry twice. A sparse iterate can
-omit a zero from storage and read it back as positive zero. Fused calls
-return the value at the stored output. Use a nonnegative, non-NaN step
-with `prox_block` and in calls through `Scaled`.
+See the [NormL0 endpoint clauses](@ref spec-norml0-endpoints).
 
 ### [Minimax concave penalty](@id spec-mcp)
 

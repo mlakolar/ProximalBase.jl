@@ -25,7 +25,7 @@ apply alongside each entry.
 
 | Family or operation | Current entry point | Migration state |
 |:--|:--|:--|
-| `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints) | Existing pages |
+| `NormL0` | [Numerical contract](norml0.md) | Verbatim migration |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
 | `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |

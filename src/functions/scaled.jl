@@ -758,7 +758,7 @@ struct _KktScore end
 struct _KktNone end
 struct _KktCustom end
 Base.@assume_effects :foldable _kkt_class(::Type{F}) where {F} = parentmodule(F) === (@__MODULE__) ? _KktNone() : _KktCustom()
-_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, NormL2, NormLinf}}) = _KktScore()
+_kkt_class(::Type{<:Union{NormL1, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2, GroupNormL2, GroupNormLinf, NormL2, NormLinf}}) = _KktScore()
 _kkt_class(::Type{<:NormL1Nonneg}) = _KktScore()
 _kkt_class(::Type{<:_SmoothKktFunction}) = _KktScore()
 _kkt_class(::Type{<:Scaled{F}}) where {F} = _kkt_class(F)
@@ -766,21 +766,21 @@ _kkt_innermost(f::AbstractFunction) = f
 _kkt_innermost(s::Scaled) = _kkt_innermost(s.f)
 
 # Whether the coordinate or group that a call selects holds a nonzero entry of x: coordinate k of an array or of a
-# symmetric iterate, group k of a BlockIterate, and, for GroupNormL2, the group of entry k of an array (an entry in no
-# group has none).
+# symmetric iterate, group k of a BlockIterate, and, for GroupNormL2 and GroupNormLinf, the group of entry k of an array (an
+# entry in no group has none).
 _kkt_nonzero_at(f, x::AbstractArray, k) = !iszero(x[k])
 _kkt_nonzero_at(f, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
 _kkt_nonzero_at(f, x::SymmetricSparseIterate, k) = !iszero(_getstored(x, k))
-function _kkt_nonzero_at(f::GroupNormL2, x::AbstractArray, i)
+function _kkt_nonzero_at(f::_GroupNorm, x::AbstractArray, i)
   k = i <= length(f.group_of) ? f.group_of[i] : 0
   k != 0 && any(j -> !iszero(x[j]), f.groups[k])
 end
-_kkt_nonzero_at(f::GroupNormL2, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
+_kkt_nonzero_at(f::_GroupNorm, x::BlockIterate, k) = any(j -> !iszero(x[j]), x.groups[k])
 # the same for the refusals of an infinite factor and of an unfoldable chain, which also count a nonzero entry in no group of a
-# GroupNormL2 as a nonzero coordinate
+# GroupNormL2 or GroupNormLinf as a nonzero coordinate
 _kkt_nonzero_coord(f, x, k) = _kkt_nonzero_at(f, x, k)
-_kkt_nonzero_coord(f::GroupNormL2, x::AbstractArray, i) = (i <= length(f.group_of) && f.group_of[i] != 0) ? _kkt_nonzero_at(f, x, i) : !iszero(x[i])
-_kkt_nonzero_coord(f::GroupNormL2, x::BlockIterate, k) = _kkt_nonzero_at(f, x, k)
+_kkt_nonzero_coord(f::_GroupNorm, x::AbstractArray, i) = (i <= length(f.group_of) && f.group_of[i] != 0) ? _kkt_nonzero_at(f, x, i) : !iszero(x[i])
+_kkt_nonzero_coord(f::_GroupNorm, x::BlockIterate, k) = _kkt_nonzero_at(f, x, k)
 
 @noinline _kkt_infinite_error(s) = throw(ArgumentError(
   "kkt_violation of a Scaled function with an infinite factor is not defined at a nonzero coordinate or group, or in the full-point form"))
@@ -797,13 +797,15 @@ _kkt_depth(s::Scaled) = 1 + _kkt_depth(s.f)
 #   LinearFunction, SqrNormL2    |vᵢ + a dᵢ| with dᵢ the entry of the leaf's gradient (_KktChain);
 #   NormL1, NormL1Nonneg, ElasticNet
 #                                the function with the folded levels (_fold_level);
-#   GroupNormL2, NormL2          the block kernel with the level folded by _folded_level (_KktLevel);
+#   GroupNormL2, GroupNormLinf, NormL2
+#                                the block kernel (for GroupNormLinf the margin or the distance of a group) with the level
+#                                folded by _folded_level (_KktLevel);
 #   NormLinf                     the full-point kernel with the level folded by _folded_level (_KktLevel).
 # Levels that do not fold to a normal number, and a function defined outside the package, have none.
 _kkt_resolve(f::ZeroFunction, a) = f
 _kkt_resolve(f::Union{LinearFunction, SqrNormL2}, a) = _KktChain(f, a)
 _kkt_resolve(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a) = _fold_level(f, a)
-_kkt_resolve(f::GroupNormL2, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
+_kkt_resolve(f::_GroupNorm, a) = (λ = _folded_level(f.λ0, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormL2, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f::NormLinf, a) = (λ = _folded_level(f.λ, a); λ === nothing ? nothing : _KktLevel(f, λ))
 _kkt_resolve(f, a) = nothing
@@ -864,9 +866,9 @@ Base.@propagate_inbounds function _kkt_entry(c::_KktChain{<:ElasticNet, <:_Proje
   isinf(c.f.λ2) && return W(-Inf)
   abs(convert(W, v)) - _chain_coefficient(W, c.f.λ1, _entry(c.f.w, i), c.a)
 end
-# The level of a GroupNormL2 under a chain whose level does not fold: the level λ of the function and the product a of the
-# factors, not combined. Its _l2_score is the zero-block score with the coefficient c of _chain_coefficient for the group
-# (a λ w for a positive finite λ and w).
+# The level of a GroupNormL2 or GroupNormLinf under a chain whose level does not fold: the level λ of the function and the product
+# a of the factors, not combined. Its _l2_score and _linf_group_score are the zero-group score with the coefficient c of
+# _chain_coefficient for the group (a λ w for a positive finite λ and w), the margin ‖v[G]‖₁ - c for GroupNormLinf.
 struct _KktChainLevel{T, A<:_ProjectionScale}
   λ::T
   a::A
@@ -878,7 +880,14 @@ end
   W = promote_type(float(promote_type(eltype(v), eltype(x))), _kkt_factor_type(λ.a))
   _l2_zero_score(_chain_coefficient(W, λ.λ, w, λ.a), true, v, G, W)
 end
-# a GroupNormL2, NormL2 or NormLinf with the level λ that the chain folds into it
+# The same for a group of GroupNormLinf: the margin of the zero group, with the coefficient c passed as the level and the weight
+# true, which _kkt_coefficient returns as it is. The entries of x[G] are not read (x enters through its element type only); the
+# caller refuses a nonzero group after this value is formed (_kkt_chain), so the distance of a nonzero group is not formed here.
+@inline function _linf_group_score(f::GroupNormLinf, λ::_KktChainLevel, k::Integer, v, x)
+  W = promote_type(float(promote_type(eltype(v), eltype(x))), _kkt_factor_type(λ.a))
+  _linf_zero_score(_chain_coefficient(W, λ.λ, @inbounds(f.w[k]), λ.a), true, v, @inbounds(f.groups[k]), W)
+end
+# a GroupNormL2, GroupNormLinf, NormL2 or NormLinf with the level λ that the chain folds into it
 struct _KktLevel{F, T}
   f::F
   λ::T
@@ -1000,7 +1009,7 @@ function _kkt_chain(s::Scaled, g, x, k)
 end
 # The value at a zero coordinate or group of a chain that has nothing to resolve to (a nonzero one is refused by the caller
 # after this value is formed). NormL1, NormL1Nonneg and ElasticNet score the entry with the coefficient c of _chain_coefficient (_KktChain),
-# GroupNormL2 the group with the coefficient of the group (_KktChainLevel), in the type of the arguments and the factors,
+# GroupNormL2 and GroupNormLinf the group with the coefficient of the group (_KktChainLevel), in the type of the arguments and the factors,
 # with g read in that type. Neither divides g by a. The other functions that this package scores, and a function defined outside it, score the screen
 # of the function at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is
 # out of range after the division.
@@ -1010,7 +1019,7 @@ function _kkt_unresolved(f, a, g, x, k)
   _apply_scale(a, cls isa _KktCustom ? _kkt_custom_zero(f, ge, x, k) : _kkt_unfolded(f, ge, x, k))
 end
 _kkt_unresolved(f::Union{NormL1, NormL1Nonneg, ElasticNet}, a::_ProjectionScale, g, x, k) = _kkt_apply(_KktChain(f, a), g, x, k)
-function _kkt_unresolved(f::GroupNormL2, a::_ProjectionScale, g, x, k)
+function _kkt_unresolved(f::_GroupNorm, a::_ProjectionScale, g, x, k)
   W = promote_type(float(promote_type(eltype(g), eltype(x))), _kkt_factor_type(a))
   # the validation and the entry in no group read g through a lazy copy whose entries are converted to W
   _level_score(f, _KktChainLevel(f.λ0, a), _ScaledArray{W}(g, one(W)), x, k)
@@ -1039,9 +1048,9 @@ _chain_finite(a::Real) = isfinite(a)
 end
 # The value at a zero coordinate or group of the function f inside a chain, scored at its argument g as it stands: the screen
 # of the three-argument form of the scalar functions (at the coordinate, at each coordinate of a group of a BlockIterate,
-# at the lower position of a symmetric coordinate); for the other functions their own method. NormL1, NormL1Nonneg, ElasticNet and
-# GroupNormL2 under a finite chain whose product is a _ProjectionScale do not use it (_kkt_unresolved); under a chain with an
-# infinite factor they do.
+# at the lower position of a symmetric coordinate); for the other functions their own method. NormL1, NormL1Nonneg, ElasticNet,
+# GroupNormL2 and GroupNormLinf under a finite chain whose product is a _ProjectionScale do not use it (_kkt_unresolved); under a
+# chain with an infinite factor they do.
 const _KktScalar = Union{NormL1, NormL1Nonneg, ElasticNet, ZeroFunction, LinearFunction, SqrNormL2}
 _kkt_unfolded(f, g, x, k) = _kkt_violation(f, g, x, k)
 _kkt_unfolded(f::_KktScalar, g, x::AbstractArray, i) = kkt_violation(f, g, i)
@@ -1084,9 +1093,11 @@ function _kkt_chain_point(s::Scaled, v, x)
 end
 kkt_violation(s::Scaled, v::AbstractArray, x::SymmetricSparseIterate) =
   _kkt_class(typeof(s)) isa _KktScore ? _kkt_symmetric_scaled_error(s, _kkt_innermost(s)) : throw(MethodError(kkt_violation, (s, v, x)))
-# the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf)
+# the refusal names the function under the wrappers when the function has no coordinate form to advise (NormLinf and
+# GroupNormLinf)
 _kkt_symmetric_scaled_error(s, f) = _kkt_symmetric_point_error(s)
 _kkt_symmetric_scaled_error(s, f::NormLinf) = _normlinf_symmetric_error(f)
+_kkt_symmetric_scaled_error(s, f::GroupNormLinf) = _linf_symmetric_error(f)
 _kkt_symmetric_scaled_error(s, f::_SmoothKktFunction) = _smooth_kkt_symmetric_error(f)
 restrict(s::Scaled, S::AbstractVector{<:Integer}) = Scaled(restrict(s.f, S), s.α)
 

@@ -60,7 +60,7 @@ prox(h,x,0.4)
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
 together. `f` is `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
-`GroupNormL2` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
+`GroupNormL2`, `GroupNormLinf` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
 or `QuadraticFunction`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
 parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
@@ -113,33 +113,33 @@ remain `BigFloat`.
 
 * **Nested wrappers whose level does not fold.** For two positive finite factors, the
   constructor merges the wrappers when the product is a normal number and keeps them nested
-  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2`, `NormL2` or `NormLinf` the product of the
+  otherwise; zero and infinite factors follow the endpoint rules of the constructor. For a chain around `NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2`, `GroupNormLinf`, `NormL2` or `NormLinf` the product of the
   factors is folded into the level (both levels of `ElasticNet`, an infinite one being kept as it is) when the result is a nonzero finite
   number that the type of the level accepts, or the level is zero: a normal number, or a subnormal one when the folded level is a
   `Float32` or a `Float64` (a `Float16` level folds only to a normal number). The chain then has the score of the function with
-  that level, in each form that the function has (`NormLinf` has the full-point form and no form for an entry or a group). A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
+  that level, in each form that the function has (`NormLinf` has the full-point form and no form for an entry or a group; `GroupNormLinf` has the margin at a zero group, the distance at a nonzero one and the full-point form). A subnormal folded level has fewer significant bits than a normal one, and the coefficient of an entry is that
   rounded level times the weight. Where
   it does not fold, the three-argument screen of `NormL1`, `NormL1Nonneg` and `ElasticNet`, and the four-argument
-  form of `NormL1`, `NormL1Nonneg`, `ElasticNet` and `GroupNormL2` at a zero coordinate or group, are computed from the coefficient
+  form of `NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2` and `GroupNormLinf` at a zero coordinate or group, are computed from the coefficient
   ``a\,\lambda\,w`` of the entry or group, with ``a`` the product of the factors, ``\lambda`` the level and ``w`` the
   weight. For a positive finite ``\lambda`` and ``w`` the significands of the three are multiplied and their exponents are
   applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``. A zero weight gives the coefficient 0 (also
   under an infinite level), and an infinite weight or level gives `Inf`. For finite entries of `v` the value is
-  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate (``-v_i-a\lambda w_i`` for `NormL1Nonneg`) and ``\lVert v_G\rVert_2-a\lambda w_G`` for a group, up to the rounding
+  ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate (``-v_i-a\lambda w_i`` for `NormL1Nonneg`), ``\lVert v_G\rVert_2-a\lambda w_G`` for a group of `GroupNormL2` and ``\lVert v_G\rVert_1-a\lambda w_G`` for a group of `GroupNormLinf`, up to the rounding
   of the coefficient and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
-  three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2`. An
+  three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2` and `GroupNormLinf`. An
   `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate, whatever `v` holds.
   `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` returns `0.25`, the
   coefficient ``2^{-1200}`` rounding to zero in `Float64`. The four-argument form at a
-  nonzero coordinate or group (an entry in no group of a `GroupNormL2` counts as nonzero when `x`
-  is nonzero there) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
+  nonzero coordinate or group (an entry in no group of a `GroupNormL2` or `GroupNormLinf` counts as nonzero when `x`
+  is nonzero there, and a zero entry of a nonzero group selects that group, which is nonzero) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
   forms of `NormL2` and `NormLinf` throw an `ArgumentError`, also at a zero coordinate and under a chain that does not fold.
 * **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
   itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
-  nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` counts as
+  nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` or `GroupNormLinf` counts as
   nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
   these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
-  is zero and for an entry in no group of a `GroupNormL2`; for smooth functions
+  is zero and for an entry in no group of a `GroupNormL2` or `GroupNormLinf`; for smooth functions
   with a local form it is `α` times the score at `v = 0`.
 * **A stack that nests an infinite factor with another `Scaled` wrapper.** `Scaled(f, α)` and `α * f` do not produce it,
   because they merge the infinite factor; a direct call of the parameterized constructor `Scaled{F,T}(f, α)` does. For such a stack the
@@ -156,7 +156,7 @@ remain `BigFloat`.
   [smooth stationarity score](@ref smooth-kkt). Infinite factors and retained
   chains whose factors do not fold throw `ArgumentError`. The coordinate and
   group forms throw `ArgumentError`, including at zero.
-* **Functions without the forms.** `SqrtLeastSquaresLoss`, `IndNonnegative` and `GroupNormLinf` have no
+* **Functions without the forms.** `SqrtLeastSquaresLoss` and `IndNonnegative` have no
   four-argument or full-point score under `Scaled`; the call throws a `MethodError` (the call
   names the `Scaled` function). For a positive finite or infinite factor, `Scaled(f, α)` forwards the
   supported three-argument screen of an indicator `f` with the supplied gradient and returns its result
@@ -226,7 +226,7 @@ and of the ridge part, each recovered as for `NormL1` and `SqrNormL2` and
 rounded on its own, are added; the sum replaces that result if it is finite
 after conversion to its type, and the first result is kept otherwise. This is
 not a promise that arbitrary user-defined functions acquire numerical range
-recovery. `GroupNormLinf` has no fold of its level: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
+recovery. `GroupNormLinf` has no fold of its level for the proximal operator: under `Scaled` its proximal operator receives the step `αγ` as the wrapper rounds it,
 and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infinite-step exit gives `+0`; a group with a zero weight, or a zero level with a finite weight, keeps the identity, because those exits come first (see the [group ℓ∞ norm](group_penalty.md#group-linf-guide)).
 
 ## A zero scale can change the returned type

@@ -282,8 +282,8 @@ _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer) = 
 _kkt_violation(f::GroupNormL2, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
 
 # The group layout of a BlockIterate point of the full-point form: its group count, and each of its groups, are those of f
-_check_point_layout(f::GroupNormL2, x::AbstractArray) = nothing
-function _check_point_layout(f::GroupNormL2, x::BlockIterate)
+_check_point_layout(f::_GroupNorm, x::AbstractArray) = nothing
+function _check_point_layout(f::_GroupNorm, x::BlockIterate)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   for k in eachindex(f.groups)
     blockindices(x, k) == @inbounds(f.groups[k]) || _block_layout_error(f, k)

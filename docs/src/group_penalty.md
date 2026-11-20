@@ -429,32 +429,45 @@ reentrantly, also within one task: a nested call on the same object, from a `get
 runs, can overwrite the candidates of the running threshold if it reaches the threshold with the shared buffer. Construct a fresh `GroupNormLinf` for each task, or synchronize
 the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
 
-### Optimality score at a zero group
+### Optimality scores
 
-The dual norm of the ℓ∞ norm is the ℓ₁ norm. At a zero group the subdifferential of the penalty is the ℓ₁ ball
-of radius ``c_k=\lambda_0w_k``, so ``\lVert G_{G_k}\rVert_1\le c_k``, with `G = ∇h(x)`, is the first-order (stationarity)
-condition of the zero group for `h + g`. It certifies that the block is optimal for `h + g` when `h` is convex in that
-block. `kkt_violation(g, G, x, k)` returns the signed margin of that condition:
+The dual norm of the ℓ∞ norm is the ℓ₁ norm. Let ``c_k=\lambda_0w_k``, let `v` be the vector that the caller supplies, usually
+``\nabla h(x)`` (`v` is not recomputed), and let ``J_k`` be the face of group ``k``: the entries of ``x_{G_k}`` whose magnitude equals the
+largest one after conversion to the working type of the call, with no tolerance. The subdifferential of the penalty of the group
+at ``x_{G_k}`` is the ℓ₁ ball of radius ``c_k`` when ``x_{G_k}=0``. Otherwise it is the set of the vectors ``s`` with ``s_i=0``
+off ``J_k``, ``s_i=\operatorname{sign}(x_i)\sigma_i`` with ``\sigma_i\ge0`` on ``J_k``, and ``\sum_{i\in J_k}\sigma_i=c_k``.
+`kkt_violation(g, v, x, k)` and `kkt_violation(g, v, x)` return the following numbers:
 
-| Group of `x` | Score | Sign |
+| Group of `x` | `kkt_violation(g, v, x, k)` | Term of `kkt_violation(g, v, x)` |
 |:--|:--|:--|
-| zero | ``\lVert G_{G_k}\rVert_1-c_k`` | signed; a positive value means that zero violates the condition |
-| not zero | `ArgumentError` | the score of a nonzero group is not provided |
+| zero | the margin ``\lVert v_{G_k}\rVert_1-c_k``, signed; a positive value means that zero violates the condition | the distance from ``v_{G_k}`` to the ℓ₁ ball of radius ``c_k``, which is ``0`` when ``\lVert v_{G_k}\rVert_1\le c_k`` |
+| not zero | the Euclidean distance from ``-v_{G_k}`` to the subdifferential at ``x_{G_k}`` | the same number |
+| an entry in no group | ``\lvert v_i\rvert`` | ``\lvert v_i\rvert`` |
+
+At a nonzero group, with ``u_i=-\operatorname{sign}(x_i)v_i`` for ``i\in J_k``, the distance is
+``\bigl(\sum_{i\in G_k\setminus J_k}v_i^2+\sum_{i\in J_k}\min(u_i,\tau)^2\bigr)^{1/2}`` where ``\sum_{i\in J_k}(u_i-\tau)_+=c_k``
+(``\tau`` can be negative), and ``\lVert v_{G_k}\rVert_2`` when ``c_k=0``. It is the full-point score of [`NormLinf`](@ref norm-linf-kkt) with the
+level ``c_k``, applied to the entries of the group, which are read through their indices without a copy; a group of one entry gives
+``\lvert v_i+c_k\operatorname{sign}(x_i)\rvert``, the score of `NormL1`. Because the face is decided by equality, an exact tie can make the
+value discontinuous in `x`: an entry one unit in the last place below the largest is not on the face.
 
 The group is selected as for `GroupNormL2`: on an array point `k` is an entry, which selects its group (an entry in no
-group has the score ``\lvert G_k\rvert``), and on a `BlockIterate` it is the group number, whose layout must equal that
-of `g`. The three-argument form `kkt_violation(g, G, k)` throws an `ArgumentError` because the penalty is not separable,
-as does the full-point form `kkt_violation(g, G, x)`, which is not provided for this function, and a
-`SymmetricSparseIterate` has no groups. Under `Scaled`, the four-argument and full-point forms have no method (a `MethodError`). The margin is the screen
-of the dual norm, which is not the Euclidean screen of `GroupNormL2` ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)):
-the two differ in sign for the gradient `(5/8, 5/8)` with ``\lambda_0=w=1``, where the group must enter. The positive part of the
-margin is an ℓ₁ screen and not a stationarity distance, so a tolerance chosen for another score does not carry over.
-In the margin, a `NaN` in ``G_{G_k}`` gives `NaN`, and an infinite entry (with no `NaN`) or a computed sum of magnitudes
-that overflows gives `+Inf`, also when ``c_k`` is infinite (that branch comes first); an infinite ``c_k`` gives `-Inf` when the
-computed sum of magnitudes is finite, also where ``\lambda_0w_k`` overflows in the working type;
-a zero weight gives ``\lVert G_{G_k}\rVert_1``. A group is zero when its entries, converted to the working type of the call
-(the floating type of `promote_type(eltype(G), eltype(x))`), are zeros of either sign, so a `NaN` or infinite entry of
-`x` makes its group nonzero.
+group has the score ``\lvert v_k\rvert``, also where `x[k]` is nonzero), and on a `BlockIterate` it is the group number, whose layout must equal that
+of `g`. `kkt_violation(g, v, x)` is the maximum, kept at `NaN` when a term is `NaN`, of zero, of ``\lvert v_i\rvert`` over the entries in no
+group and of the distance of **every** group, a zero group included: a maximum of block 2-norm residuals and not an
+``\ell_\infty`` distance. With one group that covers `x` it is the value of `NormLinf(λ0 w)`, at ``x=0`` and at ``x\ne0``. The checks are those of
+`GroupNormL2` (real one-based arrays of equal length, the group extent and, on a `BlockIterate`, the whole layout); a function without
+groups scores ``\lvert v_i\rvert`` of every entry. The three-argument form `kkt_violation(g, v, k)` throws an `ArgumentError` because the penalty is not
+separable, and so does a `SymmetricSparseIterate`, which has no groups.
+
+At a zero group the four-argument score is the margin and the term of the full-point value is the distance, and they are different numbers.
+With ``d=v_{G_k}-\operatorname{proj}(v_{G_k})``, the residual of the projection onto the ℓ₁ ball of radius ``c_k``, a positive margin is
+``\lVert d\rVert_1`` and the distance is ``\lVert d\rVert_2``, so ``\text{distance}\le\text{margin}\le\sqrt{n}\,\text{distance}`` for a group of
+``n`` entries, and both are positive for the same groups. For the gradient `(5/8, 5/8)` with ``\lambda_0=w=1`` the margin is ``0.25`` and the
+distance is ``\sqrt2/8\approx0.177``. The sentence that `kkt_violation(f, v, x)` is `max(0, max_k score_k)` therefore has this exception
+for the zero groups of `GroupNormLinf`; at nonzero groups and at entries in no group the two forms use the same number. Neither is the Euclidean
+screen of `GroupNormL2` ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)), which is negative for `(5/8, 5/8)`, where the group must
+enter, and a tolerance chosen for one of these scores does not carry over to another.
 
 ```@example group_penalty
 v = [0.3, -0.4, 1.0, 0.5, 0.0, 2.0]
@@ -464,10 +477,52 @@ zb = BlockIterate(6, gp)                       # every group is zero
 @assert kkt_violation(gp, v, zb, 3) == 1.0     # ‖(2.0,)‖₁ - 1
 @assert kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1) == 0.25
 @assert kkt_violation(GroupNormL2(1.0, [1:2], [1.0]), [5/8, 5/8], zeros(2), 1) < 0
-copyto!(blockview(zb, 1), [3.0, 2.0, -1.0])    # group 1 is nonzero
-nonzero_group = try kkt_violation(gp, v, zb, 1); false catch e; e isa ArgumentError end
-@assert nonzero_group && kkt_violation(gp, v, zb, 2) == -1.0
-kkt_violation(gp, v, zb, 2)
+# the distance of a zero group to the ℓ₁ ball is smaller than its margin: ‖d‖₂ = √3/15 and ‖d‖₁ = 0.2 for v_G = (0.3, 0.5, -0.4)
+g3 = GroupNormLinf(1.0, [1:3])
+@assert kkt_violation(g3, [0.3, 0.5, -0.4], zeros(3), 1) ≈ 0.2
+@assert kkt_violation(g3, [0.3, 0.5, -0.4], zeros(3)) ≈ sqrt(3) / 15
+copyto!(blockview(zb, 1), [3.0, 2.0, -1.0])    # group 1 is nonzero: x[1] = 3, x[4] = 2, x[2] = -1
+@assert kkt_violation(gp, v, zb, 1) ≈ sqrt(2.1)      # the face is x[1]: the distance from (-0.3, -0.5, 0.4) to (1, 0, 0)
+@assert kkt_violation(gp, v, zb, 2) == -1.0          # the zero groups keep their margins
+@assert kkt_violation(gp, v, zb) ≈ sqrt(2.1)         # the distance of group 1, against 0 and 1 for the zero groups 2 and 3
+kkt_violation(gp, v, zb)
+```
+
+In the margin, a `NaN` in ``v_{G_k}`` gives `NaN`, and an infinite entry (with no `NaN`) or a computed sum of magnitudes
+that overflows gives `+Inf`, also when ``c_k`` is infinite (that branch comes first); an infinite ``c_k`` gives `-Inf` when the
+computed sum of magnitudes is finite, also where ``\lambda_0w_k`` overflows in the working type;
+a zero weight gives ``\lVert v_{G_k}\rVert_1``. A group is zero when its entries, converted to the working type of the call
+(the floating type of `promote_type(eltype(v), eltype(x))`), are zeros of either sign, so a `NaN` or infinite entry of
+`x` makes its group nonzero. At a nonzero group, in this order for the entries of ``v_{G_k}`` and ``x_{G_k}`` converted to the working type: a
+`NaN` gives `NaN`; otherwise an infinite entry gives `+Inf`; then an infinite ``c_k`` gives `+Inf` and ``c_k=0`` (a zero weight, or a zero level
+with a finite weight) gives ``\lVert v_{G_k}\rVert_2``. In the full-point form a zero group with an infinite ``c_k`` contributes ``0``
+(its entries are in the ball of infinite radius, unless one is infinite or `NaN`), and a `NaN` term takes precedence over an
+infinite one, whatever the order of the groups. A group of ``n`` entries for which ``n+1`` is not a finite number of the working type
+(`Float16` from ``n=65519``) throws an `ArgumentError`: in the four-argument form at a nonzero group (the test for a zero group comes first,
+so a zero group of that size keeps its margin), and in the full-point form at every group.
+
+For `Float32` and `Float64` the error of a distance is, to first order in ``nu``, at most ``(2n+\sqrt n+5)\,u\,(\lVert v_{G_k}\rVert_2+c_k)``
+with ``u=`` `eps(W)/2` for the working type `W`, ``n`` the group size and ``c_k`` as rounded to `W`, assuming ``nu\le1/4``, which is not
+checked (at most 512 entries per group in `Float16`); out of the ordinary range the value is formed in units of a power of two or
+recomputed in a wider type, which extends the range and not the precision (see the [numerical contract](numerics.md)). The calls on `Array`
+arguments of one of these types allocate nothing, and write neither `v` nor `x`. A full-point call reads each group in two classification
+passes and, for a group that is not stationary, in the passes of the level and of the squares; it is not tuned for speed.
+
+Under [`Scaled`](@ref) the scores have the routes of `GroupNormL2` (the [scaling guide](@ref scaled-kkt) has the limits). One wrapper with a finite positive factor
+`α` gives `α` times the score at `v/α`. A chain whose product of factors is not a normal number gives the score of the function with the level that it folds
+into where that level is a nonzero finite number of the type or zero; where it does not fold, a zero group has the margin ``\lVert v_{G_k}\rVert_1-a\lambda_0w_k`` with
+the coefficient formed from the significands and the exponents of the three factors, and a nonzero group, a zero entry inside a nonzero
+group, a nonzero entry in no group and the full-point form throw an `ArgumentError`. An infinite factor throws an `ArgumentError` at a nonzero group and in the full-point form. A
+`SymmetricSparseIterate` throws the `ArgumentError` of the function, and `Scaled(g, 0)` has no representation for this function.
+
+```@example group_penalty
+gs = Scaled(GroupNormLinf(1.0, [1:2, 3:4], [1.0, 2.0]), 2.0)           # the function GroupNormLinf(2.0, [1:2, 3:4], [1.0, 2.0])
+vs = [0.5, -0.25, 1.0, 2.0]
+@assert kkt_violation(gs, vs, zeros(4), 1) ≈ -1.25                       # ‖(0.5, -0.25)‖₁ - 2
+@assert kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0], 1) ≈
+        kkt_violation(GroupNormLinf(2.0, [1:2, 3:4], [1.0, 2.0]), vs, [1.0, -1.0, 0.0, 0.0], 1)
+@assert kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0]) ≈ 1.9445436482630056   # group 2 has the distance 0, since 3 ≤ 4
+kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0])
 ```
 
 ### Exceptional parameters and values
@@ -506,7 +561,8 @@ yh
 
 `GroupNormLinf` has no `SymmetricSparseIterate`, `restrict`, per-group step or compact block method under `Scaled`.
 `Scaled(GroupNormLinf(...), α)` multiplies the value by `α` and computes the array proximal operator with the step
-`αγ`; it has no folded level, so a step `αγ` that overflows reaches the function as `Inf`. A group that reaches the
+`αγ`; it has no folded level for the proximal operator, so a step `αγ` that overflows reaches the function as `Inf` (the scores of
+`kkt_violation` fold the level of a chain, as above). A group that reaches the
 infinite-step exit then gives `+0`, where the exact radius ``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the
 group; a group with a zero weight or a zero level with a finite weight keeps the identity, because those exits come first.
 A zero `α` throws an `ArgumentError`.

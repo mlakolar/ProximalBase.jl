@@ -138,9 +138,19 @@ equal to `NormLinf` and singleton groups equal to `NormL1` (the proximal outputs
 partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
 against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
 underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
-`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
-refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of
-`prox_block!` over groups of different sizes).
+`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, validation before writes and zero warmed
+allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of `prox_block!` over groups of different sizes). The scores of
+`kkt_violation` are checked against a second BigFloat reference, also written in the file and sort-based, within the first-order bound of the kernel of
+`NormLinf` and its subnormal term: the margin at a zero group and the converted refusals; the distance at a nonzero group for group sizes 1 to 257, range and
+permuted layouts, array, `Matrix`, `SparseIterate` (a stored zero included) and `BlockIterate` points, one largest entry, ties of mixed signs, a face of all
+entries, a face entry far below the level, zero gradients on the face, an entry one unit in the last place below the largest, stationary points, and
+families whose distance is far above the bound; the named branches of the kernel through a group (sums out of range, a first level that is not finite, squares
+recomputed) beside entries that are `NaN` or `Inf`; the full-point form against the maximum over the groups (a zero group at its distance to the ball, the
+margin and the distance of a positive margin related by `distance ≤ margin ≤ √n distance`), `NormLinf` for one group, `NormL1` for singleton groups, `NaN`
+against `Inf` in either order of the groups, layout and argument validation; the exceptional values, a coefficient that is zero or infinite or whose product
+overflows, and the Float16 refusal at a group of 65519 entries; element types (integers, mixed, Float16, BigFloat) with `@inferred`; `Scaled` with one factor,
+an infinite factor, and chains that fold and that do not (the refusals at a nonzero group, at a zero entry inside it, at a nonzero entry in no group and in the
+full-point form, and a `SymmetricSparseIterate`); and zero warmed allocations of the new forms.
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate

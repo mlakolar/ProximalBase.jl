@@ -160,11 +160,14 @@ What changed besides the values of the table:
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
   0.5, and the nonzero and full-point forms throw an `ArgumentError`.
-* `GroupNormLinf` has the margin `‖v_G‖₁ - λ0 w` of its dual norm at a zero group, and the call throws an `ArgumentError` at a
-  nonzero group, in the full-point form and in the three-argument form. Before 0.6 (the legacy implementation) it returned that
-  screen for a group of a `BlockIterate`, also where the group was nonzero, and `abs(v[i])` at an entry of a nonzero group of an
-  array point, neither of which is a score of the nonzero group; the Euclidean screen of `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)).
-* `Scaled` over a function of the package without a score (the losses and `GroupNormLinf` in the four-argument and full-point forms) throws a
+* `GroupNormLinf` has the margin `‖v_G‖₁ - λ0 w` of its dual norm at a zero group and, at a nonzero group, the Euclidean distance from `-v_G`
+  to the subdifferential of `λ0 w ‖·‖∞` at `x_G`; its full-point form is the maximum of zero, of `abs(v[i])` for the entries in no group and of the
+  distance of every group, where a zero group has its distance to the ℓ₁ ball of radius `λ0 w` and not its margin. The three-argument form throws an
+  `ArgumentError`. Before 0.6 (the legacy implementation) it returned the margin for a group of a `BlockIterate`, also where the group was nonzero, and
+  `abs(v[i])` at an entry of a nonzero group of an array point, neither of which is a score of the nonzero group; the Euclidean screen of
+  `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)). `Scaled` over it has the routes of `GroupNormL2`
+  (the [scaling guide](@ref scaled-kkt)).
+* `Scaled` over a function of the package without a score (the losses in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero

@@ -453,7 +453,8 @@ optimality.
   an instruction to set the coordinate to zero. *Since 0.6 this form reads `x`: at a
   nonzero coordinate it does not return the screen.*
 * `kkt_violation(f, v, x)` is `max(0, max_k score_k)`, nonnegative, and zero of the
-  working type for an empty `x`.
+  working type for an empty `x`. For [`GroupNormLinf`](@ref) a zero group contributes its Euclidean distance to the ℓ1
+  ball of its coefficient (zero when the margin is not positive), not its margin.
 
 With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at `xᵢ = 0` and
 at `xᵢ ≠ 0` are, for the six functions that have all three forms:
@@ -484,9 +485,17 @@ magnitude equals the largest one after conversion to the working type, with no t
 an exact tie can make the value discontinuous in `x`. A length `n` for which `n + 1` is not a finite number of the working
 type (`Float16` from `n = 65519`) throws an `ArgumentError`.
 
-[`GroupNormLinf`](@ref) scores a group `G` at zero with the margin `norm(v_G, 1) - c`, `c = λ0*w_G`, of the dual (ℓ1) norm of its ∞-norm: the
-screen of the group, not the Euclidean screen of `GroupNormL2` (#634). Its positive part is not a stationarity distance. A nonzero
-group, the full-point form and the three-argument form throw an `ArgumentError`, and the four-argument and full-point forms have no method under `Scaled`.
+[`GroupNormLinf`](@ref) scores a group `G` with `c = λ0*w_G`. At a zero group the score is the margin `norm(v_G, 1) - c` of the dual
+(ℓ1) norm of its ∞-norm: the screen of the group, not the Euclidean screen of `GroupNormL2` (#634), and its positive part is not a
+stationarity distance. At a nonzero group it is the Euclidean distance from `-v_G` to the subdifferential of `c*maximum(abs, x_G)` at
+`x_G`, computed as for `NormLinf` on the entries of the group: the face is the set of entries whose magnitude equals the largest one
+after conversion to the working type, with no tolerance, and the exceptional values and the accuracy bound are those of `NormLinf` for a
+group of `n` entries. A nonzero group of `n` entries for which `n + 1` is not a finite number of the working type (`Float16` from
+`n = 65519`) throws an `ArgumentError`, as does any group of that size in `kkt_violation(f, v, x)`. An entry in no group scores `abs(vₖ)`,
+and a `BlockIterate` is read as for `GroupNormL2`. `kkt_violation(f, v, x)` is the maximum of zero, of `abs(vᵢ)` over the entries in no
+group and of the distance of every group, a zero group included, where the distance is that from `v_G` to the ℓ1 ball of radius `c`
+(zero when `norm(v_G, 1) <= c`) and not the margin: in exact arithmetic, for a positive margin, `distance <= margin <= sqrt(n)*distance` for a group of `n`
+entries. Under `Scaled` it has the routes of `GroupNormL2`. The three-argument form and a `SymmetricSparseIterate` throw an `ArgumentError`.
 
 `LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
 `gradient!` in the function's scratch type `T` and reduce the residual in

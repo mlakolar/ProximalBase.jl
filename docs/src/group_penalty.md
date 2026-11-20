@@ -29,11 +29,7 @@ The proximal operators take arrays of the same size; a `BlockIterate` or a
 `SparseIterate` is read and written by indexing its entries, O(length) in general, as
 an array. A
 `SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
-`ArgumentError` before anything is written. A zero level gives value zero.
-An infinite level gives zero at the zero argument (including an empty array),
-`NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the
-[endpoint table](@ref group-l2-endpoints) also describes the norm's prox;
-in particular zero level takes precedence over an infinite step.
+`ArgumentError` before anything is written. See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints).
 
 ## The NormLinf norm
 

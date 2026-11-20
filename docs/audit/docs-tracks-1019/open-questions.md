@@ -89,6 +89,13 @@ that happens to pass.
   [Source](../../../src/functions/linear.jl)
   · [Tests](../../../test/linear_value_recovery.jl)
 
+- The `NormL2` range text says the sums visit “each off-diagonal symmetric
+  coordinate twice”. This could count contributions to the squared norm or
+  visits to the stored entry. The ordinary sum doubles a stored off-diagonal
+  square, and recovery uses a multiplicity. The wording awaits the owner's
+  decision. [Source](../../../src/functions/sqrnorml2.jl)
+  · [Tests](../../../test/norml2.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

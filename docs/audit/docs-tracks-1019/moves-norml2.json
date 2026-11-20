@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "family": "norml2",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 23053,
+      "source_end": 23246,
+      "source_line": 317,
+      "text": "| `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |",
+      "destination": "docs/src/spec/norml2.md",
+      "anchor": "spec-norml2-endpoints",
+      "destination_text": "| `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |",
+      "source_sha256": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+      "destination_sha256": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+      "forwarding_text": "| `NormL2` | See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints) |"
+    },
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 8838,
+      "source_end": 9244,
+      "source_line": 135,
+      "text": "`NormL2` values recompute a sum of squares that overflows or falls below the normal\nrange from the squared-residual kernel above, in units of the largest stored entry.\nOn a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that\nrecomputation visit the stored entries only, each off-diagonal symmetric coordinate\ntwice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).",
+      "destination": "docs/src/spec/norml2.md",
+      "anchor": "spec-norml2-range",
+      "destination_text": "`NormL2` values recompute a sum of squares that overflows or falls below the normal\nrange from the squared-residual kernel above, in units of the largest stored entry.\nOn a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that\nrecomputation visit the stored entries only, each off-diagonal symmetric coordinate\ntwice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).",
+      "source_sha256": "0f5df434580965676cb245b48c0199df8c38ef9ef72b0e09f39e2dc57aa2ea50",
+      "destination_sha256": "0f5df434580965676cb245b48c0199df8c38ef9ef72b0e09f39e2dc57aa2ea50",
+      "forwarding_text": "See the [NormL2 range clauses](@ref spec-norml2-range).\n"
+    },
+    {
+      "source": "docs/src/group_penalty.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 1729,
+      "source_end": 2049,
+      "source_line": 32,
+      "text": "A zero level gives value zero.\nAn infinite level gives zero at the zero argument (including an empty array),\n`NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the\n[endpoint table](@ref group-l2-endpoints) also describes the norm's prox;\nin particular zero level takes precedence over an infinite step.",
+      "destination": "docs/src/spec/norml2.md",
+      "anchor": "spec-norml2-endpoints",
+      "destination_text": "A zero level gives value zero.\nAn infinite level gives zero at the zero argument (including an empty array),\n`NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the\n[endpoint table](@ref group-l2-endpoints) also describes the norm's prox;\nin particular zero level takes precedence over an infinite step.",
+      "source_sha256": "a62748c1918606236089bdadaf0859bd376619184aac2136e2229c8672dd93f0",
+      "destination_sha256": "a62748c1918606236089bdadaf0859bd376619184aac2136e2229c8672dd93f0",
+      "forwarding_text": "See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints)."
+    }
+  ]
+}

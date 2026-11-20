@@ -113,11 +113,8 @@ For nonnegative ℓ₁ value recovery, see the
 For `ElasticNet` value recovery, its stated bounds and the retained implementation details,
 see [ElasticNet range clauses](@ref spec-elasticnet-range).
 
-`NormL2` values recompute a sum of squares that overflows or falls below the normal
-range from the squared-residual kernel above, in units of the largest stored entry.
-On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
-recomputation visit the stored entries only, each off-diagonal symmetric coordinate
-twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
+See the [NormL2 range clauses](@ref spec-norml2-range).
+
 `NormL2`, `GroupNormL2` and `GroupNormLinf` values, and their fused values, may recompute a value at or above `floatmax(T)/2`
 in power-of-two units, with sums accumulated in at least `Float64`. Within a few eps of
 the overflow threshold `floatmax(T) + ulp/2` that recomputation does not decide on
@@ -295,7 +292,7 @@ all-NaN result or a particular exception.
 |:--|:--|
 | `LinearFunction and ZeroFunction` | See the [LinearFunction and ZeroFunction endpoint clauses](@ref spec-linear-endpoints) |
 | `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
-| `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
+| `NormL2` | See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
 | `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
 | `NormLinf`, finite level, zero level or zero step | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a positive level |

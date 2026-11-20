@@ -44,7 +44,7 @@ apply alongside each entry.
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
-| `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
+| `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
 | `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
 | `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |

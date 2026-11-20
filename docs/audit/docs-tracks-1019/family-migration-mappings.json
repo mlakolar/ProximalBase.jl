@@ -11,7 +11,8 @@
     "moves-leastsquares.json",
     "moves-sqrt_leastsquares.json",
     "moves-quadratic.json",
-    "moves-linear.json"
+    "moves-linear.json",
+    "moves-norml2.json"
   ],
   "changes": [
     {
@@ -1226,6 +1227,159 @@
           "dest_sha": "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d",
           "manifest": "moves-linear.json",
           "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6",
+      "baseline_sha": "d32b8f5a5fdb55526b7f7acf4b556c311bd0dc2cd90de340560911276e64e2fa",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "d32b8f5a5fdb55526b7f7acf4b556c311bd0dc2cd90de340560911276e64e2fa"
+      ],
+      "dest": "docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/spec/norml2.md#spec-norml2-endpoints;docs/src/spec/norml2.md#spec-norml2-endpoints;docs/src/spec/norml2.md#spec-norml2-endpoints",
+      "dest_sha": "9eed85bd07def7bacbdbb97f83b088edd28e68363a1194560a94ccb7683fdbbf;6307090cca14c67f0c71462cda5c8c9cd4dbf743a1fe2992f65799775507118a;a974eee472cdf37bd7e101ad1a4819edc76bc89808630506b98466b1e693e2af;fa4c2126ae4d53470c59b57e6c17102bc6492d768bcc842a6ef81e25c7d38ca3;b6ef9720452ed69b43ef9671003bb8d430fa7a241a4c36345bc62b143b3e708c;868b6eafc75859b2f3b78d3bb8b1f2a7b36df277a25c494546ef8d43b6868575;b89bdda819f37eb60548c740d9dd2f3bfb10316f3fa66da907045f76841c8683;57ee2396640d08b3bb80752f9f4520de18c83fdc1313ddfefc5942dec8ceb379",
+      "reviewer": "reconcile_pr_review@808dfa7cc02862496b1a22bcaa98beff7497ce66",
+      "pieces": [
+        {
+          "source_sha": "9eed85bd07def7bacbdbb97f83b088edd28e68363a1194560a94ccb7683fdbbf",
+          "source_start": 1013,
+          "source_end": 1059,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:1",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "9eed85bd07def7bacbdbb97f83b088edd28e68363a1194560a94ccb7683fdbbf"
+        },
+        {
+          "source_sha": "6307090cca14c67f0c71462cda5c8c9cd4dbf743a1fe2992f65799775507118a",
+          "source_start": 1060,
+          "source_end": 1209,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:2",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "6307090cca14c67f0c71462cda5c8c9cd4dbf743a1fe2992f65799775507118a"
+        },
+        {
+          "source_sha": "a974eee472cdf37bd7e101ad1a4819edc76bc89808630506b98466b1e693e2af",
+          "source_start": 1210,
+          "source_end": 1430,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:3",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "a974eee472cdf37bd7e101ad1a4819edc76bc89808630506b98466b1e693e2af"
+        },
+        {
+          "source_sha": "fa4c2126ae4d53470c59b57e6c17102bc6492d768bcc842a6ef81e25c7d38ca3",
+          "source_start": 1431,
+          "source_end": 1601,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:4",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "fa4c2126ae4d53470c59b57e6c17102bc6492d768bcc842a6ef81e25c7d38ca3"
+        },
+        {
+          "source_sha": "b6ef9720452ed69b43ef9671003bb8d430fa7a241a4c36345bc62b143b3e708c",
+          "source_start": 1602,
+          "source_end": 1728,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:5",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "b6ef9720452ed69b43ef9671003bb8d430fa7a241a4c36345bc62b143b3e708c"
+        },
+        {
+          "source_sha": "868b6eafc75859b2f3b78d3bb8b1f2a7b36df277a25c494546ef8d43b6868575",
+          "source_start": 1729,
+          "source_end": 1759,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:6",
+          "dest": "docs/src/spec/norml2.md#spec-norml2-endpoints",
+          "dest_sha": "868b6eafc75859b2f3b78d3bb8b1f2a7b36df277a25c494546ef8d43b6868575",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "b89bdda819f37eb60548c740d9dd2f3bfb10316f3fa66da907045f76841c8683",
+          "source_start": 1760,
+          "source_end": 1882,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:7",
+          "dest": "docs/src/spec/norml2.md#spec-norml2-endpoints",
+          "dest_sha": "b89bdda819f37eb60548c740d9dd2f3bfb10316f3fa66da907045f76841c8683",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "57ee2396640d08b3bb80752f9f4520de18c83fdc1313ddfefc5942dec8ceb379",
+          "source_start": 1883,
+          "source_end": 2049,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:8",
+          "dest": "docs/src/spec/norml2.md#spec-norml2-endpoints",
+          "dest_sha": "57ee2396640d08b3bb80752f9f4520de18c83fdc1313ddfefc5942dec8ceb379",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::70",
+      "baseline_sha": "aa4dc8528db55edb32d59fa82084f3cdf2c52e5c6460f888fea7297e725ffd9f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "aa4dc8528db55edb32d59fa82084f3cdf2c52e5c6460f888fea7297e725ffd9f"
+      ],
+      "dest": "docs/src/spec/norml2.md#spec-norml2-range",
+      "dest_sha": "aa4dc8528db55edb32d59fa82084f3cdf2c52e5c6460f888fea7297e725ffd9f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "aa4dc8528db55edb32d59fa82084f3cdf2c52e5c6460f888fea7297e725ffd9f",
+          "source_start": 8838,
+          "source_end": 9005,
+          "dest": "docs/src/spec/norml2.md#spec-norml2-range",
+          "dest_sha": "aa4dc8528db55edb32d59fa82084f3cdf2c52e5c6460f888fea7297e725ffd9f",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::71",
+      "baseline_sha": "fb6d46b4d7863e0fb0f80f4bd476de8ce8ce5cdfed374456679d645cc577dcfe",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "fb6d46b4d7863e0fb0f80f4bd476de8ce8ce5cdfed374456679d645cc577dcfe"
+      ],
+      "dest": "docs/src/spec/norml2.md#spec-norml2-range",
+      "dest_sha": "fb6d46b4d7863e0fb0f80f4bd476de8ce8ce5cdfed374456679d645cc577dcfe",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "fb6d46b4d7863e0fb0f80f4bd476de8ce8ce5cdfed374456679d645cc577dcfe",
+          "source_start": 9006,
+          "source_end": 9244,
+          "dest": "docs/src/spec/norml2.md#spec-norml2-range",
+          "dest_sha": "fb6d46b4d7863e0fb0f80f4bd476de8ce8ce5cdfed374456679d645cc577dcfe",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::121",
+      "baseline_sha": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884"
+      ],
+      "dest": "docs/src/spec/norml2.md#spec-norml2-endpoints",
+      "dest_sha": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+          "source_start": 23053,
+          "source_end": 23246,
+          "dest": "docs/src/spec/norml2.md#spec-norml2-endpoints",
+          "dest_sha": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
+          "manifest": "moves-norml2.json",
+          "manifest_index": 0
         }
       ]
     }

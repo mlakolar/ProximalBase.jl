@@ -54,8 +54,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The reconciliation through `5cf8b27f`
-has 60 receipts covering 109 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `d3b671e8`
+has 60 receipts covering 124 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

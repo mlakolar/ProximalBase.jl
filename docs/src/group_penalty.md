@@ -38,12 +38,7 @@ Its proximal operator clips the entries at a level ``\tau\ge0``,
 ``\operatorname{clamp}(x_i,-\tau,\tau)``, where ``\sum_i(\lvert x_i\rvert-\tau)_+=\gamma\lambda``,
 and it is zero when ``\gamma\lambda\ge\lVert x\rVert_1``. The level comes from the
 projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback),
-and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute: on the ordinary
-finite path, at most ``2.25\,n\,\varepsilon\max_i\lvert x_i\rvert+2n\delta`` for ``n\ge1`` entries with
-``n\varepsilon\le 1/2``, relative to the radius ``a`` that the proximal operator forms from ``\gamma`` and ``\lambda``
-and the entries read in the output type, with ``\varepsilon`` the machine epsilon and ``\delta`` the smallest subnormal
-number of the output type (the storage of a subnormal radius or output adds ``\delta``). The [numerical
-contract](numerics.md) states the hypotheses and the scaled units of the exceptional path. The value takes arrays and
+and the output is the clip itself, not ``x`` minus that projection. See the [NormLinf range clauses](@ref spec-normlinf-range).  The value takes arrays and
 the three iterates, and a
 `SymmetricSparseIterate` (its largest stored magnitude); the proximal operators take arrays and
 the sparse and block iterates, and a `SymmetricSparseIterate` argument or output throws an `ArgumentError` before
@@ -112,11 +107,7 @@ y1 = copy(y); y1[2] = -prevfloat(abs(y[2]))
 (stationary = kkt_violation(fl, v, y), one_ulp_below = kkt_violation(fl, v, y1))
 ```
 
-For finite entries, a zero level gives ``\lVert v\rVert_2``, and an infinite level gives `0` at the zero point and
-`Inf` at another point. A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;
-otherwise an infinite entry gives `Inf`, also at a zero or an infinite level. The working type is
-`float(promote_type(eltype(v), eltype(x)))`. The rules for the levels, the non-finite entries, the
-ranges and the accuracy are in the [numerical contract](numerics.md).
+See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints).
 
 The norm is not separable, so it has the full-point form and no form for an entry or a group. The calls
 `kkt_violation(g, v, i)` and `kkt_violation(g, v, x, k)` at an array, a `SparseIterate`, a `BlockIterate` or a

@@ -10,6 +10,7 @@
     "moves-leastsquares.json",
     "moves-linear.json",
     "moves-norml2.json",
+    "moves-normlinf.json",
     "moves-quadratic.json",
     "moves-sqrnorml2.json",
     "moves-sqrt_leastsquares.json"
@@ -96,6 +97,88 @@
           "dest_sha": "57ee2396640d08b3bb80752f9f4520de18c83fdc1313ddfefc5942dec8ceb379",
           "manifest": "moves-norml2.json",
           "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+      "baseline_sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+      "previous_action": "upstream",
+      "action": "split",
+      "comparison_source_shas": [
+        "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
+      ],
+      "dest": "docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md",
+      "dest_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059;6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3;7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a;3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7;e799b8b73a8e04eeb685998ae058e70797207cf4167731394f31dd0ce6aa65e0;2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929;43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1;1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059",
+          "source_start": 2073,
+          "source_end": 2171,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:1",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059"
+        },
+        {
+          "source_sha": "6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3",
+          "source_start": 2172,
+          "source_end": 2393,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:2",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3"
+        },
+        {
+          "source_sha": "7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a",
+          "source_start": 2394,
+          "source_end": 2595,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:3",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a"
+        },
+        {
+          "source_sha": "3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7",
+          "source_start": 2596,
+          "source_end": 3078,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:4",
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 6
+        },
+        {
+          "source_sha": "e799b8b73a8e04eeb685998ae058e70797207cf4167731394f31dd0ce6aa65e0",
+          "source_start": 3079,
+          "source_end": 3184,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:5",
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "e799b8b73a8e04eeb685998ae058e70797207cf4167731394f31dd0ce6aa65e0",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 6
+        },
+        {
+          "source_sha": "2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929",
+          "source_start": 3185,
+          "source_end": 3468,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:6",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929"
+        },
+        {
+          "source_sha": "43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1",
+          "source_start": 3469,
+          "source_end": 3627,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:7",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1"
+        },
+        {
+          "source_sha": "1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752",
+          "source_start": 3628,
+          "source_end": 3927,
+          "child_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:8",
+          "dest": "docs/src/group_penalty.md",
+          "dest_sha": "1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752"
         }
       ]
     },
@@ -307,6 +390,236 @@
       ]
     },
     {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::76",
+      "baseline_sha": "dc173085dfbf2e0389e3c4688803c91dfa34f931e5ba65cbaa38be4e2538bdda",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "dc173085dfbf2e0389e3c4688803c91dfa34f931e5ba65cbaa38be4e2538bdda"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "dc173085dfbf2e0389e3c4688803c91dfa34f931e5ba65cbaa38be4e2538bdda",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "dc173085dfbf2e0389e3c4688803c91dfa34f931e5ba65cbaa38be4e2538bdda",
+          "source_start": 11696,
+          "source_end": 11755,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "dc173085dfbf2e0389e3c4688803c91dfa34f931e5ba65cbaa38be4e2538bdda",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::77",
+      "baseline_sha": "566a7deaa8bd42ffe447a0280b17721642b461cdd1fb010ca8104428f66c734a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "566a7deaa8bd42ffe447a0280b17721642b461cdd1fb010ca8104428f66c734a"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "566a7deaa8bd42ffe447a0280b17721642b461cdd1fb010ca8104428f66c734a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "566a7deaa8bd42ffe447a0280b17721642b461cdd1fb010ca8104428f66c734a",
+          "source_start": 11756,
+          "source_end": 12420,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "566a7deaa8bd42ffe447a0280b17721642b461cdd1fb010ca8104428f66c734a",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::78",
+      "baseline_sha": "71d4d23ec4b3a1fc814e030f1868a04c2dae9e71542e3bdd3f966b0ece233e0d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "71d4d23ec4b3a1fc814e030f1868a04c2dae9e71542e3bdd3f966b0ece233e0d"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "71d4d23ec4b3a1fc814e030f1868a04c2dae9e71542e3bdd3f966b0ece233e0d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "71d4d23ec4b3a1fc814e030f1868a04c2dae9e71542e3bdd3f966b0ece233e0d",
+          "source_start": 12421,
+          "source_end": 12520,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "71d4d23ec4b3a1fc814e030f1868a04c2dae9e71542e3bdd3f966b0ece233e0d",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::79",
+      "baseline_sha": "744c87645bf011dbaf1f1df277975adf838c9a211b60166182403bed3a7d386a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "744c87645bf011dbaf1f1df277975adf838c9a211b60166182403bed3a7d386a"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "744c87645bf011dbaf1f1df277975adf838c9a211b60166182403bed3a7d386a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "744c87645bf011dbaf1f1df277975adf838c9a211b60166182403bed3a7d386a",
+          "source_start": 12521,
+          "source_end": 12762,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "744c87645bf011dbaf1f1df277975adf838c9a211b60166182403bed3a7d386a",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::80",
+      "baseline_sha": "12b4eb776d9e902ac040aac88c96473163ba2852697f5cd88cc5683617508779",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "12b4eb776d9e902ac040aac88c96473163ba2852697f5cd88cc5683617508779"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "12b4eb776d9e902ac040aac88c96473163ba2852697f5cd88cc5683617508779",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "12b4eb776d9e902ac040aac88c96473163ba2852697f5cd88cc5683617508779",
+          "source_start": 12763,
+          "source_end": 12923,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "12b4eb776d9e902ac040aac88c96473163ba2852697f5cd88cc5683617508779",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::81",
+      "baseline_sha": "df0257c7320e8253953f424b7d1f6ede1df965a3e978da418985c398274ebec7",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "df0257c7320e8253953f424b7d1f6ede1df965a3e978da418985c398274ebec7"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "df0257c7320e8253953f424b7d1f6ede1df965a3e978da418985c398274ebec7",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "df0257c7320e8253953f424b7d1f6ede1df965a3e978da418985c398274ebec7",
+          "source_start": 12924,
+          "source_end": 13360,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "df0257c7320e8253953f424b7d1f6ede1df965a3e978da418985c398274ebec7",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::82",
+      "baseline_sha": "213079d7260c37837a555220748382f0839349059c597af7bd71c7c464cba38e",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "213079d7260c37837a555220748382f0839349059c597af7bd71c7c464cba38e"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "213079d7260c37837a555220748382f0839349059c597af7bd71c7c464cba38e",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "213079d7260c37837a555220748382f0839349059c597af7bd71c7c464cba38e",
+          "source_start": 13361,
+          "source_end": 13695,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "213079d7260c37837a555220748382f0839349059c597af7bd71c7c464cba38e",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::83",
+      "baseline_sha": "c404562783003c03a44d8b425be1618367b2dc264ce28054435af4057bb077dc",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "c404562783003c03a44d8b425be1618367b2dc264ce28054435af4057bb077dc"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "c404562783003c03a44d8b425be1618367b2dc264ce28054435af4057bb077dc",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "c404562783003c03a44d8b425be1618367b2dc264ce28054435af4057bb077dc",
+          "source_start": 13696,
+          "source_end": 14079,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "c404562783003c03a44d8b425be1618367b2dc264ce28054435af4057bb077dc",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::84",
+      "baseline_sha": "91f3ae1b911f469ef4f88bee4bd685533efc30e6b476187f43589f0931444dc8",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "91f3ae1b911f469ef4f88bee4bd685533efc30e6b476187f43589f0931444dc8"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "91f3ae1b911f469ef4f88bee4bd685533efc30e6b476187f43589f0931444dc8",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "91f3ae1b911f469ef4f88bee4bd685533efc30e6b476187f43589f0931444dc8",
+          "source_start": 14080,
+          "source_end": 14359,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "91f3ae1b911f469ef4f88bee4bd685533efc30e6b476187f43589f0931444dc8",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::85",
+      "baseline_sha": "3ddaed155668c796c29ec6a655a3d01eae76008d5c27299c9fb4fa7e9aae0c71",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3ddaed155668c796c29ec6a655a3d01eae76008d5c27299c9fb4fa7e9aae0c71"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+      "dest_sha": "3ddaed155668c796c29ec6a655a3d01eae76008d5c27299c9fb4fa7e9aae0c71",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3ddaed155668c796c29ec6a655a3d01eae76008d5c27299c9fb4fa7e9aae0c71",
+          "source_start": 14360,
+          "source_end": 14408,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-range",
+          "dest_sha": "3ddaed155668c796c29ec6a655a3d01eae76008d5c27299c9fb4fa7e9aae0c71",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::115",
       "baseline_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
       "previous_action": "stay",
@@ -349,6 +662,121 @@
           "dest_sha": "7ef7095395f4e5039d735b4e146b4379cb1be104b86dbea4c73b57fd45a40884",
           "manifest": "moves-norml2.json",
           "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::122",
+      "baseline_sha": "d6ca3e46977ff8f617b79ee134b5cbaddf9802ed8b974a2f05a5f4efb959b06b",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "d6ca3e46977ff8f617b79ee134b5cbaddf9802ed8b974a2f05a5f4efb959b06b"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+      "dest_sha": "d6ca3e46977ff8f617b79ee134b5cbaddf9802ed8b974a2f05a5f4efb959b06b",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "d6ca3e46977ff8f617b79ee134b5cbaddf9802ed8b974a2f05a5f4efb959b06b",
+          "source_start": 23247,
+          "source_end": 23537,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+          "dest_sha": "d6ca3e46977ff8f617b79ee134b5cbaddf9802ed8b974a2f05a5f4efb959b06b",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::123",
+      "baseline_sha": "d4b50fe7d9665a980f33b19f9bc894214670d24a6dd424334350dcb569f2fe79",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "d4b50fe7d9665a980f33b19f9bc894214670d24a6dd424334350dcb569f2fe79"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+      "dest_sha": "d4b50fe7d9665a980f33b19f9bc894214670d24a6dd424334350dcb569f2fe79",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "d4b50fe7d9665a980f33b19f9bc894214670d24a6dd424334350dcb569f2fe79",
+          "source_start": 23538,
+          "source_end": 23814,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+          "dest_sha": "d4b50fe7d9665a980f33b19f9bc894214670d24a6dd424334350dcb569f2fe79",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::124",
+      "baseline_sha": "36339a033b962a80e3404e038e288ada65b24f2b7343f82398cdbe2d45f52156",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "36339a033b962a80e3404e038e288ada65b24f2b7343f82398cdbe2d45f52156"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+      "dest_sha": "36339a033b962a80e3404e038e288ada65b24f2b7343f82398cdbe2d45f52156",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "36339a033b962a80e3404e038e288ada65b24f2b7343f82398cdbe2d45f52156",
+          "source_start": 23815,
+          "source_end": 24065,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+          "dest_sha": "36339a033b962a80e3404e038e288ada65b24f2b7343f82398cdbe2d45f52156",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::125",
+      "baseline_sha": "e47aa9e44f5c5f1dc256990058f25417f4794320153738c20b57364089b62ede",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "e47aa9e44f5c5f1dc256990058f25417f4794320153738c20b57364089b62ede"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+      "dest_sha": "e47aa9e44f5c5f1dc256990058f25417f4794320153738c20b57364089b62ede",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "e47aa9e44f5c5f1dc256990058f25417f4794320153738c20b57364089b62ede",
+          "source_start": 24066,
+          "source_end": 24220,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+          "dest_sha": "e47aa9e44f5c5f1dc256990058f25417f4794320153738c20b57364089b62ede",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::126",
+      "baseline_sha": "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8"
+      ],
+      "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+      "dest_sha": "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8",
+          "source_start": 24221,
+          "source_end": 24634,
+          "dest": "docs/src/spec/normlinf.md#spec-normlinf-endpoints",
+          "dest_sha": "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8",
+          "manifest": "moves-normlinf.json",
+          "manifest_index": 4
         }
       ]
     },

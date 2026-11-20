@@ -44,7 +44,7 @@ apply alongside each entry.
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
-| `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
+| `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
 | `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |

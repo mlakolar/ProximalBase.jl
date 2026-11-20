@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "reviewer": "lead-independent-context@8b3b5a5",
+  "scope": "Only the already reviewed wrapped relative link is included early so each focused mechanical PR has a valid target. Other context edits remain a separately reviewed follow-up.",
+  "path": "docs/src/spec/normlinf.md",
+  "before": "[numerical\ncontract](numerics.md)",
+  "after": "[numerical\ncontract](../numerics.md#numerical-value-range)",
+  "before_sha256": "61f05e5c433f1e8c885f1c66ccfe53c898256a94797f7e87251bc3ae10c04210",
+  "after_sha256": "f2b5ab285f29265e3bd9f05c01252e241d2d9f160ac8c0d9f4006ac1f1ee02ab",
+  "before_ledger": {
+    "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+    "sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+    "kind": "prose",
+    "action": "split",
+    "dest": "docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md",
+    "dest_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059;6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3;7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a;3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7;e799b8b73a8e04eeb685998ae058e70797207cf4167731394f31dd0ce6aa65e0;2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929;43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1;1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752",
+    "clause_ids": "",
+    "reviewer": "lead-independent-migration@5cf01e4"
+  },
+  "after_ledger": {
+    "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+    "sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+    "kind": "prose",
+    "action": "reword",
+    "dest": "docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md",
+    "dest_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059;6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3;7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a;3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7;bb3fd87969f7de470bbeb1335a9f07846d2c17f9ccf249ba6e26308237289aa4;2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929;43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1;1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752",
+    "clause_ids": "",
+    "reviewer": "lead-independent-context@8b3b5a5"
+  },
+  "allowance": {
+    "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+    "baseline_sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+    "action": "reword",
+    "source_shas": [
+      "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
+    ],
+    "dest": "docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/spec/normlinf.md#spec-normlinf-range;docs/src/group_penalty.md;docs/src/group_penalty.md;docs/src/group_penalty.md",
+    "dest_sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059;6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3;7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a;3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7;bb3fd87969f7de470bbeb1335a9f07846d2c17f9ccf249ba6e26308237289aa4;2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929;43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1;1cb1e9f583b30cf73c4f867c1dcf8d97837b14feaf08eae3cbaa70375b19e752",
+    "reviewer": "lead-independent-context@8b3b5a5",
+    "evidence": "Exact wrapped relative-link repair independently reviewed by the lead at 8b3b5a5 and rendered at0d809d0. See publication-link-repair.json. No numerical, math or example change.",
+    "changes": {
+      "tokens": {
+        "removed": {
+          "link:numerics.md": 1
+        },
+        "added": {
+          "link:../numerics.md#numerical-value-range": 1
+        }
+      }
+    }
+  }
+}

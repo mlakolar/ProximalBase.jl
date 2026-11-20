@@ -71,6 +71,7 @@ ElasticNet
 IndBox
 IndBallLinf
 IndNonnegative
+IndBallL0
 IndBallL1
 IndBallL2
 ```
@@ -80,6 +81,12 @@ IndBallL2
 ```@docs
 NormL2
 GroupNormL2
+```
+
+## Sparse-group ℓ₂ penalty
+
+```@docs
+SparseGroupNormL2
 ```
 
 ## Maximum-magnitude norm

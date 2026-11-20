@@ -20,7 +20,7 @@ export AbstractFunction, SeparableFunction,
   prox!, prox, value_and_prox!, gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2, reset_cache!,
   ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, SqrtLeastSquaresLoss, LogDetLoss, LogisticLoss,
-  NormL0, NormL0OffDiag, NormL1, NormL1Nonneg, ElasticNet, SCAD, IndNonnegative, IndBox, IndBallL1, IndBallL2, IndBallLinf, NormL2, NormLinf, GroupNormL2, GroupNormLinf, Scaled,
+  NormL0, NormL0OffDiag, NormL1, NormL1Nonneg, ElasticNet, SCAD, IndNonnegative, IndBox, IndBallL0, IndBallL1, IndBallL2, IndBallLinf, NormL2, NormLinf, GroupNormL2, GroupNormLinf, SparseGroupNormL2, Scaled,
   SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
   activate!, blockview, blockindices, nnz, dropzeros!, shrink, norm_diff, tril_index, tril_cartesian
@@ -60,9 +60,11 @@ include("functions/norml2.jl")
 include("functions/normlinf.jl")
 include("functions/groupnormlinf.jl")   # before groupnorml2.jl: its shared methods dispatch on both group types
 include("functions/groupnorml2.jl")
+include("functions/sparsegroupnorml2.jl")
 include("functions/scaled.jl")
 include("functions/indballl1.jl")
 include("functions/indballl2.jl")
+include("functions/indballl0.jl")
 include("functions/leastsquares_predictor.jl")
 include("functions/logisticloss.jl")
 include("array_steps.jl")

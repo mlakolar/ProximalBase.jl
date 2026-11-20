@@ -682,3 +682,42 @@ the eight upstream receipts now contain fifteen events.
 Final acceptance must use the integrated head, actual base `b07983a`, and its
 new CI reports and preview; the earlier green run does not establish that
 the combined tree passed. These final results are recorded on PR #1031.
+
+## Continuation: reconciliation before the remaining tracks
+
+The owner authorized the remaining work and human-readability improvements.
+The starting implementation revision is `e03c6d9659365d54f4e0fba1a9cd54490631eea6`.
+The lead agent independently inspected the three intervening merged PRs,
+#1046 (MCP), #1061 (reusing L1 weights), and #1052 (weighted CI shards), and
+verified their merged status through GitHub. Only #1052 changed existing
+ledger destinations: two paragraphs in `test/TESTING.md`.
+
+The added receipts bind the actual first parent `2900a3ae6babaeff4342b00a9656e4422dd9bb61`
+to merge `e03c6d9659365d54f4e0fba1a9cd54490631eea6`, with exact before/after
+file blobs and complete replacement spans. The former round-robin paragraph
+now maps to seven paragraphs describing the deterministic weighted partition
+and its calibration; the timing-marker paragraph maps to its current wording.
+All previous events remain. The audit contains 60 receipts and 95 transitions;
+all 2,162 original IDs, hashes and kinds remain unchanged.
+
+Before any further migration was integrated, the Julia 1.10.10 strict build
+passed all nine isolated examples, doctests and manual examples. All six
+preservation checks passed in blocking mode, all 79 checker fixtures passed,
+and Markdown, schema and rendered-link checks passed. These are lead-agent
+implementation checks; no claim of an external human review is made.
+
+## Reconciliation after SparseGroupNormL2 (#1076)
+
+`sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81`
+verified the merged status of [#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076),
+its actual first parent `a31ba29c633414d6f2aa05ad16f84e99eb6dc52c`, and all
+eleven complete replacements against the landed Git blobs. Ten replacements
+each cover a single block. The zero-step endpoint receipt extends from three
+sentences to five, preserving the three earlier sentences in order.
+
+The independent reviewer inspected the compact buffer checks, group layout,
+point-aware KKT forms and zero-step projection in the landed source and tests.
+The review verified Git provenance and source evidence. It did not rerun Julia.
+The interpretation of the retained-and-removed scope paragraph is recorded in
+`open-questions.md` for owner review. The audit now records 106 transitions in
+the same 60 receipts and retains all 2,162 original block identities and hashes.

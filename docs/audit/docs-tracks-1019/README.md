@@ -18,8 +18,9 @@ historical audit data and generated copies are excluded from the prose ledger.
 
 `ledger.tsv` has one row per baseline block. Baseline text is read with
 `git show`, so this folder does not duplicate the old manual. `anchors.tsv`
-and `anchors-ci.tsv` record each baseline rendered page and its content anchors
-for the two explicitly selected build runtimes described below. Each snapshot
+records each baseline rendered page and its content anchors. The old
+`anchors-ci.tsv` is retained as immutable evidence from the other build runtime;
+acceptance now uses one snapshot and the three bounded identities below. Each snapshot
 contains 54 rendered pages, including generated examples and contracts, and
 713 content anchors. Sidebar control IDs are excluded because navigation
 regrouping intentionally changes those controls. `source-citations.tsv` records
@@ -54,11 +55,7 @@ python3 -m unittest discover -s docs -p 'test_migration_checks.py'
 python3 docs/check_migration.py --check all --build docs/build
 ```
 
-CI selects its original baseline runtime explicitly:
-
-```sh
-python3 docs/check_migration.py --anchor-profile ci --check all --build docs/build
-```
+Local and CI builds use the same command and the same acceptance rules.
 
 The default is report-only: every check prints `PASS` or `FAIL` and its findings,
 but preservation findings do not change the command's exit status. Missing or
@@ -80,58 +77,39 @@ The source/test trees and source docstrings are therefore protected by PR scope,
 while their links to old manual locations are protected by the anchor and
 citation checks.
 
-## Exact anchors and build runtimes
+## Exact anchors and runtime-generated identities
 
-Documenter 1.20.0 constructs an admonition fragment from its title and
-`string(hash(strip(mdflatten(node))), base=16)`. That uses Julia's runtime
-string hash rather than a portable content digest. The unchanged three
-admonitions therefore have different fragments under the local Julia 1.10.10
-build and the CI Julia 1.13.4 build, although their content is identical. The
-flattened input contains the admonition text, title, and category, not its file
-path or link destinations.
+The complete frozen `anchors.tsv` still contains all 54 original pages and
+713 content IDs. Its hash is verified through `baseline.json`. Every page remains
+required. Of its IDs, 708 active fragments are compared exactly, the two already
+approved automatic-heading retirements require their checked successor, and
+only these three uncited runtime-generated admonitions use a content identity:
 
-The `local` profile is `anchors.tsv`, extracted from the original local build;
-it remains the default. The `ci` profile is `anchors-ci.tsv`, extracted from the retained
-Phase 0 CI artifact **14492512149** at commit
-`db20ba7564992abadf0c1293a6ff4d10acd07ad5`, before any authored documentation
-change. Its ZIP SHA-256 is
-`35c8aa068d12a170ad9f43007b62fa701fcbea499dbefca60abf9cef45183af1`.
-Both builds used Documenter 1.20.0. Runtime, source-commit, artifact, and
-snapshot SHA-256 provenance is recorded in `baseline.json`.
-
-The CI job log records the actual merge-ref checkout as
-`f08c07bbfb6d36dd9096cd94754e12a30300cef6`, merging that checkpoint into
-`2a55362d374fa4299d29db7684659fce8cc8e149`. The latter upstream commit changes
-only least-squares implementation and tests, so the authored documentation
-still matches the frozen provenance baseline. Both parents and the actual
-build revision are recorded separately in the profile metadata.
-
-| Page | Local fragment | CI fragment |
+| Page | Category | Exact title |
 |:--|:--|:--|
-| `function_library` | `Which-squared-loss-object-should-I-use?-4d7e89b086da14ac` | `Which-squared-loss-object-should-I-use?-7961aee47a1e55` |
-| `getting_started` | `Degenerate-data-and-step-size-estimates-431e86eee387de1e` | `Degenerate-data-and-step-size-estimates-a1d8f97b86f5e430` |
-| `api/iterates` | `Non-finite-vectors-58bc6ef4f6c45cbf` | `Non-finite-vectors-826d64009c1fff3a` |
+| `function_library` | `note` | Which squared-loss object should I use? |
+| `getting_started` | `details` | Degenerate data and step-size estimates |
+| `api/iterates` | `note` | Non-finite vectors |
 
-These are the only differences between the two baseline snapshots. Each is
-validated as a complete, nonempty snapshot of 54 original page records and
-713 exact content anchors, with no duplicate rows and a verified snapshot hash.
-Every anchor remains bound to its original page. Selection is explicit via
-`--anchor-profile local` or `--anchor-profile ci`; unknown or unavailable
-profiles are configuration errors. The checker never removes hash suffixes,
-ignores the three IDs, accepts a reduced subset, or falls back to another profile.
-Use a baseline and final build from the same declared runtime. A future runtime
-change requires an explicit provenance and compatibility decision.
+`anchor-identities.json` records both historical fragments and the original
+source for each identity. The checker requires the exact category/title once in
+that source and once on the original rendered page. A missing or duplicated
+admonition, a changed category/title, an unrelated missing fragment, or an
+authored link to a current or historical dynamic fragment fails. The sole
+permitted link is the generated self-permalink inside that same admonition.
+This is not suffix stripping or a general exemption for generated IDs.
 
-Anchor parser version 2 tracks the outer article's depth through nested API
-docstring articles. The original Boolean parser stopped at the first nested
-closing article and omitted 92 IDs: 28 in `api/functions`, 33 in `api/interface`,
-and 31 in `api/iterates`. Both snapshots were re-extracted from the same frozen
-HTML, adding those 92 IDs and removing none. The corrected baseline is therefore
-713 content IDs, not 621. `baseline.json` retains the former incomplete snapshot
-hashes alongside the corrected hashes. This also exposed the third runtime
-admonition difference shown above. The owner-approved simplification to exact
-page/category/title identities for uncited generated admonitions is a separate
-preparation step; all three are still checked exactly in the selected profile.
+Documenter 1.20.0 derives those fragments from Julia's runtime string hash.
+The original local Julia 1.10.10 and CI Julia 1.13.4 builds therefore produced
+different hashes for unchanged text. Their complete snapshots and the original
+artifact/commit/SHA-256 provenance remain in this folder and `baseline.json` as
+historical evidence. They no longer select runtime-specific acceptance profiles.
+
+The anchor parser retains the original nested-article correction: IDs after
+API docstring articles count too. The original incomplete 621-ID inventory was
+corrected to 713 by re-extracting the same frozen HTML; all 92 recovered IDs
+remain protected. Acceptance reports exact fragments, content identities and
+approved retirements separately, together accounting for all 713 targets.
 
 ## Block identity and destinations
 
@@ -182,8 +160,10 @@ hashes make the attestation refer to specific content.
 All six checks consume the same action policy. Exact moves preserve the
 protected code/math/numeric/link tokens, sentence fingerprints, and executed
 example/assertion markers. Reviewed transformations use their specific
-replacement hashes and independent review as the acceptance evidence, including
-when an approved deduplication reduces a total count. Aggregate counts are
+replacement hashes and independent review as semantic acceptance evidence.
+`reword` and `split` still preserve protected tokens and executed-example markers;
+only exact reviewed allowances can account for intentional changes. A reviewed
+`dedupe` or `supersede` may deliberately reduce ordinary migration counts. Aggregate counts are
 diagnostics, not a mathematical or semantic proof that the meaning survived.
 The checker cannot authenticate a review identity or decide whether two
 statements mean the same thing.
@@ -264,10 +244,10 @@ The two uncited API stubs are removed under this narrower rule. The original
 `Indicators`. Its two original automatic fragments have named retirement
 records in `baseline.json`, pointing to that successor on the same page. The
 later `Box and nonnegative orthant` heading was never in the frozen baseline.
-Both complete 713-ID snapshots remain unchanged. Acceptance reports 711
-original IDs retained and two approved retirements; it does not report all
-713 as still present. Every other baseline ID and every original page must
-remain. Ordinary strict rendering and HTML link checks still reject broken
+Both complete 713-ID snapshots remain unchanged. Acceptance accounts for
+708 exact fragments, three checked content identities and two approved
+retirements; it does not report all 713 original fragments as still present.
+Every other baseline ID and every original page must remain. Ordinary strict rendering and HTML link checks still reject broken
 authored links.
 
 ### Inventory reconciliation decision
@@ -283,10 +263,62 @@ batch several reviewed external changes in one documentation update when
 practical. Numerical text always retains its exact provenance. The migration
 checks still retire after Phase 5 acceptance.
 
-The known `reword`/`split` token and example accounting gap is separate. Clause
-conversion is held until those checks stay active and any intentional token
-change has an exact, reviewed allowance. A reviewer string alone cannot provide
-that control.
+## Reviewed rewrites and exact allowances
+
+Token and example accounting remains active for every `reword` and `split`.
+A review string is not an exemption: changing a numeric bound, dropping an
+assertion or changing literal whitespace fails even when the replacement hash
+and reviewer field are updated. Sentence fingerprints may change during a
+reviewed rewrite, but the protected code/math/numeric/link tokens and complete
+example/assertion lines must still be accounted for.
+
+`token-allowances.json` uses schema 1 and an `allowances` list. Each record binds
+the original block ID/hash, the comparison-source hashes, action, ordered
+destinations and hashes, and the row's independent reviewer. Its `changes`
+object lists the exact removed and added multisets under `tokens` and/or
+`examples`; `evidence` identifies the bounded independent review. The checker
+recomputes those multisets. Missing, stale, extra, duplicate or unused allowances
+fail. The six inherited sandbox-label-only repairs have explicit receipts;
+combining one with an altered assertion does not pass that receipt.
+
+Reviewers still compare meaning and the rendered result. These mechanical
+checks cannot authenticate a reviewer identity or decide equivalence. The owner
+controls acceptance of each family review; closing the accounting gap does not
+authorize changing numerical policy.
+
+## Sentence refinement and later upstream moves
+
+`refinements.json` is an immutable map from 64 original prose roots in
+`smooth.md`, `group_penalty.md` and `calculus.md` to 313 ordered sentence children.
+Every child has an ID formed from its original root plus `::sentence:N` and an
+exact normalized hash. Rejoining those children must reproduce the original
+normalized parent. No unrelated ID or original hash changes. This produces
+2,411 effective inventory units while retaining all 2,162 provenance roots in
+the root ledger.
+
+A root's reviewed `split` row lists every child destination/hash in source order,
+including children retained in their original guide. The original root still
+binds the complete mapping; there is no second independently editable copy of
+its provenance. Destination matching recognizes exact child sentences in the
+three guides. Occurrence checks reject reuse across overlapping whole-paragraph
+and child destinations, as well as reuse by different `reword` or `split` rows.
+
+The read-only helper `docs/refine_migration_ledger.py` prepares replacement root
+rows from a JSON list of `block_id` and ordered `destinations` arrays. It requires
+an actual independent `reviewer@revision`, prints its proposed rows, and never
+overwrites the ledger. Review the output, apply it, then run every preservation
+check. For programmatic use, `sentence_children`, `refinement_inventory` and
+`validated_refinements` expose the same frozen units.
+
+Six refined roots already have reviewed upstream changes. Their original
+receipts must survive the subsequent move. `migration-bases.json` has schema 1
+and a `bases` list; each record binds `block_id`, `baseline_sha`, the canonical
+`upstream_sha` digest of the entire retained receipt, its exact terminal
+`source_shas`, and review `evidence`. The root ledger can then use an ordinary
+`move`, `split` or `reword` destination. The checker verifies every historical
+Git transition first, then applies ordinary token/example accounting to the
+final reviewed upstream text. It does not compare to obsolete pre-feature words
+or exempt the later migration. Stale and unused basis records fail.
 
 ## Updating the ledger
 
@@ -347,8 +379,8 @@ new `spec/` destination. Their reviewed `split` rows record that parser
 granularity only: each original paragraph remains a contiguous, ordered span,
 with only its relative Markdown link rebased. The exact source/replacement
 hashes and independent public-revision review are in `norml1nonneg-review.json`.
-The removed-lines report and the independent raw-text comparison establish
-preservation for these two mappings; the current split word-count check alone
-does not. This bounded mechanical mapping does not lift the hold on clause
-conversion or authorize prose rewriting before the `reword`/`split` accounting
-gap is closed.
+The removed-lines report and independent raw-text comparison establish
+preservation for those two historical mappings. They now also pass protected-token
+and example accounting without an allowance. The split word-count check remains
+an additional check; it is not used as a substitute for literal preservation or
+independent review.

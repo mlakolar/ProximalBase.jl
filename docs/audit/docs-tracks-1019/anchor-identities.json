@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "identities": [
+    {
+      "page": "function_library",
+      "category": "note",
+      "title": "Which squared-loss object should I use?",
+      "source": "docs/src/function_library.md",
+      "fragments": [
+        "Which-squared-loss-object-should-I-use?-4d7e89b086da14ac",
+        "Which-squared-loss-object-should-I-use?-7961aee47a1e55"
+      ]
+    },
+    {
+      "page": "getting_started",
+      "category": "details",
+      "title": "Degenerate data and step-size estimates",
+      "source": "docs/src/getting_started.md",
+      "fragments": [
+        "Degenerate-data-and-step-size-estimates-431e86eee387de1e",
+        "Degenerate-data-and-step-size-estimates-a1d8f97b86f5e430"
+      ]
+    },
+    {
+      "page": "api/iterates",
+      "category": "note",
+      "title": "Non-finite vectors",
+      "source": "src/symmetric_sparse_iterate.jl",
+      "fragments": [
+        "Non-finite-vectors-58bc6ef4f6c45cbf",
+        "Non-finite-vectors-826d64009c1fff3a"
+      ]
+    }
+  ]
+}

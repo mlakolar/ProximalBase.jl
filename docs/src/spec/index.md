@@ -31,7 +31,7 @@ apply alongside each entry.
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
 | `ElasticNet` | [Numerical contract](elasticnet.md) | Verbatim migration |
-| `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndNonnegative` | [Numerical contract](indnonnegative.md) | Verbatim migration |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |

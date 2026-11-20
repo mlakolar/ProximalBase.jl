@@ -3,55 +3,51 @@
 
 Indicator of the symmetric `p × p` matrices (`p ≥ 1`) with at most `s` nonzero
 off-diagonal entries, `#{(i, j) : i ≠ j, Xᵢⱼ ≠ 0} ≤ s`. Each nonzero off-diagonal
-pair `{i, j}` counts two entries. The diagonal is not counted: the value does not
-read it, and the projection copies it (finite entries only). Symmetric means
-`Xᵢⱼ == Xⱼᵢ` as the symmetry check of the package reads it: `0.0` and `-0.0` are
-equal, and `NaN` matches `NaN`. The set is nonconvex for `1 ≤ s ÷ 2 < p(p - 1)/2`;
-`isconvex` is `false` for every budget. The budget `s` is a nonnegative integer that
-allows `s ÷ 2` nonzero pairs; one above `typemax(Int)` is stored as `typemax(Int)`.
+pair `{i, j}` counts two entries, so `s` allows `s ÷ 2` nonzero pairs. The diagonal
+is not counted: the value does not read it, and the projection copies it (finite
+entries only). Symmetric means `Xᵢⱼ == Xⱼᵢ` as the symmetry check of the package
+reads it: `0.0` and `-0.0` are equal, and `NaN` matches `NaN`. The set is nonconvex
+for `1 ≤ s ÷ 2 < p(p - 1)/2`; `isconvex` is `false` for every budget. The budget `s`
+is a nonnegative integer; one above `typemax(Int)` is stored as `typemax(Int)`.
 
-Only `diagonal = false` is accepted. The archived function counted the diagonal
-by default (`diagonal = true`); that form and its default are refused with an
-`ArgumentError`, so a call such as `IndBallL0(4)` fails instead of changing
-meaning. A negative `s` throws an `ArgumentError` too.
+Only `diagonal = false` is accepted. The archived function counted the diagonal by
+default; `diagonal = true`, and so a call such as `IndBallL0(4)`, throws an
+`ArgumentError`. A negative `s` throws an `ArgumentError` too.
 
-The arguments are a `Matrix{T}` or a `Symmetric{T, Matrix{T}}` with
-`T` equal to `Float32` or `Float64`. The output of the proximal operator is a
-`Matrix{T}` of the same size and element type. Other array arguments, outputs and
-array steps throw an `ArgumentError` that names the supported types: vectors, other
-element types (`Int`, `BigFloat`), a `Hermitian`, views, `Adjoint`, sparse matrices, a
-[`SymmetricSparseIterate`](@ref), mixed `Float32` and `Float64`, and array steps.
-A scalar argument, or a step that is neither a real number nor an array, can give a
-`MethodError` instead. A non-square matrix, or an output of another size, throws a
-`DimensionMismatch`. A `0 × 0` matrix throws an `ArgumentError`. A `Matrix`
-that is not symmetric in this sense throws an `ArgumentError` from the symmetry
-check of the package, in the value and in the proximal operator; pass
-`Symmetric(X, :L)` to use its lower triangle. A `Symmetric(A, :U)` argument
-reads the upper triangle of `A`.
+The arguments are a `Matrix{T}` or a `Symmetric{T, Matrix{T}}` with `T` equal to
+`Float32` or `Float64`, and the output of the proximal operator is a `Matrix{T}` of
+the same size. Other array arguments, outputs and array steps (a vector, a view, an
+`Adjoint`, a `Hermitian`, a sparse matrix, a [`SymmetricSparseIterate`](@ref), another
+element type, mixed `Float32` and `Float64`) throw an `ArgumentError` that names the
+supported types; through `prox`, an array with offset axes gets the one-based-indexing
+`ArgumentError` instead. A scalar argument, or a step that is neither a real number nor
+an array, can give a `MethodError`. A non-square matrix, or an output of another size,
+throws a `DimensionMismatch`, and a `0 × 0` matrix an `ArgumentError`. A `Matrix` that
+is not symmetric in the sense above throws an `ArgumentError` in the value and in the
+proximal operator; pass `Symmetric(X, :L)` to use its lower triangle. A
+`Symmetric(A, :U)` argument reads the upper triangle of `A`.
 
 # Value
 
-The value is `0` when `2 * #{i > j : Xᵢⱼ ≠ 0} ≤ s` and `Inf` otherwise. A `NaN`
-in a strict lower entry gives `NaN`. An infinite entry counts as nonzero, and
-zeros of either sign count as zero. The diagonal is not read for the count.
+The value is `0` when `2 * #{i > j : Xᵢⱼ ≠ 0} ≤ s` and `Inf` otherwise. A `NaN` in a
+strict lower entry gives `NaN`. An infinite strict lower entry counts as nonzero, and
+zeros of either sign count as zero.
 
 # Projection
 
-`prox!(Y, f, X, γ)` writes the Euclidean (Frobenius) projection of `X` onto the
-set. Let `n = p(p - 1) ÷ 2`, `k = min(s ÷ 2, n)`, and let `E` be the number of
-nonzero strict lower entries of `X`. If `E ≤ k`, every pair is kept. Otherwise
-the `k` strict lower entries of largest magnitude are kept and every other
-off-diagonal entry becomes `+0`, a `-0` input included. For a finite symmetric
-`X`, keeping the pair `{i, j}` saves `2 Xᵢⱼ²` of the squared error, so the `k`
-largest magnitudes give the minimum error. Ties in magnitude go to the entry earlier in the
-strict lower triangle read by columns, `(2, 1), (3, 1), …, (p, 1), (3, 2), …`,
-so that the output does not depend on the selection algorithm. Magnitudes are
-compared with `abs`, without squaring, so that magnitudes near `floatmax` and
-subnormal magnitudes are ranked as they are.
+`prox!(Y, f, X, γ)` writes the Euclidean (Frobenius) projection of `X` onto the set.
+Let `n = p(p - 1) ÷ 2`, `k = min(s ÷ 2, n)`, and let `E` be the number of nonzero
+strict lower entries of `X`. If `E ≤ k`, every pair is kept. Otherwise the `k` strict
+lower entries of largest magnitude are kept and every other off-diagonal entry becomes
+`+0`, a `-0` input included. For a finite symmetric `X`, keeping the pair `{i, j}`
+saves `2 Xᵢⱼ²` of the squared error, so the `k` largest magnitudes give the minimum
+error. Ties in magnitude go to the entry earlier in the strict lower triangle read by
+columns, `(2, 1), (3, 1), …, (p, 1), (3, 2), …`. Magnitudes are compared as `abs`
+values, without squaring.
 
-For the matrix `[5 1 -3; 1 7 2; -3 2 9]` and `s = 2` or `s = 3`, `k = 1` and the
-pair `(3, 1)` with value `-3` is kept: the projection is `[5 0 -3; 0 7 0; -3 0 9]`.
-For `s = 6` the matrix is returned unchanged.
+For the matrix `[5 1 -3; 1 7 2; -3 2 9]` and `s = 2` or `s = 3`, `k = 1` and the pair
+`(3, 1)` with value `-3` is kept: the projection is `[5 0 -3; 0 7 0; -3 0 9]`. For
+`s = 6` the matrix is returned unchanged.
 
 ```julia
 f = IndBallL0(2; diagonal = false)
@@ -62,43 +58,39 @@ f(Y)                                     # 0.0
 Each kept pair is written from its logical lower entry `X[i, j]`, `i > j`, into both
 `Y[i, j]` and `Y[j, i]`, a dropped pair is `+0` in both, and each diagonal entry is
 copied. The output is symmetric, also for an accepted input pair `(+0.0, -0.0)`.
-Exact input and output identity `Y === X` and, for a `Symmetric` input,
-`Y === parent(X)` are supported. Other overlaps are not supported.
+`Y === X` and, for a `Symmetric` input, `Y === parent(X)` are supported. Other
+overlaps are not supported. [`value_and_prox!`](@ref) returns `f(Y)` read from the
+stored output.
 
 # Steps and finite input
 
-The step `γ` is a scalar, finite and nonnegative; the projection does not depend on
-it, and `γ = 0` projects too. A negative, `NaN` or infinite step throws an
-`ArgumentError` before anything is written. One consequence is that a single
-`Scaled(f, α)` passes `α * γ` to `f`, so `Scaled(f, Inf)` at a positive step, or a
-finite `α` whose product `α * γ` overflows, throws an `ArgumentError` before writing
-(`Scaled(f, 0)` is `f`). A nested chain of `Scaled` wrappers whose factor product
-overflows passes `γ` to `f` and projects.
+The step `γ` is a scalar that must be finite and nonnegative; the projection does not
+depend on it, and `γ = 0` projects too. A negative, `NaN` or infinite step throws an
+`ArgumentError` before anything is written. A single `Scaled(f, α)` passes `α * γ`
+to `f`, so `Scaled(f, Inf)` at a positive step, or a finite `α` whose product `α * γ`
+overflows, throws an `ArgumentError` before writing (`Scaled(f, 0)` is `f`). A nested
+chain of `Scaled` wrappers whose factor product overflows passes `γ` to `f`, so it
+projects at a finite `γ ≥ 0`.
 
-The proximal operator refuses an input with a nonfinite entry on the diagonal or in
-the strict lower triangle: it throws an `ArgumentError` before anything is written.
-The checks of the shapes, the step, the symmetry and the finiteness of the entries
-precede the first write of `prox!`.
-
-[`value_and_prox!`](@ref) returns `f(Y)` read from the stored output.
+The proximal operator throws an `ArgumentError` before anything is written for an
+input with a nonfinite entry on the diagonal or in the strict lower triangle. The
+checks of the shapes, the step, the symmetry and the finiteness of the entries precede
+the first write.
 
 # Cost and buffer
 
-The projection takes `O(p²)` operations when `E ≤ k`. When `E > k`, the `k`-th
-largest magnitude is found by an in-place quickselect whose pivots come from a
-pseudo-random sequence that depends only on `n`; with random pivots its expected cost
-is `O(p²)`. Because the sequence is fixed for a given `p`, an input built against it can
-still cost a number of operations quadratic in the number of pairs, `O(p⁴)`. Organ-pipe,
-ascending, descending, Toeplitz and distance orderings were timed at about the cost of
-unstructured input. The object uses one buffer of `n` magnitudes of the element type,
-allocated at the first call that needs it. A repeated call with the same size and
-element type does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task whose
-calls may run at the same time, since the buffer belongs to the object.
+The projection takes `O(p²)` operations when `E ≤ k`. When `E > k`, the `k`-th largest
+magnitude is found by an in-place quickselect with pivot positions drawn from a
+pseudo-random sequence seeded by `n`; its expected cost is `O(p²)` and its worst case is
+quadratic in the number of pairs. The object keeps one buffer of `n` magnitudes of the
+element type, allocated at the first call that needs it and again when the size or the
+element type changes. A repeated call on the same object with the same size and element
+type does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task
+whose calls may run at the same time, since the buffer belongs to the object.
 
-The proximal operator, `value_and_prox!` and the value have no `SymmetricSparseIterate`
-form. `kkt_violation`, `restrict`, `prox_block` and `lipschitz` have no method for
-this function: `lipschitz` throws an `ArgumentError`, and `prox_block` and
-`kkt_violation` throw a `MethodError`.
+`kkt_violation`, `restrict`, `prox_block` and `lipschitz` are not supported:
+`lipschitz` throws an `ArgumentError`, and `restrict`, `prox_block` and
+`kkt_violation` a `MethodError`.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int

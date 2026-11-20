@@ -512,6 +512,7 @@ end
   @test Scaled(f, 0) === f
   @test_throws MethodError kkt_violation(f, zeros(3, 3), zeros(3, 3), 1)
   @test_throws MethodError prox_block(f, zeros(3), 1, 1.0)
+  @test_throws MethodError restrict(f, [1])
   @test_throws ArgumentError lipschitz(f)
 end
 

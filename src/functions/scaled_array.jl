@@ -20,10 +20,8 @@ end
      (f isa NormL1 && _scaled_small(v) && _scale_above_one(α) && isfinite(α))
     return _scaled_value_recover(f, α, y, v, r)
   end
-  _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : _indicator_product(f, r, v)
+  _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : r
 end
-# The product α v of a scaled value, as formed on the array route.
-@inline _indicator_product(f, r, v) = r
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does

@@ -1531,8 +1531,6 @@ function test_scaled_single_factors(::Type{T}) where {T<:AbstractFloat}
     vl = value_and_prox!(yl, sl, xl, γz)
     @test yl == xl && within(vl, big(pow2(T, -5)) * l1val(pow2(T, E - 1), nothing, xl), 2)
     @test PB._scaled_value_overflow(fl, pow2(T, -5), xl, T(Inf)) |> v -> within(v, big(pow2(T, -5)) * l1val(pow2(T, E - 1), nothing, xl), 2)
-    # an indicator ignores its scale: the value at a projection is exactly 0 (or Inf), an infinite factor included
-    @test PB._indicator_product(ZeroFunction(), T(NaN), T(0)) |> isnan
     # an infinite factor with an array step: the steps become infinite, the value at the zero output is 0 (Inf * 0 = 0 at a zero function)
     si = Scaled(NormL1(T(2)), T(Inf))
     γp = T[1, 2, 3]

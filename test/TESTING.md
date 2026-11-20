@@ -306,6 +306,12 @@ a newer master push cancelled its workflow.
 [Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
 and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
 
+A historical 56-file snapshot, from commit 879e067, added a provisional 40-second weight for
+`norml0offdiag`; later snapshots cover more files.
+This rounds up to the next five seconds one Julia 1.13.4 observation, 38.971
+seconds, from CI at commit 879e067 (shard 1/3 of
+[run 44665776339](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339)).
+
 The weight of `groupnormlinf` is 125 seconds, replacing the 35-second snapshot weight. It rounds one observation of
 `test/groupnormlinf.jl`, 122.629 seconds on Julia 1.13.4 (shard 3/3), up to the next five seconds, from the run of the pull request that added
 the nonzero-group and full-point scores of `kkt_violation` for `GroupNormLinf`.
@@ -346,3 +352,15 @@ references check the value and both gradient spaces, including weighted tails.
 and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
 transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
 and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
+
+## Coverage of NormL0 with diagonal = false
+
+`norml0offdiag` compares the proximal map of `NormL0(λ; diagonal = false)` with an exact `Rational{BigInt}` minimization over the
+keep and drop patterns of the pairs: exhaustively for `p = 2, 3` over values below, at and above the
+threshold with both signs and the four zero pairs, and on seeded samples for `p = 4`. It checks the
+diagonal, symmetry of the output, ties, the value and the fused value, the entrywise result for an asymmetric input, agreement with the all-entry `NormL0` off
+the diagonal for `p` up to 64 with mixed level and step types, the contrast on the diagonal, the
+refusals listed in the failure section, with a sentinel output where the caller passes one, strided views and reshapes, default steps, scaling and warmed
+allocations on both kernel routes. It also checks that `NormL0(λ)` and `NormL0(λ; diagonal = true)` are the same
+object with bit-identical values and proximal outputs on vectors, dense and sparse matrices, a
+`SymmetricSparseIterate` and array steps.

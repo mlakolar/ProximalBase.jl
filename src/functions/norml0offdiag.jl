@@ -96,13 +96,17 @@ function _l0od_check_float(X)
   nothing
 end
 
+# A column sum has the integer width of the entries.
+_l0od_zero(::Type{Float32}) = Int32(0)
+_l0od_zero(::Type{Float64}) = Int64(0)
+
 # A pass over the columns, in memory order, counting the entries that are not finite. The diagnosis of
 # a failure is separate. Symmetry of X is not read.
 function _l0od_scan(X::StridedMatrix)
   p = size(X, 1)
   bad = 0
   @inbounds for j in 1:p
-    s = 0
+    s = _l0od_zero(eltype(X))
     @simd for i in 1:p
       s += !isfinite(X[i, j])
     end
@@ -114,9 +118,7 @@ end
 
 @noinline _l0od_nonfinite_error() = _l0od_error("requires finite entries in X")
 
-# The number of nonzero entries off the diagonal. A column sum has the integer width of the entries.
-_l0od_zero(::Type{Float32}) = Int32(0)
-_l0od_zero(::Type{Float64}) = Int64(0)
+# The number of nonzero entries off the diagonal.
 function _l0od_count(X::StridedMatrix)
   p = size(X, 1)
   k = 0

@@ -4,11 +4,13 @@
 #
 ####################################
 
-# The domain: a vector-response LeastSquaresLoss with strided Float32 or Float64 data, or one Scaled of it.
-# Any other loss or array is a MethodError (a nested Scaled, a matrix Y, a non-strided array, mixed types).
+# The vector-response domain: strided Float32 or Float64 data and at most one Scaled wrapper.
 const _LSStrided{T} = LeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
 const _LSScaledStrided{T} = Scaled{<:_LSStrided{T}}
 const _LSOracleLoss{T} = Union{_LSStrided{T}, _LSScaledStrided{T}}
+# The two predictor oracles also take dense, same-type matrix-response data.
+const _LSMatrixResponse{T} = LeastSquaresLoss{T, Matrix{T}, Matrix{T}}
+const _LSMatrixPredictorLoss{T} = Union{_LSMatrixResponse{T}, Scaled{<:_LSMatrixResponse{T}}}
 # The same for SqrtLeastSquaresLoss, which shares the oracles value_from_predictor and value_from_residual and the accessor
 # leastsquares_data with the least-squares loss, and has no gradient oracle.
 const _SqrtLSStrided{T} = SqrtLeastSquaresLoss{T, <:StridedVector{T}, <:StridedMatrix{T}}
@@ -86,6 +88,8 @@ loss fields are written. The call neither reads nor writes `f.tmp`; the supplied
 Use a vector-response loss with strided `Float32` or `Float64` data of one type
 `T`, and a `StridedVector{T}` predictor with the response's axes. Other types
 throw `MethodError`; mismatched axes throw `DimensionMismatch`. The result is `T`.
+For a matrix-response least-squares loss, use dense `Matrix{T}` data and a
+`StridedMatrix{T}` predictor with the response's axes. The norm is Frobenius.
 
 # Examples
 ```jldoctest
@@ -131,7 +135,10 @@ none with `X`; no loss fields or private scratch are written.
 
 Use the domain and scale of [`ProximalBase.value_from_predictor`](@ref), with
 strided vectors `g`, `d` and `z` of the data type. `z` and `d` have the response's
-axes; `g` has length `size(X, 2)` and must be one-based.
+axes; `g` has length `size(X, 2)` and must be one-based. For a matrix-response
+loss, use `StridedMatrix{T}` buffers. Match the response's axes for `z` and `d`,
+and use a one-based `size(X, 2) × size(Y, 2)` matrix for `g`. The value uses
+the Frobenius norm of `d`.
 
 # Examples
 ```jldoctest
@@ -250,6 +257,38 @@ function value_and_gradient_from_predictor!(g::StridedVector{T}, d::StridedVecto
     _ls_offset_error()
   _ls_checkalias(g, d, base, z)
   v = _leastsquares_residual_gradient!(g, d, base.X, z, base.Y, f)
+  _ls_scale_gradient!(g, f, a)
+  v
+end
+
+# Reuse the vector oracle's ordinary-path guards and exceptional squared-residual
+# evaluation. Pairwise summation bounds the error of long matrix reductions.
+@inline function _ls_matrix_predictor_value(f, x, operand, s::T, a) where {T}
+  p = a * s
+  (_ls_ordinary_sum(s) & _ls_product_fits(f, p, T)) && return _value_at(p / 2, x)
+  _ls_value_exceptional(f, x, operand, s)
+end
+
+function value_from_predictor(f::_LSMatrixPredictorLoss{T}, z::StridedMatrix{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  Y = base.Y
+  axes(z) == axes(Y) || _ls_axes_error("z", axes(z), axes(Y))
+  s = isempty(z) ? zero(T) : _ls_sumabs2_diff_pairwise(z, Y)
+  _ls_matrix_predictor_value(f, z, _LSResponse(), s, a)
+end
+
+function value_and_gradient_from_predictor!(g::StridedMatrix{T}, d::StridedMatrix{T},
+    f::_LSMatrixPredictorLoss{T}, z::StridedMatrix{T}) where {T<:Union{Float32, Float64}}
+  base, a = _ls_base_scale(f)
+  X, Y = base.X, base.Y
+  axes(z) == axes(Y) || _ls_axes_error("z", axes(z), axes(Y))
+  axes(d) == axes(Y) || _ls_axes_error("d", axes(d), axes(Y))
+  dims = (size(X, 2), size(Y, 2))
+  size(g) == dims || _size_mismatch(size(g), dims)
+  Base.require_one_based_indexing(g)
+  _ls_checkalias(g, d, base, z)
+  _leastsquares_residual_gradient!(g, d, X, z, Y)
+  v = _ls_matrix_predictor_value(f, d, nothing, _sumabs2_loop(d), a)
   _ls_scale_gradient!(g, f, a)
   v
 end

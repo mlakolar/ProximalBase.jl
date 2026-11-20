@@ -128,7 +128,7 @@ out = similar(x)
 A solver that keeps the linear predictor ``z=X\beta`` current (after a coordinate update, say) can
 evaluate the loss from it without a product by ``X``. Three qualified public functions, not exported,
 serve this for a vector-response `LeastSquaresLoss` or one `Scaled` of it, and a fourth returns the data
-of the loss. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself. The
+of the loss. The two predictor oracles also take matrix-response least squares. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself. The
 value oracles and the accessor serve `SqrtLeastSquaresLoss` as well, which has its
 [own section](#Square-root-least-squares-is-not-smooth) below:
 
@@ -148,8 +148,12 @@ v=\frac{\alpha}{2}\|r\|^2\ \text{ for a residual } r.
   `α = one(T)` for a `LeastSquaresLoss{T}` or the stored factor of a `Scaled` loss, as it was supplied.
 
 **Domain.** The loss has a vector `Y` and strided `Float32` or `Float64` arrays `Y` and `X` of one type `T`;
-`z`, `r`, `d` and `g` are strided vectors of that type. Anything else is a `MethodError`: a matrix response,
-a sparse or other non-strided design, another element type, a nested `Scaled`. The accessor takes any
+`z`, `r`, `d` and `g` are strided vectors of that type. For the two predictor oracles, a matrix response requires
+`X::Matrix{T}` and `Y::Matrix{T}` and strided matrix buffers of the same type. The predictor and
+residual output match the axes of the `n × K` response and the one-based gradient output
+has size `p × K` for `p` design columns. The objective sums squared differences over all
+`nK` entries. Other layouts, mixed array element types and nested `Scaled` wrappers produce
+`MethodError`. `value_from_residual` continues to take vector responses. The accessor takes any
 `LeastSquaresLoss` or `SqrtLeastSquaresLoss` and one `Scaled` of it. `z`, `r` and `d` must have the axes of `Y` (another length, or an offset
 view of the same length, is a `DimensionMismatch`). `Y` and `X` must be one-based: an offset-axes `Y` or `X` is an
 `ArgumentError` when the loss is constructed. For `value_and_gradient_from_predictor!` an output `g` with offset axes is
@@ -162,20 +166,23 @@ converted to `Float64` once. An integer that `Float64` does not hold (`2^53 + 1`
 `BigFloat` or `Rational`, and `Inf` are an `ArgumentError`, raised before anything is written; the `Scaled`
 constructor is not changed. For an integer the factor used is its `Float64` value.
 
-**Value and rounding.** The result has type `T`. The sum of squares ``s`` is formed in `T`, in one vectorizing
+**Value and rounding.** The result has type `T`. For a vector response, the sum of squares ``s`` is formed in `T`, in one vectorizing
 loop for up to ``2^{17}`` entries and by Julia's pairwise summation for longer vectors, ``\alpha s/2`` in the
 promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
-twice). Where the squares overflow or underflow, where the difference ``z-Y`` overflows, and where the ordinary
+twice). For a matrix response, the predictor value uses a pairwise sum of squared
+differences. The fused oracle sums the stored residual squares, with the same
+length cutoff as the vector implementation, applied to `nK`. Where the squares overflow or underflow, where the difference ``z-Y`` overflows, and where the ordinary
 value ``\alpha s/2`` is above ``\texttt{floatmax}(T)/2``, the value is recomputed from the squares in units of a power of two with
 ``\alpha`` folded in, summed compensated, the computation that `SqrNormL2` uses for its exceptional values. The
 last case keeps the error of the ordinary sum, which grows with ``n``, from deciding between a finite value and
 `Inf`. The recomputation gives a finite value where the value is representable with margin (see the range
 statement below). Against 256-bit references the tests require
-``(n+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus
-two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`.
+``(m+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus
+two units of the smallest subnormal where ``|v|`` is below `floatmin(T)`. Here ``m``
+is the number of response entries.
 
 **Range.** Write ``u=\texttt{floatmax}(T)-\texttt{prevfloat}(\texttt{floatmax}(T))``, so that ``\texttt{floatmax}(T)+u/2``
-is the round-to-nearest overflow threshold, and ``w=(n+8)\varepsilon_T`` for the relative error bound above. For finite
+is the round-to-nearest overflow threshold, and ``w=(m+8)\varepsilon_T`` for the relative error bound above. For finite
 `z` and `Y` and an exact value ``v`` with ``|v|(1+w)\le\texttt{floatmax}(T)`` the result is finite and within that
 bound. For ``v`` above ``(\texttt{floatmax}(T)+u/2)(1+w)`` the result is `Inf`. Between these two bounds the result
 depends on the side of the threshold. Below it, where ``|v|(1+w)>\texttt{floatmax}(T)`` and ``v`` rounds to a finite

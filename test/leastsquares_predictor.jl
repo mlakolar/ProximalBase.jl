@@ -1232,4 +1232,156 @@ end
   end
 end
 
+@testset "matrix predictors and strided output buffers" begin
+  for T in (Float32, Float64), K in 1:3
+    X = T[1 2; 2 0; 0 2; 1 -1]
+    Y = T[0 2 -2; 1 3 1; 2 -1 0; 0 1 3][:, 1:K]
+    Z = T[1 2 -2; 1 -3 6; 0 8 0; 4 7 2][:, 1:K]
+    Z[2, 1] = nextfloat(Y[2, 1])
+    # The first two rows determine the coefficients for an image of X.
+    # This supplied predictor violates the implied third row.
+    @test Z[3, 1] != (2Z[1, 1] - Z[2, 1]) / 2
+    Zbuf = fill(T(17), 8, K)
+    z = view(Zbuf, 1:2:8, :)
+    z .= Z
+    Z_before = copy(Zbuf)
+    for α in (nothing, one(T) / T(4), 0.1, 16777217)
+      f = mkloss(Y, X, α)
+      scratch = baseloss(f).tmp
+      scratch .= T(-7)
+      Gbuf, Dbuf = fill(T(19), 4, K), fill(T(23), 8, K)
+      G, D = view(Gbuf, 1:2:4, :), view(Dbuf, 1:2:8, :)
+      ref = ref_value(α, z, Y)
+      v = @inferred PB.value_from_predictor(f, z)
+      vg = @inferred PB.value_and_gradient_from_predictor!(G, D, f, z)
+      @test value_ok(v, ref, T, length(Z))
+      @test value_ok(vg, ref, T, length(Z))
+      with256() do
+        exact_residual = big.(Z) .- big.(Y)
+        @test D == T.(exact_residual)
+        for k in 1:K
+          @test gradient_check(view(G, :, k), α, X, view(exact_residual, :, k), T, 4) === :pass
+        end
+      end
+      @test Zbuf == Z_before && all(==(T(-7)), scratch)
+      @test all(==(T(19)), view(Gbuf, 2:2:4, :))
+      @test all(==(T(23)), view(Dbuf, 2:2:8, :))
+      @test PB.value_from_predictor(f, Y) === zero(T)
+      @test PB.value_and_gradient_from_predictor!(G, D, f, Y) === zero(T)
+      @test all(iszero, G) && all(iszero, D)
+      scratch .= Z
+      @test value_ok(PB.value_from_predictor(f, scratch), ref, T, length(Z))
+      @test value_ok(PB.value_and_gradient_from_predictor!(G, D, f, scratch), ref, T, length(Z))
+      @test scratch == Z
+    end
+  end
+end
+
+@testset "rectangular downstream predictor fixture" begin
+  for T in (Float32, Float64)
+    X = T[1 2; 2 0; 0 2; 1 -1]
+    Y = T[0 2 -2; 1 3 1; 2 -1 0; 0 1 3]
+    Z = X * T[1 -2 0; 0 2 1]
+    G, D = zeros(T, 2, 3), similar(Y)
+    for (α, expected) in ((nothing, T(71.5)), (T(0.25), T(17.875)))
+      f = mkloss(Y, X, α)
+      @test PB.value_from_predictor(f, Z) === expected
+      @test PB.value_and_gradient_from_predictor!(G, D, f, Z) === expected
+      @test D == Z - Y
+      @test G == (α === nothing ? one(T) : α) .* (X' * (Z - Y))
+    end
+  end
+end
+
+@testset "matrix predictor exceptional values" begin
+  for T in (Float32, Float64)
+    X = T[1 2; -1 1; 2 3]
+    Y = zeros(T, 3, 2)
+    raw = LeastSquaresLoss(Y, X)
+    G, D = zeros(T, 2, 2), similar(Y)
+    e = exponent(floatmax(T))
+    tiny_e = exponent(nextfloat(zero(T)))
+    large, tiny = pow2(T, e ÷ 2 + 2), pow2(T, fld(tiny_e, 2) - 1)
+    for (m, α) in ((large, nothing), (large, T(1/128)), (tiny, pow2(T, 16)))
+      Z = m .* T[1 0; -1 2; 0 -1]
+      f = mkloss(Y, X, α)
+      ref = ref_value(α, Z, Y)
+      v = PB.value_from_predictor(f, Z)
+      vg = PB.value_and_gradient_from_predictor!(G, D, f, Z)
+      @test D == Z
+      @test value_ok(v, ref, T, length(Z))
+      @test value_ok(vg, ref, T, length(Z))
+      @test isfinite(v) == isfinite(T(ref)) == isfinite(vg)
+      α === nothing || @test v > 0 && vg > 0
+      with256() do
+        exact_gradient = scalebig(α) .* (big.(X)' * big.(Z))
+        @test G == T.(exact_gradient)
+      end
+    end
+    for nonfinite in (T(Inf), T(-Inf), T(NaN))
+      Z = zeros(T, size(Y))
+      Z[2, 2] = nonfinite
+      expected = isnan(nonfinite) ? T(NaN) : T(Inf)
+      for f in (raw, Scaled(raw, T(0.25)))
+        @test isequal(PB.value_from_predictor(f, Z), expected)
+        @test isequal(PB.value_and_gradient_from_predictor!(G, D, f, Z), expected)
+        @test isequal(D[2, 2], nonfinite)
+      end
+    end
+  end
+end
+
+@testset "matrix predictor refusal before writes" begin
+  for T in (Float32, Float64)
+    U = T === Float32 ? Float64 : Float32
+    n, p, K = 4, 2, 2
+    X = fill(T(11), n, p)
+    Y = fill(T(13), n, K)
+    Z = fill(T(17), n, K)
+    raw = LeastSquaresLoss(Y, X)
+    scratch = fill!(raw.tmp, T(31))
+    for f in (raw, Scaled(raw, T(0.25)))
+      G, D = fill(T(19), p, K), fill(T(23), n, K)
+      Zoff = view(zeros(T, n, K + 1), :, Base.IdentityUnitRange(2:K+1))
+      Doff = view(zeros(T, n, K + 1), :, Base.IdentityUnitRange(2:K+1))
+      Goff = view(zeros(T, p, K + 1), :, Base.IdentityUnitRange(2:K+1))
+      for (z, error) in ((reshape(Z, K, n), DimensionMismatch), (Zoff, DimensionMismatch),
+                        (U.(Z), MethodError), (sparse(Z), MethodError))
+        @test_throws error PB.value_from_predictor(f, z)
+        @test_throws error PB.value_and_gradient_from_predictor!(G, D, f, z)
+      end
+      for (g, d, error) in ((reshape(G, 1, p*K), D, DimensionMismatch),
+                            (G, reshape(D, K, n), DimensionMismatch),
+                            (G, Doff, DimensionMismatch), (Goff, D, ArgumentError),
+                            (U.(G), D, MethodError), (G, U.(D), MethodError))
+        snapshot = map(copy, (g, d))
+        @test_throws error PB.value_and_gradient_from_predictor!(g, d, f, Z)
+        @test isequal((g, d), snapshot)
+      end
+      for invalid in (LeastSquaresLoss(Y, sparse(X)), LeastSquaresLoss(U.(Y), X),
+                      LeastSquaresLoss(view(Y, :, :), X), Scaled(Scaled(raw, 1e200), 1e200),
+                      SqrtLeastSquaresLoss(Y[:, 1], X))
+        @test_throws MethodError PB.value_from_predictor(invalid, Z)
+        @test_throws MethodError PB.value_and_gradient_from_predictor!(G, D, invalid, Z)
+      end
+      @test_throws MethodError PB.value_from_residual(f, D)
+      for invalid_scale in (T(Inf), 1//2, 2^53 + 1)
+        invalid = Scaled(raw, invalid_scale)
+        @test_throws ArgumentError PB.value_from_predictor(invalid, Z)
+        @test_throws ArgumentError PB.value_and_gradient_from_predictor!(G, D, invalid, Z)
+      end
+      @test all(==(T(19)), G) && all(==(T(23)), D)
+      for input in (X, Y, Z, scratch, D)
+        snapshot = map(copy, (G, D, X, Y, Z, scratch))
+        @test_throws ArgumentError PB.value_and_gradient_from_predictor!(view(input, 1:p, :), D, f, Z)
+        @test isequal((G, D, X, Y, Z, scratch), snapshot)
+        if input !== D
+          @test_throws ArgumentError PB.value_and_gradient_from_predictor!(G, input, f, Z)
+          @test isequal((G, D, X, Y, Z, scratch), snapshot)
+        end
+      end
+    end
+  end
+end
+
 end

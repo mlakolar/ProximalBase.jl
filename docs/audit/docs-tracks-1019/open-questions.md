@@ -62,6 +62,16 @@ that happens to pass.
   awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
   · [Tests](../../../test/leastsquares_predictor.jl)
 
+- The matrix predictor sentence added by #1115 says both oracles reuse “the same
+  squared-residual recovery”. This could refer to both oracles retrying an
+  overflowing subtraction or to their use of the same range kernel on different
+  operands. The value-only oracle can retry with the original predictor and
+  response. The fused oracle uses the stored residual, and the overflow test
+  gives a finite value for the former and `Inf` for the latter. The scope of
+  “same” awaits the owner's decision.
+  [Source](../../../src/functions/leastsquares_predictor.jl)
+  · [Tests](../../../test/leastsquares_predictor.jl)
+
 - The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
   could mean the loss from unrounded `Xβ` or the exact norm at the stored or
   supplied predictor or residual. The same paragraph leaves open whether
@@ -89,8 +99,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The reconciliation through `d3b671e8`
-has 60 receipts covering 124 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `bc9e888d`
+has 66 receipts covering 131 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

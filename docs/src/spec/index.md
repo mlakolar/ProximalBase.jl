@@ -34,6 +34,7 @@ apply alongside each entry.
 | `IndNonnegative` | [API entry](@ref IndNonnegative) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |
+| `IndBallL0` | [Numerical contract](indballl0.md) | Verbatim migration |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
 | `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `SqrNormL2` | [Squared Euclidean norm](@ref Squared-Euclidean-norm) | Existing pages |
@@ -46,6 +47,7 @@ apply alongside each entry.
 | `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
 | `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
 | `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
+| `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
 | `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |
 | `kkt_violation` | [Checking optimality with KKT conditions](../operations.md#Checking-optimality-with-KKT-conditions) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |

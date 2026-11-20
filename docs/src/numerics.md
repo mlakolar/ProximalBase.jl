@@ -412,21 +412,7 @@ for the finite-data scores.
 
 ### Cardinality penalty endpoints
 
-[`IndBallL0`](@ref) requires finite counted data for projection. The kernel
-classifies counted entries during the support count. A counted nonfinite
-entry throws before the first write. A free diagonal is copied regardless
-of its values. In the standalone indicator, a counted NaN returns NaN for
-any budget, and either infinity counts as nonzero. In a symmetric input
-the selected triangle determines the entries used by both oracles.
-
-The counted-diagonal symmetric projection ranks magnitudes and compares
-the savings of adjacent feasible splits using their exchanged entries.
-It compares binary significand squares in aligned integer units. This
-avoids overflow and underflow of squared magnitudes and preserves exact
-ties even with subnormal inputs. The projection writes original values
-or positive zero. Both signs of zero count as zero. The fused call returns
-the typed zero value directly for the feasible stored result. Steps must
-be finite and nonnegative.
+See the [IndBallL0 endpoint rules](@ref spec-indballl0-endpoints).
 
 For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
 distance cost of setting a finite input `v` to zero with the penalty cost

@@ -150,31 +150,7 @@ squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range,
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
 
-The clip level `τ` of `NormLinf` has an **absolute** error. On the ordinary finite path, for `n ≥ 1` entries in the
-floating type `T` of the output with `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and `2^51` in `Float64`), a
-hypothesis that the code does not check, the level returned by the threshold satisfies
-`|τ - τ*| ≤ 2.25 n eps(T) max|xᵢ| + 2nδ`, where `τ*` is the root of `Σ(|xᵢ| - τ)₊ = a` for the entries
-`abs(convert(T, xᵢ))` and the radius `a` that the prox forms (the product `γλ` rounded in the promoted type of `γ`, `λ`
-and `T`, then to `T`), and `δ = nextfloat(zero(T))` (the storage of a subnormal radius or output adds `δ`; `x = [δ]`,
-`λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is `δ/2`). The prox clips at the larger of the level and zero,
-which is within the same bound of `max(τ*, 0)`. The derivation, in `src/functions/normlinf.jl`, bounds the excess
-`Σ(|xᵢ| - τ)₊ - a` for each of the four ways the threshold search ends, and it does not assume that the entries it found
-above the level are the entries above the exact level. Unlike the relative bounds of the `NormL2` and `GroupNormL2`
-kernels, the bound is absolute: an entry far below `max|xᵢ|` is not clipped to a relative accuracy. A sum of magnitudes
-that overflows or exceeds `floatmax(T)/2` is processed in power-of-two units: the statement above then applies first to
-the scaled entries and the scaled radius, as they are rounded, and converting back carries the scaling allowances
-described here (the radius `γλ` rounded to `T` can itself be infinite there, as for `x = [M, M]`, `λ = 1.5`, `γ = M`
-with `M = floatmax(T)`, which is not the reference of the bound). The subnormal losses of the scaling are below the
-nominal scale `n eps(T) max|xᵢ|` under the same hypothesis on `n`, and the scaling of an entry or of the radius changes
-it by at most one subnormal spacing (the allowance covers the `ldexp` of Julia 1.10 noted above), a second hypothesis of
-that argument that the code does not check.
-Through `Scaled`, the wrapper's recovery of a radius `γλα` beyond the range has a limit: for
-`Scaled(NormLinf(2.0 * 2.0^-1000), 2.0^1000)` at the step `0.75 floatmax(Float64)` on two entries equal to
-`floatmax(Float64)`, even the folded level at half the scale is out of range, the wrapper passes an infinite step, and the
-output is `+0` where the exact result is about `floatmax/4`. For positive
-finite level and step, an infinite entry without `NaN` gives the identity; on the finite clipping branch the value is
-`λ τ`, computed from the largest stored magnitude `τ`, and `value_and_prox!` returns the value of the stored output,
-computed as `f(y)` computes it. Endpoint precedence is given in the table below.
+See the [NormLinf range clauses](@ref spec-normlinf-range).
 
 ### [GroupNormLinf clip accuracy](@id groupnormlinf-clip-accuracy)
 
@@ -293,11 +269,7 @@ all-NaN result or a particular exception.
 | `LinearFunction and ZeroFunction` | See the [LinearFunction and ZeroFunction endpoint clauses](@ref spec-linear-endpoints) |
 | `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints) |
-| `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
-| `NormLinf`, infinite level, nonnegative step | `+0` at every entry, `γ = 0` and `γ = Inf` included (#665 reading, #946), also for `NaN`/`±Inf` inputs; value `0` at the zero vector (an empty one included), `Inf` at any other argument without a `NaN`, `NaN` at a `NaN` entry |
-| `NormLinf`, finite level, zero level or zero step | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a positive level |
-| `NormLinf`, positive finite level, infinite step | `+0` for every input (decided before the entries are classified), `NaN` and `±Inf` entries included |
-| `NormLinf`, positive finite level and positive finite step | A `NaN` entry makes every output `NaN`; a `±Inf` entry (no `NaN`) leaves the argument unchanged, also when the finite product `γλ` overflows; otherwise the clip at `τ` with `Σ(abs(xᵢ) - τ)₊ = γλ`, and `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite; a sum of magnitudes above `floatmax(T)/2` is processed in power-of-two units |
+| `NormLinf` | See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints) |
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
 | `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (see [zero-step rule](@ref infinite-penalty-at-zero-step)), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |

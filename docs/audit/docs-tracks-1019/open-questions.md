@@ -96,6 +96,15 @@ that happens to pass.
   decision. [Source](../../../src/functions/sqrnorml2.jl)
   · [Tests](../../../test/norml2.jl)
 
+- The NormLinf range paragraph calls τ* the root of the level equation
+  at the rounded radius. If the radius rounds to zero, every level at or above
+  the largest magnitude solves the equation. The statement could refer to the
+  smallest root or apply only when the rounded radius stays positive. The
+  implementation uses the largest entry as the zero-radius reference in its
+  exceptional-path derivation. The range interpretation awaits the owner's
+  decision. [Source](../../../src/functions/normlinf.jl)
+  · [Tests](../../../test/normlinf.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

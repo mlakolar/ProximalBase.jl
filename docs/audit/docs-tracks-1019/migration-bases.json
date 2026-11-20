@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "bases": [
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+      "baseline_sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+      "upstream_sha": "5deb683d0ce1c8ee70249ba50c11adc6d4522f6d2f9a8bac30ceb72fa848f847",
+      "source_shas": [
+        "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
+      ],
+      "evidence": "sparsegroup_receipt_review@39486aad79a3d8184945a249543b31185ff90d86 verified the retained Git receipt and its complete terminal span against the reviewed move."
+    }
+  ]
+}

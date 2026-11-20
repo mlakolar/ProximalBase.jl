@@ -226,7 +226,7 @@ end
 # does. The max needs a level that is not NaN: under the conditions at `_l1ball_threshold!` the level is a level of the
 # iteration there (a finite number, computed from finite sums) or the largest entry, so it is a number. s is the sum of the
 # magnitudes of the pass of the caller (the sum that is compared with the radius): Condat's pass uses it in the test of the level
-# for an early handover and in the start of the handover.
+# for an early handover (with the ordinary read `_AbsRead`) and in the start of the handover.
 @inline function _linf_threshold(y, f::NormLinf, x, r::T, s::T, rd, ::Type{T}) where {T}
   τ = if _linf_buffer_is_output(y, x, T)
     _l1ball_threshold!(y, x, r, rd, s)
@@ -367,8 +367,8 @@ end
 # largest stored entry): each return is that largest entry, or a level that has an entry above it, or a step t < hi. A start of
 # -Inf returns -Inf: with a = +Inf the first pass returns its level (r = Inf ≤ a) before a step is computed, and with any other a
 # the first step is NaN and the last guard returns the start. With a = +Inf and finite sums the starts of `_l1ball_threshold!`
-# are -Inf (ρ and the plain levels are -Inf, and the test of the level for an early handover, -Inf > -Inf, is false), so it
-# returns -Inf. A start that is NaN or +Inf returns the largest entry; the starts of the callers are finite when s is. A pass
+# are -Inf (ρ and the plain levels are -Inf, and the test of the level for an early handover, when it is made, -Inf > -Inf, is
+# false), so it returns -Inf. A start that is NaN or +Inf returns the largest entry; the starts of the callers are finite when s is. A pass
 # sum that overflows gives the step +Inf, and then no entry is above the level. The bounds are not claimed there.
 #
 # Notation. The sums defining g are exact here. k(τ) = #{i : yᵢ > τ}, γ_k = k u/(1 - k u). The function g is convex, piecewise
@@ -548,18 +548,21 @@ end
 # candidates, of running sum s); the level ρ and the rules that update it are in claim 4. The entries after the first are read in
 # groups of four, whose four comparisons with ρ are joined in one branch, and the last one to three entries (when n - 1 is not a
 # multiple of four) one by one. After each group in which an entry is above ρ, and not in the loop of the last entries, the loop
-# compares the count nv with the count in force, cap = max(8, n ÷ 8) at first, and calls `_condat_many` when the count exceeds
-# it; below, a test is such a call. The count of an input of at most 4 entries is not compared, and an input of at most 8 entries
-# has no test (after its one group of four the count is at most 5). A test with cap2 = max(1024, n ÷ 8) in force hands over to
-# Michelot's algorithm, on all the entries. A test with cap < cap2 in force hands over when ρ is at most the plain level (s_all -
-# a)/n of all the entries, s_all being the sum of the caller's pass, and otherwise puts cap2 in force; without that sum
-# (`nothing`) it puts cap2 in force. For n ≥ 8192 the two counts are equal. The level is tested at most once, at the test with cap
-# in force (not for n ≥ 8192, not without the caller's sum, and not when the count does not exceed cap): ρ does not decrease
-# (claim 4 (i)), so a level that has passed the plain level stays above it, and a test of the level at the later tests would give
-# the same answer. The test of the level is ρ n > s_all - a in floating point (an overflow of ρ n included); either outcome is
-# covered by the claims: it decides the cost and the rounding of the level (the iteration on all the entries and the iteration on
-# the stored entries sum in different orders), not its bound. A restart resets nv, so restarts are not counted against cap or
-# cap2 (that costs time, not accuracy).
+# compares the count nv with the count in force, cap at first, and calls `_condat_many` when the count exceeds it; below, a test
+# is such a call. cap is the early count max(8, n ÷ 8) for the ordinary read `_AbsRead`. The scaled read of the overflow paths,
+# each of whose reads is an `ldexp`, keeps cap = cap2, because the extra passes of an early handover through it can cost more than
+# the candidate updates they save; so does any other read (`_early_count`). The count of an input of at most 4 entries is not
+# compared, and an input of at most 8 entries has no test (after its one group of four the count is at most 5). A test with cap2 =
+# max(1024, n ÷ 8) in force hands over to Michelot's algorithm, on all the entries. A test with cap < cap2 in force hands over
+# when ρ is at most the plain level (s_all - a)/n of all the entries, s_all being the sum of the caller's pass, and otherwise puts
+# cap2 in force; without that sum (`nothing`) it puts cap2 in force. For n ≥ 8192, and for a read other than `_AbsRead`, the two
+# counts are equal. The level is tested at most once, at the test with cap in force (not for n ≥ 8192, not for a read other than
+# `_AbsRead`, not without the caller's sum, and not when the count does not exceed cap): ρ does not decrease (claim 4 (i)), so a
+# level that has passed the plain level stays above it, and a test of the level at the later tests would give the same answer. The
+# test of the level is ρ n > s_all - a in floating point (an overflow of ρ n included); either outcome is covered by the claims:
+# it decides the cost and the rounding of the level (the iteration on all the entries and the iteration on the stored entries sum
+# in different orders), not its bound. A restart resets nv, so restarts are not counted against cap or cap2 (that costs time, not
+# accuracy).
 #
 # A step stores its entry before the count is compared, so at a test the count exceeds the count in force by one to four, except
 # at the test with cap2 in force when cap is 1021 to 1023 (within four of cap2 = 1024): the test with cap in force can then leave
@@ -587,7 +590,7 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
   nt, nv = 0, 1
   s = y1
   ρ = prevfloat(y1 - a)
-  cap = max(8, n ÷ 8)
+  cap = _early_count(rd, n)
   cap2 = max(1024, n ÷ 8)
   many = false
   j = 2
@@ -614,10 +617,16 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
   _l1ball_iterate(buf, nt + nv, a, identity, ifelse(lv > ρ, lv, ρ))
 end
 
-# The test when the count of candidates exceeds cap: it returns the count to test from then on and whether to hand over. At
-# cap == cap2 (n ≥ 8192, or after an earlier test has returned cap2) it hands over. Otherwise it hands over when ρ has not passed
-# the plain level of all the entries, and else it returns cap2 and the pass continues. It is not inlined, which keeps the loop
-# of Condat's pass to the steps and one call.
+# The count in force at the start of Condat's pass: the early count max(8, n ÷ 8) for the ordinary read `_AbsRead`, and the count
+# max(1024, n ÷ 8) of the handover for any other read (the scaled read `_ScaledAbsRead` of the overflow paths among them), so that
+# cap == cap2 from the start and the level is not tested (see the paragraph in front of `_l1ball_threshold!` for the reason).
+@inline _early_count(::_AbsRead, n::Int) = max(8, n ÷ 8)
+@inline _early_count(rd, n::Int) = max(1024, n ÷ 8)
+
+# The test when the count of candidates exceeds cap: it returns the count to test from then on and whether to hand over. At cap ==
+# cap2 (n ≥ 8192, a read other than `_AbsRead`, or after an earlier test has returned cap2) it hands over. Otherwise it hands over
+# when ρ has not passed the plain level of all the entries, and else it returns cap2 and the pass continues. It is not inlined,
+# which keeps the loop of Condat's pass to the steps and one call.
 @noinline function _condat_many(ρ::T, n::Int, a::T, s_all, cap::Int, cap2::Int) where {T}
   (cap == cap2 || !_level_passed(ρ, n, a, s_all)) && return cap, true
   cap2, false
@@ -631,8 +640,8 @@ end
 # plain level of all the entries, with s the sum of the caller's pass when it is given and the sum of the entries formed here
 # when it is not (claim 2 bounds this start). The handover at the test with cap in force is taken when ρ n ≤ s - a, so that it
 # starts at the plain level up to a rounding of that test; at the test with cap2 in force ρ can be the larger (after it has passed
-# the plain level; for n ≥ 8192, where the level is not tested; and without the caller's sum, where the level is not tested either
-# and the plain level of the sum formed here can be negative). It is not inlined, which keeps `_l1ball_threshold!` to Condat's
+# the plain level; for n ≥ 8192 and for a read other than `_AbsRead`, where the level is not tested; and without the caller's
+# sum, where the level is not tested either and the plain level of the sum formed here can be negative). It is not inlined, which keeps `_l1ball_threshold!` to Condat's
 # pass and one call for the handover.
 @noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T, ρ::T) where {T, F}
   lv = (s - a) / n

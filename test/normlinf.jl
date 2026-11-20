@@ -825,6 +825,18 @@ struct CountRead{T}
 end
 CountRead{T}() where {T} = CountRead{T}(Threads.Atomic{Int}(0))
 @inline (r::CountRead{T})(v) where {T} = (Threads.atomic_add!(r.calls, 1); abs(convert(T, v)))
+# the counting reader reads as the ordinary read `_AbsRead` does (the magnitude in T), and takes its counts of the handover: the
+# early count max(8, n ÷ 8) applies to it (the package gives that count to `_AbsRead` only)
+PB._early_count(::CountRead{T}, n::Int) where {T} = PB._early_count(PB._AbsRead{T}(), n)
+# an argument that counts the reads of its entries atomically (also in a vectorized pass), so that the readers of the package
+# themselves can be counted
+struct CountArg{T} <: AbstractVector{T}
+  v::Vector{T}
+  calls::Threads.Atomic{Int}
+end
+CountArg(v::Vector{T}) where {T} = CountArg{T}(v, Threads.Atomic{Int}(0))
+Base.size(c::CountArg) = size(c.v)
+Base.@propagate_inbounds Base.getindex(c::CountArg, i::Int) = (Threads.atomic_add!(c.calls, 1); c.v[i])
 
 # the pass and the iteration of the threshold with the sums taken in sequential order (a copy of the iteration, to check the
 # bounds for an order of summation that the vectorized pass does not produce); the exit taken and the number of passes are returned
@@ -1039,6 +1051,22 @@ end
   c2 = CountRead{T}()
   @test PB._l1ball_threshold!(Vector{T}(undef, 2001), x, a0, c2, PB._linf_sum(x, rd, T)) == 1
   @test c2.calls[] == 253 + 2 * 2001
+end
+
+@testset "the early count applies to the ordinary read, not to the scaled read ($T)" for T in (Float32, Float64)
+  # 2001 ones with the caller's sum, read through the package's own readers and counted by the argument. The ordinary read
+  # `_AbsRead`, with the radius eps/2 (as in the next testset): the count 253 is above the early count 250 while the level of the
+  # pass is below the plain level 1, so the pass hands over after 253 reads, and the handover starts at 1, where no entry is above
+  # the level, and returns the largest entry (2 · 2001 reads). The scaled read `_ScaledAbsRead` with k = 3 (the entries 1/8 and
+  # the radius eps/16 in those units: the same arithmetic scaled by a power of two) keeps the count max(1024, n ÷ 8) = 1024 from
+  # the start, so the pass hands over at the count 1025 (1025 reads), and then reads 2 · 2001 entries as well
+  n = 2001
+  @test PB._early_count(PB._AbsRead{T}(), n) == 250 && PB._early_count(PB._ScaledAbsRead{T}(3), n) == 1024
+  for (rd, a, top, condat) in ((PB._AbsRead{T}(), eps(T) / 2, one(T), 253), (PB._ScaledAbsRead{T}(3), eps(T) / 16, T(1) / 8, 1025))
+    xc = CountArg(ones(T, n))
+    τ = PB._l1ball_threshold!(Vector{T}(undef, n), xc, a, rd, PB._linf_sum(xc.v, rd, T))
+    @test τ == top && xc.calls[] == condat + 2n
+  end
 end
 
 @testset "the counts of the handover of Condat's pass, read by a counting reader ($T)" for T in (Float32, Float64)

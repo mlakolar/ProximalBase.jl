@@ -721,3 +721,14 @@ The review verified Git provenance and source evidence. It did not rerun Julia.
 The interpretation of the retained-and-removed scope paragraph is recorded in
 `open-questions.md` for owner review. The audit now records 106 transitions in
 the same 60 receipts and retains all 2,162 original block identities and hashes.
+
+## Reconciliation after IndBallL0 (#1062)
+
+`sparsegroup_receipt_review@1299e54621a63788d306fc549091303a88007cdc`
+verified that [#1062](https://github.com/mlakolar/ProximalBase.jl/pull/1062)
+merged with actual first parent `d93ccabe55cd0ada3a629d685a1e4893facc3565`.
+Two existing receipts each gained one transition. They cover the Indicators
+`@docs` fence and the retained-and-removed scope paragraph. The independent
+review compared both raw spans, Git blobs, earlier events and the landed
+IndBallL0 source and tests. The audit holds 60 receipts and 108 transitions,
+with all 2,162 original identities and hashes preserved.

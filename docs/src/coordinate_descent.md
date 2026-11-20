@@ -188,7 +188,8 @@ column curvatures alone are not a block spectral bound.
 `BlockIterate` supplies an ordered partition and public block views. A separable
 penalty uses scalar `prox_block` at each global member index. A custom block
 penalty supplies the compact-vector extension hook; the built-in
-[`GroupNormL2`](group_penalty.md) and `GroupNormLinf` implement it. See [coordinate oracles](iterate_oracles.md),
+[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref) and [`SparseGroupNormL2`](@ref) implement it.
+See [coordinate oracles](iterate_oracles.md),
 the [block extension](examples/block_prox_extension.md) and the
 [group-lasso building blocks](examples/group_lasso_prox.md). Matching layouts,
 constructing trials and updating caches are the caller's responsibilities.

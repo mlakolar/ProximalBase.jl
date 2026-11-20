@@ -12,6 +12,23 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
+- `docs/src/migration.md`, “Retained and removed scope”, can be read as a
+  history of the #850 reduction or as an inventory of what is unavailable
+  today. The paragraph mentions some later restorations. The current exports
+  and [function library](../../src/function_library.md) also include `NormL0`,
+  `MCP`, `SCAD` and `IndBallL1`. The scope of the statement awaits the owner's
+  decision.
+
+- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
+  project”. This could refer to calls on a concrete `Scaled` wrapper or to
+  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
+  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
+  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
+  oracles check the step. The moved row retains the original wording pending
+  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+  · [Scaling source](../../../src/functions/scaled.jl)
+  · [Tests](../../../test/indnonnegative.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at
@@ -22,8 +39,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The current reconciliation through `c54241b`
-has 59 receipts covering 93 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `c05fa8576`
+has 60 receipts covering 106 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

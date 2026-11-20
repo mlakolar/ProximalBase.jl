@@ -2,8 +2,8 @@
   "schema": 1,
   "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
   "raw_span_review": {
-    "reviewer": "lead-independent-migration@5cf01e4",
-    "scope": "The 76 complete raw source/destination spans, nonoverlap and normalized equivalence. Rendered review and final acceptance remain separate."
+    "reviewer": "reconcile_pr_review@9e3ec2f49ff566022d19083ebe07e9374fe68c29",
+    "scope": "The single IndNonnegative endpoint row, compared byte for byte with the frozen baseline and the reconciled prerequisite."
   },
   "manifests": [
     "moves-indnonnegative.json"

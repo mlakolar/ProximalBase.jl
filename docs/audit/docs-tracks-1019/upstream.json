@@ -392,11 +392,23 @@
           "reviewer": "norml1_pilot@c54241b15d0d435f4a87f0da0ddea9449f14a106",
           "source_sha": "e887b7e8e58a864a72e0adde0cd6baa9b4ee10e7d17428c4755d2f6f75104285",
           "replacement_sha": "b18d91deedc2ee0ad64356c6ca1cf57f8fbf715517e8a3aee573060af35dd611"
+        },
+        {
+          "pull_request": 1065,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1065",
+          "merged": true,
+          "before_commit": "77a4024307ad376c225297fdddffd4730f8a8167",
+          "after_commit": "5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f",
+          "before_blob": "a2807fa470a8924b60f8b87d4cf49423dff44ac3",
+          "after_blob": "02773942b89361700a566c8d43237d526594cc7c",
+          "source_sha": "b18d91deedc2ee0ad64356c6ca1cf57f8fbf715517e8a3aee573060af35dd611",
+          "replacement_sha": "89ce404204360492625781b399dde62cde2facefaa761145eec1da60fb631e7e",
+          "reviewer": "sparsegroup_receipt_review@5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f"
         }
       ],
       "dest": "test/TESTING.md#Minimal-supported-test-inventory",
-      "dest_sha": "b18d91deedc2ee0ad64356c6ca1cf57f8fbf715517e8a3aee573060af35dd611",
-      "reviewer": "norml1_pilot@c54241b15d0d435f4a87f0da0ddea9449f14a106"
+      "dest_sha": "89ce404204360492625781b399dde62cde2facefaa761145eec1da60fb631e7e",
+      "reviewer": "sparsegroup_receipt_review@5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f"
     },
     {
       "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",

@@ -175,4 +175,17 @@ end
   end
 end
 
+@testset "Dense value classification in a single pass" begin
+  for T in (Float32, Float64)
+    f = IndBallL0(2)
+    @test f(T[-Inf, Inf]) === zero(T)
+    @test f(T[-floatmax(T), floatmax(T)]) === zero(T)
+    @test isnan(f(T[NaN, Inf]))
+    @test isnan(f(T[Inf, -NaN]))
+    y = T[1, 1]
+    @test_throws ArgumentError prox!(y, f, T[-Inf, Inf])
+    @test y == T[1, 1]
+  end
+end
+
 end

@@ -150,7 +150,19 @@ function _l0_dense_stats(x, ::Nothing, mode)
 end
 _l0_dense_stats(x, diag::Tuple, mode) = _l0_entry_stats(x, eachindex(x), diag, mode)
 
-function _l0_dense_count(x, mode, ::Type{I}) where {I}
+# A sum of nonnegative magnitudes can overflow to infinity. It is NaN
+# exactly when a counted entry is NaN, even with infinities of both signs.
+function _l0_dense_count(x, ::Val{:value}, ::Type{I}) where {I}
+  n, total = zero(I), zero(eltype(x))
+  @inbounds @simd for i in eachindex(x)
+    v = abs(x[i])
+    n += I(!iszero(v))
+    total += v
+  end
+  Int(n), isnan(total)
+end
+
+function _l0_dense_count(x, ::Val{:prox}, ::Type{I}) where {I}
   T = eltype(x)
   U = T === Float32 ? UInt32 : UInt64
   signmask = typemax(U) >> 1
@@ -160,9 +172,9 @@ function _l0_dense_count(x, mode, ::Type{I}) where {I}
     n += I(!iszero(magnitude))
     largest = max(largest, magnitude)
   end
-  # Absolute IEEE bit patterns place NaN above infinity. The maximum
-  # therefore classifies the entire counted input without a second pass.
-  Int(n), _l0_invalid(reinterpret(T, largest), mode)
+  # Use the largest magnitude for the projection's stricter check,
+  # since a sum of finite magnitudes can overflow.
+  Int(n), !isfinite(reinterpret(T, largest))
 end
 
 @inline _l0_value(::Type{T}, f, n, nan) where {T} = nan ? T(NaN) : n <= f.s ? zero(T) : T(Inf)

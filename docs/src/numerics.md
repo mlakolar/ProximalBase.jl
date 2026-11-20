@@ -129,46 +129,14 @@ feasibility, power-of-two scaling, and tiny-radius projection.
 
 See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
-`GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
-as `(λ0*w[k])*m` with two rounded products when `λ0*w[k]` is a normal number (and by the three-factor kernel otherwise)
-and then converted to the output type, and may recompute from the exponents of `w[k]*max|x[G_k]|` with `λ0` applied once.
+See the [GroupNormLinf range clauses](@ref spec-groupnormlinf-range).
 See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
 See the [NormLinf range clauses](@ref spec-normlinf-range).
 
 ### [GroupNormLinf clip accuracy](@id groupnormlinf-clip-accuracy)
 
-For `GroupNormLinf`, let `T` be the common type of the input, output, level, weights and step (`Float32` or `Float64`).
-For finite data and positive finite parameters in round-to-nearest arithmetic with gradual underflow, each stored entry
-is within `8 n eps(T) M + (2n + 1)δ` of the exact proximal entry for `r = γλ0w[k]`. Here `n ≥ 1` is the size of the
-group, `M` its largest magnitude and `δ = nextfloat(zero(T))`. The bound assumes `n eps(T) ≤ 1/2`, which the code does
-not check. This applies to the direct array and compact block calls. The parameter precedence for zero and infinite
-factors is given in the table below.
-
-The exact nonnegative level at radius `r` is the maximum of zero and the levels
-`(sum(abs(x[i]) for i in A) - r) / length(A)` over nonempty subsets `A` of the group. Thus it changes by at most the
-largest entry perturbation and the absolute radius perturbation. A relative perturbation of the radius by at most `η`
-changes the level by at most `η M / (1 - η)`: at the smaller radius a subset with a positive level has radius per entry
-at most `M`. The radius uses two products in the working type, or two products of significands followed by exponent
-scaling if the normal-range products cannot be used. With `u = eps(T)/2`, the two products contribute at most `4u M`
-to the level error and subnormal radius rounding at most `δ`, including the Julia 1.10 `ldexp` allowance above.
-
-If the computed radius is below the computed sum, the shared threshold contributes at most `4.5 n u M + 2nδ` before
-accounting for the radius error. If the computed radius reaches the computed sum, that sum is at least
-`(1 - (n - 1)u)` times the exact sum. The subset formula then bounds the level for the computed radius by `(n - 1)u M`.
-If the rounded radius overflows in these units, the exact radius exceeds `floatmax(T)/(1 + u)^2`. The exact sum is
-at most `2 floatmax(T)/3` when its computed value is at most `floatmax(T)/2`, so zero is then the exact result.
-
-If the first sum exceeds `F/2`, where `F = floatmax(T)`, the group is read in units of `2^-k` with
-`k = ceil(log2(n)) + 2`. Under the size hypothesis the rounded scaled sum is at most `(F/4 + nδ)/(1 - n u) < F/2`,
-so the first scaling suffices. The scaled entries incur at most `δ` of perturbation in those units. Applying the
-unscaled bound there and multiplying back gives `(4.5n + 4)u M` plus at most
-`2^k [(2n + 2) + (4.5n + 4)u]δ`. Since `2^k < 8n`, the latter term is at most `48 n^2 δ`.
-The scaling trigger requires `M > F/(3n)`, and `144 n^2 δ ≤ u F` for `Float32` and `Float64` under the size
-hypothesis, so this term is at most `n u M`. Scaling the level back is exact where finite. Capping it at `M`, including
-when it overflows, can only decrease the error. Clipping selects an entry or the signed level, both already in `T`,
-so same-type storage adds no rounding error. With a different input or output type, entries are read in the floating
-type of the destination and the clipped values are converted to its element type on write.
+See the [GroupNormLinf range clauses](@ref spec-groupnormlinf-range).
 
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
@@ -255,12 +223,7 @@ all-NaN result or a particular exception.
 | `NormL2` | See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints) |
 | `NormLinf` | See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints) |
 | `GroupNormL2` | See the [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints) |
-| `GroupNormLinf`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), also at an infinite level or step; zero value |
-| `GroupNormLinf`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` and `γ = Inf` included, also for `NaN`/`±Inf` inputs, and also for an infinite weight with a zero level; value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
-| `GroupNormLinf`, zero level or zero step, finite positive weight | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also when `λ0*w[k]` overflows and at `γ = Inf` with a zero level; value `0` at a zero level (`NaN` entries included), `λ0 w[k] max abs(x_G)` at a zero step of a positive level |
-| `GroupNormLinf`, positive finite level and weight, infinite step | `+0` for every input, `NaN` and `±Inf` entries included |
-| `GroupNormLinf`, positive finite level, weight and step | A `NaN` entry makes the group `NaN` and leaves the other groups to their own rules; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite product `γ*λ0*w[k]` overflows; otherwise the clip of the group at `τ` with `Σ(abs(xᵢ) - τ)₊ = γ λ0 w[k]`, and `+0` when the computed radius reaches the computed sum of magnitudes or overflows while that sum is finite |
-| `GroupNormLinf`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!`; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
+| `GroupNormLinf` | See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints) |
 | `SqrNormL2` | See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints) |
 | `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
 | `IndBox` | See the [IndBox endpoint clauses](@ref spec-indbox-endpoints) |

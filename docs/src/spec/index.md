@@ -46,7 +46,7 @@ apply alongside each entry.
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
-| `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
+| `GroupNormLinf` | [Numerical contract](groupnormlinf.md) | Verbatim migration |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |
 

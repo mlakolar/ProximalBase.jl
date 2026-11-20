@@ -751,6 +751,8 @@ function outcome(op, f)
   end
 end
 same(op, f, g) = isequal(outcome(op, f), outcome(op, g))
+with_diagonal(λ) = NormL0(λ; diagonal = true)
+without_diagonal(λ) = NormL0(λ; diagonal = false)
 
 @testset "NormL0 diagonal keyword" begin
   OD = ProximalBase._NormL0OffDiag
@@ -762,9 +764,13 @@ same(op, f, g) = isequal(outcome(op, f), outcome(op, g))
       @test f === g && typeof(g) === NormL0{typeof(λ)} && g.λ === λ && hash(f) == hash(g)
     end
     @test @inferred(NormL0(2.0)) === NormL0{Float64}(2.0)
+    @test @inferred(NormL0(0.5f0)) === NormL0{Float32}(0.5f0)
     @test @inferred(NormL0()) === NormL0{Int}(1)
-    @test @inferred(NormL0(2.0; diagonal = true)) === NormL0{Float64}(2.0)
-    @test @inferred(NormL0(0.5f0; diagonal = true)) === NormL0{Float32}(0.5f0)
+    # @inferred infers a keyword call from the keyword types, not their values, so a literal keyword is
+    # checked inside a function
+    @test @inferred(with_diagonal(2.0)) === NormL0{Float64}(2.0)
+    @test @inferred(with_diagonal(0.5f0)) === NormL0{Float32}(0.5f0)
+    @test @inferred(with_diagonal(2)) === NormL0{Int}(2)
     @test NormL0{Float32}(1f0) === NormL0(1f0) === NormL0(1f0; diagonal = true)
     @test NormL0(2) isa NormL0{Int} && NormL0(2).λ === 2
     @test NormL0(Inf) isa NormL0{Float64} && NormL0(Inf; diagonal = true) === NormL0(Inf)
@@ -827,7 +833,8 @@ same(op, f, g) = isequal(outcome(op, f), outcome(op, g))
       @test h != NormL0(λ) && !isequal(h, NormL0(λ))
       @test h == NormL0(λ; diagonal = false) && hash(h) == hash(NormL0(λ; diagonal = false))
     end
-    @test @inferred(NormL0(2.0; diagonal = false)) === NormL0(2.0; diagonal = false)
+    @test @inferred(without_diagonal(2.0)) === NormL0(2.0; diagonal = false)
+    @test @inferred(without_diagonal(0.5f0)) isa OD{Float32}
     @test NormL0(2; diagonal = false) isa OD{Int}
     @test NormL0(; diagonal = false) isa OD{Int} && NormL0(; diagonal = false).λ === 1
     diagonal = false

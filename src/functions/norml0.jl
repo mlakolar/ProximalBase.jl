@@ -34,7 +34,9 @@ struct NormL0{T<:Real} <: SeparableFunction
 
   NormL0{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ))
 end
-NormL0(λ::Real = 1; diagonal::Bool = true) = diagonal ? NormL0{typeof(λ)}(λ) : _NormL0OffDiag{typeof(λ)}(λ)
+# Without constant propagation, Julia 1.10 infers NormL0(λ) as a union of NormL0 and the diagonal-free type.
+Base.@constprop :aggressive NormL0(λ::Real = 1; diagonal::Bool = true) =
+  diagonal ? NormL0{typeof(λ)}(λ) : _NormL0OffDiag{typeof(λ)}(λ)
 
 iszeropreserving(::NormL0) = true
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f

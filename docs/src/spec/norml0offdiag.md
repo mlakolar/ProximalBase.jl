@@ -163,7 +163,7 @@ These notes describe the current code and are not guarantees; they can change.
   entries, the implementation uses the certified magnitude cutoff of the dense
   `NormL0` kernel instead when a cutoff can be certified, behind a function
   barrier.
-- The validation reads every entry once before the first write. For a
+- The finiteness check reads the entries before the first write. For a
   `Matrix` it sums `x - x` over the entries in one pass in linear index order,
   which gives `+0.0` when every entry is finite and `NaN` otherwise. For other
   strided matrices it counts the non-finite entries column by column, and

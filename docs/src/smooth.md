@@ -390,24 +390,9 @@ eigendecomposition of `Symmetric(Matrix(A))`, which selects the upper
 triangle by default. For nonsymmetric data these operations need not describe
 one mathematical function.
 
-**Step domain of the prox:** let ``\gamma`` be the step after the factors of
-any `Scaled` wrappers are applied, converted to the element type ``T`` of the
-function, and let ``\lambda_{\min}`` be the smallest eigenvalue of the cached
-decomposition of `A`, a computed approximation of the true smallest eigenvalue.
-When ``\lambda_{\min}<0`` and the rounded product ``\gamma(-\lambda_{\min})`` is not
-``<1`` (a NaN step included), the prox throws `DomainError` before the output
-is written; otherwise it applies the formula above, and when
-``\lambda_{\min}\ge0`` no step check is made. For a nonnegative finite
-``\gamma`` and finite cached eigenvalues, the check accepts exactly when every
-computed denominator ``1+\gamma\lambda_i`` is positive.
+See the [QuadraticFunction preconditions](@ref spec-quadratic-preconditions).
 
-In exact arithmetic and for ``\gamma>0``, the proximal subproblem has a unique
-minimizer if and only if ``1+\gamma\lambda_{\min}(A)>0`` for the true smallest eigenvalue. The check
-tests computed values, so near that boundary it can accept a step for which the
-true ``I+\gamma A`` is not positive definite, and reject one for which it is. The
-second case includes a singular positive semidefinite `A` whose computed
-``\lambda_{\min}`` is slightly negative: steps with ``\gamma(-\lambda_{\min})\ge1``
-throw for it, which is about ``\gamma\ge1/|\lambda_{\min}|``.
+See the [QuadraticFunction range clauses](@ref spec-quadratic-range).
 
 **Convexity:** `isconvex` is `false` for `QuadraticFunction` because convexity
 depends on the matrix: for a symmetric `A`, `f` is convex if and only if
@@ -430,10 +415,7 @@ fixed coordinates require the caller to derive new linear/constant terms.
 
 Nonsquare `A`, incompatible `b`, point or output dimensions throw
 `DimensionMismatch`; non-real element types throw `ArgumentError`. Gradient
-input/output identity is rejected. The prox supports exact identity. The
-cached eigenvalue computation has no general non-finite-data guarantee.
-Gradient and decomposition arithmetic can overflow independently of the
-exceptional value-summation recovery.
+input/output identity is rejected. The prox supports exact identity. See the [QuadraticFunction limitations and non-guarantees](@ref spec-quadratic-limitations).
 
 ```@example library_quadratic
 using ProximalBase, LinearAlgebra

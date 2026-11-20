@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "family": "quadratic",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 29161,
+      "source_end": 29903,
+      "source_line": 444,
+      "text": "**Step domain of the prox:** let ``\\gamma`` be the step after the factors of\nany `Scaled` wrappers are applied, converted to the element type ``T`` of the\nfunction, and let ``\\lambda_{\\min}`` be the smallest eigenvalue of the cached\ndecomposition of `A`, a computed approximation of the true smallest eigenvalue.\nWhen ``\\lambda_{\\min}<0`` and the rounded product ``\\gamma(-\\lambda_{\\min})`` is not\n``<1`` (a NaN step included), the prox throws `DomainError` before the output\nis written; otherwise it applies the formula above, and when\n``\\lambda_{\\min}\\ge0`` no step check is made. For a nonnegative finite\n``\\gamma`` and finite cached eigenvalues, the check accepts exactly when every\ncomputed denominator ``1+\\gamma\\lambda_i`` is positive.",
+      "destination": "docs/src/spec/quadratic.md",
+      "anchor": "spec-quadratic-preconditions",
+      "destination_text": "**Step domain of the prox:** let ``\\gamma`` be the step after the factors of\nany `Scaled` wrappers are applied, converted to the element type ``T`` of the\nfunction, and let ``\\lambda_{\\min}`` be the smallest eigenvalue of the cached\ndecomposition of `A`, a computed approximation of the true smallest eigenvalue.\nWhen ``\\lambda_{\\min}<0`` and the rounded product ``\\gamma(-\\lambda_{\\min})`` is not\n``<1`` (a NaN step included), the prox throws `DomainError` before the output\nis written; otherwise it applies the formula above, and when\n``\\lambda_{\\min}\\ge0`` no step check is made. For a nonnegative finite\n``\\gamma`` and finite cached eigenvalues, the check accepts exactly when every\ncomputed denominator ``1+\\gamma\\lambda_i`` is positive.",
+      "source_sha256": "3bb8ae6a0dc3063372505551908d8e6741c123882bf211ada712ea8c620e98a6",
+      "destination_sha256": "3bb8ae6a0dc3063372505551908d8e6741c123882bf211ada712ea8c620e98a6",
+      "forwarding_text": "See the [QuadraticFunction preconditions](@ref spec-quadratic-preconditions)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 29905,
+      "source_end": 30465,
+      "source_line": 455,
+      "text": "In exact arithmetic and for ``\\gamma>0``, the proximal subproblem has a unique\nminimizer if and only if ``1+\\gamma\\lambda_{\\min}(A)>0`` for the true smallest eigenvalue. The check\ntests computed values, so near that boundary it can accept a step for which the\ntrue ``I+\\gamma A`` is not positive definite, and reject one for which it is. The\nsecond case includes a singular positive semidefinite `A` whose computed\n``\\lambda_{\\min}`` is slightly negative: steps with ``\\gamma(-\\lambda_{\\min})\\ge1``\nthrow for it, which is about ``\\gamma\\ge1/|\\lambda_{\\min}|``.",
+      "destination": "docs/src/spec/quadratic.md",
+      "anchor": "spec-quadratic-range",
+      "destination_text": "In exact arithmetic and for ``\\gamma>0``, the proximal subproblem has a unique\nminimizer if and only if ``1+\\gamma\\lambda_{\\min}(A)>0`` for the true smallest eigenvalue. The check\ntests computed values, so near that boundary it can accept a step for which the\ntrue ``I+\\gamma A`` is not positive definite, and reject one for which it is. The\nsecond case includes a singular positive semidefinite `A` whose computed\n``\\lambda_{\\min}`` is slightly negative: steps with ``\\gamma(-\\lambda_{\\min})\\ge1``\nthrow for it, which is about ``\\gamma\\ge1/|\\lambda_{\\min}|``.",
+      "source_sha256": "c4b8edd99db1eed400097b7d5a71f40096bb66fd4fa88881d7fdc8a0b7c49c4e",
+      "destination_sha256": "c4b8edd99db1eed400097b7d5a71f40096bb66fd4fa88881d7fdc8a0b7c49c4e",
+      "forwarding_text": "See the [QuadraticFunction range clauses](@ref spec-quadratic-range)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 31916,
+      "source_end": 32101,
+      "source_line": 484,
+      "text": "The\ncached eigenvalue computation has no general non-finite-data guarantee.\nGradient and decomposition arithmetic can overflow independently of the\nexceptional value-summation recovery.",
+      "destination": "docs/src/spec/quadratic.md",
+      "anchor": "spec-quadratic-limitations",
+      "destination_text": "The\ncached eigenvalue computation has no general non-finite-data guarantee.\nGradient and decomposition arithmetic can overflow independently of the\nexceptional value-summation recovery.",
+      "source_sha256": "cd9ffd7b35303bb04d15612262065204b39b025cc8c5e45f020358c66751d308",
+      "destination_sha256": "cd9ffd7b35303bb04d15612262065204b39b025cc8c5e45f020358c66751d308",
+      "forwarding_text": "See the [QuadraticFunction limitations and non-guarantees](@ref spec-quadratic-limitations)."
+    }
+  ]
+}

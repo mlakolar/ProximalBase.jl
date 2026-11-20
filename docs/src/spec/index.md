@@ -41,7 +41,7 @@ apply alongside each entry.
 | `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |
 | `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
-| `QuadraticFunction` | [Quadratic function](@ref Quadratic-function) | Existing pages |
+| `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Linear function](@ref Linear-function) and [zero function](@ref Zero-function) | Existing pages |
 | `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
 | `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |

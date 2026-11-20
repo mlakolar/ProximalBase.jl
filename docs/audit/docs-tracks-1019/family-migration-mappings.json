@@ -8,6 +8,7 @@
   "manifests": [
     "moves-indnonnegative.json",
     "moves-leastsquares.json",
+    "moves-quadratic.json",
     "moves-sqrnorml2.json",
     "moves-sqrt_leastsquares.json"
   ],
@@ -672,6 +673,152 @@
           "dest_sha": "a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
           "manifest": "moves-sqrnorml2.json",
           "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55",
+      "baseline_sha": "29f64f123bc15937c230a1aefbd1333d48db536484ec9d377ceea85d9392c816",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "29f64f123bc15937c230a1aefbd1333d48db536484ec9d377ceea85d9392c816"
+      ],
+      "dest": "docs/src/spec/quadratic.md#spec-quadratic-preconditions;docs/src/spec/quadratic.md#spec-quadratic-preconditions;docs/src/spec/quadratic.md#spec-quadratic-preconditions",
+      "dest_sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd;6922be2b3f314142c54344453e5a1a92c2ff4a8003013832815f333f819e3671;3f9f67725ad5fa6e44240e8338137741745162b6d994b46e7a81a3b9368e57d1",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd",
+          "source_start": 29161,
+          "source_end": 29473,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:1",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-preconditions",
+          "dest_sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "6922be2b3f314142c54344453e5a1a92c2ff4a8003013832815f333f819e3671",
+          "source_start": 29474,
+          "source_end": 29743,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:2",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-preconditions",
+          "dest_sha": "6922be2b3f314142c54344453e5a1a92c2ff4a8003013832815f333f819e3671",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "3f9f67725ad5fa6e44240e8338137741745162b6d994b46e7a81a3b9368e57d1",
+          "source_start": 29744,
+          "source_end": 29903,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:3",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-preconditions",
+          "dest_sha": "3f9f67725ad5fa6e44240e8338137741745162b6d994b46e7a81a3b9368e57d1",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56",
+      "baseline_sha": "f702ea439211e4a15d2863dc5038c9bed6ad6d0fcab550877f52ada0bb23bd26",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "f702ea439211e4a15d2863dc5038c9bed6ad6d0fcab550877f52ada0bb23bd26"
+      ],
+      "dest": "docs/src/spec/quadratic.md#spec-quadratic-range;docs/src/spec/quadratic.md#spec-quadratic-range;docs/src/spec/quadratic.md#spec-quadratic-range",
+      "dest_sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db;91d3846794de3bc65bfe781c1efebc2d9b6de39032eba9542f01a8c6ad9226bb;8ebfa9f6e8105de5956253f4e6dd849f260455cb1e1c477975ba63661941387a",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db",
+          "source_start": 29905,
+          "source_end": 30074,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:1",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-range",
+          "dest_sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "91d3846794de3bc65bfe781c1efebc2d9b6de39032eba9542f01a8c6ad9226bb",
+          "source_start": 30075,
+          "source_end": 30242,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:2",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-range",
+          "dest_sha": "91d3846794de3bc65bfe781c1efebc2d9b6de39032eba9542f01a8c6ad9226bb",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "8ebfa9f6e8105de5956253f4e6dd849f260455cb1e1c477975ba63661941387a",
+          "source_start": 30243,
+          "source_end": 30465,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:3",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-range",
+          "dest_sha": "8ebfa9f6e8105de5956253f4e6dd849f260455cb1e1c477975ba63661941387a",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59",
+      "baseline_sha": "511542cbcdf0c5b903d28d1315a3bc3238999644240672ecfdd621417ac14339",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "511542cbcdf0c5b903d28d1315a3bc3238999644240672ecfdd621417ac14339"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/quadratic.md#spec-quadratic-limitations;docs/src/spec/quadratic.md#spec-quadratic-limitations",
+      "dest_sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e;ab56d39c3a2cfd3a3aa3db56f0544db7d63a3df2eaff625b9e97b7e6c7c4e835;1f14a4ef6098d4abe2d73bca984632b4afd578899754efb97c9666c23ad64cc5;de371f4a520f9d47218ec8dd29826ceae24a7eb81860920fc4fa3bc0b80b4e69;e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e",
+          "source_start": 31705,
+          "source_end": 31837,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e"
+        },
+        {
+          "source_sha": "ab56d39c3a2cfd3a3aa3db56f0544db7d63a3df2eaff625b9e97b7e6c7c4e835",
+          "source_start": 31838,
+          "source_end": 31881,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:2",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "ab56d39c3a2cfd3a3aa3db56f0544db7d63a3df2eaff625b9e97b7e6c7c4e835"
+        },
+        {
+          "source_sha": "1f14a4ef6098d4abe2d73bca984632b4afd578899754efb97c9666c23ad64cc5",
+          "source_start": 31882,
+          "source_end": 31915,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:3",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "1f14a4ef6098d4abe2d73bca984632b4afd578899754efb97c9666c23ad64cc5"
+        },
+        {
+          "source_sha": "de371f4a520f9d47218ec8dd29826ceae24a7eb81860920fc4fa3bc0b80b4e69",
+          "source_start": 31916,
+          "source_end": 31991,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:4",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-limitations",
+          "dest_sha": "de371f4a520f9d47218ec8dd29826ceae24a7eb81860920fc4fa3bc0b80b4e69",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a",
+          "source_start": 31992,
+          "source_end": 32101,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:5",
+          "dest": "docs/src/spec/quadratic.md#spec-quadratic-limitations",
+          "dest_sha": "e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a",
+          "manifest": "moves-quadratic.json",
+          "manifest_index": 2
         }
       ]
     }

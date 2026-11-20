@@ -37,7 +37,7 @@ apply alongside each entry.
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
 | `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
-| `LeastSquaresLoss` | [Least-squares loss](@ref Least-squares-loss), including predictor and residual oracles | Existing pages |
+| `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
 | `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |
 | `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Square-root least squares](../smooth.md#Square-root-least-squares-is-not-smooth) | Existing pages |

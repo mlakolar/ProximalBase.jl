@@ -106,10 +106,7 @@ to `Matrix` gives an ordinary matrix-coefficient problem if dimensions fit.
 strided data and a one/infinity-norm bound for other matrices.
 
 Constructor row mismatch and operation dimension mismatch throw
-`DimensionMismatch`; complex data/arguments throw `ArgumentError`. SVD-based
-proximal evaluation is intended for finite data; no general non-finite-data
-recovery is promised for the decomposition. Value range recovery is separate
-from the ordinary matrix-product gradient arithmetic.
+`DimensionMismatch`; complex data/arguments throw `ArgumentError`. See the [LeastSquaresLoss limitations and non-guarantees](@ref spec-leastsquares-limitations).
 
 ```@example library_ls
 using ProximalBase, LinearAlgebra

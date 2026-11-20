@@ -288,7 +288,8 @@ a newer master push cancelled its workflow.
 [Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
 and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
 
-The 56-file snapshot adds a provisional 40-second weight for `norml0offdiag`.
+A historical 56-file snapshot, from commit 879e067, added a provisional 40-second weight for
+`norml0offdiag`; later snapshots cover more files.
 This rounds up to the next five seconds one Julia 1.13.4 observation, 38.971
 seconds, from CI at commit 879e067 (shard 1/3 of
 [run 44665776339](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339)).

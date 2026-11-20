@@ -40,7 +40,14 @@ function paired(a::A, b::B) where {A, B}
       push!(tb, sample_ns(b, reps_b)); push!(ta, sample_ns(a, reps_a))
     end
   end
-  sort!(ta)[(SAMPLES + 1) ÷ 2], sort!(tb)[(SAMPLES + 1) ÷ 2]
+  middle(ta), middle(tb)
+end
+
+# The median: the middle sample, or the mean of the two middle samples for an even count.
+function middle(v)
+  sort!(v)
+  n = length(v)
+  isodd(n) ? v[(n + 1) ÷ 2] : (v[n ÷ 2] + v[n ÷ 2 + 1]) / 2
 end
 
 function allocated(op::F) where {F}

@@ -378,11 +378,12 @@ arguments. Symmetry under `==`
 is a precondition of the symmetric problem and is not checked; for an
 asymmetric matrix each entry is decided from its own value. The proximal map copies the diagonal and decides each
 off-diagonal entry with the rule of [`NormL0`](@ref): an entry is kept when
-its square exceeds `2γλ` and is positive zero otherwise. The comparison is
-exact when `λ` and `γ` convert exactly to a `Float32` or `Float64` working
-type; other levels and steps, for example a `Rational` or an `Int` above
-`2^53`, are rounded to that type first, and with a `BigFloat` working type the
-product `2γλ` is rounded too. The all-entry `NormL0` applies the same rule to
+its square exceeds `2γλ` and is positive zero otherwise. `NormL0` converts
+the entry, `λ` and `γ` to a working type before the comparison, which is exact
+when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type;
+other levels and steps, for example a `Rational` or an `Int` above `2^53`, are
+rounded to that type first, and with a `BigFloat` working type the converted
+entry, its square and the product `2γλ` can each be rounded. The all-entry `NormL0` applies the same rule to
 the diagonal, which can set a small diagonal entry to zero.
 
 ```@example norml0offdiag
@@ -400,9 +401,15 @@ nothing # hide
 
 At step one and level two the threshold is four, so an entry of magnitude
 two is a tie and gives zero. The oracle throws `ArgumentError` before it
-writes anything for a non-finite matrix, a matrix type that is
-not strided, mixed element types and a step that is not finite and positive.
-It does not promise that the output is positive definite. See the
-[`NormL0`](@ref) entry and the
+writes anything for a matrix type that is not strided, whatever its shape, an
+element type other than `Float32` and `Float64` or mixed element types, a
+reinterpreted array that Base cannot both read and write, a step that is not
+finite and positive and a non-finite matrix. The storage, element-type and
+access checks come before the shape check, which throws `DimensionMismatch`
+for a non-square strided matrix.
+Through `Scaled`, the step is the one `Scaled` computes, and `Scaled` can read
+an unsupported argument before the refusal. The oracle does not promise that
+the output is positive definite. See the
+[`NormL0(λ; diagonal = false)` entry](@ref api-norml0-diagonal-free) and the
 [numerical contract of `NormL0(λ; diagonal = false)`](@ref spec-norml0offdiag)
 for the full list.

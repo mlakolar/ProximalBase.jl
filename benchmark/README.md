@@ -646,10 +646,12 @@ inputs and 4096-bit arithmetic over the wider exponent range.
 `norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0(λ; diagonal = false)` against
 the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 8, 32, 64` and
 `Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
-buffer first, for both functions). More than half of the off-diagonal entries lie above the threshold.
-It checks that the two maps agree off the diagonal, alternates the order of the paired samples and
-prints the median per call, the ratio, the ratio to the `prox!` of `NormL0` and the allocated
-bytes. It runs in the root project:
+buffer first, for both functions). It checks that the two maps agree off the diagonal, alternates
+the order of the paired samples and prints, for each operation, the fraction of off-diagonal entries
+that the map keeps on the matrix of that run (`kept`), the median time per call of each function
+(the mean of the two middle samples when `PB_SAMPLES` is even), their ratio, the ratio of the
+diagonal-free time to the out-of-place `prox!` of `NormL0`, and the bytes allocated by the
+diagonal-free operation. It runs in the root project:
 
 ```sh
 julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchmark/norml0offdiag.jl")'
@@ -657,8 +659,11 @@ julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchma
 
 Before the proximal map writes, `NormL0(λ; diagonal = false)` makes a finiteness pass over the entries of the
 input; it does not compare the two triangles. One run on Julia 1.13.4 at commit `0d9ceb65b`, before the function
-moved to the `diagonal` keyword of `NormL0` with the same kernels, gave
-these ratios to the same operation of `NormL0`. The allocation was zero bytes in each row of that
+moved to the `diagonal` keyword of `NormL0`, gave these ratios to the same operation of `NormL0`. At that
+commit the finiteness pass counted the non-finite entries column by column for every strided matrix; the
+current code sums `x - x` over a `Matrix` in one pass (see the implementation notes of the
+[numerical contract](../docs/src/spec/norml0offdiag.md)), so the table does not describe the current pass.
+More than half of the off-diagonal entries of that run's matrices lay above the threshold. The allocation was zero bytes in each row of that
 run. The in-place ratios are below one at some sizes because the in-place `prox!` of `NormL0` was
 slower than its out-of-place `prox!` in this run.
 

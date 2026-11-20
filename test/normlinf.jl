@@ -177,11 +177,13 @@ end
     ref, _ = ref_prox(x, T(r), one(T))
     @test close_prox(y, ref, x) && kkt_ok(y, x, T(r), one(T))
   end
-  # the branch is taken: without the caller's sum Condat's pass hands over when more than max(1024, n ÷ 8) = 1024 entries are
-  # candidates. The count is tested after each group of four entries, after the steps have stored their entries, so it can pass
-  # that limit by up to four before the handover (the early count 250 is more than four below 1024, and these entries do not
-  # restart the candidates): a buffer of 1024 + 4 entries suffices, and the call returns Michelot's level (checked where a write
-  # past the buffer throws; the pass stores 1025 entries here)
+  # the branch is taken: without the caller's sum Condat's pass hands over at a test with max(1024, n ÷ 8) = 1024 in force. For
+  # this input the bound 1024 + 4 holds: the ones do not restart the candidates, the count after g groups of four is 1 + 4g, the
+  # test at the count 253 (above the early count 250) puts 1024 in force, and the next test finds the count at most four above
+  # 1024 (here 1025, so the pass stores 1025 entries). A buffer of 1024 + 4 entries therefore suffices here, and the call
+  # returns Michelot's level (checked where a write past the buffer throws). The bound is not general: with an early count of 1021
+  # to 1023 the count can reach 1024 + 7 (ones(8191) without the sum stores 1029 entries, below); a buffer of the length of the
+  # argument suffices, as the stored entries are distinct entries of it
   if Base.JLOptions().check_bounds == 1
     x = ones(T, 2001)
     buf = Vector{T}(undef, 1024 + 4)
@@ -241,6 +243,28 @@ end
   v = copy(vec(A))
   @test prox!(v, f, view(v, :), γ) === v && same(v, vec(yA))
   @test_throws MethodError prox!(zeros(T, 2, 4), f, A, ones(T, 2, 4))
+  # the same forms on 24 entries (the strided view has 12), at the step γ, where Condat's pass runs alone on these draws, and at a
+  # step whose radius is 0.3 of the sum of the magnitudes, where the matrix and the view hand over at the count 9, above the early
+  # count 8 (from 9 entries on an input can hand over): each output is compared with the BigFloat reference, and bits only within
+  # one layout (the matrix in place against the matrix out of place: the same reads of the argument and the same path)
+  A = reshape(gen(rng, T, 24, 1), 4, 6)
+  for g in (γ, T(0.3) * sum(abs, A) / λ)
+    refA = reshape(ref_prox(vec(A), g, λ)[1], 4, 6)
+    yA = prox(f, A, g)
+    @test close_prox(yA, refA, A) && close_prox(prox(f, vec(A), g), vec(refA), vec(A))
+    xv = view(A, :, 2:2:6)
+    xa = Array(xv)
+    refv = reshape(ref_prox(vec(xa), g, λ)[1], 4, 3)
+    @test close_prox(Array(prox(f, xv, g)), refv, xa)
+    Y = zeros(T, 4, 6); yv = view(Y, :, 1:2:5)
+    @test prox!(yv, f, xv, g) === yv && close_prox(Array(yv), refv, xa)
+    B = copy(A)
+    @test prox!(B, f, B, g) === B && same(B, yA)
+    C = copy(A)
+    @test prox!(C, f, reshape(view(C, :), 4, 6), g) === C && close_prox(C, refA, A)
+    D = copy(A)
+    @test prox!(D, f, view(D, :, :), g) === D && close_prox(D, refA, A)
+  end
 end
 
 @testset "endpoint rows ($T)" for T in (Float32, Float64)
@@ -1041,14 +1065,24 @@ end
     @test reads(ones(T, n)) == (1, condat_reads(n) + 2n)
   end
   # without the caller's sum only the count max(1024, n ÷ 8) applies, and the handover sums the entries (n more reads). At
-  # n = 2001 the count 253 above c = 250 raises the count to test to 1024, and the count 1025 hands over; at n = 8191 the count
-  # 1025 above c = 1023 raises it to 1024, and the next group hands over at 1029 (four above the limit, after a test that left
-  # the count above it); at n = 8192 the count 1025 hands over
+  # n = 2001 the count 253 above c = 250 puts 1024 in force, and the count 1025 hands over; at n = 8191 the count 1025 above
+  # c = 1023 puts 1024 in force, and the next group hands over at 1029 (five above the limit 1024: the test that put it in force
+  # left the count at 1025); at n = 8192 the count 1025 hands over
   @test reads(ones(T, 2001); sum = false) == (1, 1025 + 3 * 2001)
   @test reads(ones(T, 8191); sum = false) == (1, 1029 + 3 * 8191)
   @test reads(ones(T, 8192); sum = false) == (1, 1025 + 3 * 8192)
-  # the count is not tested in the loop of the last one to three entries: eight ones and a zero, so that the count after the two
-  # groups of four is 8 (not above c = 8), and k = 1, 2, 3 more ones, which bring it to 8 + k without a handover
+  # for n ≥ 8192 the count alone decides: [ones(1500); zeros(6692)] (n = 8192) with the radius 10^-3 and the caller's sum. The
+  # level of the pass passes the plain level (1500 - 10^-3)/8192 long before the count 1024, but the two counts are equal and the
+  # level is not tested, so the pass hands over at the count 1025 (1025 reads), and the handover starts at ρ: one pass in Float64,
+  # two in Float32, as for [ones(1500); zeros(500)] below, whose ρ is the same (the same ones, the same radius). A rule that also
+  # tested the level here would not hand over and would read the argument once
+  x = [ones(T, 1500); zeros(T, 6692)]
+  c = CountRead{T}()
+  τ = PB._l1ball_threshold!(Vector{T}(undef, 8192), x, T(1e-3), c, PB._linf_sum(x, rd, T))
+  @test c.calls[] == 1025 + (T == Float64 ? 1 : 2) * 8192
+  @test level_msg(arith(T), ref_groups(x), 8192, 1, T(1e-3), τ) === nothing
+  # the count is not compared in the loop of the last one to three entries: eight ones and a zero, so that the count after the
+  # two groups of four is 8 (not above c = 8), and k = 1, 2, 3 more ones, which bring it to 8 + k without a handover
   for k in 1:3
     x = [ones(T, 8); zero(T); ones(T, k)]
     τ, r = reads(x)

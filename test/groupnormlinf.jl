@@ -282,6 +282,9 @@ end
         @test same(yp, yh) && f(y) === h(yh)
         @test same(xi, yh)
       else
+        # the three outputs of the group (value_and_prox!, prox and prox! in place) read the same array through the same reader:
+        # one layout and one path, so they agree bit for bit
+        @test same(yp, y) && same(xi, y)
         ref, τs = ref_prox(x, [1:n], [one(T)], γ, λ)
         @test all(z -> close_prox(z, ref, x), (y, yh, yp, xi))
         @test close_value(v, x, [1:n], [one(T)], λ, τs) && close_value(vh, x, [1:n], [one(T)], λ, τs)
@@ -391,11 +394,12 @@ end
   @test close_prox(y, ref, xx, f.groups)
   @test kkt_ok(y[1:n], xx[1:n], γ, λ0, f.w[1]) && kkt_ok(y[n+1:n+3], xx[n+1:n+3], γ, λ0, f.w[2])
   if Base.JLOptions().check_bounds == 1
-    # without the caller's sum the pass hands over when more than max(1024, n ÷ 8) = 1024 entries are candidates. The count is
-    # tested after each group of four entries, after the steps have stored their entries, so it can pass that limit by up to four
-    # before the handover (the early count 625 is more than four below 1024, and these entries, all below the radius, do not
-    # restart the candidates): a buffer of 1024 + 4 entries suffices, and the call returns Michelot's level (checked where a write
-    # past the buffer throws)
+    # without the caller's sum the pass hands over at a test with max(1024, n ÷ 8) = 1024 in force. For this input the bound
+    # 1024 + 4 holds: the entries are below the radius, so they join the candidates and do not restart them, the count after g
+    # groups of four is 1 + 4g, the test at the count 629 (above the early count 625) puts 1024 in force, and the next test finds
+    # the count at most four above 1024 (here 1025). A buffer of 1024 + 4 entries therefore suffices here, and the call returns
+    # Michelot's level (checked where a write past the buffer throws). The bound is not general: with an early count of 1021 to
+    # 1023 the count can reach 1024 + 7 (test/normlinf.jl); a buffer of the length of the group suffices
     buf = Vector{T}(undef, 1024 + 4)
     xv = PB._IndexedValues(xx, f.groups[1], T)
     r = T(0.5) * s1
@@ -438,12 +442,13 @@ end
     G = groups[k]
     m = length(G)
     u = x[G]
-    # A group of at most 8 entries cannot hand over (Condat's pass reads its entries one by one into a dense buffer), and the
-    # compact block agrees with the group of the array operator bit for bit. A larger group can hand over to Michelot's
-    # iteration, whose passes run over the argument: the order of their sums, and of the caller's sum, depends on how the layout
-    # (the compact block, or the group read through its indices in x) vectorizes, so both are compared with the BigFloat
-    # reference within the bound of the level. The compact forms that read the vector u, or its copy, agree with one another bit
-    # for bit; a view of another array as the input is held to the same rule as the array operator
+    # A group of at most 8 entries cannot hand over (after its one group of four the count is at most 5, not above the count 8
+    # in force, so no test is made), and Condat's pass reads its entries one by one into a dense buffer: the compact block agrees
+    # with the group of the array operator bit for bit. A larger group can hand over to Michelot's iteration, whose passes run
+    # over the argument: the order of their sums, and of the caller's sum, depends on how the layout (the compact block, or the
+    # group read through its indices in x) vectorizes, so both are compared with the BigFloat reference within the bound of the
+    # level. The compact forms that read the vector u, or its copy, agree with one another bit for bit; a view of another array
+    # as the input is held to the same rule as the array operator
     agrees(z) = m <= 8 ? same(z, y[G]) : close_prox(z, ref[G], u) && close_prox(y[G], ref[G], u)
     out = prox_block(f, u, k, γ)
     @test agrees(out)

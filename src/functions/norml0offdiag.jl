@@ -41,7 +41,7 @@ rounded values:
 - `Y` is symmetric under `==` when `V` is.
 
 For an asymmetric `X` the same entrywise rule is applied to each entry, so
-neither triangle is selected. The result is then not the proximal point over
+neither triangle is selected. The result need not be the proximal point over
 symmetric matrices, and the value counts every nonzero off-diagonal entry of
 the given matrix.
 
@@ -100,8 +100,8 @@ end
 _l0od_zero(::Type{Float32}) = Int32(0)
 _l0od_zero(::Type{Float64}) = Int64(0)
 
-# A pass over the columns, in memory order, counting the entries that are not finite. The diagnosis of
-# a failure is separate. Symmetry of X is not read.
+# A pass over the columns, in column-major index order, counting the entries that are not finite. The
+# error is raised by a separate @noinline helper. Symmetry of X is not read.
 function _l0od_scan(X::StridedMatrix)
   p = size(X, 1)
   bad = 0

@@ -88,7 +88,7 @@ comparison is exact as described below, a mathematical tie gives zero. At ``\lam
 `(+0.0, +0.0)`. The output is symmetric under `==` when the input is.
 
 For an asymmetric input the same rule is applied to each entry, so neither
-triangle is selected. The output is then the entrywise map, which is not the
+triangle is selected. The output is then the entrywise map, which need not be the
 proximal point over symmetric matrices, and the value counts every nonzero
 off-diagonal entry of the given matrix.
 

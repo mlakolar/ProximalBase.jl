@@ -21,6 +21,7 @@ EXISTING_PAGE_FAMILIES = frozenset({
     "NormL2", "NormLinf", "QuadraticFunction", "Scaled", "SparseGroupNormL2",
     "SqrNormL2", "SqrtLeastSquaresLoss", "ZeroFunction", "kkt_violation",
 })
+FAMILY_MAP_HEADER = ["Family or operation", "Current entry point", "Migration state"]
 
 
 def markdown_content(text):
@@ -38,32 +39,61 @@ def markdown_content(text):
             fence = directive = None
 
 
+def table_cells(line):
+    cells = re.split(r"(?<!\\)\|", line.strip())
+    if len(cells) == 1:
+        return []
+    if not cells[0]:
+        cells.pop(0)
+    if not cells[-1]:
+        cells.pop()
+    return [cell.strip() for cell in cells]
+
+def family_map_rows(index):
+    lines = iter(markdown_content(index))
+    for _, line, directive in lines:
+        if directive is None and line.strip() == "## Family map":
+            break
+    else:
+        return
+    for number, line, directive in lines:
+        if directive is not None:
+            continue
+        if line.lstrip().startswith(("# ", "## ")):
+            return
+        if table_cells(line) == FAMILY_MAP_HEADER:
+            break
+    else:
+        return
+
+    separator_number, separator, directive = next(lines, (0, "", None))
+    alignment = table_cells(separator)
+    if (separator_number != number + 1 or directive is not None or len(alignment) != 3
+            or any(len(cell) < 3 or set(cell) - {"-", ":"} for cell in alignment)):
+        return
+    previous = separator_number
+    for number, line, directive in lines:
+        cells = table_cells(line)
+        if number != previous + 1 or directive is not None or not cells:
+            return
+        yield number, cells
+        previous = number
+
+
 def family_map_errors(reference, index, page_names):
     errors, mapped, documented = [], set(), set()
     for _, line, directive in markdown_content(reference):
-        if directive == "@docs":
+        if directive is not None and re.match(r"@docs(?=[\s;]|$)", directive):
             name = re.split(r"[(\{]", line, maxsplit=1)[0].strip().rsplit(".", 1)[-1]
             if name.isidentifier() and name[0].isupper():
                 documented.add(name)
 
-    in_map = False
-    for number, line, directive in markdown_content(index):
-        if directive is not None:
-            continue
-        if line.startswith("## "):
-            if in_map:
-                break
-            in_map = line.rstrip() == "## Family map"
-        if not in_map or not line.lstrip().startswith("|"):
-            continue
-        cells = re.split(r"(?<!\\)\|", line.strip().strip("|"))
-        if len(cells) != 3:
-            continue
-        family, _, state = (cell.strip() for cell in cells)
-        if family == "Family or operation" or re.fullmatch(r"[:\-\s]+", family):
-            continue
-
+    for number, cells in family_map_rows(index):
         where = f"spec/index.md:{number}"
+        if len(cells) != 3:
+            errors.append(f"{where}: expected a family, entry point and migration state")
+            continue
+        family, _, state = cells
         names = set(re.findall(r"`(\w+)`", family))
         if not names:
             errors.append(f"{where}: expected a code-formatted family or operation name")

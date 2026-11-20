@@ -1,3 +1,63 @@
+"""
+    IndBallL0(s; diagonal = true)
+
+Indicator of the set with at most `s` counted nonzero entries. The budget is a
+nonnegative integer, saturated at `typemax(Int)`. The value is `0` for a feasible
+argument and `Inf` otherwise. A counted NaN gives NaN at any budget. Counted
+infinities are nonzero, and either sign of zero counts as zero.
+
+The input representation determines the projection.
+
+- A dense `Vector`, a dense `Matrix` (including rectangular matrices), or a
+  [`SparseIterate`](@ref) vector or matrix has independent entries. The
+  projection retains up to `s` counted nonzeros of largest magnitude. Ties go
+  to the earlier logical column-major coordinate.
+- A `Symmetric` wrapper over a dense matrix or a [`SymmetricSparseIterate`](@ref)
+  has symmetric entries. A nonzero diagonal entry costs one and a nonzero
+  off-diagonal pair costs two. With counted diagonals, the projection compares
+  the feasible splits between diagonals and pairs to minimize squared
+  Frobenius error. With free diagonals it retains up to `s ÷ 2` pairs of largest
+  magnitude. Ties within each class go to the earlier diagonal or strict
+  lower-triangle coordinate in column-major order. Equal savings across
+  feasible splits favor fewer pairs.
+
+With `diagonal = false`, matrix diagonals are free and are copied verbatim.
+The flag has no effect on vectors. For a rectangular matrix the diagonal
+has length `min(size(X)...)`.
+
+```jldoctest
+julia> X = [5.0 -3.0; -3.0 7.0]; f = IndBallL0(1; diagonal = false);
+
+julia> Tuple(prox(f, X))
+(5.0, -3.0, 0.0, 7.0)
+
+julia> Tuple(prox(f, Symmetric(X, :L)))
+(5.0, 0.0, 0.0, 7.0)
+
+julia> Tuple(prox(IndBallL0(2), Symmetric([1.0 7.0; 7.0 2.0], :L)))
+(0.0, 7.0, 7.0, 0.0)
+```
+
+Input and output elements must have the same type, `Float32` or `Float64`.
+Dense output from `Symmetric` is an ordinary matrix, with both entries of
+each pair written from the chosen triangle. It may be the wrapper's parent.
+The other inputs use a same-kind output and support input/output identity.
+For the two iterate kinds, a distinct output receives the input working set
+and its slot order. Projection zeros dropped values without deactivating
+their slots. Other overlaps, mixed owner/dense calls, and wrapper outputs
+such as `Symmetric` destinations are outside the supported interface.
+
+Projection requires finite counted entries and a finite nonnegative real
+scalar step `γ`. A zero step also projects. Shape and step errors are checked
+before writing. The projection copies selected entries without arithmetic and
+zeros the remaining counted nonzeros. [`value_and_prox!`](@ref) returns the
+typed zero value of that stored result. One selection buffer belongs to the
+function object. Use a separate object for each concurrent projection.
+
+A single `Scaled(f, α)` forwards `α * γ` on a positive step, which must remain
+finite. A zero step stays zero, and nested indicator scaling uses the original
+step when the factors cannot be folded into one wrapper.
+"""
 struct IndBallL0 <: AbstractFunction
   s::Int
   diagonal::Bool

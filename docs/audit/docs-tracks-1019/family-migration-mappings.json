@@ -8,7 +8,8 @@
   "manifests": [
     "moves-indnonnegative.json",
     "moves-leastsquares.json",
-    "moves-sqrnorml2.json"
+    "moves-sqrnorml2.json",
+    "moves-sqrt_leastsquares.json"
   ],
   "changes": [
     {
@@ -210,6 +211,224 @@
           "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
           "dest_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
           "manifest": "moves-leastsquares.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37",
+      "baseline_sha": "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints;docs/src/smooth.md",
+      "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c;fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb;13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c",
+          "source_start": 17247,
+          "source_end": 17345,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c"
+        },
+        {
+          "source_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
+          "source_start": 17346,
+          "source_end": 17514,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints",
+          "dest_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
+          "source_start": 17515,
+          "source_end": 17619,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:3",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40",
+      "baseline_sha": "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5"
+      ],
+      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+      "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2;7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821;6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93;2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e;4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d;09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0;8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a;b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc;40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1;0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
+          "source_start": 18643,
+          "source_end": 18819,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:1",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
+          "source_start": 18820,
+          "source_end": 19034,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
+          "source_start": 19035,
+          "source_end": 19163,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:3",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
+          "source_start": 19164,
+          "source_end": 19360,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:4",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
+          "source_start": 19361,
+          "source_end": 19562,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:5",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
+          "source_start": 19563,
+          "source_end": 20235,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:6",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
+          "source_start": 20236,
+          "source_end": 20305,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:7",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
+          "source_start": 20306,
+          "source_end": 20454,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:8",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
+          "source_start": 20455,
+          "source_end": 20604,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:9",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+          "source_start": 20605,
+          "source_end": 20782,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:10",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41",
+      "baseline_sha": "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b"
+      ],
+      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+      "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6;8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8;25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760;2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7;ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
+          "source_start": 20784,
+          "source_end": 20842,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:1",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
+          "source_start": 20843,
+          "source_end": 21006,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
+          "source_start": 21007,
+          "source_end": 21279,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:3",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
+          "source_start": 21280,
+          "source_end": 21553,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:4",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+          "source_start": 21554,
+          "source_end": 21659,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:5",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+          "manifest": "moves-sqrt_leastsquares.json",
           "manifest_index": 1
         }
       ]

@@ -114,6 +114,7 @@ makedocs(;
             "IndNonnegative" => "spec/indnonnegative.md",
             "SqrNormL2" => "spec/sqrnorml2.md",
             "LeastSquaresLoss" => "spec/leastsquares.md",
+            "SqrtLeastSquaresLoss" => "spec/sqrt_leastsquares.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

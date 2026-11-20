@@ -234,8 +234,8 @@ function _fold_level(f::NormL1Nonneg, α)
   c === nothing ? nothing : NormL1Nonneg(c, f.w)
 end
 # Both levels fold, or neither. An infinite level is kept as it is: it is the same level after any positive factor,
-# and the finite level still folds (the ridge of an entry with a zero weight under an infinite λ1, say). Probes of
-# the partial fold see the finite level only.
+# and the finite level still folds (the ridge of an entry with a zero weight under an infinite λ1, say). The window of
+# the partial fold (`_level_shifts`) narrows by the finite level only.
 @inline _elastic_folded(λ, α) = isinf(λ) ? λ : _folded_level(λ, α)
 function _fold_level(f::ElasticNet, α)
   c1, c2 = _elastic_folded(f.λ1, α), _elastic_folded(f.λ2, α)
@@ -269,7 +269,7 @@ _value_fold_scale(α) = α
 # α splits as 2^k β, with β small or large enough that β times every level is a normal number, the
 # function folded with β is evaluated at x, and 2^k is applied last, to the significand of that value.
 #
-# `_level_shifts` reads the levels that `_fold_level` folds, with the factors of the `Scaled`
+# `_level_shifts` reads the levels of the functions with a `_fold_level` for any scale, with the factors of the `Scaled`
 # terms inside as a product a. For a level λ times those factors, in [2^q, 2^(q+1)), a shift s makes
 # β = a.m 2^s times it a normal number of the type T of the fold when q + s - 1 ≥ exponent(floatmin(T))
 # and q + s + 1 ≤ exponent(floatmax(T)). The product of the two significands is in [1/4, 1), so these
@@ -279,25 +279,26 @@ _value_fold_scale(α) = α
 # value, so that the levels are normal there too. The window of several levels is the
 # intersection. It is empty when their exponents are too far apart, and for an infinite level,
 # which is refused; the partial fold then gives no value.
-# The window w = (lo, hi) narrowed by the level λ, or nothing for a level that no shift folds. A zero
+# The window w = (lo, hi) narrowed by the level λ, or nothing where `_folded_level` refuses λ (not finite, or
+# not a normal number of its own type) or its type with the factor's is not an IEEE type. A zero
 # level folds as itself and leaves w unchanged. (emin, emax) is the exponent range of the type of the value.
 function _level_shift(w, λ, a::_ProjectionScale, emin, emax)
   (w === nothing || iszero(λ)) && return w
   v = float(λ)
   T = promote_type(typeof(a.m), typeof(v))
-  (isfinite(v) && T <: Base.IEEEFloat) || return nothing
+  (isfinite(v) && _level_fits(typeof(v), v) && T <: Base.IEEEFloat) || return nothing
   mλ, eλ = frexp(v)
   _, e = frexp(convert(T, a.m) * convert(T, mλ))
   q = a.e + Int(eλ) + Int(e) - 1
   (max(w[1], max(exponent(floatmin(T)), emin) + 1 - q), min(w[2], min(exponent(floatmax(T)), emax) - 1 - q))
 end
-# One method per `_fold_level` method that takes any scale; a function without one has no window.
+# A method for each function whose `_fold_level` takes any scale; any other function has no window.
 _level_shifts(f, w, a, emin, emax) = nothing
 _level_shifts(f::Union{NormL1, NormL1Nonneg}, w, a, emin, emax) = _level_shift(w, f.λ0, a, emin, emax)
 # as `_elastic_folded`, an infinite level is kept as it is and does not narrow the window
 _level_shifts(f::ElasticNet, w, a, emin, emax) =
   (w = isinf(f.λ1) ? w : _level_shift(w, f.λ1, a, emin, emax); isinf(f.λ2) ? w : _level_shift(w, f.λ2, a, emin, emax))
-# an infinite factor inside leaves no finite level to fold
+# after an infinite factor inside, no nonzero level folds, and zero levels do not narrow the window
 function _level_shifts(f::Scaled, w, a, emin, emax)
   b = _projection_accumulate(a, f.α)
   b isa _ProjectionScale ? _level_shifts(f.f, w, b, emin, emax) : nothing

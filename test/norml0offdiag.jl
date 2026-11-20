@@ -1064,12 +1064,11 @@ end
   @test_throws ArgumentError prox!(Y, f, B, 1.0)
   @test all(==(7.0), Y)
   # Current, unsupported behaviour: a destination that repeats one storage position is not detected, and the
-  # stored entries are not the proximal point.
+  # call is accepted. The stored value depends on the order of the stores and is not checked.
   r = Base.StepRangeLen(1, 0, 2)
   Z = view(zeros(1, 1), r, r)
   @test Z isa StridedMatrix{Float64}
-  prox!(Z, f, [1.0 0.25; 0.25 2.0], 1.0)
-  @test Z == [2.0 2.0; 2.0 2.0]
+  @test prox!(Z, f, [1.0 0.25; 0.25 2.0], 1.0) === Z
 end
 
 end

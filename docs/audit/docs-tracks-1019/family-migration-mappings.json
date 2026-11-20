@@ -13,10 +13,845 @@
     "moves-norml2.json",
     "moves-normlinf.json",
     "moves-quadratic.json",
+    "moves-scaled.json",
     "moves-sqrnorml2.json",
     "moves-sqrt_leastsquares.json"
   ],
   "changes": [
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14",
+      "baseline_sha": "248b0343986ac8889e4977ae5de3450a22e5c602674dcf8851427f2228d35af6",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "248b0343986ac8889e4977ae5de3450a22e5c602674dcf8851427f2228d35af6"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range;docs/src/spec/scaled.md#spec-scaled-range;docs/src/spec/scaled.md#spec-scaled-range;docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "32cb2055a646706fea19e9a334b1473ecd8da07162ad2f0bf4a9ac16c32b7758;3cfb78b443873ff8d3a8508d611ebc0669d693f23a38006ace4ba70307262d16;bad4bb4403bf7279b1229fdd8298bea449a996ecc032451d96b34048dbc15cba;25080dd223d95847c3f22b359bc8d0ebff4a55a1dd351e5524e2d4084f2f7816",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "32cb2055a646706fea19e9a334b1473ecd8da07162ad2f0bf4a9ac16c32b7758",
+          "source_start": 4543,
+          "source_end": 4768,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:1",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "32cb2055a646706fea19e9a334b1473ecd8da07162ad2f0bf4a9ac16c32b7758",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "3cfb78b443873ff8d3a8508d611ebc0669d693f23a38006ace4ba70307262d16",
+          "source_start": 4769,
+          "source_end": 4941,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:2",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "3cfb78b443873ff8d3a8508d611ebc0669d693f23a38006ace4ba70307262d16",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "bad4bb4403bf7279b1229fdd8298bea449a996ecc032451d96b34048dbc15cba",
+          "source_start": 4942,
+          "source_end": 5211,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:3",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "bad4bb4403bf7279b1229fdd8298bea449a996ecc032451d96b34048dbc15cba",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "25080dd223d95847c3f22b359bc8d0ebff4a55a1dd351e5524e2d4084f2f7816",
+          "source_start": 5212,
+          "source_end": 5541,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:4",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "25080dd223d95847c3f22b359bc8d0ebff4a55a1dd351e5524e2d4084f2f7816",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15",
+      "baseline_sha": "2049329176efae2de5d0e864fab856eafc369ef0b3166839dfb25819fab0ebba",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "2049329176efae2de5d0e864fab856eafc369ef0b3166839dfb25819fab0ebba"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range;docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "e10e467f3959bf8f77a1a888a9384c4fb06dd6a96d64319f6e7d10e2fb732ffa;2043b2b786d08305ce730ce155c5ad027a8c3876f6da30db60a59a15f7af8291",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "e10e467f3959bf8f77a1a888a9384c4fb06dd6a96d64319f6e7d10e2fb732ffa",
+          "source_start": 5543,
+          "source_end": 5605,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15::sentence:1",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "e10e467f3959bf8f77a1a888a9384c4fb06dd6a96d64319f6e7d10e2fb732ffa",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "2043b2b786d08305ce730ce155c5ad027a8c3876f6da30db60a59a15f7af8291",
+          "source_start": 5606,
+          "source_end": 5770,
+          "child_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15::sentence:2",
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "2043b2b786d08305ce730ce155c5ad027a8c3876f6da30db60a59a15f7af8291",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::16",
+      "baseline_sha": "acd0eabe9d0e3b1d90db5ea903ef6f9fd0314cb88db8c9ca30238e1affd83700",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "acd0eabe9d0e3b1d90db5ea903ef6f9fd0314cb88db8c9ca30238e1affd83700"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "acd0eabe9d0e3b1d90db5ea903ef6f9fd0314cb88db8c9ca30238e1affd83700",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "acd0eabe9d0e3b1d90db5ea903ef6f9fd0314cb88db8c9ca30238e1affd83700",
+          "source_start": 5772,
+          "source_end": 6325,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "acd0eabe9d0e3b1d90db5ea903ef6f9fd0314cb88db8c9ca30238e1affd83700",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::18",
+      "baseline_sha": "a79a0501c145f2dfbf4a21f6686825639e54e00e49af2ede7b317e9688d8d2de",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "f5bf1b8d361ac13ed1728fe5a808d932a43b94f0c35cd69a6b55d3ba8fd0c8e4"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "f5bf1b8d361ac13ed1728fe5a808d932a43b94f0c35cd69a6b55d3ba8fd0c8e4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "f5bf1b8d361ac13ed1728fe5a808d932a43b94f0c35cd69a6b55d3ba8fd0c8e4",
+          "source_start": 6350,
+          "source_end": 9154,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "f5bf1b8d361ac13ed1728fe5a808d932a43b94f0c35cd69a6b55d3ba8fd0c8e4",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::19",
+      "baseline_sha": "f9c5d123d34251055fcab475c7929dc6aeb8b223ab66cfd46211eb2c968216b2",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "5276e45483277498e234604548626da6634f2ac1d571e724890fc2e0b3900314"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "5276e45483277498e234604548626da6634f2ac1d571e724890fc2e0b3900314",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "5276e45483277498e234604548626da6634f2ac1d571e724890fc2e0b3900314",
+          "source_start": 9155,
+          "source_end": 9880,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "5276e45483277498e234604548626da6634f2ac1d571e724890fc2e0b3900314",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::20",
+      "baseline_sha": "43335c3079dc0979541da01c721b404ff19b0bee2d6f6d2b1e5af3d87f1ff9e5",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "43335c3079dc0979541da01c721b404ff19b0bee2d6f6d2b1e5af3d87f1ff9e5"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "43335c3079dc0979541da01c721b404ff19b0bee2d6f6d2b1e5af3d87f1ff9e5",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "43335c3079dc0979541da01c721b404ff19b0bee2d6f6d2b1e5af3d87f1ff9e5",
+          "source_start": 9881,
+          "source_end": 10438,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "43335c3079dc0979541da01c721b404ff19b0bee2d6f6d2b1e5af3d87f1ff9e5",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::21",
+      "baseline_sha": "c0f3e4faf83b5adccc4f5131c047cf77ecc2ec63dbe01e860570eba52db84b42",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "c0f3e4faf83b5adccc4f5131c047cf77ecc2ec63dbe01e860570eba52db84b42"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "c0f3e4faf83b5adccc4f5131c047cf77ecc2ec63dbe01e860570eba52db84b42",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "c0f3e4faf83b5adccc4f5131c047cf77ecc2ec63dbe01e860570eba52db84b42",
+          "source_start": 10439,
+          "source_end": 10960,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "c0f3e4faf83b5adccc4f5131c047cf77ecc2ec63dbe01e860570eba52db84b42",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",
+      "baseline_sha": "68aba09530acbf625c4825889f4cc925a60acbe900661abda296f67801ba9f1c",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
+        "6fe85f7af1f4d9550dc563b32d5c83aff9fe867bed2b2b30aac1ae538efe5ce9"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations;docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2;6fe85f7af1f4d9550dc563b32d5c83aff9fe867bed2b2b30aac1ae538efe5ce9",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
+          "source_start": 10961,
+          "source_end": 11243,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "6fe85f7af1f4d9550dc563b32d5c83aff9fe867bed2b2b30aac1ae538efe5ce9",
+          "source_start": 11244,
+          "source_end": 11932,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "6fe85f7af1f4d9550dc563b32d5c83aff9fe867bed2b2b30aac1ae538efe5ce9",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::23",
+      "baseline_sha": "4a353114cc26ffaca4a5568bd60e4d9452246f8686c3faec44b37fcbd07920bb",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+      "dest_sha": "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24",
+          "source_start": 11934,
+          "source_end": 14561,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
+          "dest_sha": "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::25",
+      "baseline_sha": "944dca670552a47fc9f0204e1df7b851b092b70e30dd152b53e0d8c96bf55182",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "944dca670552a47fc9f0204e1df7b851b092b70e30dd152b53e0d8c96bf55182"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+      "dest_sha": "944dca670552a47fc9f0204e1df7b851b092b70e30dd152b53e0d8c96bf55182",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "944dca670552a47fc9f0204e1df7b851b092b70e30dd152b53e0d8c96bf55182",
+          "source_start": 14602,
+          "source_end": 14696,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+          "dest_sha": "944dca670552a47fc9f0204e1df7b851b092b70e30dd152b53e0d8c96bf55182",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::26",
+      "baseline_sha": "31e0a990e66d10bcb91b02d3196cf89cecf23b4749346a73c817d74e3f07f84a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "31e0a990e66d10bcb91b02d3196cf89cecf23b4749346a73c817d74e3f07f84a"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+      "dest_sha": "31e0a990e66d10bcb91b02d3196cf89cecf23b4749346a73c817d74e3f07f84a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "31e0a990e66d10bcb91b02d3196cf89cecf23b4749346a73c817d74e3f07f84a",
+          "source_start": 14697,
+          "source_end": 14769,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+          "dest_sha": "31e0a990e66d10bcb91b02d3196cf89cecf23b4749346a73c817d74e3f07f84a",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::27",
+      "baseline_sha": "447fdb281723f0f9dbd9efffac7aad7ce4d01578d33fb1506bd18462cf3f2321",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "447fdb281723f0f9dbd9efffac7aad7ce4d01578d33fb1506bd18462cf3f2321"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+      "dest_sha": "447fdb281723f0f9dbd9efffac7aad7ce4d01578d33fb1506bd18462cf3f2321",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "447fdb281723f0f9dbd9efffac7aad7ce4d01578d33fb1506bd18462cf3f2321",
+          "source_start": 14770,
+          "source_end": 14921,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-results",
+          "dest_sha": "447fdb281723f0f9dbd9efffac7aad7ce4d01578d33fb1506bd18462cf3f2321",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::28",
+      "baseline_sha": "45ac0c2151b1c2a8f64afc86edf9b37c96b4d1a239d8e56ce0abd31824f59037",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "45ac0c2151b1c2a8f64afc86edf9b37c96b4d1a239d8e56ce0abd31824f59037"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "45ac0c2151b1c2a8f64afc86edf9b37c96b4d1a239d8e56ce0abd31824f59037",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "45ac0c2151b1c2a8f64afc86edf9b37c96b4d1a239d8e56ce0abd31824f59037",
+          "source_start": 14923,
+          "source_end": 15026,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "45ac0c2151b1c2a8f64afc86edf9b37c96b4d1a239d8e56ce0abd31824f59037",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::29",
+      "baseline_sha": "f88e7acbcb531be95eae59e15a5b7be747727e6894a1dc3abf3c346ce43d43d0",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "f88e7acbcb531be95eae59e15a5b7be747727e6894a1dc3abf3c346ce43d43d0"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "f88e7acbcb531be95eae59e15a5b7be747727e6894a1dc3abf3c346ce43d43d0",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "f88e7acbcb531be95eae59e15a5b7be747727e6894a1dc3abf3c346ce43d43d0",
+          "source_start": 15027,
+          "source_end": 15204,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "f88e7acbcb531be95eae59e15a5b7be747727e6894a1dc3abf3c346ce43d43d0",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::30",
+      "baseline_sha": "3bda34b46ff77f93f490c02278345fc12401760eb0ba05ebc64c17c11b6a3075",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3bda34b46ff77f93f490c02278345fc12401760eb0ba05ebc64c17c11b6a3075"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "3bda34b46ff77f93f490c02278345fc12401760eb0ba05ebc64c17c11b6a3075",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3bda34b46ff77f93f490c02278345fc12401760eb0ba05ebc64c17c11b6a3075",
+          "source_start": 15205,
+          "source_end": 15373,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "3bda34b46ff77f93f490c02278345fc12401760eb0ba05ebc64c17c11b6a3075",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::31",
+      "baseline_sha": "41f37b709b5c274096f233b88dba2221203396f68063ead7475c30deae4aab70",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "41f37b709b5c274096f233b88dba2221203396f68063ead7475c30deae4aab70"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "41f37b709b5c274096f233b88dba2221203396f68063ead7475c30deae4aab70",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "41f37b709b5c274096f233b88dba2221203396f68063ead7475c30deae4aab70",
+          "source_start": 15374,
+          "source_end": 15505,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "41f37b709b5c274096f233b88dba2221203396f68063ead7475c30deae4aab70",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::32",
+      "baseline_sha": "583811d7ef9bb191a6f39d3847e3e4e772de5e5a05c4fb680afebd44bd47e178",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "583811d7ef9bb191a6f39d3847e3e4e772de5e5a05c4fb680afebd44bd47e178"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "583811d7ef9bb191a6f39d3847e3e4e772de5e5a05c4fb680afebd44bd47e178",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "583811d7ef9bb191a6f39d3847e3e4e772de5e5a05c4fb680afebd44bd47e178",
+          "source_start": 15506,
+          "source_end": 15665,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "583811d7ef9bb191a6f39d3847e3e4e772de5e5a05c4fb680afebd44bd47e178",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::33",
+      "baseline_sha": "bf018e4e314f9be104a496b62a5ee86afdf817a94d858582281f745fcbbbde77",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "bf018e4e314f9be104a496b62a5ee86afdf817a94d858582281f745fcbbbde77"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "bf018e4e314f9be104a496b62a5ee86afdf817a94d858582281f745fcbbbde77",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "bf018e4e314f9be104a496b62a5ee86afdf817a94d858582281f745fcbbbde77",
+          "source_start": 15666,
+          "source_end": 15840,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "bf018e4e314f9be104a496b62a5ee86afdf817a94d858582281f745fcbbbde77",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::34",
+      "baseline_sha": "2ea68a7547747e545d2c84fbdf943fc6c9c77c84cff329c3e8030d353f15c4a8",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "2ea68a7547747e545d2c84fbdf943fc6c9c77c84cff329c3e8030d353f15c4a8"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "2ea68a7547747e545d2c84fbdf943fc6c9c77c84cff329c3e8030d353f15c4a8",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "2ea68a7547747e545d2c84fbdf943fc6c9c77c84cff329c3e8030d353f15c4a8",
+          "source_start": 15841,
+          "source_end": 15922,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "2ea68a7547747e545d2c84fbdf943fc6c9c77c84cff329c3e8030d353f15c4a8",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::35",
+      "baseline_sha": "37df194139c59b5e122b7661d37b896922f456af24cc7b480e6397e17ced36b6",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "37df194139c59b5e122b7661d37b896922f456af24cc7b480e6397e17ced36b6"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "37df194139c59b5e122b7661d37b896922f456af24cc7b480e6397e17ced36b6",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "37df194139c59b5e122b7661d37b896922f456af24cc7b480e6397e17ced36b6",
+          "source_start": 15923,
+          "source_end": 16427,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "37df194139c59b5e122b7661d37b896922f456af24cc7b480e6397e17ced36b6",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Allocation, aliases and validation::36",
+      "baseline_sha": "8ef1775583901413c0c2f4b7f5887a2b55c3e3435a358e8ff92b8ab22dffba78",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8ef1775583901413c0c2f4b7f5887a2b55c3e3435a358e8ff92b8ab22dffba78"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+      "dest_sha": "8ef1775583901413c0c2f4b7f5887a2b55c3e3435a358e8ff92b8ab22dffba78",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8ef1775583901413c0c2f4b7f5887a2b55c3e3435a358e8ff92b8ab22dffba78",
+          "source_start": 16428,
+          "source_end": 16521,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-range",
+          "dest_sha": "8ef1775583901413c0c2f4b7f5887a2b55c3e3435a358e8ff92b8ab22dffba78",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::38",
+      "baseline_sha": "64dd2b2126a250611598459dea4daef6f1fb514e612853f83a100194ecdd7e7b",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "64dd2b2126a250611598459dea4daef6f1fb514e612853f83a100194ecdd7e7b"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "64dd2b2126a250611598459dea4daef6f1fb514e612853f83a100194ecdd7e7b",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "64dd2b2126a250611598459dea4daef6f1fb514e612853f83a100194ecdd7e7b",
+          "source_start": 16980,
+          "source_end": 17059,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "64dd2b2126a250611598459dea4daef6f1fb514e612853f83a100194ecdd7e7b",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::39",
+      "baseline_sha": "cda3a95100949b4c0f7938457b02073575949d5a541158304634f655f80d6884",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "cda3a95100949b4c0f7938457b02073575949d5a541158304634f655f80d6884"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "cda3a95100949b4c0f7938457b02073575949d5a541158304634f655f80d6884",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "cda3a95100949b4c0f7938457b02073575949d5a541158304634f655f80d6884",
+          "source_start": 17060,
+          "source_end": 17177,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "cda3a95100949b4c0f7938457b02073575949d5a541158304634f655f80d6884",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::40",
+      "baseline_sha": "05e9b707da5858af873384ff048f064360e3981c35985f1fd27c78358a1d7297",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "05e9b707da5858af873384ff048f064360e3981c35985f1fd27c78358a1d7297"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "05e9b707da5858af873384ff048f064360e3981c35985f1fd27c78358a1d7297",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "05e9b707da5858af873384ff048f064360e3981c35985f1fd27c78358a1d7297",
+          "source_start": 17178,
+          "source_end": 17262,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "05e9b707da5858af873384ff048f064360e3981c35985f1fd27c78358a1d7297",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::41",
+      "baseline_sha": "8a16114fed82f89457dce7e9bdb7b03a562a36588987e251cae5d2be8c0e57c4",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8a16114fed82f89457dce7e9bdb7b03a562a36588987e251cae5d2be8c0e57c4"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "8a16114fed82f89457dce7e9bdb7b03a562a36588987e251cae5d2be8c0e57c4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8a16114fed82f89457dce7e9bdb7b03a562a36588987e251cae5d2be8c0e57c4",
+          "source_start": 17263,
+          "source_end": 17351,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "8a16114fed82f89457dce7e9bdb7b03a562a36588987e251cae5d2be8c0e57c4",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::42",
+      "baseline_sha": "0936c1039cb156dc8b94e0610b7c898e0b7fa343411ddce635fff2441ce0dab2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "0936c1039cb156dc8b94e0610b7c898e0b7fa343411ddce635fff2441ce0dab2"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "0936c1039cb156dc8b94e0610b7c898e0b7fa343411ddce635fff2441ce0dab2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "0936c1039cb156dc8b94e0610b7c898e0b7fa343411ddce635fff2441ce0dab2",
+          "source_start": 17352,
+          "source_end": 17491,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "0936c1039cb156dc8b94e0610b7c898e0b7fa343411ddce635fff2441ce0dab2",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::43",
+      "baseline_sha": "486ac7598541e2496cd7359494f36c7046ac8b8f961fd6a9f10738d4999f4eac",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "486ac7598541e2496cd7359494f36c7046ac8b8f961fd6a9f10738d4999f4eac"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "486ac7598541e2496cd7359494f36c7046ac8b8f961fd6a9f10738d4999f4eac",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "486ac7598541e2496cd7359494f36c7046ac8b8f961fd6a9f10738d4999f4eac",
+          "source_start": 17492,
+          "source_end": 17646,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "486ac7598541e2496cd7359494f36c7046ac8b8f961fd6a9f10738d4999f4eac",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::44",
+      "baseline_sha": "ad9dea9ceeb23772a5efa37a2f04a376074c655e7ec43d0fad3be5933bc46929",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "ad9dea9ceeb23772a5efa37a2f04a376074c655e7ec43d0fad3be5933bc46929"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "ad9dea9ceeb23772a5efa37a2f04a376074c655e7ec43d0fad3be5933bc46929",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "ad9dea9ceeb23772a5efa37a2f04a376074c655e7ec43d0fad3be5933bc46929",
+          "source_start": 17647,
+          "source_end": 17877,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "ad9dea9ceeb23772a5efa37a2f04a376074c655e7ec43d0fad3be5933bc46929",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::45",
+      "baseline_sha": "6b2d9b5caeb86346934aa2bac79c1b6e354146832a4594b13c1fc2bb89fe71fb",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "6b2d9b5caeb86346934aa2bac79c1b6e354146832a4594b13c1fc2bb89fe71fb"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "6b2d9b5caeb86346934aa2bac79c1b6e354146832a4594b13c1fc2bb89fe71fb",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "6b2d9b5caeb86346934aa2bac79c1b6e354146832a4594b13c1fc2bb89fe71fb",
+          "source_start": 17878,
+          "source_end": 18033,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "6b2d9b5caeb86346934aa2bac79c1b6e354146832a4594b13c1fc2bb89fe71fb",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::46",
+      "baseline_sha": "7e64d3f9428aff6ab7018ffc56c40ee0d3b2953b36c583fda7d0de4d956b812c",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "7e64d3f9428aff6ab7018ffc56c40ee0d3b2953b36c583fda7d0de4d956b812c"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "7e64d3f9428aff6ab7018ffc56c40ee0d3b2953b36c583fda7d0de4d956b812c",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "7e64d3f9428aff6ab7018ffc56c40ee0d3b2953b36c583fda7d0de4d956b812c",
+          "source_start": 18034,
+          "source_end": 18116,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "7e64d3f9428aff6ab7018ffc56c40ee0d3b2953b36c583fda7d0de4d956b812c",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::47",
+      "baseline_sha": "a149555ab43aed23c7416ecabe9779197762426943fdcf0d6ff7683b67b80e22",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "a149555ab43aed23c7416ecabe9779197762426943fdcf0d6ff7683b67b80e22"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "a149555ab43aed23c7416ecabe9779197762426943fdcf0d6ff7683b67b80e22",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "a149555ab43aed23c7416ecabe9779197762426943fdcf0d6ff7683b67b80e22",
+          "source_start": 18117,
+          "source_end": 18263,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "a149555ab43aed23c7416ecabe9779197762426943fdcf0d6ff7683b67b80e22",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::48",
+      "baseline_sha": "65e7f1a3c435d4ed23806ffb7dcb58912c949a1e85181301b2970849655f97e7",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "65e7f1a3c435d4ed23806ffb7dcb58912c949a1e85181301b2970849655f97e7"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "65e7f1a3c435d4ed23806ffb7dcb58912c949a1e85181301b2970849655f97e7",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "65e7f1a3c435d4ed23806ffb7dcb58912c949a1e85181301b2970849655f97e7",
+          "source_start": 18264,
+          "source_end": 18338,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "65e7f1a3c435d4ed23806ffb7dcb58912c949a1e85181301b2970849655f97e7",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::49",
+      "baseline_sha": "b86a615f7d0f592789dfdaecc31607c8b43fc4758be62f4fcfa3ead7c3f1b334",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "b86a615f7d0f592789dfdaecc31607c8b43fc4758be62f4fcfa3ead7c3f1b334"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "b86a615f7d0f592789dfdaecc31607c8b43fc4758be62f4fcfa3ead7c3f1b334",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "b86a615f7d0f592789dfdaecc31607c8b43fc4758be62f4fcfa3ead7c3f1b334",
+          "source_start": 18340,
+          "source_end": 18534,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "b86a615f7d0f592789dfdaecc31607c8b43fc4758be62f4fcfa3ead7c3f1b334",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / A zero scale can change the returned type::50",
+      "baseline_sha": "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5"
+      ],
+      "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+      "dest_sha": "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5",
+          "source_start": 18536,
+          "source_end": 18717,
+          "dest": "docs/src/spec/scaled.md#spec-scaled-endpoints",
+          "dest_sha": "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5",
+          "manifest": "moves-scaled.json",
+          "manifest_index": 4
+        }
+      ]
+    },
     {
       "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6",
       "baseline_sha": "d32b8f5a5fdb55526b7f7acf4b556c311bd0dc2cd90de340560911276e64e2fa",

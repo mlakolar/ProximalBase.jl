@@ -47,7 +47,7 @@ apply alongside each entry.
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
-| `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |
+| `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Checking optimality with KKT conditions](../operations.md#Checking-optimality-with-KKT-conditions) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
 
 ## Status vocabulary

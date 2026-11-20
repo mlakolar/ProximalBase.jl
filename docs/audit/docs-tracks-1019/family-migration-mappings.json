@@ -1,0 +1,348 @@
+{
+  "schema": 1,
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "raw_span_review": {
+    "reviewer": "reconcile_pr_review@9e3ec2f49ff566022d19083ebe07e9374fe68c29",
+    "scope": "The single IndNonnegative endpoint row, compared byte for byte with the frozen baseline and the reconciled prerequisite."
+  },
+  "manifests": [
+    "moves-indnonnegative.json",
+    "moves-sqrnorml2.json"
+  ],
+  "changes": [
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
+      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
+      ],
+      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "source_start": 28481,
+          "source_end": 29181,
+          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "manifest": "moves-indnonnegative.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::33",
+      "baseline_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c"
+      ],
+      "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+      "dest_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
+          "source_start": 4268,
+          "source_end": 4360,
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::131",
+      "baseline_sha": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9"
+      ],
+      "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+      "dest_sha": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+          "source_start": 26977,
+          "source_end": 27100,
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::132",
+      "baseline_sha": "8324166c416e6c65a7ba8243998bfef8f5d12c198f07e89ee8a713ea849344b1",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8324166c416e6c65a7ba8243998bfef8f5d12c198f07e89ee8a713ea849344b1"
+      ],
+      "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+      "dest_sha": "8324166c416e6c65a7ba8243998bfef8f5d12c198f07e89ee8a713ea849344b1",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8324166c416e6c65a7ba8243998bfef8f5d12c198f07e89ee8a713ea849344b1",
+          "source_start": 27101,
+          "source_end": 27695,
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "8324166c416e6c65a7ba8243998bfef8f5d12c198f07e89ee8a713ea849344b1",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47",
+      "baseline_sha": "c9ff1b92fe9ab8c0cdc3dd20a58c01ea0d0f51ffb8210ce7a3870ec9f84d54ed",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "c9ff1b92fe9ab8c0cdc3dd20a58c01ea0d0f51ffb8210ce7a3870ec9f84d54ed"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+      "dest_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875;3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2;1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec;074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794;070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d;a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
+      "pieces": [
+        {
+          "source_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875",
+          "source_start": 24172,
+          "source_end": 24425,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875"
+        },
+        {
+          "source_sha": "3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2",
+          "source_start": 24426,
+          "source_end": 24690,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:2",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2"
+        },
+        {
+          "source_sha": "1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec",
+          "source_start": 24691,
+          "source_end": 24931,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:3",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec"
+        },
+        {
+          "source_sha": "074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794",
+          "source_start": 24932,
+          "source_end": 25137,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:4",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d",
+          "source_start": 25138,
+          "source_end": 25363,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:5",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554",
+          "source_start": 25364,
+          "source_end": 25695,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:6",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48",
+      "baseline_sha": "8052021f421ec0f7b7b4f9ce7689dfed2ae277655ff0fbfd9013f0ef86a6769d",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "8052021f421ec0f7b7b4f9ce7689dfed2ae277655ff0fbfd9013f0ef86a6769d"
+      ],
+      "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+      "dest_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc;78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b;2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77;3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf;bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d;19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111;f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2;6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce;4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f;d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1;8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d;bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
+      "pieces": [
+        {
+          "source_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc",
+          "source_start": 25697,
+          "source_end": 25812,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:1",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b",
+          "source_start": 25813,
+          "source_end": 25959,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:2",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77",
+          "source_start": 25960,
+          "source_end": 26112,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:3",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf",
+          "source_start": 26113,
+          "source_end": 26260,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:4",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d",
+          "source_start": 26261,
+          "source_end": 26395,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:5",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111",
+          "source_start": 26396,
+          "source_end": 26468,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:6",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2",
+          "source_start": 26469,
+          "source_end": 26574,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:7",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce",
+          "source_start": 26575,
+          "source_end": 26694,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:8",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f",
+          "source_start": 26695,
+          "source_end": 26763,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:9",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1",
+          "source_start": 26764,
+          "source_end": 26857,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:10",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d",
+          "source_start": 26858,
+          "source_end": 26909,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:11",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103",
+          "source_start": 26910,
+          "source_end": 27016,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:12",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
+          "dest_sha": "bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49",
+      "baseline_sha": "394a8e63c2d51b203b28dbf877626de05ef5a8e25a6ab51c0f31c0bcae67cdf9",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "394a8e63c2d51b203b28dbf877626de05ef5a8e25a6ab51c0f31c0bcae67cdf9"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+      "dest_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7;b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590;a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
+      "pieces": [
+        {
+          "source_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7",
+          "source_start": 27018,
+          "source_end": 27104,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7"
+        },
+        {
+          "source_sha": "b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590",
+          "source_start": 27105,
+          "source_end": 27185,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:2",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590"
+        },
+        {
+          "source_sha": "a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
+          "source_start": 27186,
+          "source_end": 27318,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:3",
+          "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
+          "dest_sha": "a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
+          "manifest": "moves-sqrnorml2.json",
+          "manifest_index": 4
+        }
+      ]
+    }
+  ]
+}

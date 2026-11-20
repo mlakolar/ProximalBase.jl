@@ -113,6 +113,8 @@ makedocs(;
             "SCAD" => "spec/scad.md",
             "IndBallL0" => "spec/indballl0.md",
             "IndBallL1" => "spec/indballl1.md",
+            "IndNonnegative" => "spec/indnonnegative.md",
+            "SqrNormL2" => "spec/sqrnorml2.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

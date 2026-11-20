@@ -26,6 +26,24 @@ that happens to pass.
   mixed-type calls. The wording awaits the owner's decision.
   [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
 
+- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
+  project”. This could refer to calls on a concrete `Scaled` wrapper or to
+  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
+  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
+  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
+  oracles check the step. The moved row retains the original wording pending
+  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+  · [Scaling source](../../../src/functions/scaled.jl)
+  · [Tests](../../../test/indnonnegative.jl)
+
+- The `SqrNormL2` endpoint text says “`NaN` at a zero residual, `Inf`
+  elsewhere” at infinite level with finite `v` and `x`. “Elsewhere” could
+  refer to a nonzero residual that is not `NaN` or include a `NaN` center.
+  The constructor accepts a `NaN` center and the score helpers propagate its
+  `NaN`. The tests exercise `NaN` centers and infinite levels separately.
+  The wording awaits the owner's decision.
+  [Source](../../../src/functions/sqrnorml2.jl) · [Tests](../../../test/kkt_point.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at
@@ -36,8 +54,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The reconciliation through `1299e546`
-has 60 receipts covering 108 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `5cf8b27f`
+has 60 receipts covering 109 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

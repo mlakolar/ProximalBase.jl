@@ -134,13 +134,28 @@ or `Inf`, #904) and subnormal values, zero-weight and infinite-weight groups nea
 `floatmax`, and the separation of the pure compact `prox_block!` from `BlockIterate`
 storage.
 `groupnormlinf` checks `GroupNormLinf` against a sort-based ℓ1-ball reference in BigFloat, written in the file, in Float32/64: one group
-equal to `NormLinf` and singleton groups equal to `NormL1` (the proximal outputs bit for bit, the values within a tolerance), irregular range and permuted
-partitions with entries in no group, a group above 1024 candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
+against `NormLinf` (bit for bit up to 8 entries, both within the bound of the reference above that: a handover sums in an order that depends on
+the layout) and singleton groups equal to `NormL1` (the proximal outputs bit for bit, the values within a tolerance), irregular range and permuted
+partitions with entries in no group, a group with many candidates (Michelot's pass), zero and infinite weights, the compact `prox_block!`
 against the array operator, the endpoint rows and their combinations (a NaN or infinite group beside ordinary ones), radii that overflow or
 underflow in two of their factors, sums above `floatmax/2`, the recomputed values, the fused value against the value at the stored output,
-`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, the margin at a zero group and the
-refusals at a nonzero group, validation before writes and zero warmed allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of
-`prox_block!` over groups of different sizes).
+`BlockIterate` and `SparseIterate` arguments and outputs, the use of the object's buffer, `Scaled`, validation before writes and zero warmed
+allocations (arrays, a `Matrix`, irregular partitions, in place, and sweeps of `prox_block!` over groups of different sizes). The scores of
+`kkt_violation` are checked against a second BigFloat reference, also written in the file and sort-based. A distance is accepted within the first-order bound of
+the kernel of `NormLinf` plus its subnormal term (four times that in the cases outside the ordinary range, with six more units for one `Scaled` wrapper and twelve for merged factors); the
+margin of a zero group within its own bound of a sum of `n` magnitudes and a difference; the converted assertions of the earlier refusals by literal values. The
+distance at a nonzero group is checked for group sizes 1 to 257, range and permuted layouts, array, `Matrix`, `SparseIterate` (a stored zero included) and `BlockIterate`
+points, one largest entry, ties of mixed signs, a face of all entries, a face entry far below the level, zero gradients on the face, an entry one unit in the last
+place below the largest, stationary points, and families whose distance is far above the bound. Four branches of the kernel through a group are each reached by a
+case whose range test, first level or sum of squares was confirmed with the helpers of the kernel: the scaled path of a face (the range test fails), the scaled path
+of the zero point (a sum of magnitudes above `floatmax/2`, and one that overflows), a first level `-Inf` with the sum in range, and a sum of squares that underflows
+to zero; entries that are `NaN` or `Inf` outside the group do not reach the four-argument result. The full-point form is checked against the maximum over the groups
+(a zero group at its distance to the ball; the margin and that distance related by `distance ≤ margin ≤ √n distance` within the bound of the calls), against
+`NormLinf` for one group (both within the bound of the same reference) and `NormL1` for singleton groups (the same bits at nonzero entries, within 64 eps at zero entries
+and in the full-point value), with `NaN` against `Inf` in either order of the groups, and for layout and argument validation. The exceptional values, a coefficient that is zero or infinite or whose product overflows, and the Float16 refusal at a group of 65519
+entries are checked; element types (integers, mixed, Float16) with `@inferred`, and BigFloat at four times its precision without `@inferred`; `Scaled` with one factor,
+an infinite factor (the first stack of nested wrappers on an array, a `SparseIterate` and a `BlockIterate`, the other two on arrays), and chains that fold and that do not (the refusals at a nonzero
+group, at a zero entry inside it, at a nonzero entry in no group and in the full-point form, and a `SymmetricSparseIterate`); and zero warmed allocations of the new forms.
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate
@@ -293,6 +308,12 @@ A historical 56-file snapshot, from commit 879e067, added a provisional 40-secon
 This rounds up to the next five seconds one Julia 1.13.4 observation, 38.971
 seconds, from CI at commit 879e067 (shard 1/3 of
 [run 44665776339](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339)).
+
+The weight of `groupnormlinf` is 125 seconds, replacing the 35-second snapshot weight. It rounds one observation of
+`test/groupnormlinf.jl`, 122.629 seconds on Julia 1.13.4 (shard 3/3), up to the next five seconds, from the run of the pull request that added
+the nonzero-group and full-point scores of `kkt_violation` for `GroupNormLinf`.
+[PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44663113969/attempts/1).
+The observation was taken before two testsets of the file were shortened, so the weight is conservative.
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

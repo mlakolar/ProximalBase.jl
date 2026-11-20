@@ -368,38 +368,13 @@ full-point form `kkt_violation(f,v,x)` use the entry ``d_i`` of ``\nabla f(x)`` 
 helpers form it, in the working type of the call (``\lambda x_i``, or ``\lambda(x_i-y_i)`` with a
 center). The score of entry ``i`` is ``\lvert v_i+d_i\rvert``, nonnegative at a zero coordinate as well, and
 the full-point value is ``\lVert v+\nabla f(x)\rVert_\infty`` for finite `v` and `x` when `gradient(f,x)` is
-computed in the same precision. The rules for non-finite entries of `v` and `x` take precedence over this formula
-(for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).
-The precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
-`v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to
-`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient
-oracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules
-(for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).
+computed in the same precision. See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints).
 
-For supported homogeneous `Float32` or `Float64` calls, the value and
-numerical outputs use that working precision. The implementation may compute
-in a wider type for heterogeneous argument/destination calls, but this is
-not a supported mixed-precision contract. In the current kernels, the value
-uses the argument's precision; gradients and proximal points use the wider of
-the argument and destination precisions. Parameters are rounded to that working
-precision when representable, and proximal products are formed from their
-unrounded factors before rounding. Combined gradient calls return the standalone
-input value and gradient; combined proximal calls return the value at the stored
-output. These implementation details do not extend the supported configurations.
-Range recovery avoids losing a
-representable result to overflow/underflow in a coefficient or difference.
-For the supported mode, supply the level, center, step and destination in
-the same floating-point type as the argument. See
-[numerics](numerics.md) for FP32/FP64 and zero/non-finite cases.
-Shape mismatch is `DimensionMismatch`; complex center, argument or output is
-`ArgumentError`. Exact gradient aliasing with the input is rejected. Use
-independent parameter/output buffers even where a particular kernel can safely
-read an aliased center.
+See the [SqrNormL2 range clauses](@ref spec-sqrnorml2-range).
 
 `iszeropreserving(f)` is true only when the center is omitted and the level is
 finite. Supplying an all-zero center still follows the centered route and
-reports false. A zero level makes the value zero, but does not make every
-gradient or endpoint operation immune to IEEE `0*Inf`/`0*NaN` arithmetic.
+reports false. See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints).
 
 ```@example library_ridge
 using ProximalBase

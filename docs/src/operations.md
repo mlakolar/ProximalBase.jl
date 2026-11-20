@@ -305,19 +305,21 @@ nonnegative at a zero coordinate as well. The norm of the full-point value is th
 functions; [`GroupNormL2`](group_penalty.md) measures block 2-norms, so a
 tolerance chosen for one is not a tolerance for the other.
 
-`GroupNormL2` has a score per block, with ``c=\lambda_0w_k``. `NormL2` (with ``c=\lambda``) and `NormLinf` have the
+`GroupNormL2` and `GroupNormLinf` have a score per block, with ``c=\lambda_0w_k``. `NormL2` (with ``c=\lambda``) and `NormLinf` have the
 full-point form and no form for a block:
 
 | Function | Block at zero | Block ``x_G\neq0`` | Full-point value, for finite inputs |
 |:--|:--|:--|:--|
 | `GroupNormL2` | ``\lVert v_G\rVert_2-c`` | ``\lVert v_G+c\,x_G/\lVert x_G\rVert_2\rVert_2`` | ``\max(0,\text{block scores},\lvert v_i\rvert\text{ for the entries in no group})``, a maximum of block 2-norms |
+| `GroupNormLinf` | ``\lVert v_G\rVert_1-c`` | the 2-norm distance from ``-v_G`` to ``\partial(c\lVert\cdot\rVert_\infty)(x_G)``, with the face of the entries of largest magnitude, compared for equality after conversion to the working type | ``\max(0,\text{distances of all the groups},\lvert v_i\rvert\text{ for the entries in no group})``, where a zero group has the distance from ``v_G`` to the ℓ₁ ball of radius ``c`` and not its margin |
 | `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
 | `NormLinf` | (no form for a block) | (no form for a block) | the 2-norm distance from ``-v`` to ``\partial g(x)`` for ``g(x)=\lambda\max_i\lvert x_i\rvert``: at ``x=0``, the distance from ``v`` to the ℓ₁ ball of radius ``\lambda`` (``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``); at ``x\ne0``, the distance with the face of the entries of largest magnitude, compared for equality after conversion to the working type |
 
-`GroupNormLinf` scores a group at zero with the margin ``\lVert v_G\rVert_1-c`` of its dual (ℓ₁) norm, with ``c=\lambda_0w_k``, and has no
-score at a nonzero group, no full-point form and no three-argument form (`ArgumentError`): see [the group ℓ∞ norm](group_penalty.md#group-linf-guide).
+In exact arithmetic, for a positive margin at a zero group of `GroupNormLinf`, the distance is at most the margin and the margin is at most ``\sqrt n`` times the distance, for a
+group of ``n`` entries, so the full-point value need not be the maximum of the four-argument scores there; the three-argument form throws an
+`ArgumentError`. See [the group ℓ∞ norm](group_penalty.md#group-linf-guide).
 
-The local form of `GroupNormL2` takes an entry of an array point, which selects its group, or the group
+The local form of `GroupNormL2` and `GroupNormLinf` takes an entry of an array point, which selects its group, or the group
 `k` of a `BlockIterate`; an entry in no group scores ``\lvert v_i\rvert``. `NormL2` and `NormLinf` have no form for an entry or
 a group (an `ArgumentError`); the value of `NormLinf` is a 2-norm distance to the subdifferential and not a maximum of scores,
 and its definition, ties and an example are in [the ℓ∞ norm guide](@ref norm-linf-kkt).

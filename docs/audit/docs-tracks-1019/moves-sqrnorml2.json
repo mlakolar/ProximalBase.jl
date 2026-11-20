@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "family": "sqrnorml2",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 26977,
+      "source_end": 27100,
+      "source_line": 333,
+      "text": "| `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-endpoints",
+      "destination_text": "| `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |",
+      "source_sha256": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+      "destination_sha256": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
+      "forwarding_text": "| `SqrNormL2` | See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints) |"
+    },
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 27101,
+      "source_end": 27696,
+      "source_line": 334,
+      "text": "| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |\n",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-endpoints",
+      "destination_text": "| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |\n",
+      "source_sha256": "80fa092dc709780fb021c936dae2d64e269cc6a881c5ee71eb4633c26b8b23ff",
+      "destination_sha256": "80fa092dc709780fb021c936dae2d64e269cc6a881c5ee71eb4633c26b8b23ff",
+      "forwarding_text": ""
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 25697,
+      "source_end": 27016,
+      "source_line": 379,
+      "text": "For supported homogeneous `Float32` or `Float64` calls, the value and\nnumerical outputs use that working precision. The implementation may compute\nin a wider type for heterogeneous argument/destination calls, but this is\nnot a supported mixed-precision contract. In the current kernels, the value\nuses the argument's precision; gradients and proximal points use the wider of\nthe argument and destination precisions. Parameters are rounded to that working\nprecision when representable, and proximal products are formed from their\nunrounded factors before rounding. Combined gradient calls return the standalone\ninput value and gradient; combined proximal calls return the value at the stored\noutput. These implementation details do not extend the supported configurations.\nRange recovery avoids losing a\nrepresentable result to overflow/underflow in a coefficient or difference.\nFor the supported mode, supply the level, center, step and destination in\nthe same floating-point type as the argument. See\n[numerics](numerics.md) for FP32/FP64 and zero/non-finite cases.\nShape mismatch is `DimensionMismatch`; complex center, argument or output is\n`ArgumentError`. Exact gradient aliasing with the input is rejected. Use\nindependent parameter/output buffers even where a particular kernel can safely\nread an aliased center.",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-range",
+      "destination_text": "For supported homogeneous `Float32` or `Float64` calls, the value and\nnumerical outputs use that working precision. The implementation may compute\nin a wider type for heterogeneous argument/destination calls, but this is\nnot a supported mixed-precision contract. In the current kernels, the value\nuses the argument's precision; gradients and proximal points use the wider of\nthe argument and destination precisions. Parameters are rounded to that working\nprecision when representable, and proximal products are formed from their\nunrounded factors before rounding. Combined gradient calls return the standalone\ninput value and gradient; combined proximal calls return the value at the stored\noutput. These implementation details do not extend the supported configurations.\nRange recovery avoids losing a\nrepresentable result to overflow/underflow in a coefficient or difference.\nFor the supported mode, supply the level, center, step and destination in\nthe same floating-point type as the argument. See\n[numerics](../numerics.md) for FP32/FP64 and zero/non-finite cases.\nShape mismatch is `DimensionMismatch`; complex center, argument or output is\n`ArgumentError`. Exact gradient aliasing with the input is rejected. Use\nindependent parameter/output buffers even where a particular kernel can safely\nread an aliased center.",
+      "source_sha256": "f2b9ea4a8639fabc883c1fb9b7bbef39feb689518b189a43c4d333053e8bb2c0",
+      "destination_sha256": "7855dcc2746d70530f4e059685ee0b32c261decf3ddb689f4f10193084189901",
+      "forwarding_text": "See the [SqrNormL2 range clauses](@ref spec-sqrnorml2-range)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 24932,
+      "source_end": 25695,
+      "source_line": 371,
+      "text": "The rules for non-finite entries of `v` and `x` take precedence over this formula\n(for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).\nThe precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and\n`v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to\n`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient\noracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules\n(for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-endpoints",
+      "destination_text": "The rules for non-finite entries of `v` and `x` take precedence over this formula\n(for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).\nThe precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and\n`v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to\n`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient\noracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules\n(for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).",
+      "source_sha256": "816827762c1272363361846f5a92a13271e3577c8f2f58759c691cbc630cd834",
+      "destination_sha256": "816827762c1272363361846f5a92a13271e3577c8f2f58759c691cbc630cd834",
+      "forwarding_text": "See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 27186,
+      "source_end": 27318,
+      "source_line": 401,
+      "text": "A zero level makes the value zero, but does not make every\ngradient or endpoint operation immune to IEEE `0*Inf`/`0*NaN` arithmetic.",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-endpoints",
+      "destination_text": "A zero level makes the value zero, but does not make every\ngradient or endpoint operation immune to IEEE `0*Inf`/`0*NaN` arithmetic.",
+      "source_sha256": "9ba226439d05d324e120dee29fd6a1fa0b73dc2315b94722afbe0743097c6613",
+      "destination_sha256": "9ba226439d05d324e120dee29fd6a1fa0b73dc2315b94722afbe0743097c6613",
+      "forwarding_text": "See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints)."
+    },
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 4268,
+      "source_end": 4360,
+      "source_line": 78,
+      "text": "`SqrNormL2` also recovers gradient differences and proximal convex-combination\ncoefficients.",
+      "destination": "docs/src/spec/sqrnorml2.md",
+      "anchor": "spec-sqrnorml2-range",
+      "destination_text": "`SqrNormL2` also recovers gradient differences and proximal convex-combination\ncoefficients.",
+      "source_sha256": "05b17ddaee44dc63f2c818bb187cbb15ff3b11d0bce72130ae2cf213cef77e92",
+      "destination_sha256": "05b17ddaee44dc63f2c818bb187cbb15ff3b11d0bce72130ae2cf213cef77e92",
+      "forwarding_text": "See [SqrNormL2 range clauses](@ref spec-sqrnorml2-range) for its gradient and proximal recovery."
+    }
+  ]
+}

@@ -732,3 +732,27 @@ Two existing receipts each gained one transition. They cover the Indicators
 review compared both raw spans, Git blobs, earlier events and the landed
 IndBallL0 source and tests. The audit holds 60 receipts and 108 transitions,
 with all 2,162 original identities and hashes preserved.
+
+## IndNonnegative verbatim move
+
+The `IndNonnegative` endpoint row moves from `numerics.md` to
+`spec/indnonnegative.md#spec-indnonnegative-endpoints`. Its exact bytes match
+the row in the frozen baseline and on the preceding NormL1 labels branch
+at `6d596e7e08575979166c3379d03275efcfbd171e`. Its frozen ledger root still
+has hash `eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d`
+and uses the ordinary `move` action.
+
+The hub retains a forwarding row. The new page's section links lead to the
+existing definitions, shared numerical rules and tests. The family map points
+to the new page. The scope of the `Scaled` description awaits owner review in
+`open-questions.md`.
+
+## Reconciliation after NormLinf performance changes (#1065)
+
+`sparsegroup_receipt_review@5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f`
+verified that [#1065](https://github.com/mlakolar/ProximalBase.jl/pull/1065)
+merged with actual first parent `77a4024307ad376c225297fdddffd4730f8a8167`.
+The changed test-inventory block in `test/TESTING.md` retains its original
+identity and gains one verified event. The review compared the landed Git
+blobs and the test assertions for the one-group comparison and Michelot
+handover. The audit now holds 60 receipts and 109 transitions.

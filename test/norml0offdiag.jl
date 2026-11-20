@@ -335,6 +335,34 @@ end
     X = copy(S)
     X[1, 2] = X[2, 1] = T(NaN)
     @test_throws ArgumentError f(X)
+    # a strided view, which is scanned column by column, and a Matrix, which is scanned in one pass
+    for bad in (T(NaN), T(Inf), -T(Inf)), q in (3, 9, 70), (i, j) in ((1, 1), (q, q), (2, 1), (q, q - 1), (1, q))
+      buf = fill(T(1), q + 1, q)
+      buf[1:q, :] .= symmetric_random(rng, T, q)
+      buf[i, j] = bad
+      V = view(buf, 1:q, :)
+      Ys = fill(T(7.5), q, q)
+      refuses(ArgumentError, f, Ys, V; watch = (buf, Ys), value = true)
+      M = Matrix(V)
+      refuses(ArgumentError, f, fill(T(7.5), q, q), M; value = true)
+      Z = copy(M)
+      @test_throws ArgumentError prox!(Z, f, Z, 1)
+      @test isequal(Z, M)
+    end
+    # the largest and smallest finite magnitudes and both zeros are finite entries for both scans
+    for q in (4, 70)
+      M = symmetric_random(rng, T, q)
+      M[1, 1], M[2, 2], M[3, 3], M[4, 4] = floatmax(T), -floatmax(T), nextfloat(zero(T)), -zero(T)
+      M[1, 2] = M[2, 1] = -floatmax(T)
+      M[2, 3] = M[3, 2] = prevfloat(zero(T))
+      buf = zeros(T, q + 1, q)
+      buf[1:q, :] .= M
+      for X in (M, view(buf, 1:q, :))
+        Y = prox(f, X, 1)
+        @test isequal(Y[1, 2], -floatmax(T)) && isequal(Y[2, 3], zero(T)) && isequal(Y[4, 4], -zero(T))
+        @test f(X) === f(M)
+      end
+    end
   end
 
   @testset "shape" begin

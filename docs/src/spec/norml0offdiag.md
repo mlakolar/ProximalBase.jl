@@ -163,9 +163,12 @@ These notes describe the current code and are not guarantees; they can change.
   entries, the implementation uses the certified magnitude cutoff of the dense
   `NormL0` kernel instead when a cutoff can be certified, behind a function
   barrier.
-- The validation reads every entry once, column by column, before the first
-  write. Each column sum of the non-finite entries is an integer of the entry
-  width (`Int32` for `Float32`, `Int64` for `Float64`).
+- The validation reads every entry once before the first write. For a
+  `Matrix` it sums `x - x` over the entries in one pass in linear index order,
+  which gives `+0.0` when every entry is finite and `NaN` otherwise. For other
+  strided matrices it counts the non-finite entries column by column, and
+  each column sum is an integer of the entry width (`Int32` for `Float32`,
+  `Int64` for `Float64`).
 - The write loop uses `@simd` without `ivdep`, because on Julia 1.10 the loop
   with `ivdep` gave wrong entries for a reinterpreted `Float32` matrix over
   `Float64` or `ComplexF32` storage. `Y === X` has its own single-array loop.

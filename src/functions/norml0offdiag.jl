@@ -107,8 +107,9 @@ end
 _l0od_zero(::Type{Float32}) = Int32(0)
 _l0od_zero(::Type{Float64}) = Int64(0)
 
-# A pass over the columns, in column-major index order, counting the entries that are not finite. The
-# error is raised by a separate @noinline helper. Symmetry of X is not read.
+# A pass over the columns of a strided matrix other than a Float32 or Float64 Matrix, in column-major index
+# order, counting the entries that are not finite. The error is raised by a separate @noinline helper.
+# Symmetry of X is not read.
 function _l0od_scan(X::StridedMatrix)
   p = size(X, 1)
   bad = 0
@@ -124,6 +125,17 @@ function _l0od_scan(X::StridedMatrix)
 end
 
 @noinline _l0od_nonfinite_error() = _l0od_error("requires finite entries in X")
+
+# A Matrix is read in one pass in linear index order. x - x is +0.0 for a finite x and NaN otherwise, so
+# the sum is +0.0 exactly when every entry is finite, in any order of the additions.
+function _l0od_scan(X::Matrix{T}) where {T<:Union{Float32, Float64}}
+  s = zero(T)
+  @inbounds @simd for k in eachindex(X)
+    s += X[k] - X[k]
+  end
+  s == 0 || _l0od_nonfinite_error()
+  nothing
+end
 
 # The number of nonzero entries off the diagonal.
 function _l0od_count(X::StridedMatrix)

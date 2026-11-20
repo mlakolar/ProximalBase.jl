@@ -551,14 +551,13 @@ setprecision(BigFloat, 1200) do
     δ = nextfloat(zero(T))
     g = gradient!(zeros(T, 3), SqrNormL2(T(Inf), T[0, 0, 1]), T[-δ, 3δ, 1])
     @test g[1] === T(-Inf) && g[2] === T(Inf) && isnan(g[3])
-    # centers are rounded once as the value rounds them, in the value and in the value parts:
-    # an entry that leaves T's range on rounding is read unrounded, the others are rounded to T
+    # The value and the value parts use the center rounded to T.
     W = T === Float32 ? Float64 : BigFloat
     # the second entry rounds to exactly 1 in T: read unrounded, its residual would dominate the value
     c = W[ldexp(W(1), e0 - 4), 1 + ldexp(W(1), -(precision(T) + 20))]
     λ = pow2(T, E)
     x = T[0, 1]
-    cr = [big(c[1]), big(T(c[2]))]
+    cr = big.(T.(c))
     ref = big(λ) * sum(abs2, big.(x) .- cr) / 2
     f = SqrNormL2(λ, c)
     @test within(f(x), ref, 2)

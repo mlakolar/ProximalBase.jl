@@ -24,6 +24,19 @@ A wider data or parameter type does not establish a general promotion rule
 for the result. Other real types, including `BigFloat`, are not guaranteed
 production types. `BigFloat` remains useful for independent reference tests.
 
+Conversion can lose the range of a mixed-type parameter. The gradient and
+point-aware KKT scores of `SqrNormL2` convert the level and center entries
+to their working type. The proximal map also converts the center entries to
+its working type. The value rounds a `Float64` center to `Float32` for
+`Float32` data, and a center of `BigFloat` precision to the data type for
+`Float32` or `Float64` data. The same center rounding applies during
+value recovery. The dense unweighted sum paths of `NormL1` and
+`NormL1Nonneg` convert the level to the data type. Their entrywise
+fallbacks use the supplied level when the converted level and entries are
+finite and the product with the sum is nonfinite. An input that rounds to
+zero, a subnormal, or infinity can therefore change the result even when
+the exact result is representable.
+
 For supported homogeneous array-function calls:
 
 - `f(x)` returns the value in `T = float(eltype(x))`.
@@ -113,53 +126,11 @@ products cancels to zero, which is not guaranteed for products of very different
 For `NormL1` value recovery, including subnormal terms, see the
 [NormL1 range clauses](@ref spec-norml1-range).
 
-`NormL1Nonneg` values take the `NormL1` loops with an `Inf` term in place of the
-term of a negative entry; the rules for `NaN` and `Inf` entries are in the table below, and at a
-feasible point the recovery above applies to the same terms. At such a point the
-value of a dense array agrees with that of `NormL1` within the error bound of the sum, and on the
-stored entries of `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` the loops are
-sequential and the values are equal bit for bit.
-Where a positive finite level and weight have a product that rounds to zero and the entry is
-`+Inf`, the value is `NaN`, as for `NormL1` (the retained product forms `0*Inf`,
-[#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)).
+For nonnegative ℓ₁ value recovery, see the
+[NormL1Nonneg range clauses](@ref spec-norml1nonneg-range).
 
-`ElasticNet` values are the value of the ℓ₁ part, computed as `NormL1`
-computes it, plus the value of the ridge part, computed as `SqrNormL2`
-computes it, each with the recovery above, then one addition; on sparse
-and symmetric iterates both parts read the stored entries only, and on a
-`BlockIterate` its storage. On a
-dense `Float32` or `Float64` `Array` with parameters of its type, a single
-pass over the entries is returned instead when a test on its sum bounds its
-relative error by `(n + 2) eps(T)` for `n ≤ 1/(2 eps(T)) - 2` entries; the bound is proved in a
-comment next to the code (`src/functions/elasticnet.jl`). With both levels
-positive and finite, a sum of the two parts below `2 floatmin(T)` (each part
-rounded on its own) is recomputed: the terms of both parts are added in one
-exponent-sum accumulator, as the `NormL1` recomputation adds its terms, and
-the sum is rounded once. For `N` nonzero terms (`λ1*w[i]*abs(x[i])` and
-`λ2*x[i]^2/2`, up to two per entry and three per off-diagonal coordinate of a
-symmetric iterate), with `u` half the epsilon of the accumulator (`Float64` for
-`Float32` data) and `N u < 1`, the hypothesis of the summation bound used, the
-result is within `(γ_3 + (γ_{N-1}^2 + N 2^-1070)(1 + γ_2)) V` of the exact
-value `V` plus half a spacing of `T` at the result (`γ_m = m u/(1 - m u)`), as
-proved next to the code, which is below the worst case of the separate parts. On Julia 1.10 `ldexp` returns `0`
-for a `Float64` result in `[δ/2, δ)`, `δ` the smallest subnormal
-([#896](https://github.com/mlakolar/ProximalBase.jl/issues/896)), and the final
-term of the bound is a whole spacing;
-`ElasticNet(2.0^-538, 1.0)([2.0^-537])` is `2.0^-1074`. Only a value whose
-stored entries are all zero keeps its sum. Under `Scaled`, the value of an
-`ElasticNet` is recovered as for any function with levels. For a finite
-positive factor, where that gives no finite value, or `0` at a point where the
-function is not exactly `0`, the scaled values of the ℓ₁ part and of the ridge
-part, each rounded on its own, are added; the sum replaces that result if it is
-finite after conversion to its type, and the first result is kept otherwise.
-Where one part
-dominates, the test can pass although the other part alone would be
-recomputed (ℓ₁ terms below `floatmin(T)` beside a normal ridge part, or
-squares below `floatmin(T)` beside a normal ℓ₁ part). Its proximal point soft thresholds
-by the threshold of the `NormL1` kernel and multiplies by the ridge factor
-`1/(1 + γλ2)` of the `SqrNormL2` kernel, both formed from the unrounded
-factors, so a factor `γλ2` outside the range still acts on a representable
-result.
+For `ElasticNet` value recovery, its stated bounds and the retained implementation details,
+see [ElasticNet range clauses](@ref spec-elasticnet-range).
 
 `NormL2` values recompute a sum of squares that overflows or falls below the normal
 range from the squared-residual kernel above, in units of the largest stored entry.
@@ -326,31 +297,8 @@ weight. Two limits, each on its own:
   the same step passed as an array of steps gives it. With `ElasticNet(1.3 * 2.0^20, 0.0, [2.0^1013])` in place of the
   `NormL1` above, the scalar step gives `[2.6623668547554047e-15]` and the array step `[2.662280118581606e-15]`.
 
-A known limitation ([#567](https://github.com/mlakolar/ProximalBase.jl/issues/567)):
-for `Scaled(ElasticNet(λ1, λ2, w), α)` with finite levels, a finite positive `α`
-and a positive finite scalar step `γ` whose product `αγ` is above `floatmax`,
-`prox`, `prox!`, `prox_block` and `value_and_prox!` can return `0` where the
-exact result is representable. A representable result does not need a
-representable coefficient. With `λ1 = 0`, `α = γ = 2.0^600` and `x = [2.0^1000]`,
-the coefficient `αγλ2` is `2^1300` for `λ2 = 2.0^100`, above `floatmax`,
-while the quotient `x/(1 + αγλ2)`, about `2^-300`, is representable, and the
-result is `0`. For `λ2 = 2.0^-1000` and `x = [4.0]` the coefficient is `2^200`
-and the result is the representable `4/(1 + 2^200)`.
-`Scaled(SqrNormL2(λ2), α)` also returns `0` in the first case.
-In some cases the same step passed as an array of steps gives the
-representable result, for example in the first case and in its `Float32`
-analogue (`λ2 = 2.0f0^80`, `α = γ = 2.0f0^80`, `x = [2.0f0^127]`); for
-`λ2 = 2.0^880` and `x = [2.0^1023]`, with the same `α` and `γ`, both steps
-give `0` where the result is `2^-1057`:
-
-```julia
-s = Scaled(ElasticNet(0.0, 2.0^100), 2.0^600)
-prox(s, [2.0^1000], 2.0^600)      # [0.0]
-prox(s, [2.0^1000], [2.0^600])    # [4.909093465297727e-91], about 2^-300
-t = Scaled(ElasticNet(0.0, 2.0^880), 2.0^600)
-prox(t, [2.0^1023], 2.0^600)      # [0.0]
-prox(t, [2.0^1023], [2.0^600])    # [0.0]; the result is 2^-1057
-```
+The dedicated `Scaled(ElasticNet(...), α)` limitation and its examples are retained in
+[ElasticNet limitations](@ref spec-elasticnet-limitations).
 
 ## NaN, infinities and zeros
 
@@ -384,24 +332,16 @@ all-NaN result or a particular exception.
 | `GroupNormLinf`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!`; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
 | `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
-| `ElasticNet`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write. The entries of an array of steps are not checked: nonnegative entries are a caller precondition, a documented exception to [#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)'s preflight rule. `prox_block` and `Scaled` routes do not check. The historical reasoning is in [numerical endpoint history](https://github.com/mlakolar/ProximalBase.jl/blob/master/docs/design/numerical-endpoint-history-921.md) |
+| `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
 | `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
 | `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |
 | `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
 | `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
 | `IndBallL1` | See [ℓ₁-ball endpoint rules](@ref spec-indballl1-endpoints). |
-| `ElasticNet`, infinite ridge level `λ2`, nonnegative step | The indicator of `{0}` (#908): every entry proxes to `+0`, including at `γ = 0` and for non-finite inputs; value `0` at the zero vector, `NaN` at a `NaN` entry, `Inf` otherwise; the screen `kkt_violation(f,v,i)` is `-Inf`, as is `kkt_violation(f,v,x,i)` at a zero entry of `x` with a finite `v[i]`. `SqrNormL2(Inf)` keeps its own rule |
-| `ElasticNet`, infinite `λ1` or infinite weight, overflowing finite threshold | The `NormL1` rows above and [zero-step rule](@ref infinite-penalty-at-zero-step) |
-| `ElasticNet`, zero `λ2` | Values of `NormL1(λ1, w)`, and at `γ ≥ 0` with one element type its proximal points, bit for bit; a zero `λ2` adds `0` also at `NaN`/`±Inf` entries |
-| `NormL1Nonneg`, domain | The domain is `x ≥ 0` exactly: `-0.0` and `+Inf` are feasible, any negative number, a subnormal one included, is not. The value is `Inf` where an entry that is read is negative and `NaN` where one is `NaN` (`NaN` takes precedence); a `+Inf` entry whose positive finite coefficient `λ0 w` rounds to zero also gives `NaN`, as for `NormL1` ([#655](https://github.com/mlakolar/ProximalBase.jl/issues/655)), and then takes precedence over the `Inf` of a negative entry (`NormL1Nonneg(5.0e-324,[5.0e-324,1.0])([Inf,-1.0])` is `NaN`); a zero level or weight keeps the domain. The value is `0` at a feasible point, `+Inf` entries included, for a zero weight and for a zero level with a finite weight; an infinite weight at a zero level has the value of its own row below (`NormL1Nonneg(0.0,[Inf])([1.0])` is `Inf`). A proximal point is `+0`, positive or `NaN`: `-0.0` gives `+0.0` |
-| `NormL1Nonneg`, zero weight; zero level with a finite weight; zero step with a finite level and weight | The projection `max(v, 0)` onto the orthant, not the identity: `-Inf` and `-0.0` give `+0`, `+Inf` and `NaN` are kept. A zero weight projects at every level and step, an infinite level and an infinite step included. An infinite weight, and an infinite level with a positive weight, follow their own rows |
-| `NormL1Nonneg`, infinite level, nonnegative step | Positive-weight entries prox to `+0` at every step, `γ = 0` included, for non-finite inputs too (the `NormL1` rule, #665); zero-weight entries are projected. The value of a positive-weight entry is `0` at `0`, `NaN` at `NaN` and `Inf` otherwise |
-| `NormL1Nonneg`, infinite weight, finite level | Finite inputs and `-Inf` map to `+0`, also at a zero level or step; `+Inf` and `NaN` map to `NaN`, as for `NormL1` ([#853](https://github.com/mlakolar/ProximalBase.jl/issues/853)). The value is `0` at `0`, `Inf` at any other number, `NaN` at `NaN`, also at a zero level |
-| `NormL1Nonneg`, finite factors whose threshold overflows, or an infinite step with a positive finite level and a positive finite weight | Finite inputs and `-Inf` give `+0`; `+Inf` gives `NaN` (as `NormL1`, deferred #866); `NaN` gives `NaN`. An infinite step with a zero level or a zero weight is the projection: `prox(NormL1Nonneg(0.0),[3.0],Inf)` is `[3.0]` |
-| `NormL1Nonneg`, negative or `NaN` scalar step | `prox`, `prox!` and `value_and_prox!` throw `ArgumentError` before any write; the entries of an array of steps are not checked, and `prox_block` and `Scaled` routes do not check. A negative step through `Scaled` violates the precondition `γ ≥ 0`, and its result can depend on the representation |
+| `NormL1Nonneg` | See the [NormL1Nonneg endpoint clauses](@ref spec-norml1nonneg-endpoints) |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, non-finite `v` or `x` (`NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`) | The entries of `v`, and the entries of `x` that the formula reads, are converted to the working type `W` first (see the element-types row), and the rules apply to the converted entries. For the entries of `v` and the entries of `x` that the formula reads (`ZeroFunction` and `LinearFunction` read none of `x`): a `NaN` gives `NaN`; otherwise an infinite entry gives `+Inf`. In the full-point form a `NaN` takes precedence over an infinite entry at another position. These rules replace the value of the three-argument screen where that would be `-Inf` (an infinite `NormL1`, `NormL1Nonneg` or `ElasticNet` coefficient, an infinite `ElasticNet` ridge level, or `v[i] = +Inf` for `NormL1Nonneg`) or `NaN` (`Inf - Inf`) for a non-finite `v[i]`, so that a call that reads the point does not report slack or zero where stationarity is undefined |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, finite `v` and `x` (after conversion to `W`), exceptional parameters | The formula is evaluated in floating point in `W`. For `NormL1`, `NormL1Nonneg` and `ElasticNet`, a zero weight gives a zero coefficient at any level, and an infinite coefficient (an infinite weight, an infinite level with a positive weight, or a coefficient whose product overflows in `W`, as in `NormL1(floatmax(Float64), [2.0])`) gives `-Inf` at a zero entry and `+Inf` at a nonzero entry; the full-point form takes the maximum with `0` over the entries, so a `-Inf` score of a zero entry does not raise it (the full-point value is `0` when no other entry has a positive score, as in that example). `NormL1Nonneg` scores a negative entry `x[i]` `+Inf` at any coefficient, since the point is outside the domain. An infinite `ElasticNet` ridge level does the same, and a ridge product `λ2 x[i]` that overflows at a nonzero entry gives `+Inf`. For `LinearFunction` and `SqrNormL2` the score is `abs(v[i] + c[i])` or `abs(v[i] + d[i])` in floating point, so an infinite `LinearFunction` coefficient gives `+Inf` (`kkt_violation(LinearFunction([Inf]), [0.0], [0.0], 1)` is `+Inf`), a `NaN` coefficient of a `LinearFunction` or a `NaN` center of a `SqrNormL2` gives `NaN`, and `SqrNormL2` with an infinite level follows the gradient oracle row above. `ZeroFunction` has no parameter |
-| `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, element types | The working type `W` is `float(promote_type(eltype(v), eltype(x)))` for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction` and a `SqrNormL2` without a center, and `float(promote_type(eltype(v), eltype(x), eltype(c)))` for a `LinearFunction` with coefficients `c` and a `SqrNormL2` with a center `c` (`float` is applied after the promotion: integer `v` and `x` with a `Float32` `c` give `Float32`). The levels and weights of `NormL1`, `NormL1Nonneg` and `ElasticNet` and a scalar `SqrNormL2` level do not enter `W`. The entries of `v`, and the entries of `x` that the formula reads, are converted to `W` before the zero test, the non-finite rules and the formulas, so each statement about a zero, nonzero, finite or infinite entry is about the converted value: `kkt_violation(NormL1(0.5), Float16[0], [1//10^12], 1)` is `-0.5` because the entry converts to zero, and an integer `x = [10^6]` with a `Float16` `v` converts to `Inf` and scores `+Inf`. For `NormL1`, `NormL1Nonneg` and `ElasticNet` the coefficient `λ w[i]` (`λ1 w[i]` for `ElasticNet`) is formed by the helper of the three-argument screen and rounded once to `W`, not as a product of factors rounded to `W` first (`NormL1(1.00000006, [1.00000006])`, `Float32` `v = [0]` and `x = [1]` gives `1.0000001f0`, while the product of the two factors rounded to `Float32` first gives `1.0000002f0`); `Bool` factors, such as an omitted weight, do not widen the type in which the helper forms it. When `eltype(v)` is a floating type, the three-argument screen forms its coefficient the same way with `W = eltype(v)`, so with a wider `x` the coefficient of the point-aware forms can differ from it (`NormL1(1/3)`, `Float32` `v`, `Float64` `x`). For another real element type of `v` (integers), the three-argument screen keeps the coefficient computed from the level and the weight in their own types (`kkt_violation(NormL1(0.5), [0], 1)` is the `Float64` `-0.5`, and with `NormL1(0.5f0)` it is a `Float32`); the same holds for `NormL1Nonneg` and `ElasticNet`. The level `λ2` of `ElasticNet` is converted to `W` with no further range recovery. For finite converted inputs the score of `NormL1Nonneg` is `-v[i] - c[i]` at a zero entry, `abs(v[i] + c[i])` at a positive entry and `Inf` at a negative one. Its three-argument screen forms `-v[i] - c` in `P = promote_type(typeof(v[i]), typeof(c))`, or in `float(P)` when `P` is an unsigned integer type; otherwise the arithmetic of `P` applies (a signed integer type wraps at `typemin`). At a nonzero entry the arithmetic is `abs(v[i] + c[i] sign(x[i]))` for `NormL1` and `abs((v[i] + λ2 x[i]) + c[i] sign(x[i]))` for `ElasticNet`, with the term `λ2 x[i]` left out when `λ2` is zero. A `SqrNormL2` gradient entry computed in a wider type (a level or a center that does not fit `W`) is rounded back to `W` before it is added to `v[i]`. For `Float32` or `Float64` arrays and parameters of one type and a finite `v[i]`, the score at a zero entry equals the three-argument screen bit for bit (a `SqrNormL2` with an infinite level excepted). Near a stationary point the terms cancel, so the error of the score need not be small relative to the score |
+| `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, element types | The working type `W` is `float(promote_type(eltype(v), eltype(x)))` for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction` and a `SqrNormL2` without a center, and `float(promote_type(eltype(v), eltype(x), eltype(c)))` for a `LinearFunction` with coefficients `c` and a `SqrNormL2` with a center `c` (`float` is applied after the promotion: integer `v` and `x` with a `Float32` `c` give `Float32`). The levels and weights of `NormL1`, `NormL1Nonneg` and `ElasticNet` and a scalar `SqrNormL2` level do not enter `W`. The entries of `v`, and the entries of `x` that the formula reads, are converted to `W` before the zero test, the non-finite rules and the formulas, so each statement about a zero, nonzero, finite or infinite entry is about the converted value: `kkt_violation(NormL1(0.5), Float16[0], [1//10^12], 1)` is `-0.5` because the entry converts to zero, and an integer `x = [10^6]` with a `Float16` `v` converts to `Inf` and scores `+Inf`. For `NormL1`, `NormL1Nonneg` and `ElasticNet` the coefficient `λ w[i]` (`λ1 w[i]` for `ElasticNet`) is formed by the helper of the three-argument screen and rounded once to `W`, not as a product of factors rounded to `W` first (`NormL1(1.00000006, [1.00000006])`, `Float32` `v = [0]` and `x = [1]` gives `1.0000001f0`, while the product of the two factors rounded to `Float32` first gives `1.0000002f0`); `Bool` factors, such as an omitted weight, do not widen the type in which the helper forms it. When `eltype(v)` is a floating type, the three-argument screen forms its coefficient the same way with `W = eltype(v)`, so with a wider `x` the coefficient of the point-aware forms can differ from it (`NormL1(1/3)`, `Float32` `v`, `Float64` `x`). For another real element type of `v` (integers), the three-argument screen keeps the coefficient computed from the level and the weight in their own types (`kkt_violation(NormL1(0.5), [0], 1)` is the `Float64` `-0.5`, and with `NormL1(0.5f0)` it is a `Float32`); the same holds for `NormL1Nonneg` and `ElasticNet`. The level `λ2` of `ElasticNet` is converted to `W` with no further range recovery. For finite converted inputs the score of `NormL1Nonneg` is `-v[i] - c[i]` at a zero entry, `abs(v[i] + c[i])` at a positive entry and `Inf` at a negative one. Its three-argument screen forms `-v[i] - c` in `P = promote_type(typeof(v[i]), typeof(c))`, or in `float(P)` when `P` is an unsigned integer type; otherwise the arithmetic of `P` applies (a signed integer type wraps at `typemin`). At a nonzero entry the arithmetic is `abs(v[i] + c[i] sign(x[i]))` for `NormL1` and `abs((v[i] + λ2 x[i]) + c[i] sign(x[i]))` for `ElasticNet`, with the term `λ2 x[i]` left out when `λ2` is zero. `SqrNormL2` converts the level and the center entry to `W` before forming the gradient entry. For `Float32` or `Float64` arrays and parameters of one type and a finite `v[i]`, the score at a zero entry equals the three-argument screen bit for bit (a `SqrNormL2` with an infinite level excepted). Near a stationary point the terms cancel, so the error of the score need not be small relative to the score |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `GroupNormL2` and `NormL2`: element types, zero test, coefficient | The working type `W` is `float(promote_type(eltype(v), eltype(x)))`, and the result has type `W` in each branch, an entry in no group included (`abs` of the entry converted to `W`). The entries of `v` and `x` are converted to `W` before they are classified or measured: a block is zero when all its entries are zeros of either sign after the conversion (`-0.0` is zero, a subnormal entry is not), and an entry that does not fit `W` is infinite there (an integer `10^6` with a `Float16` `v` scores `+Inf`). The coefficient `c = λ0 w[k]` (`λ w` with the weight one for `NormL2`) is formed by the helper of the three-argument screen and rounded once to `W`: it is `0` for a zero weight at any level, and `Inf` for an infinite weight, for an infinite level with a positive weight, and where the product overflows in `W`. A nonzero block uses the coefficient rounded to `W`. A zero block reuses the existing screen on `v` read in `W`, including the recovery of differences that involve finite out-of-range products; for `v`, `x` and the parameters of one floating type and a finite `v`, its value equals the screen of earlier versions bit for bit |
 | `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)`, `GroupNormL2` and `NormL2`: non-finite entries and coefficients | In this order, for the entries of `v_G` and `x_G` converted to `W`: a `NaN` gives `NaN`; otherwise an infinite entry gives `+Inf`. Then, at a nonzero block, an infinite `c` gives `+Inf` and `c = 0` gives `norm(v_G)`. At a zero block the rules of the screen stay, with one exception: an infinite entry of `v_G` with an infinite `c` is `+Inf`, where the screen is `NaN` (`Inf - Inf`). For a finite `v_G`, an infinite level or weight (with a positive weight) gives `-Inf` at a zero block; where `c` overflowed to infinity from finite parameters the screen recovers the difference from the finite factors, and the value can be finite (`GroupNormL2(floatmax(Float64), [[1]], [1.5])`, `v = [floatmax(Float64)]` and `x = [0.0]` give about `-floatmax(Float64)/2`). The full-point form keeps a `NaN` in its running maximum, so a `NaN` takes precedence over `+Inf` at another group or entry, and takes the maximum with zero of `W` otherwise (`-Inf` scores of zero blocks do not raise it). An entry in no group has `abs` of the converted entry, with `NaN` giving `NaN` and an infinite entry `+Inf` |
 | `kkt_violation(f,v,x,k)`, `GroupNormLinf` | The margin `‖v_G‖₁ - c` at a zero group (entries converted to the working type `W` of the row above, zero of either sign), `c = λ0 w[k]` formed by the helper of the three-argument screen and converted to `W`; an entry in no group has `abs` of the converted entry. In this order for the entries of `v_G`: a `NaN` gives `NaN`; an infinite entry, or a sum of magnitudes that overflows in `W`, gives `+Inf`, also when `c` is infinite; then an infinite `c` (an infinite weight, an infinite level with a positive weight, a zero level with an infinite weight, or a product that overflows in `W`) gives `-Inf`, and a zero weight gives `‖v_G‖₁`. A nonzero group (a `NaN` or infinite entry of `x_G` included), the full-point form and the three-argument form throw an `ArgumentError`; the call has no method under `Scaled` |
@@ -418,27 +358,11 @@ all-NaN result or a particular exception.
 The `NormL1` assertions are retained in its
 [executed endpoint example](@ref spec-norml1-endpoints).
 
-```@setup numerical_endpoints
-using ProximalBase
-```
+The `ElasticNet` assertions are retained in its
+[executed endpoint examples](@ref spec-elasticnet-endpoints).
 
-```@example numerical_endpoints
-@assert prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0) == [0,0,0]  # infinite ridge level: {0}
-@assert ElasticNet(1.0,Inf)([0.0,0.0]) == 0 && ElasticNet(1.0,Inf)([0.0,1e-300]) == Inf
-@assert isnan(ElasticNet(1.0,Inf)([NaN,0.0]))
-@assert prox(ElasticNet(Inf,1.0,[1.0,0.0]),[NaN,3.0],0.0) == [0,3]  # the NormL1 rule (#665)
-@assert try prox(ElasticNet(1.0,1.0),[1.0],-1.0); false catch e; e isa ArgumentError end
-prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)
-```
-
-```@example numerical_endpoints
-@assert isequal(prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0), [0.0,0.0,3.0,Inf,0.0,NaN])  # the projection
-@assert prox(NormL1Nonneg(Inf,[1.0,0.0]),[NaN,-2.0],0.0) == [0,0]   # the NormL1 rule (#665), a zero weight projects
-@assert NormL1Nonneg(0.0)([Inf,1.0]) == 0 && NormL1Nonneg(0.0)([-1.0]) == Inf
-@assert isnan(NormL1Nonneg(2.0)([NaN,-1.0])) && NormL1Nonneg(2.0)([1.0,-1e-300]) == Inf
-@assert try prox(NormL1Nonneg(1.0),[1.0],-1.0); false catch e; e isa ArgumentError end
-prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)
-```
+The `NormL1Nonneg` assertions are retained in its
+[executed endpoint example](@ref spec-norml1nonneg-endpoints).
 
 The decision on `NormL1` non-finite inputs is retained with the
 [NormL1 endpoint clauses](@ref spec-norml1-endpoints).
@@ -477,6 +401,11 @@ counting each symmetric off-diagonal entry twice. A sparse iterate can
 omit a zero from storage and read it back as positive zero. Fused calls
 return the value at the stored output. Use a nonnegative, non-NaN step
 with `prox_block` and in calls through `Scaled`.
+
+### [Minimax concave penalty](@id spec-mcp)
+
+See the [MCP numerical contract](@ref mcp-contract) for step rules,
+value endpoints and the supported array and iterate routes.
 
 ### SCAD endpoints
 

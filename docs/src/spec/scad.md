@@ -1,12 +1,12 @@
 # [SCAD numerical contract](@id spec-scad)
 
-## Identity
+## [Identity](@id spec-scad-identity)
 
 [`SCAD`](@ref SCAD) is the separable smoothly clipped absolute deviation
 penalty. Its scalar hooks are defined in
 [`src/functions/scad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/scad.jl).
 
-## Definition and domain
+## [Definition and domain](@id spec-scad-definition)
 
 `SCAD(λ, a=3.7)` takes a nonnegative real level and a real shape above 2.
 Both parameters can be positive infinity. For a positive finite level and
@@ -21,13 +21,13 @@ p(t) = \begin{cases}
 \end{cases}
 ```
 
-## Traits
+## [Traits](@id spec-scad-traits)
 
 The family is separable, proximable and zero-preserving. Its type-level
 convexity and smoothness traits are false. Restriction returns the same
 function because the parameters are shared across entries.
 
-## Supported arguments
+## [Supported arguments](@id spec-scad-arguments)
 
 Direct value and proximal oracles use the real, one-based dense array
 and iterate routes of [`SeparableFunction`](@ref SeparableFunction).
@@ -47,14 +47,14 @@ Array steps pair with coordinates by linear index on dense arrays,
 `SparseIterate` and `BlockIterate`. A `SymmetricSparseIterate` destination
 requires a scalar step.
 
-## Preconditions
+## [Preconditions](@id spec-scad-preconditions)
 
 Exact input/output identity and independent destinations are supported.
 Sizes and axes follow the [array conventions](@ref numerical-usage).
 Use nonnegative, non-NaN steps with `prox_block` and as the effective
 steps passed through `Scaled`.
 
-## Results
+## [Results](@id spec-scad-results)
 
 `prox` allocates the result and `prox!` returns its destination.
 `value_and_prox!` evaluates the value at the stored result, including
@@ -62,7 +62,7 @@ destination rounding. Sparse value and same-kind sparse proximal
 routes visit stored entries. The symmetric value counts each
 off-diagonal entry twice. Block proximal calls visit the full array.
 
-## Ordinary-path clauses
+## [Ordinary-path clauses](@id spec-scad-ordinary)
 
 For a positive finite level and step, and a finite shape and input, the
 scalar operator minimizes ``p(u) + (u-|v|)^2/(2\gamma)`` over
@@ -73,7 +73,7 @@ its endpoints suffice, with the smaller endpoint representing a flat
 interval. The proximal operator selects the smaller magnitude on an
 exact tie. A positive magnitude takes the sign of the input.
 
-## Range clauses
+## [Range clauses](@id spec-scad-range)
 
 The comparisons for large steps use algebraic differences of the complete
 objective in magnitude units. This avoids forming the squared distance
@@ -110,7 +110,7 @@ shape increases. As the level increases, each nonzero fixed magnitude
 eventually lies on the first piece and its value diverges. The infinite-level
 limit is therefore the indicator of zero.
 
-## Failure behavior
+## [Failure behavior](@id spec-scad-failures)
 
 The constructor rejects negative or NaN levels and shapes at or below 2
 or equal to NaN with `ArgumentError`. Direct array oracles reject negative
@@ -118,7 +118,7 @@ or NaN steps before writes. They check every entry of an array step,
 including inactive coordinates. Array steps on symmetric sparse outputs
 are rejected before writes. Structural checks follow the array conventions.
 
-## Limitations and non-guarantees
+## [Limitations and non-guarantees](@id spec-scad-limitations)
 
 Finite comparisons near a change of minimizer can round. The homogeneous
 targets describe the supported precision. Positive `Scaled` factors use the
@@ -127,7 +127,7 @@ An infinite factor at a positive step can give a NaN value at zero output.
 An infinite factor at zero step gives an effective step outside the supported
 domain.
 
-## Clauses owned elsewhere
+## [Clauses owned elsewhere](@id spec-scad-elsewhere)
 
 This section links to the shared owners.
 
@@ -135,7 +135,7 @@ This section links to the shared owners.
 - [Shared range guarantees](@ref numerical-value-range)
 - [Scaling a function](@ref scaling-guide)
 
-## Evidence
+## [Evidence](@id spec-scad-evidence)
 
 [`test/scad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/scad.jl)
 checks both supported types against a BigFloat objective and a bounded
@@ -143,7 +143,7 @@ search. It covers switches and ties, finite range and endpoints, sparse
 activity, aliases, pre-write validation and fused values. The
 [penalty guide](../penalties.md#SCAD-penalty) includes an executable example.
 
-## History
+## [History](@id spec-scad-history)
 
 The [restoration issue #953](https://github.com/mlakolar/ProximalBase.jl/issues/953)
 records the numerical decisions and test plan.

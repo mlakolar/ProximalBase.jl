@@ -33,6 +33,7 @@ quick = [
   "logdet",
   "logisticloss",
   "matrixview",
+  "mcp",
   "minimal_math",
   "norml0",
   "norml1nonneg",
@@ -61,4 +62,61 @@ thorough = []
 full = []
 
 [not_tests]
-files = ["runtests", "tiers", "testutils"]
+files = ["mcp_reference", "runtests", "tiers", "testutils"]
+
+[weights]
+active_handle = 4.6
+block_copy = 9.6
+block_replacement = 17.9
+block_value_updates = 11.5
+cache_and_blocks = 2.0
+ci_contract = 2.3
+core_functions = 16.8
+dropzeros_compaction = 4.0
+elasticnet = 28.9
+elasticnet_extremes = 40.5
+groupnorml2 = 25.9
+groupnormlinf = 35.0
+indballl1 = 24.9
+indballl2 = 16.8
+indballlinf = 4.8
+indbox = 9.0
+indnonnegative = 16.1
+infinite_weights = 28.2
+iterate_invariants = 5.3
+iterate_queries = 17.4
+iterate_writes = 19.3
+kkt_block = 99.5
+kkt_linf = 42.4
+kkt_point = 43.8
+kkt_smooth = 85.0
+leastsquares_predictor = 44.9
+linear_shapes = 112.3
+linear_sparse_value = 17.7
+linear_value_recovery = 5.9
+logdet = 19.6
+logisticloss = 30.0
+matrixview = 8.7
+mcp = 15.0
+minimal_math = 23.1
+norml0 = 6.0
+norml1nonneg = 14.6
+norml1nonneg_extremes = 17.3
+norml2 = 18.8
+normlinf = 63.7
+numerical_kernels = 66.4
+numerical_recovery = 150.0
+one_based_axes = 239.0
+quadratic_domain = 17.2
+real_iterates = 49.6
+ridge_precision = 8.5
+scad = 15.0
+sparse_iterate = 68.9
+sparse_iterate_basics = 26.0
+sparse_iterate_basics_grids = 7.2
+sparse_value_cost = 5.4
+sqrt_leastsquares = 20.1
+symmetric_iterate_indexing = 5.9
+symmetric_iterate_interface = 15.8
+symmetric_parameters = 55.7
+symmetric_products = 12.0

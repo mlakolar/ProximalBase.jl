@@ -171,6 +171,42 @@ PB_ARCHIVE=/tmp/pb849-baseline PB_CANDIDATE="$PWD" PB_ROUNDS=21 PB_OUTPUT=/tmp/p
   julia --threads=1 --check-bounds=no --project=benchmark benchmark/indnonnegative.jl
 ```
 
+## MCP harness
+
+`mcp.jl` compares the candidate with the archived tree at
+`eff21b6d7d33c622313122f46c6ee71693c101ee` and a second compilation of the
+candidate for the A/A control. It uses Float32 and Float64 at sizes 8, 1024
+and 65536. Steps range from `a/2` and `7a/8` to `9a/8` and `3a/2`.
+Cases cover scalar `prox_block` loops, dense `prox!`, dense values, and
+`value_and_prox!` with scalar and per-entry steps, plus value and scalar-step
+calls on sparse, block and symmetric sparse iterates.
+
+Seeded finite inputs stay more than 1.5% from decision boundaries in the
+mathematically comparable cases. The harness checks each result against a
+Float64 reference and checks fused values against the value at the stored
+output. It measures warmed allocations before timing. `PB_CHECK_ONLY=1`
+runs those checks alone and `PB_FILTER` selects case IDs by regular expression.
+
+Each process alternates order over at least five paired rounds.
+`PB_REVERSE=1` reverses the initial load and timing order in a fresh process.
+`PB_OUTPUT` holds raw timings, the candidate/archive and A/A ratios for
+each pair, allocation counts, provenance and a summary of medians and ranges.
+
+```sh
+mkdir -p /tmp/pb952-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb952-archive
+PB_ARCHIVE=/tmp/pb952-archive PB_CANDIDATE="$PWD" PB_ROUNDS=7 PB_OUTPUT=/tmp/pb952-results \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/mcp.jl
+PB_REVERSE=1 PB_ARCHIVE=/tmp/pb952-archive PB_CANDIDATE="$PWD" PB_ROUNDS=7 PB_OUTPUT=/tmp/pb952-results-reversed \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/mcp.jl
+```
+
+The extended sweep checks finite ranges and neighbors of the three decision
+boundaries using the full-objective BigFloat reference from the MCP tests.
+
+```sh
+PB_MCP_SWEEP=large PB_MCP_SEED=952 julia --project=. --threads=1 benchmark/mcp_reference_sweep.jl
+```
+
 ## ElasticNet array-step harness
 
 `ridge910.jl` times the loop of `ElasticNet` with an array of steps (issue #910) and the code

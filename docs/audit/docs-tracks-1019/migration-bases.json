@@ -56,6 +56,15 @@
         "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
       ],
       "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::146",
+      "baseline_sha": "1fd2491dfa8d034c52a61b49295dd56d22c8be4f895a398c81e7bbb737de8c46",
+      "upstream_sha": "411a71832a24929f8728e68e7906d959050eb0c12fc8335af57a51daafb3645d",
+      "source_shas": [
+        "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4"
+      ],
+      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
     }
   ]
 }

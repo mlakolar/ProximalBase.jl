@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "family": "logisticloss",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 45162,
+      "source_end": 45834,
+      "source_line": 724,
+      "text": "The constructor borrows model arrays. Same-shape edits between calls must\npreserve the validated data domain. Reconstruct the loss for structural changes\nand refresh a caller-held predictor when its defining inputs change.\nOrdinary calls share private scratch and require synchronization across tasks.\nPredictor calls can share a loss across tasks when model data stay read-only\nand the outputs are independent. Before writes, the oracles reject nonempty\noutput overlaps reported by `Base.mightalias` with the input, other output,\nmodel arrays (including CSC values and indices) or scratch. An input predictor or\ncoefficient vector must also be independent of the scratch.",
+      "destination": "docs/src/spec/logisticloss.md",
+      "anchor": "spec-logisticloss-preconditions",
+      "destination_text": "The constructor borrows model arrays. Same-shape edits between calls must\npreserve the validated data domain. Reconstruct the loss for structural changes\nand refresh a caller-held predictor when its defining inputs change.\nOrdinary calls share private scratch and require synchronization across tasks.\nPredictor calls can share a loss across tasks when model data stay read-only\nand the outputs are independent. Before writes, the oracles reject nonempty\noutput overlaps reported by `Base.mightalias` with the input, other output,\nmodel arrays (including CSC values and indices) or scratch. An input predictor or\ncoefficient vector must also be independent of the scratch.",
+      "source_sha256": "39c1f8ddf965b233795f1966a998970d6eff6a641567d9ca1a9b3307c3906d23",
+      "destination_sha256": "39c1f8ddf965b233795f1966a998970d6eff6a641567d9ca1a9b3307c3906d23",
+      "forwarding_text": "See the [LogisticLoss preconditions](@ref spec-logisticloss-preconditions)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 45836,
+      "source_end": 46783,
+      "source_line": 734,
+      "text": "The scalar formulas preserve the small tail for saturated responses.\nFor a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a\ncentered expression to retain the slope through weighting. A\nzero-weight row contributes zero to the value and observation derivative, even\nat a nonfinite predictor. At active rows, NaN propagates. Infinite predictors\ngive the logistic limit: zero loss for a matching binary response, and infinity\notherwise. Standard matrix products may still propagate nonfinite design\nentries, including through a zero derivative. For large weights the scalar\nloop retains a weighted tail when the unweighted exponential becomes subnormal\nor zero. The matrix products, final value sum and outer scaling use ordinary\nfloating-point arithmetic with their usual rounding and range limits.\nThe loss supplies first-order oracles. The historical generic scalar-loss,\ncoordinate and second-order interfaces remain deferred.",
+      "destination": "docs/src/spec/logisticloss.md",
+      "anchor": "spec-logisticloss-range",
+      "destination_text": "The scalar formulas preserve the small tail for saturated responses.\nFor a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a\ncentered expression to retain the slope through weighting. A\nzero-weight row contributes zero to the value and observation derivative, even\nat a nonfinite predictor. At active rows, NaN propagates. Infinite predictors\ngive the logistic limit: zero loss for a matching binary response, and infinity\notherwise. Standard matrix products may still propagate nonfinite design\nentries, including through a zero derivative. For large weights the scalar\nloop retains a weighted tail when the unweighted exponential becomes subnormal\nor zero. The matrix products, final value sum and outer scaling use ordinary\nfloating-point arithmetic with their usual rounding and range limits.\nThe loss supplies first-order oracles. The historical generic scalar-loss,\ncoordinate and second-order interfaces remain deferred.",
+      "source_sha256": "ae4802b3b17080ab84dbe8b5118e5569f38a097d0e87d21368a29a73b82375f0",
+      "destination_sha256": "ae4802b3b17080ab84dbe8b5118e5569f38a097d0e87d21368a29a73b82375f0",
+      "forwarding_text": "See the [LogisticLoss range clauses](@ref spec-logisticloss-range)."
+    }
+  ]
+}

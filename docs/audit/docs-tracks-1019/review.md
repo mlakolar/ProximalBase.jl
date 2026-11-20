@@ -756,3 +756,17 @@ The changed test-inventory block in `test/TESTING.md` retains its original
 identity and gains one verified event. The review compared the landed Git
 blobs and the test assertions for the one-group comparison and Michelot
 handover. The audit now holds 60 receipts and 109 transitions.
+
+## Reconciliation after GroupNormLinf optimality scores (#1064)
+
+`sparsegroup_receipt_review@d3b671e8ecd8f88b56f2716feb21ee5730fcd7be`
+verified that [#1064](https://github.com/mlakolar/ProximalBase.jl/pull/1064)
+merged with actual first parent `1f57a65ff6be2315eb74118a9d7c47ea1f9cf077`.
+The review compared the landed Git blobs for 15 existing receipt chains with
+the scoring branches in source and their coverage in the tests. Three
+two-block spans retained their order. The CI sharding span grew from seven
+blocks to eight with the new group scoring timing observation. The renamed
+GroupNormLinf heading was absent from the frozen anchor inventory and had no
+authored incoming references in the repository audit. No moved family blocks
+in #1088–#1092 share these receipt roots. The audit now holds 60 receipts and
+124 transitions.

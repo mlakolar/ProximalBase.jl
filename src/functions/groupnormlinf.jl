@@ -22,8 +22,7 @@ units of the branch that decides (both are rounded). The radius is formed as `(�
 the output type; when `γλ₀` is not a normal number or the product leaves the normal range of the output type, it is formed
 from the significands and exponents of the three factors instead. [`prox_block`](@ref) takes a compact
 vector in `groups[k]` order; it does not update an iterate. To commit its result, use `copyto!(blockview(x, k), out)`.
-See [the group ℓ∞ norm](@ref group-linf-guide) for the formula, the group step and the optimality screen at a zero
-group.
+See [the group ℓ∞ norm](@ref group-linf-guide) for the formula, the group step and the optimality scores.
 
 # Examples
 ```jldoctest
@@ -47,6 +46,9 @@ julia> Tuple(prox(h, [3.0, 9.0, 1.0], 1.0))
 
 julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
 0.25
+
+julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [2.0, 4.0], [1.0, 0.0], 1)
+5.0
 ```
 
 # Edge cases
@@ -71,9 +73,15 @@ julia> kkt_violation(GroupNormLinf(1.0, [1:2]), [5/8, 5/8], zeros(2), 1)
   `δ = nextfloat(zero(T))`. This assumes round-to-nearest arithmetic and `n eps(T) ≤ 1/2` (unchecked, at most `2^22`
   entries per group in `Float32`). The bound is absolute and compares with clipping at the exact product `γλ₀wₖ`.
   The implementation uses the shared ℓ1-ball threshold of [`NormLinf`](@ref), with power-of-two scaling for large sums.
-- `kkt_violation(f, v, x, k)` is provided at a zero group (and at an entry in no group): the signed margin
-  `‖v[Gₖ]‖₁ - λ₀wₖ`. A nonzero group, the full-point form `kkt_violation(f, v, x)` and the three-argument form `kkt_violation(f, v, i)`
-  throw an `ArgumentError`.
+- `kkt_violation(f, v, x, k)` scores the group of entry `k` of an array point, or group `k` of a [`BlockIterate`](@ref); an entry in
+  no group scores `abs(v[k])`. At a zero group it is the signed margin `‖v[Gₖ]‖₁ - λ₀wₖ`. At a nonzero group it is the Euclidean
+  distance from `-v[Gₖ]` to the subdifferential of `λ₀wₖ max|x[Gₖ]|` at `x[Gₖ]`, computed as the full-point score of
+  [`NormLinf`](@ref) is, with its face (the entries of largest magnitude after conversion to the working type, with no tolerance),
+  its exceptional values and its accuracy bound. `kkt_violation(f, v, x)` is the maximum of zero, of `abs(v[i])` over the entries in
+  no group and of that distance for every group, a zero group included: there it is the distance from `v[Gₖ]` to the ℓ1 ball of
+  radius `λ₀wₖ`, which is not the margin. The three-argument form `kkt_violation(f, v, i)` and a `SymmetricSparseIterate` throw
+  an `ArgumentError`, and so does a nonzero group of `n` entries for which `n + 1` is not a finite number of the working type (in
+  the full-point form, any group of that size).
 - The threshold needs a buffer of the length of the largest group. The object keeps one, allocated by the first group step
   that needs it and again when the element type changes. [`prox!`](@ref) and [`value_and_prox!`](@ref) use it for every
   group that reaches the threshold. [`prox_block!`](@ref) uses `out` as the buffer, and leaves the buffer of the object
@@ -411,16 +419,19 @@ end
 #  Optimality
 ####################################
 
-# BlockIterate(x, f), the three-argument form and the symmetric iterate follow GroupNormL2. At a zero group the score is
-# the margin ‖v[G]‖₁ - c of the dual (ℓ1) norm, with c = λ0 w in the working type W; a nonzero group has no score here, and
-# the full-point form is not provided.
+# The score of group G = f.groups[k] at the point x and the gradient entries v, in W = float(promote_type(eltype(v), eltype(x))),
+# with the coefficient c = λ w_k that _kkt_coefficient(W, λ, w_k) forms from the level λ of the call (f.λ0, or the level that a
+# chain of Scaled wrappers folds into it):
+#   x[G] = 0:  the margin ‖v[G]‖₁ - c of the dual (ℓ1) norm, signed (_linf_zero_score);
+#   x[G] ≠ 0:  the Euclidean distance from -v[G] to the subdifferential of c‖·‖∞ at x[G], which _linf_point (the full-point
+#              score of NormLinf) computes for the group read through _IndexedValues. The face is the set of entries of x[G]
+#              whose magnitude, after the conversion to W, equals the largest one, with no tolerance; the exceptional values and
+#              the accuracy bound are those of _linf_point, for the n entries of the group.
+# The full-point form scores every group by that distance, a zero group included, where it is the distance from v[G] to the ℓ1
+# ball of radius c (zero for finite entries when the sum of the magnitudes of v[G], as computed in W, is at most c), not the margin of the four-argument form. BlockIterate(x, f), the three-argument form
+# and the symmetric iterate follow GroupNormL2.
 kkt_violation(f::GroupNormLinf, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _not_separable_error(f))
-
-@noinline _linf_nonzero_error(f) = throw(ArgumentError(
-  "kkt_violation(f, v, x, k) of $(nameof(typeof(f))) is provided at a zero group only: the score of a nonzero group is not provided"))
-@noinline _linf_point_error(f) = throw(ArgumentError(
-  "kkt_violation(f, v, x) of $(nameof(typeof(f))) is not provided: use kkt_violation(f, v, x, k) at a zero group"))
 
 # the margin of the zero group G for the gradient entries v read in W: NaN for a NaN entry of v[G], Inf for an infinite
 # entry or a computed sum of magnitudes that overflows (that branch comes first), also when c = Inf, and -Inf for c = Inf
@@ -433,32 +444,75 @@ kkt_violation(f::GroupNormLinf, g::AbstractArray, i::Integer) =
   isinf(c) && return W(-Inf)
   s - c
 end
-@inline function _linf_group_score(f::GroupNormLinf, k::Integer, v, x)
-  G = @inbounds f.groups[k]
-  W = float(promote_type(eltype(v), eltype(x)))
-  _l2_zero_group(x, G, W) || _linf_nonzero_error(f)
-  _linf_zero_score(f.λ0, @inbounds(f.w[k]), v, G, W)
+
+# The distance from -v[G] to the subdifferential of c‖·‖∞ at x[G] for the coefficient c in W, by _linf_point on the n = |G| entries
+# of the group. _linf_point needs n + 1 to be a finite number of W: _linf_length_error is thrown otherwise, as the full-point form of
+# NormLinf does for its length.
+@inline function _linf_group_distance(f::GroupNormLinf, c::W, v, x, G, ::Type{W}) where {W}
+  isfinite(convert(W, length(G) + 1)) || _linf_length_error(f, length(G), W)
+  _linf_point(c, _IndexedValues(v, G, W), _IndexedValues(x, G, W), W)
 end
 
-function _linf_score(f::GroupNormLinf, g::AbstractArray, x::AbstractArray, i::Integer)
+# The score of group k at x: the margin where x[G] is zero (the test comes before the size check of the distance), the distance
+# otherwise. A method for the level of a chain that does not fold is in scaled.jl.
+@inline function _linf_group_score(f::GroupNormLinf, λ, k::Integer, v, x)
+  G = @inbounds f.groups[k]
+  w = @inbounds f.w[k]
+  W = float(promote_type(eltype(v), eltype(x)))
+  _l2_zero_group(x, G, W) && return _linf_zero_score(λ, w, v, G, W)
+  _linf_group_distance(f, _kkt_coefficient(W, λ, w), v, x, G, W)
+end
+
+# The score of a group (_linf_group_score) with the level λ of the call. Group k of f is selected by the entry i of an array
+# point (an entry in no group has the score |vᵢ|) or by the group number k of a BlockIterate, whose group count and
+# layout at group k are compared with those of f. A SymmetricSparseIterate has no groups.
+function _level_score(f::GroupNormLinf, λ, g::AbstractArray, x::AbstractArray, i::Integer)
   length(g) == length(x) || _gradient_length_error(g, x)
   _check_group_extent(f, x)
   checkbounds(x, i)
   k = i <= length(f.group_of) ? @inbounds(f.group_of[i]) : 0
   k == 0 && return abs(convert(float(promote_type(eltype(g), eltype(x))), g[i]))
-  _linf_group_score(f, k, g, x)
+  _linf_group_score(f, λ, k, g, x)
 end
-function _linf_score(f::GroupNormLinf, g::AbstractArray, x::BlockIterate, k::Integer)
+function _level_score(f::GroupNormLinf, λ, g::AbstractArray, x::BlockIterate, k::Integer)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   B = blockindices(x, k)          # BoundsError for an invalid group
   B == @inbounds(f.groups[k]) || _block_layout_error(f, k)
   length(g) == length(x) || _gradient_length_error(g, x)
-  _linf_group_score(f, k, g, x)
+  _linf_group_score(f, λ, k, g, x)
 end
-_kkt_violation(f::GroupNormLinf, g::AbstractArray, x::AbstractArray, i::Integer) = _linf_score(f, g, x, i)
-_kkt_violation(f::GroupNormLinf, g::AbstractArray, x::BlockIterate, k::Integer) = _linf_score(f, g, x, k)
-_kkt_violation(f::GroupNormLinf, ::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
+_level_score(::GroupNormLinf, λ, g::AbstractArray, ::SymmetricSparseIterate, ::Integer) =
   throw(ArgumentError("GroupNormLinf groups linear indices; it does not apply to the coordinates of a SymmetricSparseIterate"))
+_kkt_violation(f::GroupNormLinf, g::AbstractArray, x::AbstractArray, i::Integer) = _level_score(f, f.λ0, g, x, i)
+_kkt_violation(f::GroupNormLinf, g::AbstractArray, x::BlockIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
+_kkt_violation(f::GroupNormLinf, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
 
-kkt_violation(f::GroupNormLinf, ::AbstractArray, ::AbstractArray) = _linf_point_error(f)
-kkt_violation(f::GroupNormLinf, ::AbstractArray, ::SymmetricSparseIterate) = _kkt_symmetric_point_error(f)
+# max(0, max over the groups of the distance, over the entries in no group of |vᵢ|), the maximum that keeps a NaN. Every group,
+# a zero group included, is scored by _linf_group_distance with its own coefficient, so that a group of n entries for which
+# n + 1 is not finite in W is refused whether it is zero or not. The entries in no group are those up to the largest index of a
+# group that no group holds, and those past it. The level λ is f.λ0 or the level that a chain of Scaled wrappers folds into it.
+function _level_point(f::GroupNormLinf, λ, v::AbstractArray, x::AbstractArray)
+  _check_one_based(v, x)
+  eltype(v) <: Real || _real_error(:kkt_violation)
+  eltype(x) <: Real || _real_error(:kkt_violation)
+  length(v) == length(x) || _gradient_length_error(v, x)
+  _check_group_extent(f, x)
+  _check_point_layout(f, x)
+  W = float(promote_type(eltype(v), eltype(x)))
+  m = zero(W)
+  for k in eachindex(f.groups)
+    c = _kkt_coefficient(W, λ, @inbounds(f.w[k]))
+    m = max(m, _linf_group_distance(f, c, v, x, @inbounds(f.groups[k]), W))
+  end
+  @inbounds for i in f.free
+    m = max(m, abs(convert(W, v[i])))
+  end
+  @inbounds for i in length(f.group_of)+1:length(x)
+    m = max(m, abs(convert(W, v[i])))
+  end
+  m
+end
+kkt_violation(f::GroupNormLinf, v::AbstractArray, x::AbstractArray) = _level_point(f, f.λ0, v, x)
+kkt_violation(f::GroupNormLinf, ::AbstractArray, ::SymmetricSparseIterate) = _linf_symmetric_error(f)
+@noinline _linf_symmetric_error(f) = throw(ArgumentError(
+  "kkt_violation of $(nameof(typeof(f))) has no form for a SymmetricSparseIterate point: its groups are linear indices of an array"))

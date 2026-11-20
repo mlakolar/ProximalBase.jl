@@ -154,4 +154,25 @@ end
   end
 end
 
+@testset "Sampled dense selection on structured orders" begin
+  n = 4096
+  for T in (Float32, Float64)
+    for x in (T.(1:n), T.(n:-1:1), T[min(i, n-i+1) for i in 1:n],
+              T[(-1)^i * (i % 11) for i in 1:n])
+      order = sortperm(eachindex(x); by = i -> (-abs(x[i]), i))
+      for s in (1, 17, n ÷ 2, n - 1)
+        expected = zeros(T, n)
+        for i in view(order, 1:s)
+          expected[i] = x[i]
+        end
+        f = IndBallL0(s)
+        @test prox(f, x) == expected
+        y = copy(x)
+        @test value_and_prox!(y, f, y) === zero(T)
+        @test y == expected
+      end
+    end
+  end
+end
+
 end

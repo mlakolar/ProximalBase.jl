@@ -140,10 +140,35 @@ function _l0_entry_stats(values, ids, diag, mode)
   n, bad
 end
 
+# Keep Float32 counts as wide as their inputs when the length fits in Int32.
+# This lets the count and nonfinite mask share the same SIMD lanes.
+function _l0_dense_stats(x, ::Nothing, mode)
+  if eltype(x) === Float32 && length(x) <= typemax(Int32)
+    return _l0_dense_count(x, mode, Int32)
+  end
+  _l0_dense_count(x, mode, Int)
+end
+_l0_dense_stats(x, diag::Tuple, mode) = _l0_entry_stats(x, eachindex(x), diag, mode)
+
+function _l0_dense_count(x, mode, ::Type{I}) where {I}
+  T = eltype(x)
+  U = T === Float32 ? UInt32 : UInt64
+  signmask = typemax(U) >> 1
+  n, largest = zero(I), zero(U)
+  @inbounds @simd for i in eachindex(x)
+    magnitude = reinterpret(U, x[i]) & signmask
+    n += I(!iszero(magnitude))
+    largest = max(largest, magnitude)
+  end
+  # Absolute IEEE bit patterns place NaN above infinity. The maximum
+  # therefore classifies the entire counted input without a second pass.
+  Int(n), _l0_invalid(reinterpret(T, largest), mode)
+end
+
 @inline _l0_value(::Type{T}, f, n, nan) where {T} = nan ? T(NaN) : n <= f.s ? zero(T) : T(Inf)
 function (f::IndBallL0)(x::_L0Dense{T}) where {T<:_L0Float}
   _l0_check_eltype(x)
-  n, nan = _l0_entry_stats(x, eachindex(x), _l0_free_diagonal(f, x), Val(:value))
+  n, nan = _l0_dense_stats(x, _l0_free_diagonal(f, x), Val(:value))
   _l0_value(T, f, n, nan)
 end
 function (f::IndBallL0)(x::_L0Sparse{T}) where {T<:_L0Float}
@@ -155,14 +180,65 @@ end
 function _l0_project!(y::Array{T, N}, f::IndBallL0, x::Array{T, N}, γ) where {T<:_L0Float, N}
   N in (1, 2) || _l0_unsupported("the argument", typeof(x))
   _l0_preflight(y, x, γ)
-  ids = eachindex(x)
   diag = _l0_free_diagonal(f, x)
-  n, bad = _l0_entry_stats(x, ids, diag, Val(:prox))
+  n, bad = _l0_dense_stats(x, diag, Val(:prox))
   bad && _l0_nonfinite()
   if n <= f.s
     y === x || copyto!(y, x)
     return
   end
+  _l0_select_dense!(y, f, x, diag, n)
+end
+
+function _l0_select_dense!(y, f, x, ::Nothing, ::Int)
+  if f.s == 0
+    fill!(y, zero(eltype(y)))
+    return
+  end
+  if f.s == 1
+    τ = maximum(abs, x)
+    keep = true
+    @inbounds for i in eachindex(x)
+      v = x[i]
+      take = (abs(v) == τ) & keep
+      y[i] = ifelse(take, v, zero(v))
+      keep &= !take
+    end
+    return
+  end
+  b = _array_buffer!(f.scratch, eltype(x), (length(x),))
+  @inbounds @simd for i in eachindex(x)
+    b[i] = abs(x[i])
+  end
+  τ = _l0_select_sampled!(b, 1, length(b), f.s)
+  above, equal = 0, 0
+  @inbounds @simd for i in eachindex(x)
+    a = abs(x[i])
+    above += a > τ
+    equal += a == τ
+  end
+  @inbounds @simd for i in eachindex(x)
+    v = x[i]
+    y[i] = ifelse(abs(v) >= τ, v, zero(v))
+  end
+  quota = f.s - above
+  if equal > quota
+    @inbounds for i in eachindex(y)
+      if abs(y[i]) == τ
+        if quota > 0
+          quota -= 1
+        else
+          y[i] = zero(eltype(y))
+        end
+      end
+    end
+  end
+  nothing
+end
+
+function _l0_select_dense!(y, f, x, diag::Tuple, n)
+  ids = eachindex(x)
+  T = eltype(x)
   τ, quota = T(Inf), 0
   if f.s > 0
     # Nonzero magnitudes suffice, since this branch has more than s of them.
@@ -186,6 +262,51 @@ function _l0_project!(y::Array{T, N}, f::IndBallL0, x::Array{T, N}, γ) where {T
     y[i] = (free || a > τ || tied) ? v : zero(T)
   end
   nothing
+end
+
+# Floyd–Rivest sampled quickselect, as in the archived ordinary dense
+# projector. A subsample gives a pivot near rank k before partitioning the
+# larger range. The symmetric pair kernel uses its separate three-way
+# selector for structured pair magnitudes.
+function _l0_select_sampled!(v, lo::Int, hi::Int, k::Int)
+  @inbounds while hi > lo
+    if hi - lo > 600
+      n = hi - lo + 1
+      rank = k - lo + 1
+      z = log(n)
+      sample = exp(2z / 3) / 2
+      shift = sqrt(z * sample * (n - sample) / n) / 2 * sign(rank - n / 2)
+      samplelo = clamp(floor(Int, k - rank * sample / n + shift), lo, k)
+      samplehi = clamp(floor(Int, k + (n - rank) * sample / n + shift), k, hi)
+      _l0_select_sampled!(v, samplelo, samplehi, k)
+    end
+    pivot = v[k]
+    i, j = lo, hi
+    v[lo], v[k] = v[k], v[lo]
+    if v[hi] < pivot
+      v[hi], v[lo] = v[lo], v[hi]
+    end
+    while i < j
+      v[i], v[j] = v[j], v[i]
+      i += 1
+      j -= 1
+      while v[i] > pivot
+        i += 1
+      end
+      while v[j] < pivot
+        j -= 1
+      end
+    end
+    if v[lo] == pivot
+      v[lo], v[j] = v[j], v[lo]
+    else
+      j += 1
+      v[j], v[hi] = v[hi], v[j]
+    end
+    j <= k && (lo = j + 1)
+    k <= j && (hi = j - 1)
+  end
+  @inbounds v[k]
 end
 
 # Rank stored entries by magnitude then by logical coordinate. Inserting the

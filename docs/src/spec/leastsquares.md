@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`LeastSquaresLoss`](@ref).
 
 Source: [`src/functions/leastsquares.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/leastsquares.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-leastsquares-definition)
 
@@ -37,6 +37,8 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 **Links only until clause conversion.** The ordinary mathematical formulas and examples remain in [the function guide](../smooth.md#Least-squares-loss).
 
 ## [Range clauses](@id spec-leastsquares-range)
+
+The [shared range guarantees](@ref numerical-value-range) describe the squared-residual recovery referenced here.
 
 The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the product `Xβ` overflows
 although `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` attempt to form `Xβ` again in units of a power of

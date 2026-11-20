@@ -4,7 +4,9 @@ module GroupNormLinfTest
 # written in this file in BigFloat, in Float32 and Float64. The established reference cases keep their tolerance of
 # TOL_C n eps(T) max|xᵢ| plus two subnormal spacings. The documented bound allows (2n + 1) subnormal spacings to
 # account for the shared threshold and the rounded radius. A group equal to the whole argument is also
-# compared with NormLinf, and singleton groups with NormL1: the proximal outputs bit for bit, the values within a tolerance.
+# compared with NormLinf (bit for bit up to 8 entries, and above that both within the bound of the reference, since the passes
+# of a handover sum in an order that depends on the layout), and singleton groups with NormL1: the proximal outputs bit for
+# bit, the values within a tolerance.
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
 
@@ -257,8 +259,13 @@ end
   rng = Xoshiro(956)
   λ = T(0.7)
   checked = 0
-  # Condat's pass decides these (at most 1024 candidates), with a normal γλ and values in the ordinary range: the level,
-  # the clip and the value agree bit for bit
+  # Inputs with a normal γλ and values in the ordinary range. Up to 8 entries Condat's pass cannot hand over (its count is not tested
+  # above 5), so the level comes from the entries read one by one into a dense buffer, whatever the layout of the argument: the
+  # level, the clip and the value agree bit for bit. From 9 entries on the pass can hand over to Michelot's iteration (from
+  # n = 16 on here), whose passes run over the argument, from the sum of the caller's pass: the order of those sums depends on
+  # how the layout (an Array, or the group read through its indices) vectorizes, so both outputs and both values are compared
+  # with the BigFloat reference, within the bound of the level that the file uses, and not with each other. The value at the
+  # argument has no threshold and agrees bit for bit at each size
   for n in (1, 2, 3, 5, 16, 17, 100, 300, 1000), kind in 1:3
     x = gen(rng, T, n, kind)
     s1 = sum(abs, x)
@@ -267,10 +274,21 @@ end
       f, h = GroupNormLinf(λ, [1:n]), NormLinf(λ)
       y, yh = zeros(T, n), zeros(T, n)
       v, vh = value_and_prox!(y, f, x, γ), value_and_prox!(yh, h, x, γ)
-      @test same(y, yh) && v === vh
-      @test same(prox(f, x, γ), yh) && f(y) === h(yh) && f(x) === h(x)
+      yp = prox(f, x, γ)
       xi = copy(x)
-      @test prox!(xi, f, xi, γ) === xi && same(xi, yh)
+      @test prox!(xi, f, xi, γ) === xi && f(x) === h(x)
+      if n <= 8
+        @test same(y, yh) && v === vh
+        @test same(yp, yh) && f(y) === h(yh)
+        @test same(xi, yh)
+      else
+        # the three outputs of the group (value_and_prox!, prox and prox! in place) read the same array through the same reader:
+        # one layout and one path, so they agree bit for bit
+        @test same(yp, y) && same(xi, y)
+        ref, τs = ref_prox(x, [1:n], [one(T)], γ, λ)
+        @test all(z -> close_prox(z, ref, x), (y, yh, yp, xi))
+        @test close_value(v, x, [1:n], [one(T)], λ, τs) && close_value(vh, x, [1:n], [one(T)], λ, τs)
+      end
       checked += 1
     end
   end
@@ -363,7 +381,8 @@ end
     @test same(vec(Y)[1:p], y)
   end
   @test nclipped > 20 && nzero > 5 && ncopied > 3
-  # a group of 5000 entries without ties: more than 1024 candidates, so that Michelot's pass decides
+  # a group of 5000 entries without ties: through the prox (with the sum of the group) its candidates pass the early count
+  # max(8, n ÷ 8) = 625 while the level of Condat's pass is below the plain level of all the entries, so that Michelot's pass decides
   n = 5000
   x = T[rand(rng, T) for _ in 1:n]
   s1 = sum(abs, x)
@@ -375,9 +394,13 @@ end
   @test close_prox(y, ref, xx, f.groups)
   @test kkt_ok(y[1:n], xx[1:n], γ, λ0, f.w[1]) && kkt_ok(y[n+1:n+3], xx[n+1:n+3], γ, λ0, f.w[2])
   if Base.JLOptions().check_bounds == 1
-    # the pass hands over at max(1024, n ÷ 8) candidates: a buffer of that length suffices for it, and the call returns
-    # Michelot's level (checked where a write past the buffer throws)
-    buf = Vector{T}(undef, 1024)
+    # without the caller's sum the pass hands over at a test with max(1024, n ÷ 8) = 1024 in force. For this input the bound
+    # 1024 + 4 holds: the entries are below the radius, so they join the candidates and do not restart them, the count after g
+    # groups of four is 1 + 4g, the test at the count 629 (above the early count 625) puts 1024 in force, and the next test finds
+    # the count at most four above 1024 (here 1025). A buffer of 1024 + 4 entries therefore suffices here, and the call returns
+    # Michelot's level (checked where a write past the buffer throws). The bound is not general: with an early count of 1021 to
+    # 1023 the count can reach 1024 + 7 (test/normlinf.jl); a buffer of the length of the group suffices
+    buf = Vector{T}(undef, 1024 + 4)
     xv = PB._IndexedValues(xx, f.groups[1], T)
     r = T(0.5) * s1
     τ = PB._l1ball_threshold!(buf, xv, r, PB._AbsRead{T}())
@@ -414,21 +437,31 @@ end
   w[2] = zero(T)
   f = GroupNormLinf(λ0, groups, w)
   y = prox(f, x, γ)
+  ref, _ = ref_prox(x, groups, w, γ, λ0)
   for k in eachindex(groups)
     G = groups[k]
+    m = length(G)
     u = x[G]
+    # A group of at most 8 entries cannot hand over (after its one group of four the count is at most 5, not above the count 8
+    # in force, so no test is made), and Condat's pass reads its entries one by one into a dense buffer: the compact block agrees
+    # with the group of the array operator bit for bit. A larger group can hand over to Michelot's iteration, whose passes run
+    # over the argument: the order of their sums, and of the caller's sum, depends on how the layout (the compact block, or the
+    # group read through its indices in x) vectorizes, so both are compared with the BigFloat reference within the bound of the
+    # level. The compact forms that read the vector u, or its copy, agree with one another bit for bit; a view of another array
+    # as the input is held to the same rule as the array operator
+    agrees(z) = m <= 8 ? same(z, y[G]) : close_prox(z, ref[G], u) && close_prox(y[G], ref[G], u)
     out = prox_block(f, u, k, γ)
-    @test same(out, y[G])
-    out2 = fill(T(7), length(G))
-    @test prox_block!(out2, f, u, k, γ) === out2 && same(out2, y[G])
+    @test agrees(out)
+    out2 = fill(T(7), m)
+    @test prox_block!(out2, f, u, k, γ) === out2 && same(out2, out)
     ui = copy(u)
-    @test prox_block!(ui, f, ui, k, γ) === ui && same(ui, y[G])
+    @test prox_block!(ui, f, ui, k, γ) === ui && same(ui, out)
     # a view of an array as the input, a view as the output
     big_u = vcat(u, u)
-    @test same(prox_block!(fill(T(7), length(G)), f, view(big_u, 1:length(G)), k, γ), y[G])
-    big_out = fill(T(7), 2length(G))
-    ov = view(big_out, length(G)+1:2length(G))
-    @test prox_block!(ov, f, u, k, γ) === ov && same(ov, y[G]) && all(==(T(7)), view(big_out, 1:length(G)))
+    @test agrees(prox_block!(fill(T(7), m), f, view(big_u, 1:m), k, γ))
+    big_out = fill(T(7), 2m)
+    ov = view(big_out, m+1:2m)
+    @test prox_block!(ov, f, u, k, γ) === ov && same(ov, out) && all(==(T(7)), view(big_out, 1:m))
   end
   # an equal view as the output and the input is the same buffer
   buf = T[3, 1, 7]

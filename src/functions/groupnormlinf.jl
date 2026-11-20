@@ -287,7 +287,8 @@ end
 end
 
 # The clip level max(τ, 0) from the threshold of the ℓ1 ball of the magnitudes rd(xv[j]) at the radius r, as
-# _linf_threshold does for the whole argument. The handover reuses the caller's sum s in the same units as the read and radius.
+# _linf_threshold does for the whole argument. Condat's pass uses the caller's sum s, in the same units as the read and the radius,
+# in the test of the level for an early handover (with the ordinary read `_AbsRead`) and in the start of the handover.
 @inline function _linf_group_level(src, ::Type{T}, maxlen::Int, xv, r::T, rd, s::T) where {T}
   max(_l1ball_threshold!(_linf_buffer(src, T, maxlen), xv, r, rd, s), zero(T))
 end

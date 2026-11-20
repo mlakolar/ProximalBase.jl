@@ -315,6 +315,7 @@ all-NaN result or a particular exception.
 | `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (see [zero-step rule](@ref infinite-penalty-at-zero-step)), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
 | `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
 | `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
+| `SparseGroupNormL2` | See the [sparse-group endpoint rules](@ref sparse-group-l2-endpoints). |
 | `GroupNormLinf`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), also at an infinite level or step; zero value |
 | `GroupNormLinf`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` and `γ = Inf` included, also for `NaN`/`±Inf` inputs, and also for an infinite weight with a zero level; value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
 | `GroupNormLinf`, zero level or zero step, finite positive weight | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also when `λ0*w[k]` overflows and at `γ = Inf` with a zero level; value `0` at a zero level (`NaN` entries included), `λ0 w[k] max abs(x_G)` at a zero step of a positive level |
@@ -357,7 +358,51 @@ The `NormL1Nonneg` assertions are retained in its
 The decision on `NormL1` non-finite inputs is retained with the
 [NormL1 endpoint clauses](@ref spec-norml1-endpoints).
 
+### [Sparse-group endpoints](@id sparse-group-l2-endpoints)
+
+The following rules apply to each covered group in the array and compact
+proximal methods, in the order shown. Uncovered entries pass through the
+array prox and are ignored by the value.
+
+| Condition | Proximal result |
+|:--|:--|
+| Negative or NaN step | `ArgumentError` before writes |
+| Infinite stored ℓ₁ level, infinite weight, or infinite stored ℓ₂ level with positive weight | Fill the group with `+0`, including at a zero step and with NaN or infinite inputs |
+| Zero step or zero penalty after the hard constraints | Identity |
+| Infinite step and positive penalty after the hard constraints | Fill the group with `+0` |
+| Finite positive step and a positive group ℓ₂ term, with a NaN input | NaN throughout the group |
+| Finite positive step and a positive group ℓ₂ term, with an infinite input and no NaN | Keep the entrywise soft-threshold result without a further group shrink |
+| Other finite positive steps | Apply the entrywise soft threshold. A zero group term leaves that result in place. A positive group term then applies the group shrink. |
+
+The entrywise threshold at a finite step propagates NaN at the corresponding
+entry when the ℓ₁ term is positive. When finite `γλ1` overflows in the
+working type, a coupled group retains genuine infinite inputs. An ℓ₁-only
+group follows the [NormL1 endpoint rule](@ref spec-norml1-endpoints)
+and returns NaN at such an entry. The group shrink distinguishes a product
+of finite factors outside the working range from a stored infinite parameter.
+The supported homogeneous precision and general range limits above apply.
+For mixed-width calls, the stored intermediate and destination conversions
+can change the result. The fused value uses the stored destination.
+
+A zero group has value zero under a hard constraint. An entry outside the
+hard domain gives an infinite value unless a penalized entry yields NaN.
+Zero penalty terms contribute zero. NaN from a penalized entry takes
+precedence over infinite contributions.
+
+For the point-aware KKT methods, NaN among the entries read by a group gives
+NaN. Otherwise an infinite entry gives `+Inf`. For finite entries, a
+hard-constrained zero group gives `-Inf` and an active group outside
+the hard domain gives `+Inf`. An active group whose finite group-level
+product rounds to infinity also gives `+Inf` in the working type. At a
+zero group the signed screen retains the finite factors for range recovery.
+The full-point maximum propagates NaN
+across groups and includes the magnitudes of the gradient entries at
+uncovered coordinates. See the [sparse group lasso guide](@ref sparse-group-l2-guide)
+for the finite-data scores.
+
 ### Cardinality penalty endpoints
+
+See the [IndBallL0 endpoint rules](@ref spec-indballl0-endpoints).
 
 For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
 distance cost of setting a finite input `v` to zero with the penalty cost
@@ -426,7 +471,10 @@ before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate. `NormL1Nonneg` applies it to an infinite level (positive-weight entries become `+0`; zero-weight entries are projected onto the orthant, not left unchanged). `GroupNormL2` and `GroupNormLinf` apply the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight. `NormL0`, `NormL2` and `NormLinf` apply
+a positive weight become `+0`) and to an infinite group weight. `SparseGroupNormL2` also projects
+onto its hard domain at zero step. An infinite ℓ₁ level fixes all covered entries, and an infinite ℓ₂
+level or weight follows the group rules in the [sparse-group endpoint table](@ref sparse-group-l2-endpoints).
+`NormL0`, `NormL2` and `NormLinf` apply
 it to an infinite level. No other function
 is claimed to implement a zero-step projection rule.
 

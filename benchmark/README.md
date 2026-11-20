@@ -655,15 +655,16 @@ bytes. It runs in the root project:
 julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchmark/norml0offdiag.jl")'
 ```
 
-The validation pass of `NormL0OffDiag` reads both triangles before the proximal map writes, so
-the ratio to `NormL0` exceeds one out of place. In place the ratios fall to 1.0–1.1 at `p = 64` (they are 1.2–1.3 at `p = 32` and 2.2–2.5 at `p = 8`),
-because the in-place `prox!` of `NormL0` is slower than its out-of-place `prox!`. One run on Julia 1.13.4 at commit `378ecf63a` gave these ratios
-to the same operation of `NormL0` (the allocation was zero bytes in every row):
+Before the proximal map writes, `NormL0OffDiag` makes a finiteness pass over the entries of the
+input; it does not compare the two triangles. One run on Julia 1.13.4 at commit `0d9ceb65b` gave
+these ratios to the same operation of `NormL0`. The allocation was zero bytes in each row of that
+run. The in-place ratios are below one at some sizes because the in-place `prox!` of `NormL0` was
+slower than its out-of-place `prox!` in this run.
 
 | Operation | `Float32`, `p = 8, 32, 64` | `Float64`, `p = 8, 32, 64` |
 |:--|:--|:--|
-| `prox!` | 7.5, 7.5, 6.6 | 5.8, 5.0, 2.7 |
-| `value_and_prox!` | 5.3, 4.5, 3.5 | 4.4, 2.6, 1.9 |
-| value | 11.2, 6.5, 5.3 | 7.4, 3.3, 2.7 |
-| `prox!` in place | 2.4, 1.3, 1.1 | 2.3, 1.3, 1.1 |
-| `value_and_prox!` in place | 2.5, 1.3, 1.0 | 2.2, 1.2, 1.0 |
+| `prox!` | 4.7, 3.7, 3.7 | 3.4, 3.0, 1.7 |
+| `value_and_prox!` | 3.6, 2.5, 2.1 | 2.8, 1.8, 1.3 |
+| value | 5.7, 2.6, 1.9 | 3.8, 1.8, 1.4 |
+| `prox!` in place | 1.3, 0.6, 0.5 | 1.2, 0.8, 0.7 |
+| `value_and_prox!` in place | 1.5, 0.7, 0.5 | 1.3, 0.8, 0.7 |

@@ -618,8 +618,8 @@ end
   cap2, false
 end
 # Whether ρ has passed the plain level (s_all - a)/n of all the entries, by the test ρ n > s_all - a. Without the caller's sum
-# it is true, so that only cap2 applies then.
-@inline _level_passed(ρ::T, n::Int, a::T, s_all::T) where {T} = ρ * n > s_all - a
+# it is true, so that only cap2 applies then. The bound T <: Real keeps the two methods apart (with T = Nothing both would apply).
+@inline _level_passed(ρ::T, n::Int, a::T, s_all::T) where {T<:Real} = ρ * n > s_all - a
 @inline _level_passed(ρ, n, a, ::Nothing) = true
 
 # The handover: the iteration on all the entries from max(ρ, (s - a)/n), the larger of the level ρ of Condat's pass and the

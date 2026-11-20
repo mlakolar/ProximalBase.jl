@@ -427,7 +427,7 @@ end
 #              whose magnitude, after the conversion to W, equals the largest one, with no tolerance; the exceptional values and
 #              the accuracy bound are those of _linf_point, for the n entries of the group.
 # The full-point form scores every group by that distance, a zero group included, where it is the distance from v[G] to the ℓ1
-# ball of radius c (zero when ‖v[G]‖₁ ≤ c), not the margin of the four-argument form. BlockIterate(x, f), the three-argument form
+# ball of radius c (zero when the sum of the magnitudes of v[G], as computed in W, is at most c), not the margin of the four-argument form. BlockIterate(x, f), the three-argument form
 # and the symmetric iterate follow GroupNormL2.
 kkt_violation(f::GroupNormLinf, g::AbstractArray, i::Integer) =
   (eltype(g) <: Real || _real_error(:kkt_violation); _not_separable_error(f))

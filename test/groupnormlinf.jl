@@ -1308,7 +1308,8 @@ end
   vs = T(0.01) .* v
   @test full_ok(f, vs, z)
   @test kk_close(kkt_violation(f, vs, z), max(norm(vs[groups[4]]), maximum(abs.(vs[free]))), T, 1)
-  # a point at which the zero groups satisfy ‖v_G‖₁ ≤ c and the nonzero groups are stationary has the value zero
+  # this point has the value zero: the zero group 1 has the sum of magnitudes 0.35, below its level 1, and the nonzero group 2 has a face
+  # (entries 4 and 5) whose sum of -sign(xᵢ) vᵢ is the level 1, with a zero gradient off the face
   f0 = GroupNormLinf(one(T), [1:3, 4:6], T[1, 1])
   @test kkt_violation(f0, T[0.1, -0.2, 0.05, -0.25, 0.75, 0, -0.0], T[0, 0, 0, 2, -2, 1, 5]) === zero(T)
   # a zero group with a positive margin contributes its distance and not its margin: (5/8, 5/8) at the level one
@@ -1765,8 +1766,11 @@ end
     @test allocs(kkt_violation, h, v[1:175], bx, 2) == 0
     @test allocs(kkt_violation, h, v[1:175], bx, 3) == 0
   end
-  # cold paths of the nonzero group nz (all x equal, so that the face is the whole group; and the zero point): a gradient whose squares
-  # underflow in Float32, a gradient near floatmax, a NaN gradient, and a zero point
+  # four more inputs, each with all x equal (so that the face of a group is the whole group) or zero. What they reach in the group nz
+  # (130 entries, level 0.6; the other groups are not claimed to reach the same path): a gradient of 1e-30 at x = 2, a certified face whose
+  # residual is the level and whose sum of squares is normal (the ordinary path, with no underflow in the squares); a gradient of
+  # floatmax/8 at x = 1, a sum of magnitudes that fails the range test, so the scaled path; a NaN gradient, the early exit; and the gradient 1
+  # at the zero point, the ordinary zero-point path (the margin for the four-argument form, as nz is then a zero group)
   for (vv, xx) in ((fill(T(1e-30), p), fill(T(2), p)), (fill(floatmax(T) / 8, p), ones(T, p)), (fill(T(NaN), p), ones(T, p)), (ones(T, p), zeros(T, p)))
     @test allocs(kkt_violation, f, vv, xx, nz) == 0
     @test allocs(kkt_violation, f, vv, xx) == 0

@@ -454,7 +454,7 @@ optimality.
   nonzero coordinate it does not return the screen.*
 * `kkt_violation(f, v, x)` is `max(0, max_k score_k)`, nonnegative, and zero of the
   working type for an empty `x`. For [`GroupNormLinf`](@ref) a zero group contributes its Euclidean distance to the ℓ1
-  ball of its coefficient (zero when `norm(v_G, 1) <= c`), not its margin.
+  ball of its coefficient (zero when the sum of the magnitudes of `v_G`, as the call computes it in the working type, is at most `c`), not its margin.
 
 With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at `xᵢ = 0` and
 at `xᵢ ≠ 0` are, for the six functions that have all three forms:
@@ -494,7 +494,7 @@ group of `n` entries. A nonzero group of `n` entries for which `n + 1` is not a 
 `n = 65519`) throws an `ArgumentError`, as does any group of that size in `kkt_violation(f, v, x)`. An entry in no group scores `abs(vₖ)`,
 and a `BlockIterate` is read as for `GroupNormL2`. `kkt_violation(f, v, x)` is the maximum of zero, of `abs(vᵢ)` over the entries in no
 group and of the distance of every group, a zero group included, where the distance is that from `v_G` to the ℓ1 ball of radius `c`
-(zero when `norm(v_G, 1) <= c`) and not the margin: in exact arithmetic, for a positive margin, `distance <= margin <= sqrt(n)*distance` for a group of `n`
+(zero when the sum of the magnitudes of `v_G`, as the call computes it in the working type, is at most `c`) and not the margin: in exact arithmetic, for a positive margin, `distance <= margin <= sqrt(n)*distance` for a group of `n`
 entries. Under `Scaled` it has the routes of `GroupNormL2`. The three-argument form and a `SymmetricSparseIterate` throw an `ArgumentError`.
 
 `LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with

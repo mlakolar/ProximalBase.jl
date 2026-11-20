@@ -122,20 +122,7 @@ which side the exact value lies, so a value that rounds to `floatmax(T)` may be
 returned as `Inf`, or the reverse: the same limit as the other recoveries above
 ([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904)).
 
-For `IndBallL2`, the value and projection compare the norm with the radius in
-scaled units when the ordinary sum of squares overflows or is too small.
-The domain has no fixed feasibility tolerance. Within the rounding error of
-the norm, the comparison can fall on either side of the boundary.
-`value_and_prox!` evaluates the stored point. For dense vectors of four
-entries with matching `Float32` or `Float64` input, output and radius, the
-projection checks the rounded coefficients when the input sum of squares is
-ordinary and the finite radius is at least
-`2sqrt(4floatmin(T) / eps(T))`. If the rounded coefficients fail the
-comparison, it scales them once more toward zero. The stored point in that
-case passes the same norm comparison. Other projections can return a stored
-point outside the computed boundary, giving `Inf` in the fused call.
-A positive finite radius projects a NaN input to an all-NaN output,
-including implicit zeros of a `SparseIterate`.
+See the [IndBallL2 range clauses](@ref spec-indballl2-range).
 
 See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball
 feasibility, power-of-two scaling, and tiny-radius projection.
@@ -278,7 +265,7 @@ all-NaN result or a particular exception.
 | `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
 | `IndBox` | See the [IndBox endpoint clauses](@ref spec-indbox-endpoints) |
 | `IndNonnegative` | See the [IndNonnegative endpoint clauses](@ref spec-indnonnegative-endpoints) |
-| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL2` | See the [IndBallL2 endpoint clauses](@ref spec-indballl2-endpoints) |
 | `IndBallL1` | See [ℓ₁-ball endpoint rules](@ref spec-indballl1-endpoints). |
 | `NormL1Nonneg` | See the [NormL1Nonneg endpoint clauses](@ref spec-norml1nonneg-endpoints) |
 | `kkt_violation` | See the [kkt_violation endpoint clauses](@ref spec-kkt_violation-endpoints) |

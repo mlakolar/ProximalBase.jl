@@ -225,7 +225,8 @@ end
 # magnitude, so the largest stored magnitude is τ, and `f(y)` applies `_linf_scale` to that same τ, as `value_and_prox!`
 # does. The max needs a level that is not NaN: under the conditions at `_l1ball_threshold!` the level is a level of the
 # iteration there (a finite number, computed from finite sums) or the largest entry, so it is a number. s is the sum of the
-# magnitudes of the pass of the caller (the sum that is compared with the radius): the handover of Condat's pass starts from it.
+# magnitudes of the pass of the caller (the sum that is compared with the radius): Condat's pass uses it in the test of the level
+# for an early handover (with the ordinary read `_AbsRead`) and in the start of the handover.
 @inline function _linf_threshold(y, f::NormLinf, x, r::T, s::T, rd, ::Type{T}) where {T}
   τ = if _linf_buffer_is_output(y, x, T)
     _l1ball_threshold!(y, x, r, rd, s)
@@ -364,9 +365,11 @@ end
 # entries above the exact level. Outside the conditions (finite yᵢ, n ≥ 1, any a and any start of the iteration) the iteration
 # ends (claim 1) and returns a value that is not NaN and at most the largest entry that it reads (M; on Condat's path, the
 # largest stored entry): each return is that largest entry, or a level that has an entry above it, or a step t < hi. A start of
-# -Inf returns -Inf (the first step is NaN, and the last guard returns the start), and a start that is NaN or +Inf returns the
-# largest entry; the starts of the callers are finite when s is. A pass sum that overflows gives the step +Inf, and then no
-# entry is above the level. The bounds are not claimed there.
+# -Inf returns -Inf: with a = +Inf the first pass returns its level (r = Inf ≤ a) before a step is computed, and with any other a
+# the first step is NaN and the last guard returns the start. With a = +Inf and finite sums the starts of `_l1ball_threshold!`
+# are -Inf (ρ and the plain levels are -Inf, and the test of the level for an early handover, when it is made, -Inf > -Inf, is
+# false), so it returns -Inf. A start that is NaN or +Inf returns the largest entry; the starts of the callers are finite when s is. A pass
+# sum that overflows gives the step +Inf, and then no entry is above the level. The bounds are not claimed there.
 #
 # Notation. The sums defining g are exact here. k(τ) = #{i : yᵢ > τ}, γ_k = k u/(1 - k u). The function g is convex, piecewise
 # linear and nonincreasing, with the slope -k(τ) to the right of τ, and strictly decreasing where positive, so that τ* < M is
@@ -385,7 +388,10 @@ end
 #  (P) r = Σ_{yᵢ>τ} (yᵢ - τ)(1 + θᵢ) with 1 - k u ≤ 1 + θᵢ ≤ 1/(1 - k u), hence (1 - k u) g(τ) ≤ r ≤ g(τ)/(1 - k u) and |r -
 #      g(τ)| ≤ γ_k g(τ).
 # The entries that are not above τ are at most τ, and those above τ are at least hi > τ. The subtraction of a term is exact when
-# its result is subnormal, so the subnormal spacing δ enters a step through its quotient and its sum.
+# its result is subnormal, so the subnormal spacing δ enters a step through its quotient and its sum. The vectorized pass (Float32
+# and Float64) takes hi as the minimum over the bit patterns; the plain pass (the other types, and Condat's path with at most four
+# stored entries, read through `_plain_read`) sums in the order of its loop, which (P) covers, and takes hi by comparisons, which
+# for entries that are nonnegative and not NaN, as these are, is the same number as the minimum over the bit patterns.
 #
 # The iteration, from a level τ (`_l1ball_iterate`): a pass at τ gives (r, k, hi); then
 #   (a) k = 0: return the largest entry                      (no entry above the level)
@@ -400,27 +406,30 @@ end
 #
 # Claim 1 (the levels increase; the loop ends). A level that is replaced is replaced by a larger one (the guard of the last
 # return is !(t > τ): under the contract t ≥ τ, so it means t = τ; outside the conditions it also returns when t is unordered,
-# as NaN after a start of -Inf), and the level of a pass is below M (k ≥ 1). A strictly increasing sequence of floats ends, so
-# the loop ends for finite entries, for any n, a and start. A step that crosses an entry (t ≥ hi) leaves at most k - 1 entries
-# above the next level. A step with t < hi crosses nothing, so by (G2) the next excess is g(t) = g(τ) - k(t - τ), and with the
-# roundings of claim 3 it is within γ_k g(τ) + (2u + u²)|r - a| + k u|t| + kδ of a; such a step multiplies g - a by about γ_k +
-# 2u when g(τ) is large against a, and a second one in a row needs the noise of the pass to be at least a/2. A bound on the
-# number of passes is not proved; the accuracy sweep reports the largest count.
+# as NaN after a start of -Inf with a ≠ +Inf), and the level of a pass is below M (k ≥ 1). A strictly increasing sequence of
+# floats ends, so the loop ends for finite entries, for any n, a and start. A step that crosses an entry (t ≥ hi) leaves at most
+# k - 1 entries above the next level. A step with t < hi crosses nothing, so by (G2) the next excess is g(t) = g(τ) - k(t - τ),
+# and with the roundings of claim 3 it is within γ_k g(τ) + (2u + u²)|r - a| + k u|t| + kδ of a; such a step multiplies g - a by
+# about γ_k + 2u when g(τ) is large against a, and a second one in a row needs the noise of the pass to be at least a/2. A bound
+# on the number of passes is not proved; the accuracy sweep reports the largest count.
 #
-# Claim 2 (overshoot). Let ζ = 2(1 + u)² γ_{n-1} M + δ. The level of each pass is at least -ζ (claim 4 for Condat's start; for a
-# plain start, the sum s is the sum of the caller on the handover of the callers, and then a < s makes the start nonnegative;
-# `_l1ball_michelot` forms its own sum, which is at least (1 - γ_{n-1}) Σ yᵢ, and with a < s_caller ≤ (1 + γ_{n-1}) Σ yᵢ its
-# start fl(fl(s - a)/n) is at least -2(1 + u)² γ_{n-1} M - δ/2, and nonnegative when its sum is not below a). The return (a) is
+# Claim 2 (overshoot). Let ζ = 2(1 + u)² γ_{n-1} M + δ. The level of each pass is at least -ζ (claim 4 for Condat's start; the
+# start of the handover, max(ρ, fl(fl(s - a)/n)), is at least its plain level fl(fl(s - a)/n), whose sum s is the sum of the
+# caller when the caller gives it, and then a < s makes that level nonnegative; `_l1ball_michelot`, and the handover without a
+# caller's sum, form their own sum, which is at least (1 - γ_{n-1}) Σ yᵢ, and with a < s_caller ≤ (1 + γ_{n-1}) Σ yᵢ the plain
+# level fl(fl(s - a)/n) is at least -2(1 + u)² γ_{n-1} M - δ/2, and nonnegative when its sum is not below a). The return (a) is
 # at most the level of its pass, and (b) is that level, so both are bounded by the overshoot of the level of a pass over τ*,
 # which is at most ε = max(ε₀, ε₁), with
 #   the start:  τ₀ - τ* ≤ ε₀ = M[(2u + u²) + (1 + u)² γ_{n-1}] + δ/2,
 #   a step:     t - τ* ≤ ε₁ = (Γ (M + ζ) + u M + δ/2)/(1 - u),  Γ = max(γ_n + (2u + u²)/(1 - n u), (2 + 2u + u²) γ_n).
-# Proof for the plain start τ₀ = fl(fl(s - a)/n), s = Σ yᵢ (1 + θ_s), |θ_s| ≤ γ_{n-1} (the sum of the caller or the sum of
-# `_l1ball_michelot`): s - a ≥ 0 (otherwise τ₀ ≤ 0, with no overshoot beyond -τ* ≤ γ_{n-1} M), and τ* ≥ (Σ yᵢ - a)/n by (G3)
-# with S = all the entries; s - a ≤ (Σ yᵢ - a) + γ_{n-1} Σ yᵢ, so τ₀ ≤ (1 + u)² [(Σ yᵢ - a) + γ_{n-1} Σ yᵢ]/n + δ/2, and Σ yᵢ -
-# a ≤ Σ yᵢ ≤ n M. For Condat's start, max(ρ, plain level of the final candidates V), the plain level of V is bounded in the same
-# way (S = V, |V| ≤ n, a negative level has no overshoot beyond -τ* ≤ γ_{n-1} M), and ρ ≤ τ* + γ_{n-1} M + δ/2 ≤ τ* + ε₀ by
-# claim 4.
+# Proof for the plain start τ₀ = fl(fl(s - a)/n), s = Σ yᵢ (1 + θ_s), |θ_s| ≤ γ_{n-1} (the sum of the caller, or the sum that
+# `_l1ball_michelot` or the handover forms): s - a ≥ 0 (otherwise τ₀ ≤ 0, with no overshoot beyond -τ* ≤ γ_{n-1} M), and τ* ≥
+# (Σ yᵢ - a)/n by (G3) with S = all the entries; s - a ≤ (Σ yᵢ - a) + γ_{n-1} Σ yᵢ, so τ₀ ≤ (1 + u)² [(Σ yᵢ - a) + γ_{n-1} Σ
+# yᵢ]/n + δ/2, and Σ yᵢ - a ≤ Σ yᵢ ≤ n M. For Condat's start, max(ρ, plain level of the final candidates V), the plain level of
+# V is bounded in the same way (S = V, |V| ≤ n, a negative level has no overshoot beyond -τ* ≤ γ_{n-1} M), and ρ ≤ τ* + γ_{n-1}
+# M + δ/2 ≤ τ* + ε₀ by claim 4. The start of the handover, max(ρ, plain level of all the entries), is bounded by the same two
+# arguments: its plain level is a plain start (the sum of the caller or of the handover), and ρ, the level of Condat's pass at
+# the handover, is at most τ* + ε₀ by claim 4 (ii).
 # Proof for a step from a level τ′ with the pass (r′, k′), r′ > a, g′ = g(τ′), t = fl(τ′ + d), d = fl(fl(r′ - a)/k′) ≥ 0: d ≤
 # (r′ - a)(1 + u)²/k′ + δ/2, t ≤ τ′ + d + u|t|, and g′/k′ ≤ M - τ′ ≤ M + ζ (the k′ terms of g′ are at most M - τ′). If g′ ≥ a,
 # the Newton point N = τ′ + (g′ - a)/k′ has g(N) ≥ a by (G1), so N ≤ τ* (for a = 0, N = τ′ + g′/k′ is the mean of the k′ entries
@@ -458,8 +467,10 @@ end
 # and fails the join test s > (y - a) nv, so that the candidates start anew at y), ρ ← max(ρ, prevfloat(y - a)); when an entry
 # joins the nv candidates of running sum s, ρ ← max(ρ, (s (1 - (nv + 4) u) - a)/nv). An entry that is not above ρ is not stored.
 # (i) ρ does not decrease, so an entry discarded at any time is at most the final ρ. (ii) ρ ≤ τ* + γ_{n-1} M + δ/2 ≤ τ* + ε₀,
-# and ρ is at most the largest stored entry. Since prevfloat(fl(z)) < z for a real z, the first two values are below y - a ≤ τ*
-# ((G3) with S = {y}) and below the entry y just stored. For the join value, f = 1 - (nv + 4) u is exact (nv u ≤ 1/4) and at
+# ρ ≤ τ* + δ/2 when ρ > 0, and ρ is at most the largest stored entry, after each step of the pass (so also when the pass hands
+# over, see `_l1ball_threshold!`). ρ is the largest of the values below, so it suffices to bound each of them. Since
+# prevfloat(fl(z)) < z for a real z, the first two values are below y - a ≤ τ* ((G3) with S = {y}) and below the entry y just
+# stored. For the join value, f = 1 - (nv + 4) u is exact (nv u ≤ 1/4) and at
 # most 1, so P = fl(s f) ≤ s. If P - a < 0, the value is at most 0, and 0 ≤ τ* + γ_{n-1} M because τ* ≥ -γ_{n-1} M (if τ* < 0,
 # then τ* = (Σ yᵢ - a)/n and a < s ≤ (1 + γ_{n-1}) Σ yᵢ). Otherwise, if s is subnormal, the sum is exact, P ≤ s = Σ_V yᵢ, the
 # difference (at most P) is exact, and the quotient has an absolute error of at most δ/2: the value is at most L_V + δ/2. If s
@@ -467,10 +478,11 @@ end
 # yᵢ (the term δ/2 occurs when s f is subnormal, and then 2u Σ_V yᵢ ≥ δ/2), and the difference and the quotient each have a
 # relative error of at most u (or the quotient an absolute error of at most δ/2): the value is at most (1 + u)² ((1 - 2u) Σ_V yᵢ
 # - a)/nv + δ/2 ≤ L_V + δ/2. With P - a ≥ 0 the value is therefore at most L_V + δ/2 ≤ τ* + δ/2 ((G3) with S = V), and at most
-# the largest entry of V (L_V ≤ the mean of V, and no float lies in (max V, max V + δ/2]). The value can exceed L_V: in Float32,
-# x = [δ, …, δ, 1] with 25 entries δ and a = 1/2 gives -0.02f0 at 25 candidates, above L_V + δ/2 by about 4.5e-10 (a negative
-# numerator, with s subnormal and a normal), and x = [4δ, 4δ, 4δ], a = δ gives the value 4δ at the second entry, above L_V =
-# 3.5δ (within L_V + δ/2). An entry that is not stored when it arrives is at most ρ, hence at most the largest stored entry, so
+# the largest entry of V (L_V ≤ the mean of V, and no float lies in (max V, max V + δ/2]). A positive value is not a join value
+# with a negative numerator, so it is at most τ* + δ/2. The value can exceed L_V: in Float32, x = [δ, …, δ, 1] with 25 entries
+# δ and a = 1/2 gives -0.02f0 at 25 candidates, above L_V + δ/2 by about 4.5e-10 (a negative numerator, with s subnormal and a
+# normal), and x = [4δ, 4δ, 4δ], a = δ gives the value 4δ at the second entry, above L_V = 3.5δ (within L_V + δ/2). An entry
+# that is not stored when it arrives is at most ρ, hence at most the largest stored entry, so
 # the largest stored entry is M. (ρ = M occurs in the subnormal range, as for x = [4δ, 4δ, 4δ], a = δ; the result is then M by
 # (a).) (iii) The iteration starts at max(ρ, plain level of the final candidates) ≥ ρ and its levels increase, so each unstored
 # entry is at most the level of each pass, and the stored entries (buf[1:nt+nv]) give the same g, k and hi as all the entries at
@@ -490,12 +502,18 @@ end
 # 0); for small n u the coefficients are about 2 + 1/n above τ* (4 at n = 1) and at most 3 below. The additive terms are at most
 # 2 n δ. (ii) The distance. For τ ≥ 0 put d(τ) = (Σ min(yᵢ, τ)²)^(1/2), the norm of the clip at τ. The exact prox clips at τ₊ =
 # max(τ*, 0), with the norm D(a) = d(τ₊), which is 0 for a ≥ Σ yᵢ. For 0 < a < Σ yᵢ, dD/da = -τ*/D with D ≥ τ*, and D(a) → 0 as
-# a → Σ yᵢ, so D is 1-Lipschitz on [0, ∞) (it is 0 beyond Σ yᵢ), and d(τ) = D(g(τ)) for 0 ≤ τ < M. On Michelot's path with a
-# nonnegative start (all levels are then ≥ 0, so the prox clips at τ̂ itself): at (c) and (d), |d(τ̂) - D(a)| ≤ |g(τ̂) - a| ≤
-# E_c or E_v. At (b) with τ̂ ≤ τ* (so τ* ≥ τ̂ ≥ 0) it is at most g(τ̂) - a ≤ γ_k a. Otherwise ((a), and (b) above τ*), τ̂ ≥ τ₊
-# and |d(τ̂) - D(a)| ≤ √K′ (τ - τ₊) ≤ √K′ (τ - τ*), with τ the level of the last pass and K′ = #{i : yᵢ > τ₊} ≤ n. The K′
-# entries above τ₊ ≥ 0 give √K′ τ₊ ≤ ‖y‖₂, and the k entries above a level ℓ ≥ 0 give k ℓ ≤ √k ‖y‖₂. This gives, for the start:
-# τ₀ - τ* ≤ c₀ Σ yᵢ/n + δ/2 with c₀ = 2u + u² + (1 + u)² γ_{n-1}, and Σ yᵢ ≤ √n ‖y‖₂, so √K′ (τ₀ - τ*) ≤ c₀ ‖y‖₂ + √n δ/2; for a
+# a → Σ yᵢ, so D is 1-Lipschitz on [0, ∞) (it is 0 beyond Σ yᵢ), and d(τ) = D(g(τ)) for 0 ≤ τ < M. On the path of all the
+# entries (`_l1ball_michelot`, and the handover of Condat's pass) with a nonnegative start (all levels are then ≥ 0, so the prox
+# clips at τ̂ itself; the start of the handover is nonnegative when the caller gives its sum, and without that sum it can be
+# negative, a case not covered here): at (c) and (d), |d(τ̂) - D(a)| ≤ |g(τ̂) - a| ≤ E_c or E_v. At (b) with τ̂ ≤ τ* (so τ* ≥ τ̂
+# ≥ 0) it is at most g(τ̂) - a ≤ γ_k a. Otherwise ((a), and (b) above τ*), τ̂ ≥ τ₊ and |d(τ̂) - D(a)| ≤ √K′ (τ - τ₊) ≤ √K′ (τ -
+# τ*), with τ the level of the last pass and K′ = #{i : yᵢ > τ₊} ≤ n. The K′ entries above τ₊ ≥ 0 give √K′ τ₊ ≤ ‖y‖₂, and the k
+# entries above a level ℓ ≥ 0 give k ℓ ≤ √k ‖y‖₂. This gives, for the plain start:
+# τ₀ - τ* ≤ c₀ Σ yᵢ/n + δ/2 with c₀ = 2u + u² + (1 + u)² γ_{n-1}, and Σ yᵢ ≤ √n ‖y‖₂, so √K′ (τ₀ - τ*) ≤ c₀ ‖y‖₂ + √n δ/2. The
+# start of the handover is that plain level, or ρ when ρ is above it; with the caller's sum the plain level is nonnegative, so
+# that such a ρ is positive. A nonnegative start ρ is 0, or positive and then at most τ* + δ/2 by claim 4 (ii) (a positive ρ is
+# not a join value with a negative numerator, and the other values are at most τ* + δ/2); in both cases √K′ (ρ - τ₊) ≤ √n δ/2,
+# within the term of the plain start. The bound ρ ≤ τ* + γ_{n-1} M + δ/2 of claim 4 (ii) alone would not give this form. For a
 # step from τ′ with g′ ≥ a (then K′ ≤ k′, as τ′ ≤ τ* ≤ τ₊, and g′ ≤ √k′ ‖y‖₂): √K′ (t - τ*) ≤ ([γ_n + (2u + u²)/(1 - n u) + u]
 # ‖y‖₂ + √n δ/2)/(1 - u); for a step from τ′ with g′ < a < r′ (then γ_{k′} g′/k′ < u a/(1 - k′u)): √K′ (t - τ*) ≤ ((2 + 2u + u²)
 # √n u a/(1 - n u) + u ‖y‖₂ + √n δ/2)/(1 - u). At (c), E_c ≤ (1.5 n u/(1 - n u)² + u/2) a + √n u ‖y‖₂ + n δ, and at (d), E_v ≤
@@ -509,14 +527,16 @@ end
 # sum of a pass is at most (1 + θ) times the exact sum of its terms, and the sum s of the full pass is at least (1 - θ) S: S ≤
 # s/(1 - θ) ≤ F/[2(1 - θ)] < 0.705 F, and M ≤ s ≤ F/2. At a level τ ≥ 0 the exact pass sum g(τ) is at most S, so a computed pass
 # sum is at most (1 + θ) S < 0.91 F, and so are the sequential sums of Condat's pass. At a negative level the exact pass sum is
-# g(τ) = S - n τ, which does not increase as the levels increase, so it is at most its value at the start. If a restart occurred
-# and the start is negative, it is at least -δ, so g ≤ S + n δ. Otherwise no entry was discarded, the sum s_V of the candidates,
-# or the sum of `_l1ball_michelot`, is at least (1 - θ) S, and the plain start τ = fl(fl(s_V - a)/n) < 0 has |τ| ≤ (1 + u)² (a -
-# s_V)/n + δ/2, so g(τ) ≤ S + (1 + u)² (a - s_V) + n δ/2 ≤ (1 + u)² (a + θ S) + n δ/2 ≤ (1 + u)² F/[2(1 - θ)] + n δ/2 (a < s ≤
-# F/2). In both cases a computed pass sum is at most (1 + θ) g < 0.91 F for u ≤ 2^-11, the terms n δ being far below the margin.
-# The updates are finite: with C = (1 + u)²/(1 - n u) ≤ 1.335, t = τ + d, d = fl(fl(r - a)/k) ≤ (1 + u)² (r - a)/k + δ/2 and r ≤
-# g/(1 - k u), so t ≤ τ + C g/k + δ/2 ≤ C M - (C - 1) τ + δ/2 ≤ C M + (C - 1) ζ + δ/2 < 0.79 F before the last rounding (M ≤
-# F/2, ζ ≤ 0.67 M), and the rounding of a number below 0.79 F is finite; the levels are at least -ζ.
+# g(τ) = S - n τ, which does not increase as the levels increase, so it is at most its value at the start. On Condat's path, if a
+# restart occurred and the start is negative, it is at least -δ, so g ≤ S + n δ. Otherwise the start is at least a plain level τ
+# = fl(fl(s_V - a)/n) whose sum s_V is at least (1 - θ) S: on Condat's path without a restart no entry was discarded, and s_V is
+# the sum of the candidates; for `_l1ball_michelot` and the handover s_V is the sum that they use (the start of the handover is
+# max(ρ, τ) ≥ τ, and τ is nonnegative when s_V is the caller's sum). A negative τ has |τ| ≤ (1 + u)² (a - s_V)/n + δ/2, so g at
+# the start is at most g(τ) ≤ S + (1 + u)² (a - s_V) + n δ/2 ≤ (1 + u)² (a + θ S) + n δ/2 ≤ (1 + u)² F/[2(1 - θ)] + n δ/2 (a <
+# s ≤ F/2). In both cases a computed pass sum is at most (1 + θ) g < 0.91 F for u ≤ 2^-11, the terms n δ being far below the
+# margin. The updates are finite: with C = (1 + u)²/(1 - n u) ≤ 1.335, t = τ + d, d = fl(fl(r - a)/k) ≤ (1 + u)² (r - a)/k + δ/2
+# and r ≤ g/(1 - k u), so t ≤ τ + C g/k + δ/2 ≤ C M - (C - 1) τ + δ/2 ≤ C M + (C - 1) ζ + δ/2 < 0.79 F before the last rounding
+# (M ≤ F/2, ζ ≤ 0.67 M + δ), and the rounding of a number below 0.79 F is finite; the levels are at least -ζ.
 #
 # Why an overflowing (y - a) nv still decides correctly. The test of Condat's pass is s > (y - a) nv, the exact test (s + y -
 # a)/(nv + 1) > y - a. With y ≤ floatmax/2 (a computed sum of nonnegative terms is at least each term, and the sum of the pass
@@ -525,15 +545,42 @@ end
 # > Inf is. A product that overflows to -Inf has y - a < 0 and the exact test (s ≥ 0 > -∞) is true, as s > -Inf is.
 
 # Condat's pass. The stored entries are buf[1:nt] (the candidates that restarts have displaced) and buf[nt+1:nt+nv] (the nv
-# candidates, of running sum s); the level ρ and the rules that update it are in claim 4. Michelot's algorithm takes over, on
-# all the entries, when the number nv of current candidates exceeds cap = max(1024, n ÷ 8) (a restart resets nv, so restarts are
-# not capped; that costs time, not accuracy): a heuristic for the cost, since a large candidate set often means that the level
-# starts far below the entries and rises slowly, and then this pass costs most (it need not hold, for instance for many tied
-# entries and a tiny radius). Once the level has risen, most entries fall below it, and one test for four entries reduces the
-# sensitivity of the loop to where its code lands in memory, as observed on one processor. The iteration then runs on the stored
-# entries from max(ρ, (s - a)/nv), the plain level of the final candidates. On the handover it runs on all the entries from
-# (s_all - a)/n, with the sum s_all of the caller's pass when the caller gives it (the callers do: one pass over the argument
-# less) and with the sum of the entries formed here when it does not (`nothing`).
+# candidates, of running sum s); the level ρ and the rules that update it are in claim 4. The entries after the first are read in
+# groups of four, whose four comparisons with ρ are joined in one branch, and the last one to three entries (when n - 1 is not a
+# multiple of four) one by one. After each group in which an entry is above ρ, and not in the loop of the last entries, the loop
+# compares the count nv with the count in force, cap at first, and calls `_condat_many` when the count exceeds it; below, a test
+# is such a call. cap is the early count max(8, n ÷ 8) for the ordinary read `_AbsRead`. The scaled read of the overflow paths,
+# each of whose reads is an `ldexp`, keeps cap = cap2, because the extra passes of an early handover through it can cost more than
+# the candidate updates they save; so does any other read (`_early_count`). The count of an input of at most 4 entries is not
+# compared, and an input of at most 8 entries has no test (after its one group of four the count is at most 5). A test with cap2 =
+# max(1024, n ÷ 8) in force hands over to Michelot's algorithm, on all the entries. A test with cap < cap2 in force hands over
+# when ρ is at most the plain level (s_all - a)/n of all the entries, s_all being the sum of the caller's pass, and otherwise puts
+# cap2 in force; without that sum (`nothing`) it puts cap2 in force. For n ≥ 8192, and for a read other than `_AbsRead`, the two
+# counts are equal. The level is tested at most once, at the test with cap in force (not for n ≥ 8192, not for a read other than
+# `_AbsRead`, not without the caller's sum, and not when the count does not exceed cap): ρ does not decrease (claim 4 (i)), so a
+# level that has passed the plain level stays above it, and a test of the level at the later tests would give the same answer. The
+# test of the level is ρ n > s_all - a in floating point (an overflow of ρ n included); either outcome is covered by the claims:
+# it decides the cost and the rounding of the level (the iteration on all the entries and the iteration on the stored entries sum
+# in different orders), not its bound. A restart resets nv, so restarts are not counted against cap or cap2 (that costs time, not
+# accuracy).
+#
+# A step stores its entry before the count is compared, so at a test the count exceeds the count in force by one to four, except
+# at the test with cap2 in force when cap is 1021 to 1023 (within four of cap2 = 1024): the test with cap in force can then leave
+# the count up to three above cap2, and the test with cap2 in force can find it up to seven above. The stored entries are distinct
+# entries of the argument, so a buffer of the length of the argument suffices, as the callers give.
+#
+# The counts trade one cost for another: an entry that joins the candidates costs a division, which the comparison of the next
+# entries waits for, and a pass of the iteration over all the entries is (for Float32 and Float64) a vectorized loop with a few
+# operations per entry. A count above cap while ρ is at most the plain level of all the entries, where the handover would start,
+# is taken as a sign that the pass would join many more entries. Once ρ has passed that level, a handover would start at ρ
+# itself, and the pass continues: the entries that ρ discards cost their comparisons with ρ (four joined in one branch) and no
+# step. This is a heuristic, and on some inputs the handover costs more than the rest of the pass would.
+#
+# Without a handover the iteration runs on the stored entries from max(ρ, (s - a)/nv), the plain level of the final candidates.
+# With at most four stored entries it reads them through `_plain_read`, which selects the plain loop of `_l1ball_excess` in
+# place of the vectorized loop, whose fixed cost per pass is not repaid on so few entries. On the handover it runs on all the
+# entries from max(ρ, (s_all - a)/n) (`_l1ball_handover`), with the sum s_all of the caller's pass when the caller gives it
+# (the callers do: one pass over the argument less) and with the sum of the entries formed there when it does not.
 function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = nothing) where {T, F, S<:Union{Nothing, T}}
   n = length(x)
   n == 0 && return zero(T)
@@ -543,37 +590,65 @@ function _l1ball_threshold!(buf::AbstractArray{T}, x, a::T, rd::F, s_all::S = no
   nt, nv = 0, 1
   s = y1
   ρ = prevfloat(y1 - a)
-  cap = max(1024, n ÷ 8)
+  cap = _early_count(rd, n)
+  cap2 = max(1024, n ÷ 8)
   many = false
   j = 2
-  @inbounds while j + 3 <= n
+  @inbounds while !many && j + 3 <= n
     y₁, y₂, y₃, y₄ = rd(x[j]), rd(x[j + 1]), rd(x[j + 2]), rd(x[j + 3])
     if (y₁ > ρ) | (y₂ > ρ) | (y₃ > ρ) | (y₄ > ρ)
-      nt, nv, s, ρ, many = _condat_step!(buf, y₁, nt, nv, s, ρ, a, cap, u)
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₂, nt, nv, s, ρ, a, cap, u))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₃, nt, nv, s, ρ, a, cap, u))
-      many || ((nt, nv, s, ρ, many) = _condat_step!(buf, y₄, nt, nv, s, ρ, a, cap, u))
-      many && break
+      nt, nv, s, ρ = _condat_step!(buf, y₁, nt, nv, s, ρ, a, u)
+      nt, nv, s, ρ = _condat_step!(buf, y₂, nt, nv, s, ρ, a, u)
+      nt, nv, s, ρ = _condat_step!(buf, y₃, nt, nv, s, ρ, a, u)
+      nt, nv, s, ρ = _condat_step!(buf, y₄, nt, nv, s, ρ, a, u)
+      if nv > cap
+        cap, many = _condat_many(ρ, n, a, s_all, cap, cap2)
+      end
     end
     j += 4
   end
   @inbounds while !many && j <= n
-    nt, nv, s, ρ, many = _condat_step!(buf, rd(x[j]), nt, nv, s, ρ, a, cap, u)
+    nt, nv, s, ρ = _condat_step!(buf, rd(x[j]), nt, nv, s, ρ, a, u)
     j += 1
   end
-  many && return _l1ball_handover(x, n, a, rd, s_all)
+  many && return _l1ball_handover(x, n, a, rd, s_all, ρ)
   lv = nv == 1 ? s - a : (s - a) / nv                    # the plain level of the candidates (the division by 1 is skipped)
+  nt + nv <= 4 && return _l1ball_iterate(buf, nt + nv, a, _plain_read, ifelse(lv > ρ, lv, ρ))
   _l1ball_iterate(buf, nt + nv, a, identity, ifelse(lv > ρ, lv, ρ))
 end
 
-# The handover: the iteration on all the entries from the plain level (s - a)/n, with s the sum of the caller's pass when it is given
-# and the sum of the entries formed here when it is not. It is not inlined, which keeps `_l1ball_threshold!` to Condat's pass and
-# one call for the handover.
-@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T) where {T, F}
-  _l1ball_iterate(x, n, a, rd, (s - a) / n)
+# The count in force at the start of Condat's pass: the early count max(8, n ÷ 8) for the ordinary read `_AbsRead`, and the count
+# max(1024, n ÷ 8) of the handover for any other read (the scaled read `_ScaledAbsRead` of the overflow paths among them), so that
+# cap == cap2 from the start and the level is not tested (see the paragraph in front of `_l1ball_threshold!` for the reason).
+@inline _early_count(::_AbsRead, n::Int) = max(8, n ÷ 8)
+@inline _early_count(rd, n::Int) = max(1024, n ÷ 8)
+
+# The test when the count of candidates exceeds cap: it returns the count to test from then on and whether to hand over. At cap ==
+# cap2 (n ≥ 8192, a read other than `_AbsRead`, or after an earlier test has returned cap2) it hands over. Otherwise it hands over
+# when ρ has not passed the plain level of all the entries, and else it returns cap2 and the pass continues. It is not inlined,
+# which keeps the loop of Condat's pass to the steps and one call.
+@noinline function _condat_many(ρ::T, n::Int, a::T, s_all, cap::Int, cap2::Int) where {T}
+  (cap == cap2 || !_level_passed(ρ, n, a, s_all)) && return cap, true
+  cap2, false
 end
-@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, ::Nothing) where {T, F}
-  _l1ball_handover(x, n, a, rd, _linf_sum(x, rd, T))
+# Whether ρ has passed the plain level (s_all - a)/n of all the entries, by the test ρ n > s_all - a. Without the caller's sum
+# it is true, so that only cap2 applies then. The bound T <: Real keeps the two methods apart (with T = Nothing both would apply).
+@inline _level_passed(ρ::T, n::Int, a::T, s_all::T) where {T<:Real} = ρ * n > s_all - a
+@inline _level_passed(ρ, n, a, ::Nothing) = true
+
+# The handover: the iteration on all the entries from max(ρ, (s - a)/n), the larger of the level ρ of Condat's pass and the
+# plain level of all the entries, with s the sum of the caller's pass when it is given and the sum of the entries formed here
+# when it is not (claim 2 bounds this start). The handover at the test with cap in force is taken when ρ n ≤ s - a, so that it
+# starts at the plain level up to a rounding of that test; at the test with cap2 in force ρ can be the larger (after it has passed
+# the plain level; for n ≥ 8192 and for a read other than `_AbsRead`, where the level is not tested; and without the caller's
+# sum, where the level is not tested either and the plain level of the sum formed here can be negative). It is not inlined, which keeps `_l1ball_threshold!` to Condat's
+# pass and one call for the handover.
+@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T, ρ::T) where {T, F}
+  lv = (s - a) / n
+  _l1ball_iterate(x, n, a, rd, ifelse(ρ > lv, ρ, lv))
+end
+@noinline function _l1ball_handover(x, n::Int, a::T, rd::F, ::Nothing, ρ::T) where {T, F}
+  _l1ball_handover(x, n, a, rd, _linf_sum(x, rd, T), ρ)
 end
 
 # One entry y of Condat's pass, with the level ρ (claim 4): an entry not above ρ is not stored. Otherwise it joins the nv candidates when
@@ -582,27 +657,27 @@ end
 # difference and the quotient: with the exact level L_V of the candidates, the value is at most L_V + δ/2 when its numerator is nonnegative and
 # at most 0 otherwise (claim 4 gives the consequences for the exact level of all the entries). If the test fails, the candidates
 # stay in the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The maximum is taken
-# with a comparison (the values are not NaN). The last value is true when the number of candidates exceeds cap.
-@inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, cap::Int, u::T) where {T}
-  y > ρ || return nt, nv, s, ρ, false
+# with a comparison (the values are not NaN). It returns (nt, nv, s, ρ); the caller compares the count nv after a group of four.
+@inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, u::T) where {T}
+  y > ρ || return nt, nv, s, ρ
   if s > (y - a) * nv
     nv += 1
-    nv > cap && return nt, nv, s, ρ, true
     s += y
     @inbounds buf[nt + nv] = y
     c = (s * (1 - (nv + 4) * u) - a) / nv
-    return nt, nv, s, ifelse(c > ρ, c, ρ), false
+    return nt, nv, s, ifelse(c > ρ, c, ρ)
   end
   nt += nv
   @inbounds buf[nt + 1] = y
   c = prevfloat(y - a)
-  nt, 1, y, ifelse(c > ρ, c, ρ), false
+  nt, 1, y, ifelse(c > ρ, c, ρ)
 end
 
 # One pass at the level τ over the first n entries rd(x[i]) (nonnegative): the sum r of the excesses y - τ of the entries above τ, their
 # count k, and the smallest of them, hi (meaningless when k = 0, and not to be used then). For Float32 and Float64 it is one vectorized
 # loop, in which the smallest entry is taken over the bit patterns, as `_linf_classify` takes its maximum (the patterns of nonnegative floats
-# are ordered as the floats, and typemax of the integer type, the pattern of a NaN, is above them); other types take a plain loop.
+# are ordered as the floats, and typemax of the integer type, the pattern of a NaN, is above them); other types, and the reader
+# `_plain_read` (Condat's path with at most four stored entries), take a plain loop (`_excess_plain`).
 # The loop counts in the integer type of the width of the entries (Int32 for Float32), so that its lanes have one width, when n fits in
 # it (`_excess_narrow`), and in Int otherwise: for 2^31 entries or more a Float32 count in Int32 would wrap.
 _excess_narrow(::Type{T}, n::Int) where {T<:Union{Float32, Float64}} = n <= typemax(_int_type(T))
@@ -624,7 +699,11 @@ end
 @inline function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T<:Union{Float32, Float64}, F}
   _excess_narrow(T, n) ? _excess_loop(x, n, τ, rd, _int_type(T)) : _excess_wide(x, n, τ, rd)
 end
-function _l1ball_excess(x, n::Int, τ::T, rd::F) where {T, F}
+# The reader of the stored entries on Condat's path with at most four of them: the identity, whose type selects the plain loop
+_plain_read(y) = y
+_l1ball_excess(x, n::Int, τ::T, rd::typeof(_plain_read)) where {T<:Union{Float32, Float64}} = _excess_plain(x, n, τ, rd)
+_l1ball_excess(x, n::Int, τ::T, rd::F) where {T, F} = _excess_plain(x, n, τ, rd)
+function _excess_plain(x, n::Int, τ::T, rd::F) where {T, F}
   r = zero(T)
   k = 0
   hi = T(Inf)
@@ -665,8 +744,8 @@ function _l1ball_iterate(x, n::Int, a::T, rd::F, τ::T) where {T, F}
 end
 
 # Michelot's algorithm: the iteration of the header on all the entries, from the plain level (s - a)/n of all of them, with s their sum
-# from `_linf_sum` (the vectorized pass of the caller). The handover of Condat's pass starts the same iteration from the same level,
-# with the sum of the caller's pass when the caller gives it.
+# from `_linf_sum` (the vectorized pass of the caller). The handover of Condat's pass runs the same iteration from the larger of ρ and
+# that plain level, with the sum of the caller's pass when the caller gives it (`_l1ball_handover`).
 function _l1ball_michelot(x, a::T, rd::F, ::Type{T}) where {T, F}
   n = length(x)
   s = _linf_sum(x, rd, T)
@@ -700,7 +779,8 @@ end
 # Float32 or Float64. The level comes from `_l1ball_iterate`, the iteration of the threshold of the ℓ1 ball (its four returns
 # and claims 1 to 5 are in the header of that section), which reads nonnegative entries through a read.
 #   Zero point: sv ≤ c gives 0. Otherwise τ = max(level, 0), with the level from `_l1ball_iterate` on the magnitudes |vᵢ| from the
-#      plain first level (sv - c)/n of the sum sv of the classification pass (the handover of the prox starts the same way).
+#      plain first level (sv - c)/n of the sum sv of the classification pass (the start of `_l1ball_michelot`; the handover of the
+#      prox starts at the larger of the plain level of its sum and radius and the level ρ of Condat's pass).
 #      The conditions of that routine hold: the |vᵢ| are finite and nonnegative since sv is finite, 0 ≤ c < sv ≤ floatmax(W)/2
 #      (the tests of this function), so the start is nonnegative and all the levels are, and n eps(W) ≤ 1/2, which is not
 #      checked (as for the prox).
@@ -1020,8 +1100,8 @@ end
 # and the exponent), and τ = 2^k τ′. k starts at ceil(log2 n) + 2, where the scaled magnitudes sum to at most floatmax/4 before
 # rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`); the pass that forms the
 # scaled sum also gives the largest scaled magnitude mv′, which the certificate of the face needs. The loop ends: the scaled
-# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because
-# `_level_point` has refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
+# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because the callers (`_level_point`,
+# GroupNormLinf's `_linf_group_distance`) have refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
 # units, with the same preconditions: the scaled sum is within the limits of `_linf_in_range`, c′ ≤ c/4 is finite (k ≥ 2, as
 # _linf_exponent(n) ≥ 2), S′ is finite, the zero point has 0 ≤ c′ < sv′ when it does not return, and τ0′ = (S′ - c′)/cnt is finite as
 # |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4; the range of the shifted values is as above, with mv′

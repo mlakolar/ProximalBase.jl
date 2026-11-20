@@ -134,8 +134,10 @@ The output is not promised to be positive definite, and no solver convergence
 is promised. Weighted levels, groups, sparse and symmetric-iterate
 representations, `restrict`, `prox_block` and `kkt_violation` are not provided.
 The proximal map is not provided at steps `0` and `Inf`, at non-finite input
-or for array steps, and these calls are refused as the endpoint and failure
-sections state. A zero-stride
+or for array steps, and these calls are refused as the
+[supported-argument](@ref spec-norml0offdiag-arguments),
+[endpoint](@ref spec-norml0offdiag-endpoints) and
+[failure](@ref spec-norml0offdiag-failures) sections state. A zero-stride
 view as `Y` is not detected as self-aliased, as in `Base.mightalias`.
 
 **Implementation notes (not guarantees).** The scalar decision is
@@ -163,9 +165,9 @@ This section links to the shared owners.
 [`test/norml0offdiag.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/norml0offdiag.jl)
 compares the proximal map with an exact `Rational{BigInt}` minimization over the
 keep and drop patterns of the pairs, and with `NormL0` off the diagonal for
-mixed level and step types. It covers ties, signed zeros, the diagonal, every
-`ArgumentError` and `DimensionMismatch` refusal and the step refusals with an
-unchanged sentinel output, the `MethodError` refusals, strided views, reshapes and
+mixed level and step types. It covers ties, signed zeros, the diagonal, the
+refusals listed in the failure section, with an unchanged sentinel output where
+the caller passes one, the `MethodError` refusals of non-matrix arguments, strided views, reshapes and
 reinterpreted matrices as input, output and in place, `Scaled`, and zero
 allocation on both routes. The
 [penalty guide](@ref norml0offdiag-guide) contains an executable example, and

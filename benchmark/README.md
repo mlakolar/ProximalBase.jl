@@ -656,7 +656,7 @@ julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchma
 ```
 
 The validation pass of `NormL0OffDiag` reads both triangles before the proximal map writes, so
-the ratio to `NormL0` exceeds one out of place. In place the ratios are near one,
+the ratio to `NormL0` exceeds one out of place. In place the ratios fall to 1.0–1.1 at `p = 64` (they are 1.2–1.3 at `p = 32` and 2.2–2.5 at `p = 8`),
 because the in-place `prox!` of `NormL0` is slower than its out-of-place `prox!`. One run on Julia 1.13.4 at commit `378ecf63a` gave these ratios
 to the same operation of `NormL0` (the allocation was zero bytes in every row):
 

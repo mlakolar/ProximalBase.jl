@@ -260,6 +260,13 @@ end
     f = SparseGroupNormL2(F, o, [1:4], T[1])
     @test prox(f, u, T(2)) == T[Inf, -Inf, 0, 0]
     @test all(isnan, prox(f, T[NaN, -Inf, F, 1], T(2)))
+    # Uncoupled blocks retain the NormL1 limitation at a genuine infinity.
+    for (λ2, w) in ((zero(T), o), (o, zero(T)))
+      g = SparseGroupNormL2(F, λ2, [1:4], T[w])
+      expected = T[NaN, NaN, 0, 0]
+      @test isequal(prox(g, u, T(2)), expected)
+      @test isequal(prox_block(g, u, 1, T(2)), expected)
+    end
     # The finite group coefficient and norm both exceed the working range.
     # The soft stage is substantial, and the final point is representable.
     f = SparseGroupNormL2(F / 4, F, [1:4], T[1.25])
@@ -564,8 +571,14 @@ end
   @test close_value(v, BigFloat(α) * reference_value(y, a, b, G, w); n = length(x))
   @test_throws MethodError prox_block(s, x[only(G)], 1, γ)
   @test_throws MethodError prox_block!(x[only(G)], s, x[only(G)], 1, γ)
+  @test_throws ArgumentError kkt_violation(s, x, 1)
   @test_throws MethodError kkt_violation(s, x, x, 1)
   @test_throws MethodError kkt_violation(s, x, x)
+  for step in (-one(T), T(NaN)), op in (prox!, value_and_prox!)
+    y .= T(7)
+    @test_throws ArgumentError op(y, s, x, step)
+    @test y == fill(T(7), length(x))
+  end
 
   # The generic wrapper rounds its product with the step before leaf dispatch.
   # A finite product outside its range can therefore select the γ = Inf exit.

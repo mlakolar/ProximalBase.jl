@@ -39,6 +39,11 @@
       "target": "Indicators"
     }
   ],
+  "anchor_snapshot": {
+    "file": "anchors.tsv",
+    "sha256": "5ac8084ea14f9cf9e7bf8b8e61e4fc80a70c06bcc6c908151166745132732752",
+    "source": "Complete frozen local snapshot; exactly three approved uncited runtime fragments are checked by page/category/title identity."
+  },
   "authored_pages": 42,
   "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
   "block_count": 2162,

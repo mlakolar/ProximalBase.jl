@@ -11,7 +11,7 @@ API. This development reduction is not a release announcement.
 ## Retained and removed scope
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties,
+other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, nonconvex penalties,
 Poisson and robust-loss families, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf`, `IndBallL1`, `IndBallL2` and `IndBallL0`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
@@ -28,6 +28,24 @@ Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
+
+### Sparse group lasso
+
+[SparseGroupNormL2](@ref sparse-group-l2-guide) is available with the 0.6 array
+and compact-block interfaces. Both penalty terms still apply to the union of
+the groups. Convert a per-group update to
+`prox_block!(out, f, u, k, γ)` with an independent compact buffer and one
+scalar step. With a matching `BlockIterate`, commit the result separately
+using `copyto!(blockview(x, k), out)`. For full-array calls, pass a single
+scalar step. The former hierarchy, per-group step arrays,
+`prox_coordinate!` and `restrict` are absent.
+
+Call `kkt_violation(f, v, x, k)` with the actual point. It gives a signed
+screen at a zero group and measures the block subgradient distance at an
+active group. A full-point call reduces these scores together with the
+uncovered entries. A stored infinite constraint projects onto its domain
+at zero step, and negative or NaN steps fail before writing. See the
+[numerical endpoints](@ref sparse-group-l2-endpoints).
 
 ### Logistic regression
 

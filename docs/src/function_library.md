@@ -36,6 +36,7 @@ For a task-oriented starting point, use [Choose a function or operation](choosin
 | [`NormL2(λ)`](@ref NormL2) | ``g(x)=\lambda\lVert x\rVert_2`` | ``\lambda\geq0``: level; the Frobenius norm for a matrix | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
 | [`NormLinf(λ)`](@ref NormLinf) | ``g(x)=\lambda\max_i\lvert x_i\rvert`` | ``\lambda\geq0``: level; the largest magnitude of a matrix | [The ℓ∞ norm](group_penalty.md#The-NormLinf-norm) |
 | [`GroupNormL2(λ0, groups, w)`](@ref GroupNormL2) | ``g(x)=\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``\sqrt{\lvert G_k\rvert}`` when omitted) | [The ℓ₂ and group ℓ₂ norms](group_penalty.md) |
+| [`SparseGroupNormL2(λ1, λ2, groups, w)`](@ref SparseGroupNormL2) | ``g(x)=\lambda_1\sum_{i\in U}\lvert x_i\rvert+\lambda_2\sum_k w_k\lVert x_{G_k}\rVert_2`` | ``U`` is the union of the disjoint groups. Default weights are ``\sqrt{\lvert G_k\rvert}``. | [Sparse group lasso](group_penalty.md#sparse-group-l2-guide) |
 | [`GroupNormLinf(λ0, groups, w)`](@ref GroupNormLinf) | ``g(x)=\lambda_0\sum_k w_k\max_{i\in G_k}\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``G_k``: disjoint groups of indices; ``w``: nonnegative weights (``1`` when omitted) | [The group ℓ∞ norm](group_penalty.md#group-linf-guide) |
 | [`Scaled(f, α)`](@ref Scaled) | ``h(x)=\alpha f(x)`` | ``f``: existing function object; ``\alpha\geq0``: scale | [Scaling a function](calculus.md) |
 

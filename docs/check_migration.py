@@ -19,8 +19,6 @@ def main():
     parser.add_argument("--init", action="store_true", help="create an all-stay ledger; refuses overwrite")
     parser.add_argument("--baseline-html", type=Path)
     parser.add_argument("--build", type=Path, default=m.ROOT / "docs/build")
-    parser.add_argument("--anchor-profile", choices=("local", "ci"), default="local",
-                        help="explicit baseline runtime: local Julia 1.10.10 or CI Julia 1.13.4")
     parser.add_argument("--check", choices=("all", "blocks", "tokens", "sentences", "anchors", "citations", "examples"), default="all")
     parser.add_argument("--blocking", action="store_true", help="return nonzero for findings (default: report-only)")
     parser.add_argument("--scope-base", help="PR merge base for docs-only src/test scope; never use the frozen docs baseline for this")
@@ -45,9 +43,10 @@ def main():
         "blocks": lambda: errors,
         "tokens": lambda: m.accounting(base_blocks, mappings, "tokens"),
         "sentences": lambda: m.accounting(base_blocks, mappings, "sentences"),
-        "anchors": lambda: m.anchor_check(m.anchor_snapshot(metadata, args.anchor_profile), args.build,
+        "anchors": lambda: m.anchor_check(m.anchor_snapshot(metadata), args.build,
                                            retirements=metadata.get("anchor_retirements", []),
-                                           base_blocks=base_blocks, mappings=mappings, report=anchor_report),
+                                           base_blocks=base_blocks, mappings=mappings, report=anchor_report,
+                                           identities=m.runtime_anchor_identities()),
         "citations": lambda: m.citations_check(baseline=baseline, scope_base=args.scope_base)[0],
         "examples": lambda: m.examples_check(base_blocks, mappings, metadata),
     }
@@ -60,8 +59,10 @@ def main():
         if name == "anchors":
             results[name].update(anchor_report)
     print(json.dumps(dict(mode="blocking" if args.blocking else "report-only", baseline=baseline,
-                         anchor_profile=args.anchor_profile,
-                         baseline_blocks=len(base_blocks), ledger_rows=len(rows), checks=results), indent=2))
+                         baseline_blocks=len(base_blocks), ledger_rows=len(rows),
+                         refined_parents=len(mappings.refinements),
+                         effective_blocks=len(base_blocks) + sum(len(children) - 1 for children in mappings.refinements.values()),
+                         checks=results), indent=2))
     failed = any(result["findings"] for result in results.values())
     return 1 if args.blocking and failed else 0
 

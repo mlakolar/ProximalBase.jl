@@ -1687,11 +1687,52 @@
           "reviewer": "norml1_pilot@c54241b15d0d435f4a87f0da0ddea9449f14a106",
           "source_sha": "432f4fbefe32f099b79d030aec97efb0f29620de39659d723a34ec5db8f373d0",
           "replacement_sha": "5aa585d23525b79792972e58f20c5fd923fb63c7a8d50e5cd10b0efeb7d968a2"
+        },
+        {
+          "pull_request": 1052,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1052",
+          "merged": true,
+          "before_commit": "2900a3ae6babaeff4342b00a9656e4422dd9bb61",
+          "after_commit": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+          "before_blob": "2c7f4de941d581ea26e4389a04157abddbc355d9",
+          "after_blob": "a2807fa470a8924b60f8b87d4cf49423dff44ac3",
+          "reviewer": "lead-independent-upstream@e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+          "source_sha": "5aa585d23525b79792972e58f20c5fd923fb63c7a8d50e5cd10b0efeb7d968a2",
+          "replacement_sha": "2e39940121cea7b3405af75aa5b482bac9ec3a2de5573956d43f6b9692d81aa6"
         }
       ],
       "dest": "test/TESTING.md#CI-sharding",
-      "dest_sha": "5aa585d23525b79792972e58f20c5fd923fb63c7a8d50e5cd10b0efeb7d968a2",
-      "reviewer": "norml1_pilot@c54241b15d0d435f4a87f0da0ddea9449f14a106"
+      "dest_sha": "2e39940121cea7b3405af75aa5b482bac9ec3a2de5573956d43f6b9692d81aa6",
+      "reviewer": "lead-independent-upstream@e03c6d9659365d54f4e0fba1a9cd54490631eea6"
+    },
+    {
+      "block_id": "test/TESTING.md::Minimal supported test inventory / CI sharding::7",
+      "baseline_sha": "73cf5f4ac50b674407697dbbbd05d2eebe7ea44583b32db6a0be1ef2f304aede",
+      "events": [
+        {
+          "pull_request": 1052,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1052",
+          "merged": true,
+          "before_commit": "2900a3ae6babaeff4342b00a9656e4422dd9bb61",
+          "after_commit": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+          "before_blob": "2c7f4de941d581ea26e4389a04157abddbc355d9",
+          "after_blob": "a2807fa470a8924b60f8b87d4cf49423dff44ac3",
+          "reviewer": "lead-independent-upstream@e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+          "source_sha": "73cf5f4ac50b674407697dbbbd05d2eebe7ea44583b32db6a0be1ef2f304aede",
+          "replacement_shas": [
+            "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862",
+            "8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097",
+            "648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7",
+            "74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a",
+            "864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285",
+            "804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807",
+            "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
+          ]
+        }
+      ],
+      "dest": "test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding",
+      "dest_sha": "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862;8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097;648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7;74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a;864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285;804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807;a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66",
+      "reviewer": "lead-independent-upstream@e03c6d9659365d54f4e0fba1a9cd54490631eea6"
     }
   ]
 }

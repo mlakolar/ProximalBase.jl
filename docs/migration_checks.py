@@ -7,9 +7,10 @@ from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from hashlib import sha256
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 import csv
 import json
 import posixpath
@@ -24,6 +25,7 @@ NORMALIZER_VERSION = 2
 FIELDS = ("block_id", "sha", "kind", "action", "dest", "dest_sha", "clause_ids", "reviewer")
 ACTIONS = {"stay", "move", "split", "reword", "dedupe", "supersede", "archive", "upstream"}
 REVIEWED = {"split", "reword", "dedupe", "supersede"}
+REFINEMENT_PATHS = {"docs/src/smooth.md", "docs/src/group_penalty.md", "docs/src/calculus.md"}
 CONTRACTS = {"docs/design/" + name for name in (
     "block-prox-0.6.md", "iterate-family-0.6.md", "symmetric-sparse-iterate-0.6.md")}
 EXTRA = {"README.md", "CONTRIBUTING.md", "examples/README.md", "test/TESTING.md",
@@ -219,6 +221,62 @@ def baseline_blocks(root=ROOT, baseline=BASELINE):
             for block in blocks(git("show", baseline + ":" + path, root=root), path)]
 
 
+def sentence_children(block):
+    """Stable child identities without renumbering any frozen provenance root."""
+    if block.kind != "prose":
+        return [block]
+    values = list(sentences(block.text))
+    if len(values) == 1:
+        return [block]
+    return [Block(f"{block.id}::sentence:{i}", block.path, block.kind, text,
+                  block.line, block.heading) for i, text in enumerate(values, 1)]
+
+
+def refinement_records(base_blocks):
+    records = []
+    for block in base_blocks:
+        children = sentence_children(block)
+        if block.path in REFINEMENT_PATHS and len(children) > 1:
+            if normalized(" ".join(child.text for child in children), block.path) != block.norm:
+                raise ValueError(f"sentence children do not reconstruct their parent: {block.id}")
+            records.append(dict(block_id=block.id, sha=block.sha,
+                                children=[dict(block_id=child.id, sha=child.sha) for child in children]))
+    return records
+
+
+def validated_refinements(base_blocks, root=ROOT):
+    path = root / "docs/audit/docs-tracks-1019/refinements.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    expected = refinement_records(base_blocks)
+    if (not isinstance(data, dict) or data.get("schema") != 1 or data.get("baseline") != BASELINE or
+            data.get("parents") != expected):
+        raise ValueError("refinement map differs from the complete ordered frozen parent-to-sentence map")
+    originals = {block.id: block for block in base_blocks}
+    return {record["block_id"]: sentence_children(originals[record["block_id"]]) for record in expected}
+
+
+def refinement_inventory(base_blocks, refinements):
+    """Effective accounting units, with every child bound to its original root."""
+    return [child for block in base_blocks for child in refinements.get(block.id, [block])]
+
+
+def destination_blocks(text, path):
+    """Offer sentence units alongside whole paragraphs for reviewed refinements.
+
+    The frozen parser remains unchanged. Destination occurrence accounting below
+    also checks overlapping text, so a paragraph and one of its children cannot
+    be used twice to cover different roots.
+    """
+    for block in blocks(text, path):
+        yield block
+        if path in REFINEMENT_PATHS and block.kind == "prose":
+            children = sentence_children(block)
+            if len(children) > 1:
+                yield from children
+
+
 def write_tsv(path, fields, rows, baseline=BASELINE):
     with path.open("w", newline="", encoding="utf-8") as stream:
         stream.write(f"# baseline\t{baseline}\n")
@@ -254,6 +312,44 @@ class ContentAnchors(HTMLParser):
             self.article_depth -= 1
 
 
+class AdmonitionContent(HTMLParser):
+    """Extract exact rendered admonition titles and distinguish self-permalinks."""
+    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self, html):
+        super().__init__(convert_charrefs=True)
+        self.stack, self.admonitions, self.links = [], [], []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        inside = any(item[1].get("id") == "documenter-page" for item in self.stack)
+        classes = attrs.get("class", "").split()
+        node = None
+        if inside and tag in {"div", "details"} and "admonition" in classes:
+            node = dict(fragment=attrs.get("id", ""), classes=classes, title="")
+            self.admonitions.append(node)
+        owner = next((item[2] for item in reversed(self.stack) if item[2] is not None), None)
+        if inside and tag == "a" and attrs.get("href"):
+            self.links.append((attrs["href"], "admonition-anchor" in classes,
+                               owner["fragment"] if owner else None))
+        if tag not in self.VOID:
+            self.stack.append((tag, attrs, node))
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data):
+        if not any("admonition-header" in item[1].get("class", "").split() for item in self.stack):
+            return
+        owner = next((item[2] for item in reversed(self.stack) if item[2] is not None), None)
+        if owner is not None:
+            owner["title"] += data
+
+
 def page_key(path):
     path = str(path).replace("\\", "/")
     if path == "index.html":
@@ -268,36 +364,147 @@ def html_anchors(build):
             for path in sorted(build.rglob("*.html"))}
 
 
-def anchor_snapshot(metadata, profile="local", audit=AUDIT):
-    """Load one explicitly selected, complete runtime-specific baseline.
+def anchor_snapshot(metadata, audit=AUDIT):
+    """Load the complete frozen snapshot; runtime IDs use bounded identities.
 
-    Generated admonition fragments use Julia's version-dependent Base.hash.
-    Profiles preserve every exact page/fragment pair; they are never fallback
-    sets, suffix stripping, or a user-supplied path that could waive failures.
+    The old CI snapshot and runtime descriptors remain immutable audit evidence.
+    They no longer select different acceptance rules for different Julia builds.
     """
-    files = {"local": "anchors.tsv", "ci": "anchors-ci.tsv"}
-    if profile not in files or profile not in metadata.get("anchor_profiles", {}):
-        raise ValueError(f"unknown or unavailable anchor profile: {profile}")
-    descriptor = metadata["anchor_profiles"][profile]
-    if descriptor.get("file") != files[profile]:
-        raise ValueError(f"unexpected snapshot filename for anchor profile {profile}")
-    path = audit / files[profile]
+    descriptor = metadata.get("anchor_snapshot", {})
+    if descriptor.get("file") != "anchors.tsv":
+        raise ValueError("a complete frozen anchors.tsv descriptor is required")
+    path = audit / "anchors.tsv"
     content = path.read_text(encoding="utf-8")
     if not content.startswith(f"# baseline\t{metadata['baseline']}\n"):
-        raise ValueError(f"anchor profile {profile} names a different baseline")
+        raise ValueError("anchor snapshot names a different baseline")
     if digest(content) != descriptor.get("sha256"):
-        raise ValueError(f"anchor profile {profile} snapshot hash mismatch")
+        raise ValueError("anchor snapshot hash mismatch")
     rows = read_tsv(path)
     pairs = {(row["page"], row["fragment"]) for row in rows}
     pages = {row["page"] for row in rows if not row["fragment"]}
     anchors = sum(bool(row["fragment"]) for row in rows)
     if not rows or len(pairs) != len(rows):
-        raise ValueError(f"anchor profile {profile} is empty or has duplicate rows")
+        raise ValueError("anchor snapshot is empty or has duplicate rows")
     if pages != {row["page"] for row in rows} or len(pages) != metadata["rendered_pages"]:
-        raise ValueError(f"anchor profile {profile} has incomplete baseline page records")
+        raise ValueError("anchor snapshot has incomplete baseline page records")
     if anchors != metadata["content_anchor_count"]:
-        raise ValueError(f"anchor profile {profile} has an incomplete baseline anchor count")
+        raise ValueError("anchor snapshot has an incomplete baseline anchor count")
     return rows
+
+
+def runtime_anchor_identities(root=ROOT):
+    """The three approved uncited runtime IDs, not a general hash exemption."""
+    path = root / "docs/audit/docs-tracks-1019/anchor-identities.json"
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    expected = {
+        ("function_library", "note", "Which squared-loss object should I use?", "docs/src/function_library.md"),
+        ("getting_started", "details", "Degenerate data and step-size estimates", "docs/src/getting_started.md"),
+        ("api/iterates", "note", "Non-finite vectors", "src/symmetric_sparse_iterate.jl"),
+    }
+    records = data.get("identities") if isinstance(data, dict) else None
+    if (not isinstance(data, dict) or data.get("schema") != 1 or not isinstance(records, list) or len(records) != 3 or
+            any(not isinstance(record, dict) for record in records) or
+            {(r.get("page"), r.get("category"), r.get("title"), r.get("source")) for r in records} != expected):
+        raise ValueError("runtime anchor identities must name exactly the three approved page/category/title/source tuples")
+    audit = path.parent
+    metadata = json.loads((audit / "baseline.json").read_text(encoding="utf-8"))
+    local = {(row["page"], row["fragment"]) for row in anchor_snapshot(metadata, audit)}
+    archived = audit / "anchors-ci.tsv"
+    if digest(archived.read_text(encoding="utf-8")) != metadata["anchor_profiles"]["ci"]["sha256"]:
+        raise ValueError("historical CI anchor snapshot hash mismatch")
+    ci = {(row["page"], row["fragment"]) for row in read_tsv(archived)}
+    differing = local ^ ci
+    represented = {(record["page"], fragment) for record in records for fragment in record.get("fragments", [])}
+    if differing != represented:
+        raise ValueError("runtime identities must account for exactly the frozen local/CI fragment differences")
+    return records
+
+
+def authored_link_destinations(text):
+    """Extract the Markdown/HTML destination forms used by authored sources."""
+    targets = []
+    destination = r"(?:<([^<>\n]+)>|([^\s)<>]+))"
+    for pattern in (r"\]\(\s*" + destination,
+                    r"(?m)^[ \t]*(?:>[ \t]*)*\[[^\]\n]+\]:\s*" + destination):
+        targets.extend(left or right for left, right in re.findall(pattern, text))
+    targets.extend(re.findall(r"<([A-Za-z][A-Za-z0-9+.-]*:[^<>\s]+)>", text))
+    targets.extend("#" + value for value in re.findall(r"\(@ref\s+([^\s)]+)\)", text))
+
+    class Links(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag == "a" and (href := dict(attrs).get("href")):
+                targets.append(href)
+
+    # HTMLParser handles quoted/unquoted hrefs and HTML character references.
+    Links(convert_charrefs=True).feed(text)
+    return [unescape(target.strip()) for target in targets]
+
+
+def check_runtime_identities(records, frozen, build, root):
+    """Return exact baseline pairs accounted for by rendered content identity."""
+    errors, accounted, identities = [], set(), []
+    parsed = {}
+    for path in build.rglob("*.html"):
+        html = AdmonitionContent(path.read_text(encoding="utf-8"))
+        html.relative_path = path.relative_to(build).as_posix()
+        parsed[page_key(html.relative_path)] = html
+    dynamic_fragments = set()
+    for record in records:
+        try:
+            page, category, title, source = (record[key] for key in ("page", "category", "title", "source"))
+            fragments = record["fragments"]
+            if (not isinstance(fragments, list) or len(fragments) != 2 or len(set(fragments)) != 2 or
+                    any(not isinstance(fragment, str) or not fragment for fragment in fragments)):
+                raise ValueError("runtime anchor identity requires both exact historical fragments")
+            pairs = {(page, fragment) for fragment in fragments} & frozen
+            if len(pairs) != 1 or pairs & accounted:
+                raise ValueError("runtime anchor identity does not own one distinct frozen fragment")
+            source_text = read_current(source, root)
+            pattern = r'^\s*(?:!!!|\?\?\?)\s+' + re.escape(category) + r'\s+"' + re.escape(title) + r'"\s*$'
+            if len(re.findall(pattern, source_text, re.M)) != 1:
+                raise ValueError(f"runtime anchor source identity must occur exactly once: {source} / {category} / {title}")
+            rendered_category = {"note": "is-info", "details": "is-details"}[category]
+            matches = [node for node in parsed.get(page, AdmonitionContent("")).admonitions
+                       if rendered_category in node["classes"] and node["title"] == title]
+            if len(matches) != 1 or not matches[0]["fragment"]:
+                raise ValueError(f"runtime anchor rendered identity must occur exactly once: {page} / {category} / {title}")
+            current = matches[0]["fragment"]
+            dynamic_fragments.update([*fragments, current])
+            accounted.update(pairs)
+            identities.append(dict(page=page, category=category, title=title, fragment=current))
+            # Protect current and historical dynamic fragment links. A generated
+            # self-permalink is the sole permitted incoming link.
+            targets = {(page, fragment) for fragment in [*fragments, current]}
+            for from_page, html in parsed.items():
+                for href, permalink, owner in html.links:
+                    url = urlsplit(href)
+                    if url.scheme or url.netloc or not url.fragment:
+                        continue
+                    target_path = posixpath.normpath(posixpath.join(posixpath.dirname(html.relative_path), unquote(url.path))) if url.path else html.relative_path
+                    target_page = page_key(target_path.rstrip("/"))
+                    if target_page.endswith("/index"):
+                        target_page = target_page[:-6]
+                    pair = (target_page, unquote(url.fragment))
+                    if pair in targets and not (from_page == page and not url.path and permalink and owner == current and pair[1] == current):
+                        errors.append(f"authored/non-self link to runtime-generated fragment: {from_page} -> {href}")
+        except (KeyError, FileNotFoundError, ValueError) as error:
+            errors.append(str(error))
+    sources = {path for directory in ("docs/src", "docs/design", "src", "test", "examples")
+               for path in (root / directory).rglob("*")
+               if path.is_file() and path.suffix in {".md", ".jl", ".html"}}
+    sources.update(root / filename for filename in ("README.md", "CONTRIBUTING.md", "AGENTS.md")
+                   if (root / filename).is_file())
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        # Markdown destinations can be padded with whitespace or enclosed in
+        # angle brackets. Reference definitions need checking even when their
+        # owning README/design/source file is not rendered into the manual.
+        for target in authored_link_destinations(text):
+            if unquote(urlsplit(target).fragment) in dynamic_fragments:
+                errors.append(f"authored link to runtime-generated fragment in {path.relative_to(root)}: {target}")
+    return errors, accounted, identities
 
 
 def initial_ledger(base_blocks):
@@ -357,10 +564,10 @@ def initialize(build, root=ROOT, audit=AUDIT, baseline=BASELINE):
                     block_count=len(baseline_data), authored_pages=sum(p.startswith("docs/src/") for p in scope),
                     rendered_pages=len(pages), content_anchor_count=sum(map(len, pages.values())),
                     example_scripts=examples, measurements=baseline_measurements(root, baseline))
-    metadata["anchor_profiles"] = {"local": {
+    metadata["anchor_snapshot"] = {
         "file": "anchors.tsv", "sha256": digest((audit / "anchors.tsv").read_text()),
         "source": "Explicit unchanged HTML supplied to --baseline-html",
-    }}
+    }
     (audit / "baseline.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     return metadata
 
@@ -485,13 +692,94 @@ def example_tokens(block):
                    if "@example" in line or "jldoctest" in line or "@assert" in line)
 
 
-def upstream_records(rows, root=ROOT):
+class CheckedMappings(dict):
+    """Validated mappings plus exact accounting bases and bounded allowances."""
+    def __init__(self):
+        super().__init__()
+        self.bases = {}
+        self.allowances = {}
+        self.refinements = {}
+
+
+def receipt_records(root, filename, key):
+    path = root / "docs/audit/docs-tracks-1019" / filename
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema") != 1 or not isinstance(data.get(key), list):
+        raise ValueError(f"{filename} requires schema 1 and a {key} list")
+    result = {}
+    for record in data[key]:
+        if not isinstance(record, dict) or not isinstance(record.get("block_id"), str):
+            raise ValueError(f"{filename} record requires a block_id")
+        identifier = record["block_id"]
+        if identifier in result:
+            raise ValueError(f"duplicate {filename} record: {identifier}")
+        result[identifier] = record
+    return result
+
+
+def receipt_digest(record):
+    return digest(json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+
+
+def token_delta(before, after):
+    return dict(removed=dict(sorted((before - after).items())),
+                added=dict(sorted((after - before).items())))
+
+
+def validate_allowance(old, row, basis, replacements, record):
+    """Require a reviewed, current and fully used exact token/marker change."""
+    if row["action"] not in {"reword", "split"}:
+        raise ValueError("token allowance is unused by a reword or split action")
+    expected = dict(block_id=old.id, baseline_sha=old.sha, action=row["action"],
+                    source_shas=[block.sha for block in basis], dest=row["dest"],
+                    dest_sha=row["dest_sha"], reviewer=row["reviewer"])
+    if any(record.get(key) != value for key, value in expected.items()):
+        raise ValueError("token allowance is stale: original, source, destination, action or reviewer differs")
+    if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
+        raise ValueError("token allowance requires independent review evidence")
+    actual = {}
+    for name, counter in (("tokens", protected_tokens), ("examples", example_tokens)):
+        before = sum((counter(block) for block in basis), Counter())
+        after = sum((counter(block) for block in replacements), Counter())
+        delta = token_delta(before, after)
+        if delta["removed"]:
+            actual[name] = delta
+    if not actual:
+        raise ValueError("token allowance is unused: no protected token or marker was removed")
+    if record.get("changes") != actual:
+        raise ValueError("token allowance does not exactly match every removed and added token/marker")
+    return actual
+
+
+def located_destination_blocks(text, path):
+    located, cursor = [], 0
+    for block in blocks(text, path):
+        start = text.index(block.text, cursor)
+        end = start + len(block.text)
+        cursor = end
+        located.append((block, start, end))
+        if path in REFINEMENT_PATHS and block.kind == "prose":
+            children = sentence_children(block)
+            if len(children) > 1:
+                child_cursor = start
+                for child in children:
+                    child_start = text.index(child.text, child_cursor, end)
+                    child_end = child_start + len(child.text)
+                    located.append((child, child_start, child_end))
+                    child_cursor = child_end
+    return located
+
+
+def upstream_records(rows, root=ROOT, migration_bases=None):
     """Read the reviewed receipt; Git checks below verify its content provenance.
 
     The merged-PR status and reviewer identity are review attestations, not facts
     an offline Git repository can authenticate. They never replace blob checks.
     """
     required = {row["block_id"] for row in rows if row.get("action") == "upstream"}
+    required.update(migration_bases or {})
     path = root / "docs/audit/docs-tracks-1019/upstream.json"
     if not required and not path.exists():
         return {}
@@ -528,7 +816,7 @@ def sequence_starts(values, sequence):
             if values[i:i + len(sequence)] == sequence]
 
 
-def validate_upstream(old, row, record, root=ROOT):
+def validate_upstream(old, row, record, root=ROOT, *, current=True):
     """Bind one original block to an exact sequence of reviewed upstream diffs.
 
     Each event replaces a contiguous span in its original file. Hashes must join
@@ -563,6 +851,8 @@ def validate_upstream(old, row, record, root=ROOT):
         raise ValueError("upstream final replacement does not match the destination hash")
     if events[-1]["reviewer"] != row["reviewer"]:
         raise ValueError("upstream final event reviewer does not match the destination review")
+    if not current:
+        return source
     current = list(blocks(section_text(read_current(path, root), anchor), path))
     starts = sequence_starts([block.sha for block in current], hashes)
     if len(starts) != 1:
@@ -706,17 +996,21 @@ def validate_upstream_event(old, record, root=ROOT):
 
 
 def coverage(base_blocks, rows, root=ROOT):
-    """Return errors and validated baseline-to-destination mappings.
+    """Validate original identities, destinations, provenance and exact allowances.
 
-    Approved transformations are tied to replacement hashes, never an unchecked
-    exemption flag. Their meaning still requires the recorded independent review.
+    The original ledger never changes its source hashes. A separately bound
+    upstream migration basis changes the *comparison input* only after its full
+    historical chain passes, then ordinary preservation rules apply to that input.
     """
-    errors, mappings = [], {}
+    errors, mappings = [], CheckedMappings()
     try:
-        upstream = upstream_records(rows, root)
+        bases = receipt_records(root, "migration-bases.json", "bases")
+        allowances = receipt_records(root, "token-allowances.json", "allowances")
+        upstream = upstream_records(rows, root, bases)
+        mappings.refinements = validated_refinements(base_blocks, root)
     except (FileNotFoundError, ValueError) as error:
-        errors.append(f"upstream evidence: {error}")
-        upstream = {}
+        errors.append(f"migration evidence: {error}")
+        bases, allowances, upstream = {}, {}, {}
     by_id = {b.id: b for b in base_blocks}
     row_counts = Counter(row["block_id"] for row in rows)
     for identifier in sorted(set(by_id) - set(row_counts)):
@@ -726,8 +1020,11 @@ def coverage(base_blocks, rows, root=ROOT):
             errors.append(f"unknown baseline block: {identifier}")
         if count != 1:
             errors.append(f"duplicate ledger row: {identifier}")
-    cached, candidates_by_dest, counts_by_path = {}, {}, {}
-    used = Counter()
+    for filename, records in (("migration basis", bases), ("token allowance", allowances)):
+        for identifier in records.keys() - by_id.keys():
+            errors.append(f"unused {filename} for unknown baseline block: {identifier}")
+    cached, candidates_by_dest, used = {}, {}, {}
+    used_allowances, used_bases = set(), set()
     for row in rows:
         old = by_id.get(row["block_id"])
         if old is None:
@@ -740,7 +1037,9 @@ def coverage(base_blocks, rows, root=ROOT):
             errors.append(f"unknown action {action!r}: {old.id}")
             continue
         reviewer = row.get("reviewer", "")
-        if not reviewer or (action in REVIEWED | {"upstream"} and (reviewer == "mechanical" or "@" not in reviewer)):
+        identity, _, revision = reviewer.partition("@")
+        if not reviewer or (action in REVIEWED | {"upstream"} and
+                            (not identity or identity == "mechanical" or not revision)):
             errors.append(f"missing independent review identity@revision for {action}: {old.id}")
             continue
         destinations = destination_parts(row.get("dest", ""))
@@ -748,29 +1047,47 @@ def coverage(base_blocks, rows, root=ROOT):
         if not destinations or len(destinations) != len(hashes):
             errors.append(f"destination/hash count mismatch: {old.id}")
             continue
-        if action == "upstream":
-            try:
-                upstream_replacements = validate_upstream(old, row, upstream.get(old.id), root)
-            except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
-                errors.append(f"{old.id}: {error}")
-                continue
+        basis = [old]
+        try:
+            if action == "upstream":
+                if old.id in bases:
+                    raise ValueError("unused migration basis on an upstream action")
+                validate_upstream(old, row, upstream.get(old.id), root)
+            elif old.id in bases:
+                record, receipt = bases[old.id], upstream.get(old.id)
+                if receipt is None:
+                    raise ValueError("migration basis has no historical upstream receipt")
+                basis = validate_upstream(old, receipt, receipt, root, current=False)
+                expected = dict(block_id=old.id, baseline_sha=old.sha,
+                                upstream_sha=receipt_digest(receipt),
+                                source_shas=[block.sha for block in basis])
+                if any(record.get(key) != value for key, value in expected.items()):
+                    raise ValueError("migration basis does not match the exact reviewed upstream terminal span")
+                if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
+                    raise ValueError("migration basis requires the historical review evidence")
+                used_bases.add(old.id)
+            if action in {"stay", "move", "archive"} and hashes != [block.sha for block in basis]:
+                raise ValueError(f"{action} must preserve the original normalized hash sequence")
+        except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
+            errors.append(f"{old.id}: {error}")
+            continue
         replacements = []
-        for index, (dest, expected) in enumerate(zip(destinations, hashes)):
+        for dest, expected in zip(destinations, hashes):
             try:
                 path, anchor = split_destination(dest)
                 if path not in cached:
                     cached[path] = read_current(path, root)
-                    page_blocks = list(blocks(cached[path], path))
-                    candidates_by_dest[path] = page_blocks
-                    counts_by_path[path] = Counter(b.sha for b in page_blocks)
+                    candidates_by_dest[path] = located_destination_blocks(cached[path], path)
+                    used[path] = []
                 if dest not in candidates_by_dest:
-                    candidates_by_dest[dest] = list(blocks(section_text(cached[path], anchor), path))
-                candidates = candidates_by_dest[dest]
-                matches = [upstream_replacements[index]] if action == "upstream" else [b for b in candidates if b.sha == expected]
+                    section = section_text(cached[path], anchor)
+                    start = cached[path].index(section)
+                    end = start + len(section)
+                    candidates_by_dest[dest] = [(b, i, j) for b, i, j in candidates_by_dest[path]
+                                                if start <= i and j <= end]
+                matches = [(b, i, j) for b, i, j in candidates_by_dest[dest] if b.sha == expected]
                 if not matches:
                     raise ValueError(f"no block with expected hash {expected[:12]} at {dest}")
-                if action in {"stay", "move", "archive"} and expected != old.sha:
-                    raise ValueError(f"{action} must preserve the original normalized hash")
                 if action == "stay" and path != old.path:
                     raise ValueError("stay must retain its source path")
                 if action == "archive":
@@ -779,25 +1096,39 @@ def coverage(base_blocks, rows, root=ROOT):
                     origin = canonical_links(read_current(old.path, root), old.path)
                     if not re.search(r"\]\(" + re.escape(path) + r"(?:[#)]|\s)", origin):
                         raise ValueError("archive requires a forwarding link at its source")
-                if action in {"stay", "move", "archive", "upstream"}:
-                    key = (path, expected)
-                    used[key] += 1
-                    # Count across the whole page, so two anchor scopes cannot
-                    # accidentally reuse one occurrence for two original blocks.
-                    available = counts_by_path[path][expected]
-                    if used[key] > available:
+                if action not in {"dedupe", "supersede"}:
+                    free = [(b, i, j) for b, i, j in matches
+                            if not any(max(i, a) < min(j, z) for a, z in used[path])]
+                    if not free:
                         raise ValueError("destination occurrence reused without a reviewed dedupe action")
-                replacements.append(matches[0])
+                    block, start, end = free[0]
+                    used[path].append((start, end))
+                else:
+                    block = matches[0][0]
+                replacements.append(block)
             except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
                 errors.append(f"{old.id}: {error}")
-        if len(replacements) == len(destinations):
-            if action == "split":
-                old_words = Counter(old.norm.split())
-                new_words = Counter(" ".join(b.norm for b in replacements).split())
-                if old_words - new_words:
-                    errors.append(f"split loses original words; classify/review as reword: {old.id}")
-                    continue
-            mappings[old.id] = (action, replacements)
+        if len(replacements) != len(destinations):
+            continue
+        if action == "split":
+            old_words = Counter(" ".join(b.norm for b in basis).split())
+            new_words = Counter(" ".join(b.norm for b in replacements).split())
+            if old_words - new_words:
+                errors.append(f"split loses original words; classify/review as reword: {old.id}")
+                continue
+        if old.id in allowances:
+            try:
+                mappings.allowances[old.id] = validate_allowance(old, row, basis, replacements, allowances[old.id])
+                used_allowances.add(old.id)
+            except ValueError as error:
+                errors.append(f"{old.id}: {error}")
+                continue
+        mappings[old.id] = (action, replacements)
+        mappings.bases[old.id] = basis
+    for identifier in sorted(allowances.keys() - used_allowances):
+        errors.append(f"unused or invalid token allowance: {identifier}")
+    for identifier in sorted(bases.keys() - used_bases):
+        errors.append(f"unused or invalid migration basis: {identifier}")
     return errors, mappings
 
 
@@ -808,34 +1139,39 @@ def accounting(base_blocks, mappings, kind):
             errors.append(f"unaccounted baseline block: {old.id}")
             continue
         action, replacements = mappings[old.id]
-        # coverage has independently checked the exact reviewed upstream Git
-        # change. These are inherited changes, not preservation-equivalent edits.
-        if action == "upstream":
+        # Historical changes are accepted only after exact Git receipt checks.
+        # Only dedupe/supersede may otherwise reduce ordinary preservation counts.
+        if action in {"upstream", "dedupe", "supersede"}:
             continue
-        # Reviewed replacement hashes are the acceptance evidence for semantic
-        # transformations. Every check uses this same action policy.
-        if action in REVIEWED:
+        if kind == "sentences" and action in {"reword", "split"}:
             continue
+        basis = getattr(mappings, "bases", {}).get(old.id, [old])
         if kind == "tokens":
-            before, after = protected_tokens(old), sum((protected_tokens(b) for b in replacements), Counter())
+            counter = protected_tokens
         elif kind == "sentences":
-            before = Counter(sentences(old.norm))
-            after = sum((Counter(sentences(b.norm)) for b in replacements), Counter())
+            counter = lambda block: Counter(sentences(block.norm))
         elif kind == "examples":
-            before, after = example_tokens(old), sum((example_tokens(b) for b in replacements), Counter())
+            counter = example_tokens
         else:
             raise ValueError(kind)
+        before = sum((counter(block) for block in basis), Counter())
+        after = sum((counter(block) for block in replacements), Counter())
+        allowed = getattr(mappings, "allowances", {}).get(old.id, {}).get(kind, {})
+        before.subtract(allowed.get("removed", {}))
         if before - after:
             errors.append(f"lost {kind}: {old.id}")
     return errors
 
 
-def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, report=None):
+def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, report=None,
+                 identities=(), root=ROOT):
     pages = html_anchors(build)
     errors = []
     if not pages:
         return ["no built HTML; run docs/make.jl first"]
     frozen = {(row["page"], row["fragment"]) for row in rows}
+    identity_errors, identity_pairs, rendered_identities = check_runtime_identities(identities, frozen, build, root) if identities else ([], set(), [])
+    errors.extend(identity_errors)
     originals = {block.id: block for block in base_blocks}
     approved = {}
     retired_blocks = set()
@@ -898,7 +1234,7 @@ def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, 
         page, fragment = row["page"], row["fragment"]
         if page not in pages:
             errors.append(f"missing baseline page: {page or '/'}")
-        elif fragment and fragment not in pages[page] and (page, fragment) not in approved:
+        elif fragment and fragment not in pages[page] and (page, fragment) not in approved and (page, fragment) not in identity_pairs:
             errors.append(f"missing original page+fragment: {page or '/'}#{fragment}")
     if report is not None:
         present = {(page, fragment) for page, fragment in frozen if fragment and fragment in pages.get(page, set())}
@@ -908,6 +1244,10 @@ def anchor_check(rows, build, *, retirements=(), base_blocks=(), mappings=None, 
                       approved_retirement_count=len(approved),
                       approved_retirements=[dict(page=page, fragment=fragment, target=approved[page, fragment])
                                             for page, fragment in sorted(approved)])
+        if identities:
+            report.update(exact_fragment_count=len(present - identity_pairs),
+                          runtime_identity_count=len(identity_pairs), runtime_identities=rendered_identities,
+                          accounted_fragment_count=len(present | set(retired) | identity_pairs))
     return errors
 
 

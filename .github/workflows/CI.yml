@@ -169,7 +169,7 @@ jobs:
           if [[ -n "${PB_DOCS_SCOPE_BASE:-}" ]]; then
             scope_args=(--scope-base "$PB_DOCS_SCOPE_BASE")
           fi
-          python3 -B docs/check_migration.py --check all --anchor-profile ci --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
+          python3 -B docs/check_migration.py --check all --build docs/build "${scope_args[@]}" 2>&1 | tee "${RUNNER_TEMP}/pb-docs-migration.log"
       - name: Report removed documentation lines against the change base
         run: |
           set -o pipefail

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused negative fixtures for preservation checks; no package tests changed."""
+"""Focused fixtures for documentation preservation and the family map."""
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,8 +9,54 @@ import subprocess
 import sys
 import unittest
 
+from check_contract_schema import family_map_errors
 import check_migration_lines as line_report
 import migration_checks as m
+
+
+class FamilyMapTests(unittest.TestCase):
+    def check(self, reference, rows, pages=(), other_sections=""):
+        index = (
+            "## Family map\n\n"
+            "| Family or operation | Current entry point | Migration state |\n"
+            "|:--|:--|:--|\n" + rows + "\n" + other_sections
+        )
+        return family_map_errors(reference, index, set(pages))
+
+    def test_requires_exact_row_in_family_map_for_qualified_type(self):
+        reference = "```@docs\nProximalBase.NewFamily{T}\nProximalBase.some_oracle!\n```\n"
+        errors = self.check(
+            reference, "| `NewFamilyVariant` | [Guide](newfamilyvariant.md) | Authored contract |",
+            pages=("newfamilyvariant.md",),
+            other_sections="## Other table\n\n| `NewFamily` | [Guide](newfamily.md) | Authored contract |\n",
+        )
+        self.assertEqual(errors, ["api/functions.md: NewFamily is missing from the family map in spec/index.md"])
+
+    def test_example_text_does_not_count_as_api_docs(self):
+        reference = "Mentions `NewFamily`.\n\n````markdown\n```@docs\nNewFamily\n```\n````\n"
+        self.assertEqual(self.check(reference, ""), [])
+
+    def test_recognizes_both_names_in_grandfathered_row(self):
+        reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
+        self.assertEqual(self.check(reference, "| `LinearFunction` and `ZeroFunction` | Guide | Existing pages |"), [])
+
+    def test_new_name_cannot_enter_existing_pages_even_in_a_grouped_row(self):
+        errors = self.check(
+            "```@docs\nNewFamily\n```\n",
+            "| `LinearFunction` and `NewFamily` | [Guide](newfamily.md) | Existing pages |",
+            pages=("newfamily.md",),
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("NewFamily cannot enter the family map as Existing pages", errors[0])
+
+    def test_requires_own_contract_page_or_thin_constructor_marker(self):
+        reference = "```@docs\nNewFamily\n```\n"
+        row = "| `NewFamily` | [Contract](newfamily.md) | Authored contract |"
+        errors = self.check(reference, row, pages=("otherfamily.md",))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("NewFamily needs a family contract page", errors[0])
+        self.assertEqual(self.check(reference, row, pages=("newfamily.md",)), [])
+        self.assertEqual(self.check(reference, "| `NewFamily` | [Owner](@ref IndBox) | Thin constructor of `IndBox` |"), [])
 
 
 class PreservationTests(unittest.TestCase):

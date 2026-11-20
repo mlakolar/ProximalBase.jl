@@ -150,14 +150,15 @@ function _l0_dense_stats(x, ::Nothing, mode)
 end
 _l0_dense_stats(x, diag::Tuple, mode) = _l0_entry_stats(x, eachindex(x), diag, mode)
 
-# A sum of nonnegative magnitudes can overflow to infinity. It is NaN
-# exactly when a counted entry is NaN, even with infinities of both signs.
+# Squares let the classifier use a fused multiply-add. Overflow to
+# positive infinity is harmless: the sum is NaN exactly when a counted
+# entry is NaN, even with infinities of both signs.
 function _l0_dense_count(x, ::Val{:value}, ::Type{I}) where {I}
   n, total = zero(I), zero(eltype(x))
   @inbounds @simd for i in eachindex(x)
-    v = abs(x[i])
+    v = x[i]
     n += I(!iszero(v))
-    total += v
+    total += v * v
   end
   Int(n), isnan(total)
 end

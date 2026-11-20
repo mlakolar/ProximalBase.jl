@@ -36,6 +36,24 @@ class FamilyMapTests(unittest.TestCase):
         reference = "Mentions `NewFamily`.\n\n````markdown\n```@docs\nNewFamily\n```\n````\n"
         self.assertEqual(self.check(reference, ""), [])
 
+    def test_docs_directive_with_options_counts_as_api_docs(self):
+        for directive in ("@docs; canonical=false", "@docs ; canonical=false"):
+            with self.subTest(directive=directive):
+                errors = self.check(f"```{directive}\nNewFamily\n```\n", "")
+                self.assertEqual(len(errors), 1)
+                self.assertIn("NewFamily is missing", errors[0])
+
+    def test_detached_row_is_outside_the_family_map_table(self):
+        reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
+        rows = "| `LinearFunction` | Guide | Existing pages |\n\n| `ZeroFunction` | Guide | Existing pages |"
+        errors = self.check(reference, rows)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("ZeroFunction is missing", errors[0])
+
+    def test_table_row_may_omit_its_outer_pipes(self):
+        reference = "```@docs\nNormL0\n```\n"
+        self.assertEqual(self.check(reference, "`NormL0` | Guide | Existing pages"), [])
+
     def test_recognizes_both_names_in_grandfathered_row(self):
         reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
         self.assertEqual(self.check(reference, "| `LinearFunction` and `ZeroFunction` | Guide | Existing pages |"), [])

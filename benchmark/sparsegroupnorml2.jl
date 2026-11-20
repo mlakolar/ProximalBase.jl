@@ -273,14 +273,14 @@ function prepare_timing(p, samples, seconds)
         for _ in 1:20
             op()
         end
-        return @benchmarkable $op() evals=1 samples=samples seconds=seconds
+        return @benchmarkable $op() evals=1 samples=samples seconds=seconds gctrial=false gcsample=false
     end
     setup = p.setup
     for _ in 1:20
         setup()
         op()
     end
-    @benchmarkable $op() setup=($setup()) evals=1 samples=samples seconds=seconds
+    @benchmarkable $op() setup=($setup()) evals=1 samples=samples seconds=seconds gctrial=false gcsample=false
 end
 
 function write_provenance(dir, rounds, samples, seconds, filter_pattern)
@@ -295,6 +295,7 @@ function write_provenance(dir, rounds, samples, seconds, filter_pattern)
         println(io, "X and XC source SHA: ", sha, ", Y: reference in the harness at that SHA")
         println(io, "Slurm job: ", get(ENV, "SLURM_JOB_ID", "none"))
         println(io, "Rounds: ", rounds, ", maximum samples: ", samples, ", target cap (seconds): ", seconds)
+        println(io, "Forced GC before trials or samples: disabled")
         println(io, "Filter: ", filter_pattern)
         println(io, "Candidate module loaded before control; per-cell compile order in verification.csv")
         println(io, "Measured role orders repeat every six rounds: ", ORDERS)

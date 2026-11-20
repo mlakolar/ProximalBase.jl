@@ -393,7 +393,10 @@ y
 `value_and_prox!` returns the value at the stored destination. Array
 oracles accept real one-based CPU arrays, including `SparseIterate` and
 `BlockIterate`. Groups index matrices linearly. Full-array partial
-overlap is unsupported. See the [endpoint rules](@ref sparse-group-l2-endpoints)
+overlap is unsupported. The soft-thresholded intermediate is written in the
+destination type before the group shrink. An explicit integer buffer can
+fail conversion here even when the final exact result is integral. Allocating
+`prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)
 for zero or infinite steps, nonfinite entries and infinite parameters.
 
 ### Compact groups
@@ -422,6 +425,8 @@ is unsupported for prox and KKT. The family has no scalar entry prox,
 step vectors, or `restrict`. Positive finite `Scaled` supports generic
 array value and prox with the scale applied to the step. A scaled product
 outside the working range can round before the sparse-group oracle sees it.
+For example, a tiny negative step can round to `-0.0` in the wrapper
+before the leaf validates the step.
 A zero scale throws `ArgumentError` through the generic constructor.
 `Scaled` compact-block and KKT calls are unsupported.
 

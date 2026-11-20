@@ -25,8 +25,8 @@ See the [numerical contract](@ref numerics) for storage and endpoint details.
 gives a different penalty, which charges nothing for the diagonal of a square
 matrix. It requires a finite level, and its oracles accept strided square
 `Float32` and `Float64` matrices with finite entries and a finite positive
-step. They throw `ArgumentError` for the vectors, sparse arrays, iterates and
-array steps that `NormL0(λ)` accepts. See the
+step. They refuse the vectors, sparse arrays, iterates and array steps that
+`NormL0(λ)` accepts. See the
 [`NormL0(λ; diagonal = false)` entry](@ref api-norml0-diagonal-free) and its
 [numerical contract](@ref spec-norml0offdiag).
 """

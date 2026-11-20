@@ -579,6 +579,9 @@ end
   @testset "refusals through Scaled leave the arguments unchanged" begin
     xss = SymmetricSparseIterate(S)
     before_ss = Matrix(matrixview(xss))
+    # every field of the iterate: values, index maps, stored count and dimension
+    state(x) = map(n -> copy(getfield(x, n)), fieldnames(typeof(x)))
+    before_state = state(xss)
     steps = fill(T(1), p, p)
     for α in (T(2), 1e100, T(0.5))
       s = Scaled(f, α)
@@ -591,13 +594,20 @@ end
       @test_throws ArgumentError value_and_prox!(xss, s, X, 1)
       @test_throws ArgumentError prox!(xss, s, xss, 1)
       @test_throws ArgumentError prox(s, xss)
-      @test Matrix(matrixview(xss)) == before_ss && X == S
+      @test Matrix(matrixview(xss)) == before_ss && isequal(state(xss), before_state) && X == S
       v = T[1, 2, 3]
-      @test_throws ArgumentError prox!(copy(v), s, v, 1)
+      w = T[7.5, 7.5, 7.5]
+      @test_throws ArgumentError prox!(w, s, v, 1)
+      @test_throws ArgumentError value_and_prox!(w, s, v, 1)
       @test_throws ArgumentError s(v)
-      @test_throws ArgumentError prox!(Y, s, sparse(S), 1)
+      @test w == T[7.5, 7.5, 7.5] && v == T[1, 2, 3]
+      Ssp = sparse(S)
+      Ssp_before = copy(Ssp)
+      @test_throws ArgumentError prox!(Y, s, Ssp, 1)
+      @test_throws ArgumentError value_and_prox!(Y, s, Ssp, 1)
+      @test isequal(Ssp, Ssp_before) && Ssp.colptr == Ssp_before.colptr && Ssp.rowval == Ssp_before.rowval
       @test_throws ArgumentError prox!(Y, s, Symmetric(S), 1)
-      @test Y == sentinel()
+      @test Y == sentinel() && X == S
       # operations that are not provided
       @test_throws ArgumentError prox_block(s, T(1), 1, T(1))
       @test_throws ArgumentError restrict(s, [1, 2])
@@ -1020,6 +1030,18 @@ without_diagonal(λ) = NormL0(λ; diagonal = false)
     @test_throws ArgumentError prox!(Y, s, X, γ)
     @test_throws ArgumentError value_and_prox!(Y, s, X, γ)
     @test all(==(7.0), Y) && isequal(X, [-0.0 2.0; 2.0 1.0])
+    # The exceptional route of Scaled for a fused call: the step is positive and the stored output is the map
+    # at that step. The returned value follows Scaled's rounding and is pinned as it is computed, zero here,
+    # while the value at the stored output is the smallest subnormal.
+    g = NormL0(3η; diagonal = false)
+    sg = Scaled(g, nextfloat(1 / 12))
+    Xg = [0.0 2.0; 2.0 1.0]
+    Yg = fill(7.0, 2, 2)
+    v = value_and_prox!(Yg, sg, Xg, 12η)
+    @test isequal(Yg, [0.0 2.0; 2.0 1.0]) && isequal(Xg, [0.0 2.0; 2.0 1.0])
+    @test v === 0.0
+    @test sg(Yg) === η && sg.α * g(Yg) === η
+    @test isequal(prox(sg, Xg, 12η), [0.0 2.0; 2.0 1.0])
     # the value of the function is rounded before the scale: Inf32 although α g(V) is representable
     V = Float32[1 2; 2 1]
     huge = NormL0(floatmax(Float32); diagonal = false)

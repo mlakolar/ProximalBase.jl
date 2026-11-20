@@ -648,8 +648,9 @@ the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 
 `Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
 buffer first, for both functions). It checks that the two maps agree off the diagonal, alternates
 the order of the paired samples and prints, for each operation, the fraction of off-diagonal entries
-that the map keeps on the matrix of that run (`kept`), the median time per call of each function
-(the mean of the two middle samples when `PB_SAMPLES` is even), their ratio, the ratio of the
+that the map keeps on the matrix of that run, rounded to two decimal places (`kept`), the median
+time per call of each function over `PB_SAMPLES` samples, a positive count (the mean of the two
+middle samples when the count is even), their ratio, the ratio of the
 diagonal-free time to the out-of-place `prox!` of `NormL0`, and the bytes allocated by the
 diagonal-free operation. It runs in the root project:
 

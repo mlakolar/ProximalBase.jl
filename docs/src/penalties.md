@@ -371,14 +371,16 @@ supported storage and endpoint rules.
 `NormL0(λ; diagonal = false)` charges `λ` for each nonzero off-diagonal entry of a
 matrix and nothing for the diagonal, so a nonzero symmetric pair costs `2λ`.
 The keyword changes the penalty and narrows the arguments: it accepts finite
-strided `Float32` or `Float64` square matrices, and refuses the vectors, sparse
+strided `Float32` or `Float64` square matrices that Base can read and write,
+and refuses the vectors, sparse
 arrays, iterates and array steps that `NormL0(λ)` accepts. `NormL0(λ)` and
 `NormL0(λ; diagonal = true)` keep the all-entry penalty with its full set of
 arguments. Symmetry under `==`
 is a precondition of the symmetric problem and is not checked; for an
 asymmetric matrix each entry is decided from its own value. The proximal map copies the diagonal and decides each
-off-diagonal entry with the rule of [`NormL0`](@ref): an entry is kept when
-its square exceeds `2γλ` and is positive zero otherwise. `NormL0` converts
+off-diagonal entry with the rule of [`NormL0`](@ref): for `λ > 0` an entry is
+kept when its square exceeds `2γλ` and is positive zero otherwise, and at
+`λ = 0` the map is the identity. `NormL0` converts
 the entry, `λ` and `γ` to a working type before the comparison, which is exact
 when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type;
 other levels and steps, for example a `Rational` or an `Int` above `2^53`, are
@@ -400,16 +402,16 @@ nothing # hide
 ```
 
 At step one and level two the threshold is four, so an entry of magnitude
-two is a tie and gives zero. The oracle throws `ArgumentError` before it
-writes anything for a matrix type that is not strided, whatever its shape, an
-element type other than `Float32` and `Float64` or mixed element types, a
-reinterpreted array that Base cannot both read and write, a step that is not
-finite and positive and a non-finite matrix. The storage, element-type and
-access checks come before the shape check, which throws `DimensionMismatch`
-for a non-square strided matrix.
-Through `Scaled`, the step is the one `Scaled` computes, and `Scaled` can read
-an unsupported argument before the refusal. The oracle does not promise that
-the output is positive definite. See the
+two is a tie and gives zero. Every refusal happens before any write. When the only failing condition is unsupported storage (a vector, a
+sparse or other non-strided matrix, an iterate or an array step), an
+unsupported element type, a reinterpreted array that Base cannot both read and
+write, a step that is not finite and positive or a non-finite entry, the call
+throws `ArgumentError`; when it is a non-square matrix, the call throws
+`DimensionMismatch`. When several conditions fail, which exception is thrown is
+not specified. Through `Scaled`, the step and the values follow the rules of
+`Scaled`, and the exception for an unsupported argument comes from the checks
+of `Scaled` or a missing method. The oracle does not promise that the output
+is positive definite. See the
 [`NormL0(λ; diagonal = false)` entry](@ref api-norml0-diagonal-free) and the
 [numerical contract of `NormL0(λ; diagonal = false)`](@ref spec-norml0offdiag)
 for the full list.

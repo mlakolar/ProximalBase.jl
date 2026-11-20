@@ -103,7 +103,7 @@ _checkparams(f::_GroupNorm, x) = (_check_group_extent(f, x); true)
 # a symmetric iterate is rejected by the oracles themselves, with their own message
 _checkparams(::_GroupNorm, ::SymmetricSparseIterate) = true
 
-function _check_group_arrays(f::_GroupNorm, y::AbstractArray, x::AbstractArray, γ::Real)
+function _check_group_arrays(f, y::AbstractArray, x::AbstractArray, γ::Real)
   _checkreal(f, x)
   _checkreal(f, y)
   Base.require_one_based_indexing(y, x)
@@ -117,7 +117,7 @@ end
   "group $k of $(nameof(typeof(f))) has $m entries, but the input has $nu and the output $nout"))
 @noinline _block_alias_error() = throw(ArgumentError("prox_block! supports exact input/output aliasing (out === u) only"))
 
-@inline function _check_group_block(out::AbstractVector, f::_GroupNorm, u::AbstractVector, k::Integer, γ::Real)
+@inline function _check_group_block(out::AbstractVector, f, u::AbstractVector, k::Integer, γ::Real)
   (!(k isa Bool) && checkbounds(Bool, f.groups, k)) || throw(BoundsError(Base.OneTo(length(f.groups)), k))
   Base.require_one_based_indexing(out, u)
   (eltype(out) <: Real && eltype(u) <: Real) || _real_error(:prox_block!)
@@ -282,8 +282,8 @@ _kkt_violation(f::GroupNormL2, g::AbstractArray, x::BlockIterate, k::Integer) = 
 _kkt_violation(f::GroupNormL2, g::AbstractArray, x::SymmetricSparseIterate, k::Integer) = _level_score(f, f.λ0, g, x, k)
 
 # The group layout of a BlockIterate point of the full-point form: its group count, and each of its groups, are those of f
-_check_point_layout(f::GroupNormL2, x::AbstractArray) = nothing
-function _check_point_layout(f::GroupNormL2, x::BlockIterate)
+_check_point_layout(f::_GroupNorm, x::AbstractArray) = nothing
+function _check_point_layout(f::_GroupNorm, x::BlockIterate)
   ncoordinates(x) == length(f.groups) || _block_count_error(x, f)
   for k in eachindex(f.groups)
     blockindices(x, k) == @inbounds(f.groups[k]) || _block_layout_error(f, k)

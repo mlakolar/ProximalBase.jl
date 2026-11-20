@@ -38,9 +38,10 @@ Vector(x)
 ## [Compact block buffers](@id block-proximal-oracle)
 
 The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
-and invokes `prox_block!`. [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) are the built-in implementations:
+and invokes `prox_block!`. [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref) and [`SparseGroupNormL2`](@ref)
+are the built-in group implementations.
 `k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
-It checks the group, buffer lengths, real one-based storage, step and overlap
+These methods check the group, buffer lengths, real one-based storage, step and overlap
 before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
 contract; other overlap must be rejected by the extension. The generic
 allocating wrapper adds no such checks on the extension's behalf.
@@ -72,14 +73,22 @@ mismatch at a nonzero one (see [Mathematical operations](operations.md) for each
 scalar). For `NormL1Nonneg` its point-aware entry formulas and non-finite overrides are
 described in [Mathematical operations](operations.md) and the [numerical contract](numerics.md).
 `GroupNormL2` has the same two scores for a group, and `Scaled` forwards
-them (below). `GroupNormLinf` has the signed margin ``\lVert v_G\rVert_1-c`` of its dual norm at a zero group, where `c = λ0 w[k]`, and
-throws an `ArgumentError` at a nonzero group; its screen is the ℓ₁ screen of [#634](https://github.com/mlakolar/ProximalBase.jl/issues/634), and its
-positive part is not a stationarity distance. `kkt_violation(g,v,x)` is the nonnegative full-point measure
+them (below). `GroupNormLinf` has the signed margin ``\lVert v_G\rVert_1-c`` of its dual norm at a zero group, where `c = λ0 w[k]`, and,
+at a nonzero group, the Euclidean distance from ``-v_G`` to the subdifferential of ``c\lVert\cdot\rVert_\infty`` at ``x_G``; its margin is the ℓ₁ screen of
+[#634](https://github.com/mlakolar/ProximalBase.jl/issues/634), and its positive part is not a stationarity distance.
+`kkt_violation(g,v,x)` is the nonnegative full-point measure
 ``\max(0,\max_k s_k)`` of the six scalar functions and `GroupNormL2` on a one-based array,
 `SparseIterate` or `BlockIterate`: the scores ``s_k`` of the entries for the six scalar
 functions, and for `GroupNormL2` the scores of the groups and ``\lvert v_i\rvert`` of the entries in no
-group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. `NormL2` and `NormLinf` have the
+group, a **maximum of block 2-norms** and not an ``\ell_\infty`` distance. For `GroupNormLinf` it is the maximum of zero,
+of ``\lvert v_i\rvert`` of the entries in no group and of the distance of every group, a zero group included, which there is the
+distance from ``v_G`` to the ℓ₁ ball of radius ``c`` and not the margin of the four-argument form. `NormL2` and `NormLinf` have the
 full-point form and no other.
+
+[`SparseGroupNormL2`](@ref sparse-group-l2-guide) also provides the two
+point-aware forms. At a zero group it screens the soft-thresholded gradient.
+At an active group it measures the block subgradient distance. The full-point
+score takes the maximum with zero and includes the free-coordinate magnitudes.
 
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
@@ -87,10 +96,12 @@ full-point form and no other.
 | `SymmetricSparseIterate` | Valid independent coordinate, then p² gradient entries; symmetric part of that gradient pair, the stored value of the coordinate, and the extent of the function's parameters (their mirrored entries are not compared). The score is in matrix-entry units. There is no full-point form: it throws `ArgumentError` |
 | `BlockIterate`, scalar penalties | Group `k`. The maximum of the scores of the entries of the group: signed if every entry of the group is zero, nonnegative otherwise. A gradient whose length differs from `length(x)` throws `DimensionMismatch` |
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
-| `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group; `ArgumentError` at a nonzero one |
+| `BlockIterate`, `SparseGroupNormL2` | Group `k`. Check the group count, ordered layout of group `k` and gradient length |
+| `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group, the distance from `-v_G` to the subdifferential at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
-| Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, `abs(v[k])` for an entry in no group, `ArgumentError` at a nonzero group; the full-point and three-argument forms throw `ArgumentError` |
+| Other arrays, `SparseGroupNormL2` | Entry `k` selects its group. An uncovered entry gives `abs(v[k])`. Check gradient length and group extent |
+| Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of zero, of `abs(v[i])` over the entries in no group and of the distances of the groups, and the three-argument form throws `ArgumentError` |
 | Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument
@@ -131,7 +142,7 @@ the scratch the function writes. See [smooth stationarity scores](@ref smooth-kk
 for accepted layouts, rounding, allocations and scratch ownership.
 
 `Scaled` with a finite positive factor `α` evaluates the score of its function on `v/α` and multiplies it by `α`,
-for the entrywise and group functions above and, in the full-point form, `NormL2`, `NormLinf`,
+for the entrywise and group functions above (`GroupNormLinf` included) and, in the full-point form, `NormL2`, `NormLinf`,
 `LeastSquaresLoss` and `QuadraticFunction` (the rounding and range limits
 of that evaluation are in the [scaling guide](@ref scaled-kkt)).
 Nested wrappers whose factors do not multiply to a normal number, an infinite factor,

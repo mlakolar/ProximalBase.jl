@@ -705,3 +705,68 @@ passed all nine isolated examples, doctests and manual examples. All six
 preservation checks passed in blocking mode, all 79 checker fixtures passed,
 and Markdown, schema and rendered-link checks passed. These are lead-agent
 implementation checks; no claim of an external human review is made.
+
+## Reconciliation after SparseGroupNormL2 (#1076)
+
+`sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81`
+verified the merged status of [#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076),
+its actual first parent `a31ba29c633414d6f2aa05ad16f84e99eb6dc52c`, and all
+eleven complete replacements against the landed Git blobs. Ten replacements
+each cover a single block. The zero-step endpoint receipt extends from three
+sentences to five, preserving the three earlier sentences in order.
+
+The independent reviewer inspected the compact buffer checks, group layout,
+point-aware KKT forms and zero-step projection in the landed source and tests.
+The review verified Git provenance and source evidence. It did not rerun Julia.
+The interpretation of the retained-and-removed scope paragraph is recorded in
+`open-questions.md` for owner review. The audit now records 106 transitions in
+the same 60 receipts and retains all 2,162 original block identities and hashes.
+
+## Reconciliation after IndBallL0 (#1062)
+
+`sparsegroup_receipt_review@1299e54621a63788d306fc549091303a88007cdc`
+verified that [#1062](https://github.com/mlakolar/ProximalBase.jl/pull/1062)
+merged with actual first parent `d93ccabe55cd0ada3a629d685a1e4893facc3565`.
+Two existing receipts each gained one transition. They cover the Indicators
+`@docs` fence and the retained-and-removed scope paragraph. The independent
+review compared both raw spans, Git blobs, earlier events and the landed
+IndBallL0 source and tests. The audit holds 60 receipts and 108 transitions,
+with all 2,162 original identities and hashes preserved.
+
+## IndNonnegative verbatim move
+
+The `IndNonnegative` endpoint row moves from `numerics.md` to
+`spec/indnonnegative.md#spec-indnonnegative-endpoints`. Its exact bytes match
+the row in the frozen baseline and on the preceding NormL1 labels branch
+at `6d596e7e08575979166c3379d03275efcfbd171e`. Its frozen ledger root still
+has hash `eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d`
+and uses the ordinary `move` action.
+
+The hub retains a forwarding row. The new page's section links lead to the
+existing definitions, shared numerical rules and tests. The family map points
+to the new page. The scope of the `Scaled` description awaits owner review in
+`open-questions.md`.
+
+## Reconciliation after NormLinf performance changes (#1065)
+
+`sparsegroup_receipt_review@5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f`
+verified that [#1065](https://github.com/mlakolar/ProximalBase.jl/pull/1065)
+merged with actual first parent `77a4024307ad376c225297fdddffd4730f8a8167`.
+The changed test-inventory block in `test/TESTING.md` retains its original
+identity and gains one verified event. The review compared the landed Git
+blobs and the test assertions for the one-group comparison and Michelot
+handover. The audit now holds 60 receipts and 109 transitions.
+
+## Reconciliation after GroupNormLinf optimality scores (#1064)
+
+`sparsegroup_receipt_review@d3b671e8ecd8f88b56f2716feb21ee5730fcd7be`
+verified that [#1064](https://github.com/mlakolar/ProximalBase.jl/pull/1064)
+merged with actual first parent `1f57a65ff6be2315eb74118a9d7c47ea1f9cf077`.
+The review compared the landed Git blobs for 15 existing receipt chains with
+the scoring branches in source and their coverage in the tests. Three
+two-block spans retained their order. The CI sharding span grew from seven
+blocks to eight with the new group scoring timing observation. The renamed
+GroupNormLinf heading was absent from the frozen anchor inventory and had no
+authored incoming references in the repository audit. No moved family blocks
+in #1088–#1092 share these receipt roots. The audit now holds 60 receipts and
+124 transitions.

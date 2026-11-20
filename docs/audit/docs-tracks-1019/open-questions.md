@@ -12,6 +12,30 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
+- `docs/src/migration.md`, “Retained and removed scope”, can be read as a
+  history of the #850 reduction or as an inventory of what is unavailable
+  today. #1062 adds `IndBallL1` and `IndBallL0` to the indicator inventory.
+  The current exports and [function library](../../src/function_library.md)
+  include `NormL0`, `MCP` and `SCAD`. The scope of the statement about removals
+  awaits the owner's decision.
+
+- The `IndBallL0` sentence in the same section ends with “with `Float32` or
+  `Float64`”. The phrase could qualify the whole list of input representations
+  or `SymmetricSparseIterate` alone. The implementation uses those element types
+  across the listed representations, and the tests exercise unsupported and
+  mixed-type calls. The wording awaits the owner's decision.
+  [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
+
+- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
+  project”. This could refer to calls on a concrete `Scaled` wrapper or to
+  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
+  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
+  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
+  oracles check the step. The moved row retains the original wording pending
+  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+  · [Scaling source](../../../src/functions/scaled.jl)
+  · [Tests](../../../test/indnonnegative.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at
@@ -22,8 +46,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The current reconciliation through `c54241b`
-has 59 receipts covering 93 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `1299e546`
+has 60 receipts covering 108 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

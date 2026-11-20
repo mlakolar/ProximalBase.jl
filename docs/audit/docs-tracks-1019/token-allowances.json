@@ -1,0 +1,197 @@
+{
+  "schema": 1,
+  "allowances": [
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::154",
+      "baseline_sha": "396796c7300e4af881c0508a86148e1c30f391fece93f234e5a9dc89424c6b46",
+      "action": "reword",
+      "source_shas": [
+        "396796c7300e4af881c0508a86148e1c30f391fece93f234e5a9dc89424c6b46"
+      ],
+      "dest": "docs/src/spec/norml1.md#spec-norml1-endpoints",
+      "dest_sha": "f96cb594134cda45e80ce5192e2d2f845ed17c52c547fb02d7dbb8c70b249fc8",
+      "reviewer": "plan_consistency@127d2dfea08f0eb471b7e991e1289300e540a398",
+      "evidence": "Existing independent sandbox-label-only review at 127d2dfea08f0eb471b7e991e1289300e540a398. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:396796c7300e4af881c0508a86148e1c30f391fece93f234e5a9dc89424c6b46": 1,
+            "literal:```@example numerical_endpoints\nusing ProximalBase\n@assert NormL1(0.0)([NaN,Inf]) == 0\n@assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]\n@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)\n@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])\n@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold\n@assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]\n@assert isnan(shrink(NaN,1.0))\n@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero\n@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step\n@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)\n@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)\n@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)\nprox(NormL1(Inf),[NaN,Inf],1.0)\n```": 1
+          },
+          "added": {
+            "code:f96cb594134cda45e80ce5192e2d2f845ed17c52c547fb02d7dbb8c70b249fc8": 1,
+            "literal:```@example norml1_numerical_endpoints\nusing ProximalBase\n@assert NormL1(0.0)([NaN,Inf]) == 0\n@assert prox(NormL1(Inf),[NaN,Inf],1.0) == [0,0]\n@assert prox(NormL1(Inf),[1.0,2.0],0.0) == [0,0]  # zero step: projection onto {0} (#665)\n@assert isequal(prox(NormL1(Inf,[1.0,0.0,2.0]),[3.0,NaN,Inf],0.0), [0,NaN,0])\n@assert prox(NormL1(1.0),[1.0,2.0],0.0) == [1,2]  # finite level: zero threshold\n@assert prox(NormL1(0.0,[Inf,0.0]),[2.0,3.0]) == [0,3]\n@assert isnan(shrink(NaN,1.0))\n@assert prox(NormL1(1.0,[Inf]),[2.0],1.0) == [0.0]  # finite input fixed at zero\n@assert prox(NormL1(0.0,[Inf]),[2.0],0.0) == [0.0]  # zero level/step\n@assert isnan(prox(NormL1(1.0,[Inf]),[Inf],1.0)[1])  # non-finite limitation (#853)\n@assert isnan(prox(NormL1(1e300,[1e10]),[Inf],1.0)[1])  # final factor overflows (#866)\n@assert isnan(prox(NormL1(1e10,[1.0]),[Inf],1e300)[1]) # intermediate product overflows (#866)\nprox(NormL1(Inf),[NaN,Inf],1.0)\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example numerical_endpoints": 1
+          },
+          "added": {
+            "```@example norml1_numerical_endpoints": 1
+          }
+        }
+      }
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::155",
+      "baseline_sha": "e17c5d5cc06130eda48f34c29c7e6c4e0e62db703c671bf77b3ff95f9c09d489",
+      "action": "reword",
+      "source_shas": [
+        "e17c5d5cc06130eda48f34c29c7e6c4e0e62db703c671bf77b3ff95f9c09d489"
+      ],
+      "dest": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "dest_sha": "a1d70b68e76111a5b5949001237d0bd1857e5a69e7b13491ff6aa6d80f725149",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536",
+      "evidence": "Existing independent sandbox-label-only review at b1d3e327473ee75b12aca909c1a28ac5fa902536. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:e17c5d5cc06130eda48f34c29c7e6c4e0e62db703c671bf77b3ff95f9c09d489": 1,
+            "literal:```@example numerical_endpoints\n@assert prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0) == [0,0,0]  # infinite ridge level: {0}\n@assert ElasticNet(1.0,Inf)([0.0,0.0]) == 0 && ElasticNet(1.0,Inf)([0.0,1e-300]) == Inf\n@assert isnan(ElasticNet(1.0,Inf)([NaN,0.0]))\n@assert prox(ElasticNet(Inf,1.0,[1.0,0.0]),[NaN,3.0],0.0) == [0,3]  # the NormL1 rule (#665)\n@assert try prox(ElasticNet(1.0,1.0),[1.0],-1.0); false catch e; e isa ArgumentError end\nprox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)\n```": 1
+          },
+          "added": {
+            "code:a1d70b68e76111a5b5949001237d0bd1857e5a69e7b13491ff6aa6d80f725149": 1,
+            "literal:```@example elasticnet_numerical_endpoints\n@assert prox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0) == [0,0,0]  # infinite ridge level: {0}\n@assert ElasticNet(1.0,Inf)([0.0,0.0]) == 0 && ElasticNet(1.0,Inf)([0.0,1e-300]) == Inf\n@assert isnan(ElasticNet(1.0,Inf)([NaN,0.0]))\n@assert prox(ElasticNet(Inf,1.0,[1.0,0.0]),[NaN,3.0],0.0) == [0,3]  # the NormL1 rule (#665)\n@assert try prox(ElasticNet(1.0,1.0),[1.0],-1.0); false catch e; e isa ArgumentError end\nprox(ElasticNet(1.0,Inf),[3.0,NaN,-Inf],0.0)\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example numerical_endpoints": 1
+          },
+          "added": {
+            "```@example elasticnet_numerical_endpoints": 1
+          }
+        }
+      }
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::156",
+      "baseline_sha": "08a06edc172322a4c4cd7fe3971a0ce181730372d7e81a5be7a26d205a9218a4",
+      "action": "reword",
+      "source_shas": [
+        "08a06edc172322a4c4cd7fe3971a0ce181730372d7e81a5be7a26d205a9218a4"
+      ],
+      "dest": "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-endpoints",
+      "dest_sha": "792996edbbd37bca67c137380dfce5674257dc3b809f6547e2ded3dc2ae82244",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9",
+      "evidence": "Existing independent sandbox-label-only review at dcfc56dec0cdf72cee0f30916782f8fec72582e9. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:08a06edc172322a4c4cd7fe3971a0ce181730372d7e81a5be7a26d205a9218a4": 1,
+            "literal:```@example numerical_endpoints\n@assert isequal(prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0), [0.0,0.0,3.0,Inf,0.0,NaN])  # the projection\n@assert prox(NormL1Nonneg(Inf,[1.0,0.0]),[NaN,-2.0],0.0) == [0,0]   # the NormL1 rule (#665), a zero weight projects\n@assert NormL1Nonneg(0.0)([Inf,1.0]) == 0 && NormL1Nonneg(0.0)([-1.0]) == Inf\n@assert isnan(NormL1Nonneg(2.0)([NaN,-1.0])) && NormL1Nonneg(2.0)([1.0,-1e-300]) == Inf\n@assert try prox(NormL1Nonneg(1.0),[1.0],-1.0); false catch e; e isa ArgumentError end\nprox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)\n```": 1
+          },
+          "added": {
+            "code:792996edbbd37bca67c137380dfce5674257dc3b809f6547e2ded3dc2ae82244": 1,
+            "literal:```@example norml1nonneg_endpoints\n@assert isequal(prox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0), [0.0,0.0,3.0,Inf,0.0,NaN])  # the projection\n@assert prox(NormL1Nonneg(Inf,[1.0,0.0]),[NaN,-2.0],0.0) == [0,0]   # the NormL1 rule (#665), a zero weight projects\n@assert NormL1Nonneg(0.0)([Inf,1.0]) == 0 && NormL1Nonneg(0.0)([-1.0]) == Inf\n@assert isnan(NormL1Nonneg(2.0)([NaN,-1.0])) && NormL1Nonneg(2.0)([1.0,-1e-300]) == Inf\n@assert try prox(NormL1Nonneg(1.0),[1.0],-1.0); false catch e; e isa ArgumentError end\nprox(NormL1Nonneg(0.0),[-2.0,-0.0,3.0,Inf,-Inf,NaN],1.0)\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example numerical_endpoints": 1
+          },
+          "added": {
+            "```@example norml1nonneg_endpoints": 1
+          }
+        }
+      }
+    },
+    {
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The elastic-net penalty](@id The-elastic-net-penalty) / [Steps and endpoint rules](@id elastic-net-steps)::89",
+      "baseline_sha": "27988fc89eba073f339154517469fcdf91aafcbfa08cfa78474a49d427374a05",
+      "action": "reword",
+      "source_shas": [
+        "27988fc89eba073f339154517469fcdf91aafcbfa08cfa78474a49d427374a05"
+      ],
+      "dest": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "dest_sha": "9f2890262de9baf797580a6607ac7fd7335c1e56d79d9d04c265c5cbfc499656",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536",
+      "evidence": "Existing independent sandbox-label-only review at b1d3e327473ee75b12aca909c1a28ac5fa902536. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:27988fc89eba073f339154517469fcdf91aafcbfa08cfa78474a49d427374a05": 1,
+            "literal:```@example library_l1\ny = [7.0, 7.0, 7.0]\nrefused = try prox!(y, h, x, -1.0); false catch e; e isa ArgumentError end\n@assert refused && y == [7.0, 7.0, 7.0]\n```": 1
+          },
+          "added": {
+            "code:9f2890262de9baf797580a6607ac7fd7335c1e56d79d9d04c265c5cbfc499656": 1,
+            "literal:```@example elasticnet_contract\ny = [7.0, 7.0, 7.0]\nrefused = try prox!(y, h, x, -1.0); false catch e; e isa ArgumentError end\n@assert refused && y == [7.0, 7.0, 7.0]\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example library_l1": 1
+          },
+          "added": {
+            "```@example elasticnet_contract": 1
+          }
+        }
+      }
+    },
+    {
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The elastic-net penalty](@id The-elastic-net-penalty) / [Steps and endpoint rules](@id elastic-net-steps)::92",
+      "baseline_sha": "9f3461dce27cd6c406547331018cb3c4cdd8ea4d16d5af9008c69525679443de",
+      "action": "reword",
+      "source_shas": [
+        "9f3461dce27cd6c406547331018cb3c4cdd8ea4d16d5af9008c69525679443de"
+      ],
+      "dest": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "dest_sha": "4f6b06cc30db878c10287ad72562cbccf1ced4b099bcafce6f948f614bbbf5fe",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536",
+      "evidence": "Existing independent sandbox-label-only review at b1d3e327473ee75b12aca909c1a28ac5fa902536. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:9f3461dce27cd6c406547331018cb3c4cdd8ea4d16d5af9008c69525679443de": 1,
+            "literal:```@example library_l1\nhard = ElasticNet(1.0, Inf)\n@assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]\n@assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf\n@assert kkt_violation(hard, [5.0], 1) == -Inf\n@assert kkt_violation(hard, [5.0], [0.0], 1) == -Inf\n@assert kkt_violation(hard, [5.0], [1.0], 1) == Inf\n```": 1
+          },
+          "added": {
+            "code:4f6b06cc30db878c10287ad72562cbccf1ced4b099bcafce6f948f614bbbf5fe": 1,
+            "literal:```@example elasticnet_contract\nhard = ElasticNet(1.0, Inf)\n@assert prox(hard, [3.0, NaN], 0.0) == [0.0, 0.0]\n@assert hard([0.0, 0.0]) == 0 && hard([0.0, 1e-300]) == Inf\n@assert kkt_violation(hard, [5.0], 1) == -Inf\n@assert kkt_violation(hard, [5.0], [0.0], 1) == -Inf\n@assert kkt_violation(hard, [5.0], [1.0], 1) == Inf\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example library_l1": 1
+          },
+          "added": {
+            "```@example elasticnet_contract": 1
+          }
+        }
+      }
+    },
+    {
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty)::102",
+      "baseline_sha": "440a8426364e5388ba4bde16062629c384f5722ad5aae4b0b5b6ff853b359345",
+      "action": "reword",
+      "source_shas": [
+        "440a8426364e5388ba4bde16062629c384f5722ad5aae4b0b5b6ff853b359345"
+      ],
+      "dest": "docs/src/penalties.md#The-nonnegative-l1-penalty",
+      "dest_sha": "73eb642b66225a881d0839bb5b38311efaea045945a8e60aa92decabac8d6971",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9",
+      "evidence": "Existing independent sandbox-label-only review at dcfc56dec0cdf72cee0f30916782f8fec72582e9. See review.md and the corresponding norml1nonneg-review.json or elasticnet-review.json when applicable. Only the opening @example sandbox label differs; every subsequent source line is identical.",
+      "changes": {
+        "tokens": {
+          "removed": {
+            "code:440a8426364e5388ba4bde16062629c384f5722ad5aae4b0b5b6ff853b359345": 1,
+            "literal:```@example nonneg_l1\nusing ProximalBase\nf = NormL1Nonneg(0.5, [1.0, 2.0])\n@assert f([2.0, 1.0]) == 0.5 * (2.0 + 2.0)\n@assert f([2.0, -1.0]) == Inf\n@assert prox(f, [2.0, -1.0], 1.0) == [1.5, 0.0]\n@assert prox_block(f, 2.0, 1, 1.0) == 1.5 && value_entry(f, 1.0, 2) == 1.0\n@assert prox(NormL1Nonneg(0.0), [-2.0, 3.0], 1.0) == [0.0, 3.0]\nf([2.0, 1.0])\n```": 1
+          },
+          "added": {
+            "code:73eb642b66225a881d0839bb5b38311efaea045945a8e60aa92decabac8d6971": 1,
+            "literal:```@example nonneg_l1_introduction\nusing ProximalBase\nf = NormL1Nonneg(0.5, [1.0, 2.0])\n@assert f([2.0, 1.0]) == 0.5 * (2.0 + 2.0)\n@assert f([2.0, -1.0]) == Inf\n@assert prox(f, [2.0, -1.0], 1.0) == [1.5, 0.0]\n@assert prox_block(f, 2.0, 1, 1.0) == 1.5 && value_entry(f, 1.0, 2) == 1.0\n@assert prox(NormL1Nonneg(0.0), [-2.0, 3.0], 1.0) == [0.0, 3.0]\nf([2.0, 1.0])\n```": 1
+          }
+        },
+        "examples": {
+          "removed": {
+            "```@example nonneg_l1": 1
+          },
+          "added": {
+            "```@example nonneg_l1_introduction": 1
+          }
+        }
+      }
+    }
+  ]
+}

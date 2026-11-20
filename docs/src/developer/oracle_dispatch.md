@@ -71,12 +71,13 @@ and converted full matrix indices for symmetric-iterate variables. Symmetric val
 both mirrored entry terms. A declared zero-preserving function can skip inactive
 zeros. No kernel reads parameter entries to compare mirrored pairs.
 
-Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and `GroupNormLinf` and
-available to custom functions. The default allocating method supplies an independent
-floating `Vector` and delegates. For `GroupNormL2`, the index is its group number
-and the compact vectors follow that group's order; custom methods define their
-own layout. `GroupNormL2` validates buffer shapes, real one-based storage,
-steps and overlap; a custom hook must do the same before writing. A custom
+The public compact-vector `prox_block!` hook is available to custom functions.
+The default allocating method supplies an independent floating `Vector` and
+delegates. For `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, the index
+is the group number and the compact vectors follow that group's order. The
+built-in methods validate buffer shapes, real one-based storage, steps and
+overlap before writing. A custom method defines its layout and supplies its
+validation. A custom
 hook alone supplies no full-array lifting, wrapper forwarding or KKT screen.
 
 The solver constructs trials, verifies group layouts, calls the mathematical

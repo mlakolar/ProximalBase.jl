@@ -12,6 +12,8 @@ quick = [
   "elasticnet_extremes",
   "groupnorml2",
   "groupnormlinf",
+  "indballl0",
+  "indballl0_reference",
   "indballl1",
   "indballl2",
   "indballlinf",
@@ -50,6 +52,7 @@ quick = [
   "sparse_iterate_basics",
   "sparse_iterate_basics_grids",
   "sparse_value_cost",
+  "sparsegroupnorml2",
   "sqrt_leastsquares",
   "symmetric_iterate_indexing",
   "symmetric_iterate_interface",
@@ -76,6 +79,8 @@ elasticnet = 28.9
 elasticnet_extremes = 40.5
 groupnorml2 = 25.9
 groupnormlinf = 125.0
+indballl0 = 12.9
+indballl0_reference = 10.0
 indballl1 = 24.9
 indballl2 = 16.8
 indballlinf = 4.8
@@ -114,6 +119,7 @@ sparse_iterate = 68.9
 sparse_iterate_basics = 26.0
 sparse_iterate_basics_grids = 7.2
 sparse_value_cost = 5.4
+sparsegroupnorml2 = 45.0
 sqrt_leastsquares = 20.1
 symmetric_iterate_indexing = 5.9
 symmetric_iterate_interface = 15.8

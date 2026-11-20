@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused negative fixtures for preservation checks; no package tests changed."""
+"""Focused fixtures for documentation preservation and the family map."""
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,8 +9,72 @@ import subprocess
 import sys
 import unittest
 
+from check_contract_schema import family_map_errors
 import check_migration_lines as line_report
 import migration_checks as m
+
+
+class FamilyMapTests(unittest.TestCase):
+    def check(self, reference, rows, pages=(), other_sections=""):
+        index = (
+            "## Family map\n\n"
+            "| Family or operation | Current entry point | Migration state |\n"
+            "|:--|:--|:--|\n" + rows + "\n" + other_sections
+        )
+        return family_map_errors(reference, index, set(pages))
+
+    def test_requires_exact_row_in_family_map_for_qualified_type(self):
+        reference = "```@docs\nProximalBase.NewFamily{T}\nProximalBase.some_oracle!\n```\n"
+        errors = self.check(
+            reference, "| `NewFamilyVariant` | [Guide](newfamilyvariant.md) | Authored contract |",
+            pages=("newfamilyvariant.md",),
+            other_sections="## Other table\n\n| `NewFamily` | [Guide](newfamily.md) | Authored contract |\n",
+        )
+        self.assertEqual(errors, ["api/functions.md: NewFamily is missing from the family map in spec/index.md"])
+
+    def test_example_text_does_not_count_as_api_docs(self):
+        reference = "Mentions `NewFamily`.\n\n````markdown\n```@docs\nNewFamily\n```\n````\n"
+        self.assertEqual(self.check(reference, ""), [])
+
+    def test_docs_directive_with_options_counts_as_api_docs(self):
+        for directive in ("@docs; canonical=false", "@docs ; canonical=false"):
+            with self.subTest(directive=directive):
+                errors = self.check(f"```{directive}\nNewFamily\n```\n", "")
+                self.assertEqual(len(errors), 1)
+                self.assertIn("NewFamily is missing", errors[0])
+
+    def test_detached_row_is_outside_the_family_map_table(self):
+        reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
+        rows = "| `LinearFunction` | Guide | Existing pages |\n\n| `ZeroFunction` | Guide | Existing pages |"
+        errors = self.check(reference, rows)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("ZeroFunction is missing", errors[0])
+
+    def test_table_row_may_omit_its_outer_pipes(self):
+        reference = "```@docs\nNormL0\n```\n"
+        self.assertEqual(self.check(reference, "`NormL0` | Guide | Existing pages"), [])
+
+    def test_recognizes_both_names_in_grandfathered_row(self):
+        reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
+        self.assertEqual(self.check(reference, "| `LinearFunction` and `ZeroFunction` | Guide | Existing pages |"), [])
+
+    def test_new_name_cannot_enter_existing_pages_even_in_a_grouped_row(self):
+        errors = self.check(
+            "```@docs\nNewFamily\n```\n",
+            "| `LinearFunction` and `NewFamily` | [Guide](newfamily.md) | Existing pages |",
+            pages=("newfamily.md",),
+        )
+        self.assertEqual(len(errors), 1)
+        self.assertIn("NewFamily cannot enter the family map as Existing pages", errors[0])
+
+    def test_requires_own_contract_page_or_thin_constructor_marker(self):
+        reference = "```@docs\nNewFamily\n```\n"
+        row = "| `NewFamily` | [Contract](newfamily.md) | Authored contract |"
+        errors = self.check(reference, row, pages=("otherfamily.md",))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("NewFamily needs a family contract page", errors[0])
+        self.assertEqual(self.check(reference, row, pages=("newfamily.md",)), [])
+        self.assertEqual(self.check(reference, "| `NewFamily` | [Owner](@ref IndBox) | Thin constructor of `IndBox` |"), [])
 
 
 class PreservationTests(unittest.TestCase):
@@ -114,7 +178,7 @@ class PreservationTests(unittest.TestCase):
         self.write(self.source, rewritten.replace("positive", "negative"))
         self.assertTrue(self.check()[0])
 
-    def test_all_reviewed_actions_use_same_acceptance_policy(self):
+    def test_only_dedupe_and_supersede_may_reduce_protected_counts(self):
         # These fixtures exercise provenance, not the truth of an equivalence.
         # Actual rows require independent rendered semantic review.
         for action in ("reword", "dedupe", "supersede"):
@@ -127,8 +191,12 @@ class PreservationTests(unittest.TestCase):
                                reviewer="independent-reviewer@fixture-revision")
                 errors, mappings = self.check(rows)
                 self.assertEqual(errors, [])
-                for name in ("tokens", "sentences", "examples"):
-                    self.assertEqual(m.accounting(self.baseline, mappings, name), [])
+                self.assertEqual(m.accounting(self.baseline, mappings, "sentences"), [])
+                self.assertEqual(m.accounting(self.baseline, mappings, "examples"), [])
+                if action == "reword":
+                    self.assertTrue(m.accounting(self.baseline, mappings, "tokens"))
+                else:
+                    self.assertEqual(m.accounting(self.baseline, mappings, "tokens"), [])
 
     def test_split_rejects_missing_words(self):
         self.write("docs/src/replacement.md", "Replacement.\n")
@@ -381,46 +449,40 @@ class PreservationTests(unittest.TestCase):
         page = '<nav><input id="collapse-1"></nav><article id="documenter-page"><h1 id="kept">Text</h1></article>'
         self.assertEqual(m.ContentAnchors(page).ids, {"documenter-page", "kept"})
 
-    def anchor_profile_fixture(self):
+    def anchor_snapshot_fixture(self):
         audit = self.root / "audit"
         audit.mkdir()
-        metadata = dict(baseline=m.BASELINE, rendered_pages=1, content_anchor_count=1, anchor_profiles={})
-        for profile, filename, fragment in (("local", "anchors.tsv", "original-local-hash"),
-                                             ("ci", "anchors-ci.tsv", "original-ci-hash")):
-            rows = [dict(page="old", fragment=""), dict(page="old", fragment=fragment)]
-            m.write_tsv(audit / filename, ("page", "fragment"), rows)
-            metadata["anchor_profiles"][profile] = dict(file=filename, sha256=m.digest((audit / filename).read_text()))
+        rows = [dict(page="old", fragment=""), dict(page="old", fragment="original-fragment")]
+        m.write_tsv(audit / "anchors.tsv", ("page", "fragment"), rows)
+        metadata = dict(baseline=m.BASELINE, rendered_pages=1, content_anchor_count=1,
+                        anchor_snapshot=dict(file="anchors.tsv", sha256=m.digest((audit / "anchors.tsv").read_text())))
         return audit, metadata
 
-    def test_anchor_profiles_are_explicit_and_wrong_runtime_fails(self):
-        audit, metadata = self.anchor_profile_fixture()
-        self.write("build/old.html", '<article id="documenter-page"><h1 id="original-local-hash">Old</h1></article>')
-        build = self.root / "build"
-        self.assertEqual(m.anchor_check(m.anchor_snapshot(metadata, "local", audit), build), [])
-        self.assertTrue(m.anchor_check(m.anchor_snapshot(metadata, "ci", audit), build))
-        with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
-            m.anchor_snapshot(metadata, "other", audit)
-        del metadata["anchor_profiles"]["ci"]
-        with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
-            m.anchor_snapshot(metadata, "ci", audit)
+    def test_one_complete_anchor_snapshot_has_no_runtime_profile_selection(self):
+        audit, metadata = self.anchor_snapshot_fixture()
+        self.write("build/old.html", '<article id="documenter-page"><h1 id="original-fragment">Old</h1></article>')
+        self.assertEqual(m.anchor_check(m.anchor_snapshot(metadata, audit), self.root / "build"), [])
+        del metadata["anchor_snapshot"]
+        with self.assertRaisesRegex(ValueError, "complete frozen"):
+            m.anchor_snapshot(metadata, audit)
 
-    def test_empty_or_truncated_anchor_profile_is_not_accepted(self):
-        audit, metadata = self.anchor_profile_fixture()
+    def test_empty_or_truncated_anchor_snapshot_is_not_accepted(self):
+        audit, metadata = self.anchor_snapshot_fixture()
         path = audit / "anchors.tsv"
         for rows, error in (([], "empty"), ([dict(page="old", fragment="")], "anchor count"),
-                            ([dict(page="old", fragment="original-local-hash")], "page records")):
+                            ([dict(page="old", fragment="original-fragment")], "page records")):
             with self.subTest(rows=rows):
                 m.write_tsv(path, ("page", "fragment"), rows)
-                metadata["anchor_profiles"]["local"]["sha256"] = m.digest(path.read_text())
+                metadata["anchor_snapshot"]["sha256"] = m.digest(path.read_text())
                 with self.assertRaisesRegex(ValueError, error):
-                    m.anchor_snapshot(metadata, "local", audit)
+                    m.anchor_snapshot(metadata, audit)
 
-    def test_anchor_profile_snapshot_hash_is_checked(self):
-        audit, metadata = self.anchor_profile_fixture()
+    def test_anchor_snapshot_hash_is_checked(self):
+        audit, metadata = self.anchor_snapshot_fixture()
         path = audit / "anchors.tsv"
-        path.write_text(path.read_text().replace("original-local-hash", "different-hash"))
+        path.write_text(path.read_text().replace("original-fragment", "different-fragment"))
         with self.assertRaisesRegex(ValueError, "snapshot hash mismatch"):
-            m.anchor_snapshot(metadata, "local", audit)
+            m.anchor_snapshot(metadata, audit)
 
     def test_nested_docstring_articles_keep_following_page_anchors(self):
         html = ('<article id="documenter-page"><h1 id="page-title"></h1>'
@@ -439,6 +501,227 @@ class PreservationTests(unittest.TestCase):
     def test_wrapped_source_heading_reference(self):
         text = '# numerics.md ("Supported precision\n# and oracle agreement")\n'
         self.assertEqual(list(m.source_citations(text)), [(1, "Supported precision and oracle agreement")])
+
+
+    def example_reword_fixture(self):
+        original = '```@example old\ns = "a  b"\n@assert s == "a  b"\n```\n'
+        self.baseline = list(m.blocks(original, self.source))
+        self.rows = m.initial_ledger(self.baseline)
+        changed = original.replace('@example old', '@example new')
+        self.write(self.source, changed)
+        replacement = next(m.blocks(changed, self.source))
+        self.rows[0].update(action='reword', dest_sha=replacement.sha, reviewer='independent@reviewed-revision')
+        record = dict(block_id=self.baseline[0].id, baseline_sha=self.baseline[0].sha,
+                      source_shas=[self.baseline[0].sha], action='reword', dest=self.source,
+                      dest_sha=replacement.sha, reviewer=self.rows[0]['reviewer'],
+                      evidence='Fixture independent rendered review of exactly the sandbox-label change.',
+                      changes={name: m.token_delta(counter(self.baseline[0]), counter(replacement))
+                               for name, counter in [('tokens', m.protected_tokens), ('examples', m.example_tokens)]})
+        return original, changed, record
+
+    def save_allowance(self, record):
+        self.write('docs/audit/docs-tracks-1019/token-allowances.json',
+                   json.dumps(dict(schema=1, allowances=[record])))
+
+    def test_reword_does_not_exempt_example_label_without_exact_allowance(self):
+        self.example_reword_fixture()
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(m.accounting(self.baseline, mappings, 'tokens'))
+        self.assertTrue(m.accounting(self.baseline, mappings, 'examples'))
+
+    def test_exact_reviewed_sandbox_label_allowance_retains_assertions(self):
+        _, _, record = self.example_reword_fixture()
+        self.save_allowance(record)
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        for kind in ('tokens', 'sentences', 'examples'):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_label_allowance_rejects_changed_assertion_even_with_refreshed_destination(self):
+        _, changed, record = self.example_reword_fixture()
+        changed = changed.replace('@assert s == "a  b"', '@assert s != "a  b"')
+        self.write(self.source, changed)
+        self.rows[0]['dest_sha'] = record['dest_sha'] = next(m.blocks(changed, self.source)).sha
+        self.save_allowance(record)
+        self.assertTrue(any('exactly match every removed' in e for e in self.check()[0]))
+
+    def test_label_allowance_rejects_removed_assertion_and_changed_literal_whitespace(self):
+        for mutation in ('remove-assertion', 'literal-space'):
+            with self.subTest(mutation=mutation):
+                _, changed, record = self.example_reword_fixture()
+                changed = changed.replace('@assert s == "a  b"\n', '') if mutation == 'remove-assertion' else changed.replace('a  b', 'a b')
+                self.write(self.source, changed)
+                self.rows[0]['dest_sha'] = record['dest_sha'] = next(m.blocks(changed, self.source)).sha
+                self.save_allowance(record)
+                self.assertTrue(any('exactly match every removed' in e for e in self.check()[0]))
+
+    def test_reword_changed_numeric_bound_is_not_covered_by_review_string(self):
+        text = 'The error is at most `8 eps(T)`.\n'
+        self.baseline = list(m.blocks(text, self.source))
+        self.rows = m.initial_ledger(self.baseline)
+        changed = text.replace('8 eps', '16 eps')
+        self.write(self.source, changed)
+        self.rows[0].update(action='reword', dest_sha=next(m.blocks(changed, self.source)).sha,
+                            reviewer='independent@fixture')
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(m.accounting(self.baseline, mappings, 'tokens'))
+
+    def test_split_does_not_normalize_away_literal_whitespace(self):
+        text = 'Keep ``a  b`` then finish.\n'
+        self.baseline = list(m.blocks(text, self.source))
+        self.rows = m.initial_ledger(self.baseline)
+        changed = text.replace('a  b', 'a b')
+        self.write(self.source, changed)
+        self.rows[0].update(action='split', dest_sha=next(m.blocks(changed, self.source)).sha,
+                            reviewer='independent@fixture')
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])  # Whitespace-word counting alone is insufficient.
+        self.assertTrue(m.accounting(self.baseline, mappings, 'tokens'))
+
+    def test_allowance_rejects_stale_unlisted_unused_and_missing_evidence(self):
+        for mutation in ('hash', 'missing-kind', 'extra-loss', 'unused', 'evidence', 'unknown'):
+            with self.subTest(mutation=mutation):
+                original, _, record = self.example_reword_fixture()
+                if mutation == 'hash':
+                    record['dest_sha'] = '0' * 64
+                elif mutation == 'missing-kind':
+                    del record['changes']['examples']
+                elif mutation == 'extra-loss':
+                    record['changes']['tokens']['removed']['number:999'] = 1
+                elif mutation == 'unused':
+                    self.write(self.source, original)
+                    self.rows[0]['dest_sha'] = record['dest_sha'] = self.baseline[0].sha
+                elif mutation == 'evidence':
+                    record['evidence'] = ''
+                else:
+                    record['block_id'] = 'no-such-root'
+                self.save_allowance(record)
+                self.assertTrue(self.check()[0])
+
+    def test_reword_and_split_cannot_reuse_one_destination_occurrence(self):
+        self.baseline = list(m.blocks('First `0` rule.\n\nSecond `0` rule.\n', self.source))
+        self.rows = m.initial_ledger(self.baseline)
+        self.write(self.source, 'Equivalent `0` rule.\n')
+        candidate = next(m.blocks('Equivalent `0` rule.\n', self.source))
+        for row in self.rows:
+            row.update(action='reword', dest_sha=candidate.sha, reviewer='independent@fixture')
+        self.assertTrue(any('occurrence reused' in e for e in self.check()[0]))
+
+    def test_refinement_children_reconstruct_parent_and_preserve_other_ids(self):
+        source = 'docs/src/smooth.md'
+        original = '# Smooth\n\nFirst `0` statement. Second `1` statement.\n\nLast.\n'
+        self.baseline = list(m.blocks(original, source))
+        expected = m.refinement_records(self.baseline)
+        self.assertEqual(len(expected), 1)
+        self.write('docs/audit/docs-tracks-1019/refinements.json',
+                   json.dumps(dict(schema=1, baseline=m.BASELINE, parents=expected)))
+        result = m.validated_refinements(self.baseline, self.root)
+        self.assertEqual(len(result[self.baseline[1].id]), 2)
+        self.assertEqual([b.id for b in result[self.baseline[1].id]],
+                         [self.baseline[1].id + '::sentence:1', self.baseline[1].id + '::sentence:2'])
+        expected[0]['children'].reverse()
+        self.write('docs/audit/docs-tracks-1019/refinements.json',
+                   json.dumps(dict(schema=1, baseline=m.BASELINE, parents=expected)))
+        with self.assertRaisesRegex(ValueError, 'complete ordered'):
+            m.validated_refinements(self.baseline, self.root)
+
+    def test_parent_and_child_occurrences_cannot_cover_two_roots(self):
+        target = 'docs/src/smooth.md'
+        paragraph = 'First `0` statement. Second `1` statement.'
+        parent = next(m.blocks(paragraph, target))
+        child = m.Block('separate-root', self.source, 'prose', 'First `0` statement.', 1, '')
+        self.baseline = [parent, child]
+        self.rows = m.initial_ledger(self.baseline)
+        self.rows[1].update(action='move', dest=target)
+        self.write(target, paragraph)
+        self.assertTrue(any('occurrence reused' in e for e in self.check()[0]))
+
+    def runtime_identity_fixture(self, pretty=False):
+        title = 'Exact title'
+        source = 'docs/src/old.md'
+        self.write(source, '!!! note "Exact title"\n    Retained body.\n')
+        identity = dict(page='old', category='note', title=title, source=source,
+                        fragments=['Exact-title-old-runtime', 'Exact-title-other-runtime'])
+        html = ('<article id="documenter-page"><div class="admonition is-info" id="Exact-title-new-runtime">'
+                '<header class="admonition-header">Exact title<a class="admonition-anchor" '
+                'href="#Exact-title-new-runtime"></a></header><div class="admonition-body">Retained body.</div>'
+                '</div><h2 id="ordinary-required">Other</h2></article>')
+        path = 'build/old/index.html' if pretty else 'build/old.html'
+        self.write(path, html)
+        rows = [dict(page='old', fragment=value) for value in ['', 'Exact-title-old-runtime', 'ordinary-required']]
+        return rows, identity, path, html
+
+    def test_runtime_identity_accepts_new_runtime_but_keeps_ordinary_anchors(self):
+        rows, identity, path, html = self.runtime_identity_fixture()
+        report = {}
+        self.assertEqual(m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root, report=report), [])
+        self.assertEqual(report['runtime_identity_count'], 1)
+        self.assertEqual(report['exact_fragment_count'], 1)
+        self.assertEqual(report['accounted_fragment_count'], 2)
+        self.write(path, html.replace('id="ordinary-required"', 'id="changed"'))
+        self.assertTrue(any('ordinary-required' in e for e in m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root)))
+
+    def test_runtime_identity_rejects_missing_duplicate_and_wrong_category(self):
+        for mutation in ('missing', 'duplicate', 'category', 'title', 'source-category'):
+            with self.subTest(mutation=mutation):
+                rows, identity, path, html = self.runtime_identity_fixture()
+                if mutation == 'missing':
+                    html = '<article id="documenter-page"><h2 id="ordinary-required"></h2></article>'
+                elif mutation == 'duplicate':
+                    html = html.replace('</article>', html[html.index('<div'):html.index('<h2')]+'</article>')
+                elif mutation == 'category':
+                    html = html.replace('is-info', 'is-warning')
+                elif mutation == 'title':
+                    html = html.replace('Exact title', 'Another title')
+                else:
+                    self.write(identity['source'], '!!! warning "Exact title"\n    Retained body.\n')
+                self.write(path, html)
+                self.assertTrue(m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root))
+
+    def test_runtime_identity_rejects_nonself_rendered_and_authored_links(self):
+        for pretty in (False, True):
+            with self.subTest(pretty=pretty):
+                rows, identity, path, html = self.runtime_identity_fixture(pretty)
+                href = '../old/#Exact-title-new-runtime' if pretty else 'old.html#Exact-title-new-runtime'
+                other = 'build/other/index.html' if pretty else 'build/other.html'
+                self.write(other, '<article id="documenter-page"><a href="'+href+'">Authored</a></article>')
+                errors = m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root)
+                self.assertTrue(any('non-self link' in e for e in errors), errors)
+                (self.root/other).unlink()
+        rows, identity, _, _ = self.runtime_identity_fixture()
+        self.write('README.md', '[Old note](docs/old.html#Exact-title-old-runtime)\n')
+        errors = m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root)
+        self.assertTrue(any('authored link' in e for e in errors), errors)
+
+    def test_runtime_identity_rejects_reference_and_padded_markdown_destinations(self):
+        target = 'docs/old.html#Exact-title-old-runtime'
+        for text in (
+                '[See note][old-note]\n\n[old-note]: ' + target + '\n',
+                '[See note][old-note]\n\n[old-note]: <' + target + '> "Title"\n',
+                '[See note][old-note]\n\n[old-note]:\n    <' + target + '>\n',
+                '[See note]( ' + target + ' )\n',
+                '[See note]( <' + target + '> "Title" )\n',
+                '[See note](\n  <' + target + '>\n)\n'):
+            with self.subTest(text=text):
+                rows, identity, _, _ = self.runtime_identity_fixture()
+                self.write('README.md', text)
+                errors = m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root)
+                self.assertTrue(any('authored link' in e for e in errors), errors)
+
+    def test_runtime_identity_rejects_autolinks_and_unquoted_html(self):
+        for text in (
+                '<https://mlakolar.github.io/ProximalBase.jl/stable/old/#Exact-title-old-runtime>',
+                '<a href=docs/old.html#Exact-title-old-runtime>See note</a>',
+                '<A HREF="docs/old.html&#35;Exact-title-old-runtime">See note</A>',
+                '[See note](docs/old.html&#35;Exact-title-old-runtime)'):
+            with self.subTest(text=text):
+                rows, identity, _, _ = self.runtime_identity_fixture()
+                self.write('README.md', text)
+                errors = m.anchor_check(rows, self.root/'build', identities=[identity], root=self.root)
+                self.assertTrue(any('authored link' in e for e in errors), errors)
+
 
 
 class UpstreamTests(unittest.TestCase):
@@ -501,6 +784,58 @@ class UpstreamTests(unittest.TestCase):
         for kind in ("tokens", "sentences", "examples"):
             self.assertTrue(m.accounting(self.baseline, mappings, kind))
 
+    def migrate_reviewed_upstream_fixture(self):
+        old = self.baseline[0]
+        terminal = next(b for b in m.blocks(self.changed, self.path) if b.sha == self.record['dest_sha'])
+        target = 'docs/src/spec/family.md'
+        file = self.root / target
+        file.parent.mkdir(parents=True)
+        file.write_text(terminal.text + '\n')
+        (self.root / self.path).write_text(self.changed.replace(terminal.text, 'See the family contract.'))
+        self.rows[0].update(action='move', dest=target, dest_sha=terminal.sha, reviewer='mechanical')
+        basis = dict(block_id=old.id, baseline_sha=old.sha, upstream_sha=m.receipt_digest(self.record),
+                     source_shas=[terminal.sha], evidence='Fixture: retain the independently reviewed upstream chain before the move.')
+        self.basis_file = self.receipt.parent / 'migration-bases.json'
+        self.basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        return terminal, target, basis
+
+    def test_upstream_terminal_span_can_move_without_erasing_historical_receipt(self):
+        terminal, _, _ = self.migrate_reviewed_upstream_fixture()
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual(mappings.bases[self.baseline[0].id][0].sha, terminal.sha)
+        for kind in ('tokens', 'sentences', 'examples'):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+        self.assertEqual(json.loads(self.receipt.read_text())['changes'], [self.record])
+
+    def test_upstream_migration_checks_terminal_tokens_not_obsolete_original_tokens(self):
+        terminal, target, _ = self.migrate_reviewed_upstream_fixture()
+        changed = terminal.text.replace('`1`', '`0`')
+        (self.root/target).write_text(changed + '\n')
+        self.rows[0].update(action='reword', dest_sha=next(m.blocks(changed, target)).sha,
+                            reviewer='independent@migration')
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(m.accounting(self.baseline, mappings, 'tokens'))
+
+    def test_upstream_migration_rejects_stale_basis_and_invalid_historical_chain(self):
+        _, _, basis = self.migrate_reviewed_upstream_fixture()
+        basis['upstream_sha'] = '0' * 64
+        self.basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        self.assert_rejected('exact reviewed upstream terminal span')
+        basis['upstream_sha'] = m.receipt_digest(self.record)
+        self.basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        self.event['merged'] = False
+        self.save()
+        self.assert_rejected('merged pull request')
+
+    def test_unused_migration_basis_does_not_become_an_exemption(self):
+        old = self.baseline[0]
+        basis = dict(block_id=old.id, baseline_sha=old.sha, upstream_sha=m.receipt_digest(self.record),
+                     source_shas=[self.record['dest_sha']], evidence='Fixture.')
+        (self.receipt.parent/'migration-bases.json').write_text(json.dumps(dict(schema=1, bases=[basis])))
+        self.assert_rejected('unused migration basis')
+
     def test_reviewed_upstream_change_passes_all_accounting(self):
         errors, mappings = self.check()
         self.assertEqual(errors, [])
@@ -517,7 +852,7 @@ class UpstreamTests(unittest.TestCase):
 
     def test_upstream_requires_receipt_review_and_merged_pr(self):
         self.receipt.unlink()
-        self.assert_rejected("upstream evidence")
+        self.assert_rejected("migration evidence")
         for field, value, error in (("merged", False, "merged pull request"),
                                      ("reviewer", "mechanical", "independent review")):
             with self.subTest(field=field):

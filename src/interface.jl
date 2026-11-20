@@ -391,8 +391,9 @@ It is implemented by `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`, `Linea
 implements it together with [`value_entry`](@ref).
 
 The vector form allocates a plain floating `Vector` of `length(u)` and calls
-[`prox_block!`](@ref). [`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) interpret `k` as their group number
-and `u` in that group's order. Custom methods define their own layout and must
+[`prox_block!`](@ref). [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), and
+[`SparseGroupNormL2`](@ref) interpret `k` as their group number and `u` in that
+group's order. Custom methods define their own layout and must
 validate it; the allocating wrapper adds no group, shape, parameter or overlap
 checks. A block method alone does not supply full-array operations or traits.
 
@@ -413,8 +414,8 @@ function prox_block end
     prox_block!(out, f, u, k, γ)
 
 Write the proximal point of compact block `k` into `out` and return `out`.
-[`GroupNormL2`](@ref) and [`GroupNormLinf`](@ref) supply the built-in implementations; custom functions
-can implement this hook. Buffers follow the selected group's ordered indices.
+[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), and [`SparseGroupNormL2`](@ref)
+provide built-in implementations. Custom functions can implement this hook. Buffers follow the selected group's ordered indices.
 
 A conforming method validates real one-based vectors, group bounds, exact
 lengths, parameters and the supported step before predictable writes. Exact

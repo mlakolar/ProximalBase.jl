@@ -1343,7 +1343,9 @@ end
     exact = with256(() -> (big(large)^2 + length(Z) - 1) / 2)
     f = LeastSquaresLoss(Y, X)
     for v in (PB.value_from_predictor(f, Z), PB.value_and_gradient_from_predictor!(G, D, f, Z))
-      @test abs(big(v) - exact) <= 4 * eps(T) * exact
+      # Allow the terms in the first pairwise block to round away locally.
+      # A sequential fold would lose all length(Z) - 1 unit squares.
+      @test abs(big(v) - exact) <= 1024
     end
   end
 end

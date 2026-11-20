@@ -205,8 +205,9 @@ subnormal allowance.
 would bring the exact gradient back into range: with `X = [2.0^1023;;]`, `Y = [0.0]`, `z = [4.0]` and
 ``\alpha=2^{-1022}`` the gradient is `Inf` where the exact one is 8. A difference ``z-Y`` that overflows gives
 an infinite entry of ``d`` and a non-finite value from `value_and_gradient_from_predictor!`, where
-`value_from_predictor` recovers the value. For ``p>0`` the entries of the gradient are then non-finite (with the BLAS
-of the tests, also those of a zero column of `X`, where `0*Inf` is `NaN`), and for ``p=0`` the gradient is empty.
+`value_from_predictor` can recover a representable value. For ``p>0`` the gradient of
+the affected response column is then non-finite (with the BLAS of the tests, also
+for a zero column of ``X``, where `0*Inf` is `NaN`). For ``p=0`` the gradient is empty.
 
 **Predictor as given.** Where an entry of ``z`` is not finite the value is not finite, and the oracles do not form
 ``X\beta`` again to recover it. `f(β)` and `value_and_gradient!` keep their recovery from `β`: where the

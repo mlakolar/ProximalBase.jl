@@ -181,7 +181,7 @@ caller. Either sign, `r = X*β-Y` or `r = Y-X*β`, is accepted. No design or res
 entries are read and no loss fields are written. The call neither reads nor writes `f.tmp`;
 the supplied `r` may be a view of `f.tmp`.
 
-Use the loss, scale and strided floating-point domain of
+Use the vector-response domain and scales of
 [`ProximalBase.value_from_predictor`](@ref). The residual must have the response's
 axes (`DimensionMismatch` otherwise). The result type, accuracy, allocation and
 concurrency guarantees are the same, with non-finite residuals producing
@@ -274,7 +274,7 @@ function value_from_predictor(f::_LSMatrixPredictorLoss{T}, z::StridedMatrix{T})
   Y = base.Y
   axes(z) == axes(Y) || _ls_axes_error("z", axes(z), axes(Y))
   # A linear index range keeps mapreduce pairwise even for Cartesian-indexed views.
-  s = mapreduce(i -> @inbounds(abs2(z[i] - Y[i])), +, 1:length(z); init=zero(T))
+  s = isempty(z) ? zero(T) : mapreduce(i -> @inbounds(abs2(z[i] - Y[i])), +, 1:length(z))
   _ls_matrix_predictor_value(f, z, _LSResponse(), s, a)
 end
 

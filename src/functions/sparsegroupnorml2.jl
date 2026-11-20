@@ -11,8 +11,9 @@ Array and compact-block proximal operators apply soft thresholding followed
 by Euclidean group shrinkage. Compact buffers follow the order of groups[k].
 Use an independent output buffer for [`prox_block!`](@ref). Both proximal
 interfaces accept a scalar nonnegative step and support exact input/output
-identity. Infinite levels or weights can impose hard-zero constraints even
-at zero step.
+identity. Full-array copies into a floating-point SparseIterate explicitly
+store negative zero where needed. Infinite levels or weights can impose
+hard-zero constraints even at zero step.
 
 The point-aware [`kkt_violation`](@ref) reports signed slack at a zero group
 and Euclidean subgradient distance at an active group. Array points select
@@ -165,14 +166,29 @@ prox(f::SparseGroupNormL2, ::SymmetricSparseIterate, ::Real = 1) = _symmetric_pr
 
 @inline function _sparse_group_prox!(y, f, x, γ)
   if y !== x
-    _l2_copy!(y, x, f.free)
-    _l2_copy!(y, x, (length(f.group_of) + 1):length(x))
+    _sparse_group_copy!(y, x, f.free)
+    _sparse_group_copy!(y, x, (length(f.group_of) + 1):length(x))
   end
   c1 = _sparse_group_threshold(y, f, x, γ)
   for k in eachindex(f.groups)
-    @inbounds _sparse_group_shrink!(y, x, f.groups[k], f.λ1, f.λ2, f.w[k], γ, c1)
+    @inbounds _sparse_group_shrink!(y, x, f.groups[k], f.λ1, f.λ2, f.w[k], γ, c1, _sparse_group_copy!)
   end
   y
+end
+
+@inline _sparse_group_copy!(y, x, G) = _l2_copy!(y, x, G)
+
+# An absent sparse coordinate reads positive zero. Keep a copy of
+# negative zero in an explicit slot, leaving other writes to the iterate.
+@inline function _sparse_group_copy!(y::SparseIterate{T}, x, G) where {T<:AbstractFloat}
+  if y !== x
+    @inbounds for i in G
+      v = convert(T, x[i])
+      iszero(v) && signbit(v) && activate!(y, i)
+      y[i] = v
+    end
+  end
+  _L2_RECOMPUTE
 end
 
 @inline function _sparse_group_threshold(y, f, x, γ)
@@ -185,10 +201,10 @@ end
 
 @inline _sparse_group_hard(λ1, λ2, w) = isinf(λ1) || isinf(w) || (isinf(λ2) && !iszero(w))
 
-@inline function _sparse_group_shrink!(y, x, G, λ1, λ2, w, γ, c1)
+@inline function _sparse_group_shrink!(y, x, G, λ1, λ2, w, γ, c1, copy_group!::F = _l2_copy!) where {F}
   _sparse_group_hard(λ1, λ2, w) && return _l2_zero!(y, G)
   coupled = !iszero(λ2) && !iszero(w)
-  (iszero(γ) || (iszero(λ1) && !coupled)) && return _l2_copy!(y, x, G)
+  (iszero(γ) || (iszero(λ1) && !coupled)) && return copy_group!(y, x, G)
   isinf(γ) && return _l2_zero!(y, G)
   iszero(λ1) && return _l2_shrink!(y, x, G, λ2, w, γ)
 

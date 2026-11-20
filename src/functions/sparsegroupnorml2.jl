@@ -135,17 +135,8 @@ end
   _expsum_value(T, acc)
 end
 
-function _check_sparse_group_arrays(f, y, x, γ)
-  _checkreal(f, x)
-  _checkreal(f, y)
-  Base.require_one_based_indexing(y, x)
-  _checksize(y, x)
-  _check_group_extent(f, x)
-  _check_l2_step(f, γ)
-end
-
 function prox!(y::AbstractArray, f::SparseGroupNormL2, x::AbstractArray, γ::Real)
-  _check_sparse_group_arrays(f, y, x, γ)
+  _check_group_arrays(f, y, x, γ)
   _sparse_group_prox!(y, f, x, γ)
 end
 
@@ -230,13 +221,7 @@ end
 end
 
 function prox_block!(out::AbstractVector, f::SparseGroupNormL2, u::AbstractVector, k::Integer, γ::Real)
-  (!(k isa Bool) && checkbounds(Bool, f.groups, k)) || throw(BoundsError(Base.OneTo(length(f.groups)), k))
-  Base.require_one_based_indexing(out, u)
-  (eltype(out) <: Real && eltype(u) <: Real) || _real_error(:prox_block!)
-  m = @inbounds length(f.groups[k])
-  (length(u) == m && length(out) == m) || _block_length_error(f, k, m, length(u), length(out))
-  (out === u || !Base.mightalias(out, u)) || _block_alias_error()
-  _check_l2_step(f, γ)
+  m = _check_group_block(out, f, u, k, γ)
   c1 = _sparse_group_threshold(out, f, u, γ)
   _sparse_group_shrink!(out, u, Base.OneTo(m), f.λ1, f.λ2, @inbounds(f.w[k]), γ, c1)
   out

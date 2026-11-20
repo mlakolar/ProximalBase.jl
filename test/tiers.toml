@@ -77,6 +77,7 @@ elasticnet = 28.9
 elasticnet_extremes = 40.5
 groupnorml2 = 25.9
 groupnormlinf = 35.0
+indballl0 = 12.9
 indballl1 = 24.9
 indballl2 = 16.8
 indballlinf = 4.8

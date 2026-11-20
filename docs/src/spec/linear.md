@@ -9,8 +9,9 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 
 **Links only until clause conversion.** Constructors and API help: [`LinearFunction`](@ref) and [`ZeroFunction`](@ref).
 
-Source: [`src/functions/linear.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/linear.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+Sources include [`src/functions/linear.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/linear.jl)
+and [`src/functions/zero.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/zero.jl).
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-linear-definition)
 
@@ -103,6 +104,12 @@ f(x)
 |:--|:--|
 | `ZeroFunction` value | Zero even at NaN/Inf input entries |
 
+Non-finite entries follow arithmetic,
+except at a zero of a matrix `SparseIterate` (below); finite-data overflowed values
+have a scaled recovery path.
+
+See [Sparse product semantics](@ref Sparse-product-semantics) for the shared rule.
+
 The `LinearFunction` value at a matrix `SparseIterate` follows the same rule, as
 its own computation and not through `dot(c, x)`: a position that is not stored, or is
 stored as `+0` or `-0`, contributes nothing and `c` is not read there, so a `NaN` or
@@ -121,10 +128,6 @@ f = LinearFunction(c, 0.25)
 @assert isnan(f(Matrix(x)))
 f(x)
 ```
-
-Non-finite entries follow arithmetic,
-except at a zero of a matrix `SparseIterate` (below); finite-data overflowed values
-have a scaled recovery path.
 
 ## [Failure behavior](@id spec-linear-failures)
 

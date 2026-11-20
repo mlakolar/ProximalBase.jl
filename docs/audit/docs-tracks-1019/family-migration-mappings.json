@@ -2,18 +2,41 @@
   "schema": 1,
   "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
   "raw_span_review": {
-    "reviewer": "lead-independent-migration@5cf01e4",
-    "scope": "The 76 complete raw source/destination spans, nonoverlap and normalized equivalence. Rendered review and final acceptance remain separate."
+    "reviewer": "reconcile_pr_review@9e3ec2f49ff566022d19083ebe07e9374fe68c29",
+    "scope": "The single IndNonnegative endpoint row, compared byte for byte with the frozen baseline and the reconciled prerequisite."
   },
   "manifests": [
     "moves-indnonnegative.json",
-    "moves-leastsquares.json",
-    "moves-linear.json",
-    "moves-quadratic.json",
     "moves-sqrnorml2.json",
-    "moves-sqrt_leastsquares.json"
+    "moves-leastsquares.json",
+    "moves-sqrt_leastsquares.json",
+    "moves-quadratic.json",
+    "moves-linear.json"
   ],
   "changes": [
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
+      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
+      ],
+      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "source_start": 28481,
+          "source_end": 29181,
+          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "manifest": "moves-indnonnegative.json",
+          "manifest_index": 0
+        }
+      ]
+    },
     {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::33",
       "baseline_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
@@ -34,167 +57,6 @@
           "dest_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
           "manifest": "moves-sqrnorml2.json",
           "manifest_index": 5
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::36",
-      "baseline_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-range",
-      "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
-          "source_start": 4735,
-          "source_end": 5272,
-          "dest": "docs/src/spec/linear.md#spec-linear-range",
-          "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
-          "manifest": "moves-linear.json",
-          "manifest_index": 1
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::37",
-      "baseline_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-range",
-      "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
-          "source_start": 5273,
-          "source_end": 5432,
-          "dest": "docs/src/spec/linear.md#spec-linear-range",
-          "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
-          "manifest": "moves-linear.json",
-          "manifest_index": 1
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::38",
-      "baseline_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-range",
-      "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
-          "source_start": 5433,
-          "source_end": 5635,
-          "dest": "docs/src/spec/linear.md#spec-linear-range",
-          "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
-          "manifest": "moves-linear.json",
-          "manifest_index": 1
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::42",
-      "baseline_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19"
-      ],
-      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-      "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
-          "source_start": 6499,
-          "source_end": 6824,
-          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-          "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
-          "manifest": "moves-leastsquares.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::43",
-      "baseline_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55"
-      ],
-      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-      "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
-          "source_start": 6825,
-          "source_end": 7276,
-          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-          "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
-          "manifest": "moves-leastsquares.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::44",
-      "baseline_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4"
-      ],
-      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-      "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
-          "source_start": 7277,
-          "source_end": 7584,
-          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
-          "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
-          "manifest": "moves-leastsquares.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::115",
-      "baseline_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-      "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
-          "source_start": 22914,
-          "source_end": 22975,
-          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-          "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
-          "manifest": "moves-linear.json",
-          "manifest_index": 0
         }
       ]
     },
@@ -245,358 +107,6 @@
       ]
     },
     {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
-      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
-      ],
-      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
-      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-          "source_start": 28481,
-          "source_end": 29181,
-          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
-          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-          "manifest": "moves-indnonnegative.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::185",
-      "baseline_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-      "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
-          "source_start": 54410,
-          "source_end": 54761,
-          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-          "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
-          "manifest": "moves-linear.json",
-          "manifest_index": 2
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::186",
-      "baseline_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-      "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
-          "source_start": 54762,
-          "source_end": 54883,
-          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-          "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
-          "manifest": "moves-linear.json",
-          "manifest_index": 2
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::187",
-      "baseline_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f"
-      ],
-      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-      "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
-          "source_start": 54885,
-          "source_end": 55173,
-          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
-          "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
-          "manifest": "moves-linear.json",
-          "manifest_index": 2
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12",
-      "baseline_sha": "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0",
-      "previous_action": "stay",
-      "action": "split",
-      "comparison_source_shas": [
-        "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0"
-      ],
-      "dest": "docs/src/smooth.md;docs/src/spec/leastsquares.md#spec-leastsquares-limitations;docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
-      "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c;7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845;7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
-      "reviewer": "lead-independent-migration@5cf01e4",
-      "pieces": [
-        {
-          "source_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c",
-          "source_start": 5478,
-          "source_end": 5608,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:1",
-          "dest": "docs/src/smooth.md",
-          "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c"
-        },
-        {
-          "source_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
-          "source_start": 5609,
-          "source_end": 5738,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:2",
-          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
-          "dest_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
-          "manifest": "moves-leastsquares.json",
-          "manifest_index": 1
-        },
-        {
-          "source_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
-          "source_start": 5739,
-          "source_end": 5825,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:3",
-          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
-          "dest_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
-          "manifest": "moves-leastsquares.json",
-          "manifest_index": 1
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37",
-      "baseline_sha": "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf",
-      "previous_action": "stay",
-      "action": "split",
-      "comparison_source_shas": [
-        "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf"
-      ],
-      "dest": "docs/src/smooth.md;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints;docs/src/smooth.md",
-      "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c;fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb;13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
-      "reviewer": "lead-independent-migration@5cf01e4",
-      "pieces": [
-        {
-          "source_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c",
-          "source_start": 17247,
-          "source_end": 17345,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:1",
-          "dest": "docs/src/smooth.md",
-          "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c"
-        },
-        {
-          "source_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
-          "source_start": 17346,
-          "source_end": 17514,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:2",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints",
-          "dest_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 2
-        },
-        {
-          "source_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
-          "source_start": 17515,
-          "source_end": 17619,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:3",
-          "dest": "docs/src/smooth.md",
-          "dest_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c"
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40",
-      "baseline_sha": "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5",
-      "previous_action": "stay",
-      "action": "split",
-      "comparison_source_shas": [
-        "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5"
-      ],
-      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-      "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2;7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821;6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93;2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e;4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d;09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0;8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a;b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc;40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1;0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
-      "reviewer": "lead-independent-migration@5cf01e4",
-      "pieces": [
-        {
-          "source_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
-          "source_start": 18643,
-          "source_end": 18819,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:1",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
-          "source_start": 18820,
-          "source_end": 19034,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:2",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
-          "source_start": 19035,
-          "source_end": 19163,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:3",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
-          "source_start": 19164,
-          "source_end": 19360,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:4",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
-          "source_start": 19361,
-          "source_end": 19562,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:5",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
-          "source_start": 19563,
-          "source_end": 20235,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:6",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
-          "source_start": 20236,
-          "source_end": 20305,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:7",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
-          "source_start": 20306,
-          "source_end": 20454,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:8",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
-          "source_start": 20455,
-          "source_end": 20604,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:9",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        },
-        {
-          "source_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
-          "source_start": 20605,
-          "source_end": 20782,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:10",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
-          "dest_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
-      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41",
-      "baseline_sha": "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b",
-      "previous_action": "stay",
-      "action": "split",
-      "comparison_source_shas": [
-        "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b"
-      ],
-      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-      "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6;8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8;25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760;2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7;ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
-      "reviewer": "lead-independent-migration@5cf01e4",
-      "pieces": [
-        {
-          "source_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
-          "source_start": 20784,
-          "source_end": 20842,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:1",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-          "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 1
-        },
-        {
-          "source_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
-          "source_start": 20843,
-          "source_end": 21006,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:2",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-          "dest_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 1
-        },
-        {
-          "source_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
-          "source_start": 21007,
-          "source_end": 21279,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:3",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-          "dest_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 1
-        },
-        {
-          "source_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
-          "source_start": 21280,
-          "source_end": 21553,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:4",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-          "dest_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 1
-        },
-        {
-          "source_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
-          "source_start": 21554,
-          "source_end": 21659,
-          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:5",
-          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
-          "dest_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
-          "manifest": "moves-sqrt_leastsquares.json",
-          "manifest_index": 1
-        }
-      ]
-    },
-    {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47",
       "baseline_sha": "c9ff1b92fe9ab8c0cdc3dd20a58c01ea0d0f51ffb8210ce7a3870ec9f84d54ed",
       "previous_action": "stay",
@@ -606,7 +116,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
       "dest_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875;3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2;1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec;074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794;070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d;a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875",
@@ -674,7 +184,7 @@
       ],
       "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
       "dest_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc;78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b;2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77;3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf;bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d;19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111;f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2;6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce;4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f;d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1;8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d;bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc",
@@ -808,7 +318,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
       "dest_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7;b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590;a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7",
@@ -839,6 +349,335 @@
       ]
     },
     {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::42",
+      "baseline_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+          "source_start": 6499,
+          "source_end": 6824,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::43",
+      "baseline_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+          "source_start": 6825,
+          "source_end": 7276,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::44",
+      "baseline_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+          "source_start": 7277,
+          "source_end": 7584,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12",
+      "baseline_sha": "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/spec/leastsquares.md#spec-leastsquares-limitations;docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+      "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c;7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845;7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+      "reviewer": "reconcile_pr_review@22e4fae3ccb5cf66912b747cb60c55d8a6461eda",
+      "pieces": [
+        {
+          "source_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c",
+          "source_start": 5478,
+          "source_end": 5608,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c"
+        },
+        {
+          "source_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
+          "source_start": 5609,
+          "source_end": 5738,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:2",
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+          "dest_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+          "source_start": 5739,
+          "source_end": 5825,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:3",
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+          "dest_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37",
+      "baseline_sha": "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints;docs/src/smooth.md",
+      "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c;fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb;13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
+      "reviewer": "sparsegroup_receipt_review@c8cb463a5aabe7382520b6c6dc7f046141f9c91d",
+      "pieces": [
+        {
+          "source_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c",
+          "source_start": 17247,
+          "source_end": 17345,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c"
+        },
+        {
+          "source_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
+          "source_start": 17346,
+          "source_end": 17514,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-endpoints",
+          "dest_sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 2
+        },
+        {
+          "source_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c",
+          "source_start": 17515,
+          "source_end": 17619,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:3",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40",
+      "baseline_sha": "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5"
+      ],
+      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+      "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2;7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821;6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93;2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e;4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d;09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0;8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a;b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc;40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1;0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+      "reviewer": "sparsegroup_receipt_review@c8cb463a5aabe7382520b6c6dc7f046141f9c91d",
+      "pieces": [
+        {
+          "source_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
+          "source_start": 18643,
+          "source_end": 18819,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:1",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
+          "source_start": 18820,
+          "source_end": 19034,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
+          "source_start": 19035,
+          "source_end": 19163,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:3",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
+          "source_start": 19164,
+          "source_end": 19360,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:4",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
+          "source_start": 19361,
+          "source_end": 19562,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:5",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
+          "source_start": 19563,
+          "source_end": 20235,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:6",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
+          "source_start": 20236,
+          "source_end": 20305,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:7",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
+          "source_start": 20306,
+          "source_end": 20454,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:8",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
+          "source_start": 20455,
+          "source_end": 20604,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:9",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        },
+        {
+          "source_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+          "source_start": 20605,
+          "source_end": 20782,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:10",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-range",
+          "dest_sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41",
+      "baseline_sha": "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b"
+      ],
+      "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations;docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+      "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6;8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8;25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760;2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7;ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+      "reviewer": "sparsegroup_receipt_review@c8cb463a5aabe7382520b6c6dc7f046141f9c91d",
+      "pieces": [
+        {
+          "source_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
+          "source_start": 20784,
+          "source_end": 20842,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:1",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
+          "source_start": 20843,
+          "source_end": 21006,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:2",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
+          "source_start": 21007,
+          "source_end": 21279,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:3",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
+          "source_start": 21280,
+          "source_end": 21553,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:4",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+          "source_start": 21554,
+          "source_end": 21659,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:5",
+          "dest": "docs/src/spec/sqrt_leastsquares.md#spec-sqrt_leastsquares-limitations",
+          "dest_sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0",
+          "manifest": "moves-sqrt_leastsquares.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55",
       "baseline_sha": "29f64f123bc15937c230a1aefbd1333d48db536484ec9d377ceea85d9392c816",
       "previous_action": "stay",
@@ -848,7 +687,7 @@
       ],
       "dest": "docs/src/spec/quadratic.md#spec-quadratic-preconditions;docs/src/spec/quadratic.md#spec-quadratic-preconditions;docs/src/spec/quadratic.md#spec-quadratic-preconditions",
       "dest_sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd;6922be2b3f314142c54344453e5a1a92c2ff4a8003013832815f333f819e3671;3f9f67725ad5fa6e44240e8338137741745162b6d994b46e7a81a3b9368e57d1",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "sparsegroup_receipt_review@5ef9aa025d2a27b00de4f64245491b76f10fc69f",
       "pieces": [
         {
           "source_sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd",
@@ -892,7 +731,7 @@
       ],
       "dest": "docs/src/spec/quadratic.md#spec-quadratic-range;docs/src/spec/quadratic.md#spec-quadratic-range;docs/src/spec/quadratic.md#spec-quadratic-range",
       "dest_sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db;91d3846794de3bc65bfe781c1efebc2d9b6de39032eba9542f01a8c6ad9226bb;8ebfa9f6e8105de5956253f4e6dd849f260455cb1e1c477975ba63661941387a",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "sparsegroup_receipt_review@5ef9aa025d2a27b00de4f64245491b76f10fc69f",
       "pieces": [
         {
           "source_sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db",
@@ -936,7 +775,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/quadratic.md#spec-quadratic-limitations;docs/src/spec/quadratic.md#spec-quadratic-limitations",
       "dest_sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e;ab56d39c3a2cfd3a3aa3db56f0544db7d63a3df2eaff625b9e97b7e6c7c4e835;1f14a4ef6098d4abe2d73bca984632b4afd578899754efb97c9666c23ad64cc5;de371f4a520f9d47218ec8dd29826ceae24a7eb81860920fc4fa3bc0b80b4e69;e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "sparsegroup_receipt_review@5ef9aa025d2a27b00de4f64245491b76f10fc69f",
       "pieces": [
         {
           "source_sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e",
@@ -985,6 +824,167 @@
       ]
     },
     {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::36",
+      "baseline_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+          "source_start": 4735,
+          "source_end": 5272,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::37",
+      "baseline_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+          "source_start": 5273,
+          "source_end": 5432,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::38",
+      "baseline_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+          "source_start": 5433,
+          "source_end": 5635,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::115",
+      "baseline_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+          "source_start": 22914,
+          "source_end": 22975,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+          "manifest": "moves-linear.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::185",
+      "baseline_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+          "source_start": 54410,
+          "source_end": 54761,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::186",
+      "baseline_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+          "source_start": 54762,
+          "source_end": 54883,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::187",
+      "baseline_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+          "source_start": 54885,
+          "source_end": 55173,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70",
       "baseline_sha": "eec27c29e41899e36c55943db46ee030d7975c247eee98c1c2e9d5f89ac27415",
       "previous_action": "stay",
@@ -994,7 +994,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/linear.md#spec-linear-endpoints;docs/src/smooth.md",
       "dest_sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611;b96118c6fcbb086844e6fb9059d3b1914eaa4fec2f9d60027754c8a02c63ae8b;bd4c707f84de0638a880f8592a1d8c9bf7a24c5da3067e7d313811bf0a345ef5;8660a2cf299c063f4c63dab7a32da69cfc8237986dbe5c285cdd73687798643c;d04184176b478538332067d317e03f121600b77e4506ac1c1ce9ad91c574d60f;5bc963d762b2c25a5d8d29dfbb7e5b48165fdc38cab672ed771c287c9995c107",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@11c0f4d18a3107b4d7cdfc0c8d99dc124f558842",
       "pieces": [
         {
           "source_sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611",
@@ -1058,7 +1058,7 @@
       ],
       "dest": "docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range",
       "dest_sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59;95730d00b703924ce8c81730cbec2af86543f4a5806755b356984f3b995c25fb;e2a40da51cf320904c7eed2ab992ddf622733753872f12e3f8d0747cdca7ed06;89a2ab5924a9a8ff35df74d84e6210e8d97cfd51a79f7e8f69b64faf4467f8b3;b64c8d1be269fd5158d044d99a447a48ee2f0a7acf11e2c0288ee2f11b1da8da;d33c90583b9960f5f603268b5364b814af222295dc02c49f20cd7a1a1ae77ce1;bae2aa8a2efe015ebe0869e470d33047d5484dd0cc469ce5d43888c2dd1a2ec6;21c0552184214d24f110b86284032dbcb1cb72f231b3105434d589749fa05b8d;b9af7ac9c6a21c9528a3a670cb10d5f2eb9311f7d63bb3dc7329d0d26a1f3476",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@11c0f4d18a3107b4d7cdfc0c8d99dc124f558842",
       "pieces": [
         {
           "source_sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59",
@@ -1162,7 +1162,7 @@
       ],
       "dest": "docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range",
       "dest_sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a;efefbfce1ccff87b63d003ef00b944ae5ca8ad205092c5be4df4ec2fa8a1aebe;56aca9dcfd3d52cb4cff2cc554be3e88670a703f937d788084ff9933a18be1ae;aec3a6592e1efc9aa6305b5c66918229211cfbb131a6b5743f4ae08c4ee57a36",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@11c0f4d18a3107b4d7cdfc0c8d99dc124f558842",
       "pieces": [
         {
           "source_sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a",

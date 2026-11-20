@@ -71,12 +71,13 @@ and converted full matrix indices for symmetric-iterate variables. Symmetric val
 both mirrored entry terms. A declared zero-preserving function can skip inactive
 zeros. No kernel reads parameter entries to compare mirrored pairs.
 
-Compact-vector `prox_block!` is a public hook implemented by `GroupNormL2` and `GroupNormLinf` and
-available to custom functions. The default allocating method supplies an independent
-floating `Vector` and delegates. For `GroupNormL2`, the index is its group number
-and the compact vectors follow that group's order; custom methods define their
-own layout. `GroupNormL2` validates buffer shapes, real one-based storage,
-steps and overlap; a custom hook must do the same before writing. A custom
+The public compact-vector `prox_block!` hook is available to custom functions.
+The default allocating method supplies an independent floating `Vector` and
+delegates. For `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, the index
+is the group number and the compact vectors follow that group's order. The
+built-in methods validate buffer shapes, real one-based storage, steps and
+overlap before writing. A custom method defines its layout and supplies its
+validation. A custom
 hook alone supplies no full-array lifting, wrapper forwarding or KKT screen.
 
 The solver constructs trials, verifies group layouts, calls the mathematical
@@ -88,7 +89,7 @@ independent ID to the full-entry index; no symmetric iterate is available in the
 ## KKT and restrictions
 
 Retained scalar screens are explicitly implemented for `NormL1`, `NormL1Nonneg`, `ElasticNet`, `SqrNormL2`,
-`ZeroFunction` and `LinearFunction`; `GroupNormL2` has block scores, `NormL2` and `NormLinf` a full-point form and
+`ZeroFunction` and `LinearFunction`; `GroupNormL2` and `GroupNormLinf` have block scores, `NormL2` and `NormLinf` a full-point form and
 `IndNonnegative` the three-argument screen only. `Scaled` forwards to these functions as described below. The three-argument form is the signed
 screen of a coordinate assumed zero. For those six functions, the four-argument form on an
 array, a `SparseIterate`, a `BlockIterate` (maximum over the group) or a `SymmetricSparseIterate`
@@ -104,15 +105,16 @@ throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `S
 `GroupNormL2` supplies a native block score instead (one block kernel, `_l2_score`), checking the
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws
-because it is not entrywise separable. `GroupNormLinf` uses the layout checks of `GroupNormL2` and
-returns a dual-norm margin at a zero group. Its four-argument and full-point forms have no method under
-`Scaled`. `NormL2` has the full-point form, the kernel with all of `x`
+because it is not entrywise separable. `GroupNormLinf` has its own `_level_score` and `_level_point`, which repeat the checks of `GroupNormL2` (and share its `_check_point_layout`), and
+returns a dual-norm margin at a zero group and, at a nonzero group, the distance that the full-point kernel of `NormLinf` (`_linf_point`)
+computes for the group read through `_IndexedValues`; its full-point form scores every group by that kernel, a zero group included.
+It is in the class of the functions with a score under `Scaled`, with the routes of `GroupNormL2`. `NormL2` has the full-point form, the kernel with all of `x`
 as one block, and its other forms throw `ArgumentError`. `NormLinf` has the full-point form too, with a kernel of its own
 for the distance to the subdifferential of the largest magnitude (the ℓ₁ ball at the zero point, and the face of the
 largest entries of `x` elsewhere) and no block; its other forms throw `ArgumentError`. `Scaled` scores a wrapper with a finite
 positive factor by evaluating the score of its function on `v/α` and multiplying it by `α`; a nested chain whose product of factors
 is not a normal number is scored through the function with the product applied to the gradient
-(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2`, `NormL2`, `NormLinf`),
+(`LinearFunction`, `SqrNormL2`) or folded into the level (`NormL1`, `NormL1Nonneg`, `ElasticNet`, `GroupNormL2`, `GroupNormLinf`, `NormL2`, `NormLinf`),
 and refuses the nonzero and full-point forms where there is no fold, as it does for an infinite
 factor (the [scaling guide](@ref scaled-kkt)). Dispatch does not
 turn a quadratic/least-squares loss into a scalar penalty screen. KKT is the raw first-order score

@@ -24,7 +24,9 @@ diagonal contributes nothing. Both signed zeros count as zero.
 The oracles accept a one-based, strided ``p\times p`` matrix of `Float32` or
 `Float64` (``p=0`` is allowed) with finite entries that is symmetric under
 `==`, so a pair `(+0.0, -0.0)` is symmetric. The step ``\gamma`` is a finite
-positive real number. For such ``V``, the proximal map solves
+positive real number. For such ``V``, when the comparison of the
+[ordinary-path clauses](@ref spec-norml0offdiag-ordinary) is exact, the proximal
+map solves
 
 ```math
 \min_{Z=Z^\top}\ g(Z)+\frac{\|Z-V\|_F^2}{2\gamma}.
@@ -46,7 +48,8 @@ diagonal term ``(z-v)^2/(2\gamma)`` is minimized by ``z=v``.
 reinterpreted arrays that are strided are accepted. The step is a scalar
 `Real`. The methods dispatch on `AbstractMatrix` arguments and a `Real` step,
 so a vector, a tuple, a [`SymmetricSparseIterate`](@ref SymmetricSparseIterate),
-a [`BlockIterate`](@ref BlockIterate) and an array step give `MethodError`.
+a [`BlockIterate`](@ref BlockIterate) and an array step give `MethodError`, or
+`ArgumentError` where a generic fallback rejects them first.
 `prox_block`, `restrict` and `kkt_violation` have no method for this function
 and give `MethodError`.
 
@@ -76,8 +79,8 @@ so a `Float64` level is not rounded to `Float32` before the product.
 The diagonal is copied bit for bit, including `-0.0`. Each entry ``(i,j)`` with
 ``i\neq j`` is the ``(i,j)`` entry of `prox(NormL0(λ), V, γ)`, computed from
 ``V_{ij}`` alone and not mirrored from ``V_{ji}``. The entry is kept when
-``|V_{ij}|^2>2\gamma\lambda`` and is positive zero otherwise, so a mathematical
-tie gives zero. At ``\lambda=0`` the map is the identity, and a pair
+``|V_{ij}|^2>2\gamma\lambda`` and is positive zero otherwise, so, when the
+comparison is exact as described below, a mathematical tie gives zero. At ``\lambda=0`` the map is the identity, and a pair
 `(+0.0, -0.0)` stays as it is. At ``\lambda>0`` the same pair becomes
 `(+0.0, +0.0)`. The output is symmetric under `==` when the input is.
 
@@ -129,15 +132,17 @@ reaches the strided check and throws `ArgumentError`.
 
 The output is not promised to be positive definite, and no solver convergence
 is promised. Weighted levels, groups, sparse and symmetric-iterate
-representations, `restrict`, `prox_block`, `kkt_violation`, array steps, steps
-`0` and `Inf`, and non-finite input are outside the contract. A zero-stride
+representations, `restrict`, `prox_block` and `kkt_violation` are not provided.
+The proximal map is not provided at steps `0` and `Inf`, at non-finite input
+or for array steps, and these calls are refused as the endpoint and failure
+sections state. A zero-stride
 view as `Y` is not detected as self-aliased, as in `Base.mightalias`.
 
 **Implementation notes (not guarantees).** The scalar decision is
 `prox_block(NormL0(λ), v, 1, γ)`. When `λ`, `γ` and the element type are the
 same float type and the matrix has at least 64 entries, the implementation
-uses the certified magnitude cutoff of the dense `NormL0` kernel instead, behind
-a function barrier. The validation reads both triangles in one blocked pass
+uses the certified magnitude cutoff of the dense `NormL0` kernel instead when a
+cutoff can be certified, behind a function barrier. The validation reads both triangles in one blocked pass
 before the first write. The write loop uses `@simd` without `ivdep`, because on
 Julia 1.10 the loop with `ivdep` gave wrong entries for a reinterpreted
 `Float32` matrix over `Float64` or `ComplexF32` storage. `Y === X` has its own
@@ -159,7 +164,8 @@ This section links to the shared owners.
 compares the proximal map with an exact `Rational{BigInt}` minimization over the
 keep and drop patterns of the pairs, and with `NormL0` off the diagonal for
 mixed level and step types. It covers ties, signed zeros, the diagonal, every
-refusal with an unchanged sentinel output, strided views, reshapes and
+`ArgumentError` and `DimensionMismatch` refusal and the step refusals with an
+unchanged sentinel output, the `MethodError` refusals, strided views, reshapes and
 reinterpreted matrices as input, output and in place, `Scaled`, and zero
 allocation on both routes. The
 [penalty guide](@ref norml0offdiag-guide) contains an executable example, and

@@ -50,7 +50,7 @@ step that is not finite and positive, a non-finite entry of `X`, and an
 asymmetric `X`. `DimensionMismatch`: a non-square `X`, or a `Y` of another
 size. Arguments that are not matrices, such as vectors, tuples,
 [`SymmetricSparseIterate`](@ref) and [`BlockIterate`](@ref), and array steps give
-`MethodError`.
+`MethodError`, or `ArgumentError` where a generic fallback rejects them first.
 
 `Scaled(NormL0OffDiag(λ), α)` multiplies the value by `α`, and its proximal
 map at step `γ` is this map at step `α * γ`, for positive finite `α` when the

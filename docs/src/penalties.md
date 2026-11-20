@@ -365,3 +365,59 @@ At step four, magnitudes zero and four have the same objective for an
 input of four, and the proximal operator chooses zero. See the
 [SCAD numerical contract](@ref spec-scad) for the penalty formula,
 supported storage and endpoint rules.
+
+## [Off-diagonal cardinality penalty](@id norml0offdiag-guide)
+
+`NormL0(λ; diagonal = false)` charges `λ` for each nonzero off-diagonal entry of a
+matrix and nothing for the diagonal, so a nonzero symmetric pair costs `2λ`.
+The keyword changes the penalty and narrows the arguments: it accepts finite
+strided `Float32` or `Float64` square matrices that Base can read and write,
+under the storage preconditions of the
+[numerical contract](@ref spec-norml0offdiag-arguments) (distinct entries
+occupy distinct memory; a zero-stride view as the output is unsupported), and
+refuses the vectors, sparse
+arrays, iterates and array steps that `NormL0(λ)` accepts. `NormL0(λ)` and
+`NormL0(λ; diagonal = true)` keep the all-entry penalty with its full set of
+arguments. Symmetry under `==` is the caller's precondition for the symmetric
+interpretation and is not checked; asymmetry alone causes no refusal, and for
+an asymmetric matrix each entry is decided from its own value. The proximal map copies the diagonal and decides each
+off-diagonal entry with the rule of [`NormL0`](@ref): for `λ > 0` an entry is
+kept when the scalar comparison on the converted operands finds its square
+above `2γλ`, and is positive zero otherwise, and at `λ = 0` the map is the
+identity. `NormL0` converts
+the entry, `λ` and `γ` to a working type before the comparison, which is exact
+when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type;
+other levels and steps, for example a `Rational` or an `Int` above `2^53`, are
+rounded to that type first, and with a `BigFloat` working type the converted
+entry, its square and the product `2γλ` can each be rounded. A mathematical tie
+can then be kept: a pair of ones at `λ = 1//3` and `γ = 3//2` is kept. The all-entry `NormL0` applies the same rule to
+the diagonal, which can set a small diagonal entry to zero.
+
+```@example norml0offdiag
+using ProximalBase
+V = [0.01 1.5 1.4; 1.5 3.0 -1.5; 1.4 -1.5 0.01]
+f = NormL0(2; diagonal = false)
+Y = prox(f, V, 0.5)
+@assert Y == [0.01 1.5 0.0; 1.5 3.0 -1.5; 0.0 -1.5 0.01]
+@assert f(V) == 12.0 && f(Y) == 8.0
+@assert value_and_prox!(similar(V), f, V, 0.5) == 8.0
+@assert [prox(NormL0(2), V, 0.5)[i, i] for i in 1:3] == [0.0, 3.0, 0.0]
+@assert prox(NormL0(2; diagonal = false), [1.0 2.0; 2.0 1.0], 1.0) == [1.0 0.0; 0.0 1.0]
+nothing # hide
+```
+
+At step one and level two the threshold is four, so an entry of magnitude
+two is a tie and gives zero. Every refusal happens before any write. When the
+only failing condition is one of the listed storage kinds (a vector, a sparse
+or other non-strided matrix, an iterate or an array step), an unsupported
+element type, a reinterpreted array that Base cannot both read and write, a
+nonpositive or non-finite real scalar step or a non-finite entry, the call
+throws `ArgumentError`; when it is a non-square matrix, the call throws
+`DimensionMismatch`. When several conditions fail, which exception is thrown is
+not specified. Through `Scaled`, the step and the values follow the rules of
+`Scaled`, and the exception for an unsupported argument can come from the
+preprocessing of `Scaled`, the checks of this function or dispatch. The oracle does not promise that the output
+is positive definite. See the
+[`NormL0(λ; diagonal = false)` entry](@ref api-norml0-diagonal-free) and the
+[numerical contract of `NormL0(λ; diagonal = false)`](@ref spec-norml0offdiag)
+for the full list.

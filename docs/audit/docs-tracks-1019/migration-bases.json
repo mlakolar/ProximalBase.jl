@@ -8,7 +8,7 @@
       "source_shas": [
         "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
       ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+      "evidence": "sparsegroup_receipt_review@39486aad79a3d8184945a249543b31185ff90d86 verified the retained Git receipt and its complete terminal span against the reviewed move."
     },
     {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::75",
@@ -18,7 +18,7 @@
         "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
         "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
       ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+      "evidence": "reconcile_pr_review@b3bd8992cd6d4a0ca939d402a1d488886ae8a0dc verified the retained Git receipt and its complete terminal span against the reviewed move."
     }
   ]
 }

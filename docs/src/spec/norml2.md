@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`NormL2`](@ref).
 
 Source: [`src/functions/norml2.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml2.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-norml2-definition)
 
@@ -38,6 +38,8 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Range clauses](@id spec-norml2-range)
 
+The [shared range guarantees](@ref numerical-value-range) describe the squared-residual kernel referenced here.
+
 `NormL2` values recompute a sum of squares that overflows or falls below the normal
 range from the squared-residual kernel above, in units of the largest stored entry.
 On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
@@ -56,7 +58,7 @@ An infinite level gives zero at the zero argument (including an empty array),
 [endpoint table](@ref group-l2-endpoints) also describes the norm's prox;
 in particular zero level takes precedence over an infinite step.
 
-The “rows below” in the retained table refer to the [GroupNormL2 endpoint table](@ref spec-groupnorml2-endpoints).
+The “rows below” in the retained table refer to the [GroupNormL2 endpoint table](@ref group-l2-endpoints).
 
 ## [Failure behavior](@id spec-norml2-failures)
 

@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`LeastSquaresLoss`](@ref).
 
 Source: [`src/functions/leastsquares.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/leastsquares.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-leastsquares-definition)
 
@@ -38,6 +38,8 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Range clauses](@id spec-leastsquares-range)
 
+The [shared range guarantees](@ref numerical-value-range) describe the squared-residual recovery referenced here.
+
 The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the product `Xβ` overflows
 although `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` attempt to form `Xβ` again in units of a power of
 two, without recovering every representable value (the smooth-functions guide gives a counterexample). The oracles at a caller-supplied predictor or residual (`ProximalBase.value_from_predictor` and the others
@@ -45,8 +47,9 @@ described with the [smooth functions](../smooth.md#Least-squares-at-a-predictor-
 take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
 value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
 For strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value
-whose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with
-the length, does not decide between a finite value and `Inf`.
+whose ordinary computation `α s / 2` is above `floatmax(T)/2`. The two matrix predictor
+oracles reuse that guard and the same squared-residual recovery. The guard keeps rounding
+in the ordinary sum from deciding between a finite value and `Inf`.
 
 The complete [predictor and residual oracle section](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds) retains its domain, rounding, range, gradient and buffer rules. It remains one shared owner for these related operations.
 

@@ -371,10 +371,55 @@ end
     refuses(DimensionMismatch, f, sentinel(p, p + 1), S)
     refuses(DimensionMismatch, f, sentinel(p - 1, p - 1), S)
     refuses(DimensionMismatch, f, sentinel(p, p - 1), S)
-    # the one-based check comes first, then the square check, then the types
+    # the one-based check comes first, then storage, element type and access, then the shape
     X = OffsetArray(zeros(T, 2, 3), 0:1, 0:2)
     refuses(ArgumentError, f, sentinel(2, 3), X; value = true)
-    refuses(DimensionMismatch, f, sentinel(2, 3), sprand(rng, T, 2, 3, 0.5); value = true)
+    for A in (sprand(rng, T, 2, 3, 0.5), spzeros(T, 2, 3), Symmetric(S)[1:2, 1:3]', zeros(Int, 2, 3), zeros(Float16, 3, 2))
+      refuses(ArgumentError, f, sentinel(2, 3), A; value = true)
+      @test_throws ArgumentError prox(f, A)
+      @test_throws ArgumentError prox(f, A, T(1))
+    end
+    refuses(ArgumentError, f, sparse(sentinel(2, 3)), S)
+    refuses(ArgumentError, f, zeros(Int, 2, 3), S)
+    # a strided non-square matrix reaches the shape check, also through the allocating oracle
+    @test_throws DimensionMismatch prox(f, randn(rng, T, 3, 4))
+  end
+
+  @testset "reinterpreted storage that Base cannot read" begin
+    # (Int32, Int64) has four bytes of padding: a Float64 reinterpretation is writable and not readable
+    padded() = fill((Int32(1), Int64(1)), 1, 2)
+    if T === Float64
+      X = T[1 2; 2 1]
+      buf = padded()
+      Y = reinterpret(Float64, buf)
+      @test Y isa StridedMatrix{Float64} && size(Y) == (2, 2)
+      old = copy(buf)
+      Xc = copy(X)
+      @test_throws ArgumentError value_and_prox!(Y, f, X, 0.5)
+      @test_throws ArgumentError prox!(Y, f, X, 0.5)
+      @test isequal(buf, old) && isequal(X, Xc)
+      wrappers = (B -> reinterpret(Float64, B), B -> view(reinterpret(Float64, B), :, 1:2),
+                  B -> view(reinterpret(Float64, B), 1:2, :))
+      for wrap in wrappers
+        B = padded()
+        Bold = copy(B)
+        Z = wrap(B)
+        @test Z isa StridedMatrix{Float64}
+        @test_throws ArgumentError f(Z)
+        @test_throws ArgumentError prox(f, Z)
+        @test_throws ArgumentError prox!(Z, f, Z, 0.5)
+        @test_throws ArgumentError value_and_prox!(Z, f, Z, 0.5)
+        Ys = fill(7.5, 2, 2)
+        @test_throws ArgumentError prox!(Ys, f, Z, 0.5)
+        @test all(==(7.5), Ys)
+        @test_throws ArgumentError value_and_prox!(Z, f, X, 0.5)
+        @test isequal(B, Bold)
+      end
+    end
+    # a reinterpretation without padding is accepted
+    R = reinterpret(T, zeros(Complex{T}, 2, 4))
+    R .= symmetric_random(rng, T, 4)
+    @test isequal(prox(f, R, T(1)), prox(f, Matrix(R), T(1)))
   end
 
   @testset "unsupported matrix types" begin
@@ -519,6 +564,55 @@ end
     @test_throws ArgumentError prox(f, Matrix{Float16}(I, 3, 3))
     @test_throws ArgumentError prox(f, Matrix{BigFloat}(I, 3, 3))
     @test_throws ArgumentError prox(f, Matrix{Complex{T}}(I, 3, 3))
+    # element types without a float type, and tuples with any step, are refused before allocation
+    @test_throws ArgumentError prox(f, ["a", "b"])
+    @test_throws ArgumentError prox(f, fill("a", 2, 2))
+    @test_throws ArgumentError prox(f, fill("a", 2, 2), T(1))
+    @test_throws ArgumentError prox(f, fill("a", 2, 2), ones(T, 2, 2))
+    @test_throws ArgumentError prox(f, (S,), ones(T, p, p))
+    @test_throws ArgumentError prox(f, (S, 0))
+    @test_throws ArgumentError prox(f, (S,), T(1))
+    # a number as X has no method
+    @test_throws MethodError prox(f, T(1))
+  end
+
+  @testset "refusals through Scaled leave the arguments unchanged" begin
+    xss = SymmetricSparseIterate(S)
+    before_ss = Matrix(matrixview(xss))
+    steps = fill(T(1), p, p)
+    for α in (T(2), 1e100, T(0.5))
+      s = Scaled(f, α)
+      Y, X = sentinel(), copy(S)
+      @test_throws ArgumentError prox!(Y, s, X, steps)
+      @test_throws ArgumentError value_and_prox!(Y, s, X, steps)
+      @test_throws ArgumentError prox(s, X, steps)
+      @test Y == sentinel() && X == S && steps == fill(T(1), p, p)
+      @test_throws ArgumentError prox!(xss, s, X, 1)
+      @test_throws ArgumentError value_and_prox!(xss, s, X, 1)
+      @test_throws ArgumentError prox!(xss, s, xss, 1)
+      @test_throws ArgumentError prox(s, xss)
+      @test Matrix(matrixview(xss)) == before_ss && X == S
+      v = T[1, 2, 3]
+      @test_throws ArgumentError prox!(copy(v), s, v, 1)
+      @test_throws ArgumentError s(v)
+      @test_throws ArgumentError prox!(Y, s, sparse(S), 1)
+      @test_throws ArgumentError prox!(Y, s, Symmetric(S), 1)
+      @test Y == sentinel()
+      # operations that are not provided
+      @test_throws ArgumentError prox_block(s, T(1), 1, T(1))
+      @test_throws ArgumentError restrict(s, [1, 2])
+      @test_throws ArgumentError kkt_violation(s, zeros(T, p * p), 1)
+      # these routes of Scaled have no method for this function
+      out = fill(T(7.5), 2)
+      @test_throws MethodError prox_block(s, T[1, 2], 1, T(1))
+      @test_throws MethodError prox_block!(out, s, T[1, 2], 1, T(1))
+      @test out == fill(T(7.5), 2)
+      @test_throws MethodError kkt_violation(s, zeros(T, p, p), S, 1)
+      @test_throws MethodError kkt_violation(s, zeros(T, p, p), S)
+      @test_throws MethodError kkt_violation(s, zeros(T, p, p), xss)
+      @test_throws MethodError kkt_violation(s, zeros(T, p, p), xss, 1)
+      @test_throws MethodError kkt_violation(s, zeros(T, 4), BlockIterate(T, 4, [1:2, 3:4]), 1)
+    end
   end
 end
 
@@ -778,7 +872,10 @@ function outcome(op, f)
     (:error, typeof(e))
   end
 end
-same(op, f, g) = isequal(outcome(op, f), outcome(op, g))
+# A supported route: both calls succeed and agree bit for bit.
+same(op, f, g) = (r = outcome(op, f); first(r) === :ok && isequal(r, outcome(op, g)))
+# A route that NormL0 does not provide: both calls throw E.
+same_error(op, f, g, E) = outcome(op, f) == (:error, E) && outcome(op, g) == (:error, E)
 with_diagonal(λ) = NormL0(λ; diagonal = true)
 without_diagonal(λ) = NormL0(λ; diagonal = false)
 
@@ -849,9 +946,9 @@ without_diagonal(λ) = NormL0(λ; diagonal = false)
       @test same(h -> value_entry(h, u, 1), f, g)
     end
     grad = randn(rng, 9)
-    @test same(h -> kkt_violation(h, grad, 3), f, g)
-    @test same(h -> kkt_violation(h, grad, v, 5), f, g)
-    @test same(h -> kkt_violation(h, grad, v), f, g)
+    @test same_error(h -> kkt_violation(h, grad, 3), f, g, MethodError)
+    @test same_error(h -> kkt_violation(h, grad, v, 5), f, g, MethodError)
+    @test same_error(h -> kkt_violation(h, grad, v), f, g, MethodError)
   end
 
   @testset "diagonal = false" begin
@@ -891,6 +988,38 @@ without_diagonal(λ) = NormL0(λ; diagonal = false)
         @test value_and_prox!(Y, s, S, γ) === α * f(Y) && isequal(Y, prox(f, S, α * γ))
       end
     end
+    # scale, step and level of other types than the matrix: the value is converted to the element type
+    for λ in (T(0.4), 1, 0.25, 0.3f0), α in (0.1, 0.5f0, 2, T(3)), γ in (1, 0.5, T(0.25), 1 // 2)
+      f = NormL0(λ; diagonal = false)
+      s = Scaled(f, α)
+      @test s(S) === convert(T, α * f(S))
+      @test isequal(prox(s, S, γ), prox(f, S, α * γ))
+      Y = fill(T(NaN), 12, 12)
+      v = value_and_prox!(Y, s, S, γ)
+      @test v === s(Y) && isequal(Y, prox(f, S, α * γ))
+    end
+  end
+
+  @testset "Scaled step and value rounding" begin
+    # Scaled computes the step by its own rule. Here it rounds to zero, which is refused, although the native
+    # product is the smallest subnormal and the direct call at that step is accepted.
+    f = NormL0(1.0; diagonal = false)
+    X = [-0.0 2.0; 2.0 1.0]
+    η = nextfloat(0.0)
+    α, γ = nextfloat(1 / 6), 3η
+    @test α * γ === η
+    @test isequal(prox(f, X, α * γ), [-0.0 2.0; 2.0 1.0])
+    s = Scaled(f, α)
+    Y = fill(7.0, 2, 2)
+    @test_throws ArgumentError prox(s, X, γ)
+    @test_throws ArgumentError prox!(Y, s, X, γ)
+    @test_throws ArgumentError value_and_prox!(Y, s, X, γ)
+    @test all(==(7.0), Y) && isequal(X, [-0.0 2.0; 2.0 1.0])
+    # the value of the function is rounded before the scale: Inf32 although α g(V) is representable
+    V = Float32[1 2; 2 1]
+    huge = NormL0(floatmax(Float32); diagonal = false)
+    @test huge(V) === Inf32
+    @test Scaled(huge, 0.25f0)(V) === Inf32
   end
 end
 

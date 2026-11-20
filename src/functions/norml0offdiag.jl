@@ -8,8 +8,8 @@ must be a finite real number that is not negative; the constructor throws
 `ArgumentError` otherwise. Both signed zeros count as zero.
 
 **Inputs.** `X` and the output `Y` are one-based strided `p × p` matrices
-(`p = 0` is allowed) with the same element type, `Float32` or `Float64`. `X`
-has finite entries. Symmetry of `X` under `==` is a precondition of the
+(`p = 0` is allowed) with the same element type, `Float32` or `Float64`, that
+Base can both read and write. `X` has finite entries. Symmetry of `X` under `==` is a precondition of the
 statements below about the symmetric problem, and it is not checked: a pair
 `(+0.0, -0.0)` is symmetric. The step `γ` is a finite real number that is
 positive.
@@ -25,10 +25,12 @@ rounds beyond `floatmax(T)`.
 `==`, the output `Y` of
 `prox!(Y, g, V, γ)` minimizes `g(Z) + ‖Z - V‖²_F / (2γ)` over symmetric `Z`,
 when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type of
-[`NormL0`](@ref). Other levels and steps, for example a `Rational` or an `Int`
-above `2^53`, are rounded to that type first, and with a `BigFloat` working
-type the product `2γλ` is rounded too. The decision below is made with the
-rounded values:
+[`NormL0`](@ref). `NormL0` converts the entry, `λ` and `γ` to that working
+type and compares the square of the entry with `2γλ`. Other levels and steps,
+for example a `Rational` or an `Int` above `2^53`, are rounded to that type
+first. With a `BigFloat` working type the converted entry, its square and the
+product `2γλ` can each be rounded at the current precision. The decision below
+is made with the converted and rounded values:
 - The diagonal is copied bit for bit, including `-0.0`.
 - Each entry `(i, j)` with `i ≠ j` is the `(i, j)` entry of
   `prox(NormL0(λ), V, γ)`, computed from `Vᵢⱼ` alone and not mirrored from
@@ -50,26 +52,48 @@ supported. A different `Y` for which `Base.mightalias(Y, X)` is true throws
 `ArgumentError` before any write. `prox` returns `similar(X, T)`, a `Matrix` for
 Base arrays.
 
-**Refused before any write.** `X` and `Y` are left unchanged. `ArgumentError`:
-a matrix that is not a `StridedMatrix` (`Symmetric`, `Hermitian`, sparse
-matrices, `Adjoint`, `Transpose`, [`matrixview`](@ref)), offset axes, an element
-type other than `Float32` and `Float64` or differing types of `X` and `Y`, a
-step that is not finite and positive, and a non-finite entry of `X`.
-`DimensionMismatch`: a non-square `X`, or a `Y` of another
-size. Arguments that are not matrices throw `ArgumentError`: vectors, tuples,
-[`SparseIterate`](@ref) vectors, [`SymmetricSparseIterate`](@ref) and
-[`BlockIterate`](@ref), as the argument of the value, or as `X` or `Y` of
-`prox`, `prox!` and `value_and_prox!`. So does an array step. A step that is
-neither `Real` nor an array throws `ArgumentError` from `prox!` and
-`value_and_prox!`, and `MethodError` from `prox`, which has no method for it.
+**Refused before any write.** `X` and `Y` are left unchanged. The checks run
+in this order, and the first that fails gives the exception:
+1. offset axes: `ArgumentError`;
+2. a matrix that is not a `StridedMatrix` (`Symmetric`, `Hermitian`, sparse
+   matrices, `Adjoint`, `Transpose`, [`matrixview`](@ref)): `ArgumentError`,
+   whatever its shape;
+3. an element type other than `Float32` and `Float64`, or differing types of
+   `X` and `Y`: `ArgumentError`;
+4. a reinterpreted array that Base cannot both read and write, such as a
+   `Float64` reinterpretation of a parent whose element type has padding:
+   `ArgumentError`;
+5. a non-square `X`, or a `Y` of another size: `DimensionMismatch`;
+6. a different `Y` for which `Base.mightalias(Y, X)` is true: `ArgumentError`;
+7. a step that is not finite and positive: `ArgumentError`;
+8. a non-finite entry of `X`: `ArgumentError`.
+The value oracle runs the checks on `X`. Arguments that are not matrices throw
+`ArgumentError`: vectors, tuples, [`SparseIterate`](@ref) vectors,
+[`SymmetricSparseIterate`](@ref) and [`BlockIterate`](@ref), as the argument
+of the value, or as `X` or `Y` of `prox`, `prox!` and `value_and_prox!`. So
+does an array step. `prox` runs checks 1–5 on `X` before it allocates the
+output. A step that is neither `Real` nor an array throws `ArgumentError` from
+`prox!` and `value_and_prox!`, and `MethodError` from `prox`. Other arguments
+outside these families, for example a number as `X`, can give `MethodError`.
 
-`Scaled(NormL0(λ; diagonal = false), α)` multiplies the value by `α`, and its proximal
-map at step `γ` is this map at step `α * γ`, for positive finite `α` when the
-rounded product `α * γ` is finite and positive.
+`Scaled(NormL0(λ; diagonal = false), α)` returns `α` times the value above, with
+the product converted to the element type of `X`. The value above is rounded
+first, so the result can be `Inf` when `α g(X)` is representable. Its proximal
+map at step `γ` is this map at the step that `Scaled` computes from `α` and `γ`
+(see [Scaling a function](@ref scaling-guide)), and the refusals above apply to
+that step. The step can differ from the rounded product `α * γ` near the ends
+of the floating-point range: `α = nextfloat(1/6)` and `γ = 3 * nextfloat(0.0)`
+give a step of zero, which is refused, although `α * γ` is `nextfloat(0.0)`.
+Through `Scaled`, an unsupported argument can be read by the preprocessing of
+`Scaled`, for example an array step or a matrix input with a
+`SymmetricSparseIterate` output, before the refusal. Through `Scaled`,
+`prox_block` of a vector block, `prox_block!` and the four-argument and
+full-point forms of `kkt_violation` throw `MethodError`.
 
 Not provided: positive definiteness of the output, `restrict`,
-`prox_block`, `prox_block!` and `kkt_violation` (each throws `ArgumentError`),
-steps `0` and `Inf`, and non-finite input. See the [numerical contract](@ref spec-norml0offdiag).
+`prox_block`, `prox_block!` and `kkt_violation` (each throws `ArgumentError`
+when called on this function directly), steps `0` and `Inf`, and non-finite
+input. See the [numerical contract](@ref spec-norml0offdiag).
 """
 NormL0(::Real)
 
@@ -90,18 +114,38 @@ Base.show(io::IO, f::_NormL0OffDiag) = (print(io, "NormL0("); show(io, f.λ); pr
 
 @noinline _l0od_error(what) = throw(ArgumentError("NormL0(λ; diagonal = false) $what"))
 
-# The checks on the matrix X of the value oracle; the proximal oracles use _l0od_check_pair.
+# The checks on the matrix X of the value oracle; the proximal oracles use _l0od_check_pair. Storage and
+# element type are checked before the shape.
 function _l0od_check_matrix(X)
   _check_one_based(X)
-  checksquare(X)
   X isa StridedMatrix || _l0od_error("requires a strided matrix, got $(typeof(X))")
   _l0od_check_float(X)
+  _l0od_check_access(X)
+  checksquare(X)
+  nothing
 end
 function _l0od_check_float(X)
   eltype(X) === Float32 || eltype(X) === Float64 ||
     _l0od_error("requires Float32 or Float64 entries, got $(eltype(X))")
   nothing
 end
+
+# A reinterpreted array whose parent has padding can be writable and not readable, or the reverse
+# (Base.PaddingError). The check uses Base's own tests, through every strided wrapper, before any write.
+_l0od_accessible(A) = true
+_l0od_accessible(A::Union{SubArray, Base.ReshapedArray}) = _l0od_accessible(parent(A))
+function _l0od_accessible(A::Base.ReinterpretArray)
+  try
+    Base.check_readable(A)
+    Base.check_writable(A)
+  catch e
+    e isa Base.PaddingError || rethrow()
+    return false
+  end
+  _l0od_accessible(parent(A))
+end
+_l0od_check_access(A) =
+  (_l0od_accessible(A) || _l0od_error("requires an array that Base can read and write, got $(typeof(A))"); nothing)
 
 # A column sum has the integer width of the entries.
 _l0od_zero(::Type{Float32}) = Int32(0)
@@ -158,12 +202,14 @@ end
 
 function _l0od_check_pair(Y, X)
   _check_one_based(Y, X)
-  checksquare(X)
-  _checksize(Y, X)
   (X isa StridedMatrix && Y isa StridedMatrix) ||
     _l0od_error("requires strided matrices, got $(typeof(Y)) and $(typeof(X))")
   eltype(Y) === eltype(X) || _l0od_error("requires the same element type in X and Y")
   _l0od_check_float(X)
+  _l0od_check_access(X)
+  _l0od_check_access(Y)
+  checksquare(X)
+  _checksize(Y, X)
   Y !== X && Base.mightalias(Y, X) && _l0od_error("requires Y to be X or independent of it")
   nothing
 end
@@ -252,6 +298,17 @@ value_and_prox!(Y, f::_NormL0OffDiag, X, γ::Real) = _l0od_unsupported("the outp
 value_and_prox!(Y::SymmetricSparseIterate, f::_NormL0OffDiag, X, γ::AbstractArray) =
   _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
 prox(f::_NormL0OffDiag, X::SymmetricSparseIterate, γ::Real = 1) = _l0od_unsupported("the input", typeof(X))
+# The allocating oracle checks the storage and element type of X before it allocates the output. The
+# Symmetric and Hermitian method matches the generic method of interface.jl for those wrappers.
+function _l0od_prox_alloc(f, X, γ)
+  _l0od_check_matrix(X)
+  prox!(similar(X, eltype(X)), f, X, γ)
+end
+prox(f::_NormL0OffDiag, X::AbstractArray, γ::Real = 1) = _l0od_prox_alloc(f, X, γ)
+prox(f::_NormL0OffDiag, X::Union{Symmetric, Hermitian}, γ::Real = 1) = _l0od_prox_alloc(f, X, γ)
+prox(f::_NormL0OffDiag, X::AbstractArray, γ::AbstractArray) = _l0od_unsupported("the step", typeof(γ))
+prox(f::_NormL0OffDiag, X::Tuple, γ::Real = 1) = _l0od_unsupported("the input", typeof(X))
+prox(f::_NormL0OffDiag, X::Tuple, γ::AbstractArray) = _l0od_unsupported("the input", typeof(X))
 
 prox_block(f::_NormL0OffDiag, v, k, γ) = _l0od_not_provided(:prox_block)
 prox_block(f::_NormL0OffDiag, u::AbstractVector, k::Integer, γ::Real) = _l0od_not_provided(:prox_block)

@@ -21,10 +21,11 @@ rounds beyond `floatmax(T)`.
 
 **Proximal map.** For `V` that meets the input conditions, the output `Y` of
 `prox!(Y, g, V, γ)` minimizes `g(Z) + ‖Z - V‖²_F / (2γ)` over symmetric `Z`,
-when `λ` and `γ` convert exactly to the working type of [`NormL0`](@ref)
-(`Float32` and `Float64`, and integers up to `2^53`). Other levels and steps,
-for example a `Rational` or an `Int` above `2^53`, are rounded to that type
-first, and the decision below is made with the rounded values:
+when `λ` and `γ` convert exactly to a `Float32` or `Float64` working type of
+[`NormL0`](@ref). Other levels and steps, for example a `Rational` or an `Int`
+above `2^53`, are rounded to that type first, and with a `BigFloat` working
+type the product `2γλ` is rounded too. The decision below is made with the
+rounded values:
 - The diagonal is copied bit for bit, including `-0.0`.
 - Each entry `(i, j)` with `i ≠ j` is the `(i, j)` entry of
   `prox(NormL0(λ), V, γ)`, computed from `Vᵢⱼ` alone and not mirrored from
@@ -57,7 +58,7 @@ rounded product `α * γ` is finite and positive.
 
 Not provided: positive definiteness of the output, `restrict`,
 `prox_block` and `kkt_violation` (each throws `MethodError`), steps `0` and
-`Inf`, and non-finite input. See the [numerical contract](@ref numerics).
+`Inf`, and non-finite input. See the [numerical contract](@ref spec-norml0offdiag).
 """
 struct NormL0OffDiag{T<:Real} <: AbstractFunction
   λ::T
@@ -175,8 +176,10 @@ end
   length(X) < 64 ? g : _l0_cutoff(g, γ)
 end
 
-# Writes the output. The diagonal entry is read before the column is written, so that Y === X is
-# supported.
+# Writes the output; the diagonal entry of each column is restored after the column is written.
+# The loops use @simd without ivdep. On Julia 1.10, a reinterpreted Float32 matrix over Float64 or
+# ComplexF32 storage reads and writes entries through shared memory words, and the loop with ivdep gave
+# wrong entries for such an input or output. The tests run with --check-bounds=yes, which hides this.
 function _l0od_loop!(Y::StridedMatrix, g, X::StridedMatrix, γ)
   p = size(X, 1)
   @inbounds for j in 1:p
@@ -189,11 +192,25 @@ function _l0od_loop!(Y::StridedMatrix, g, X::StridedMatrix, γ)
   Y
 end
 
+# The single-array loop for Y === X, so that no second array is read or written.
+function _l0od_inplace!(X::StridedMatrix, g, γ)
+  p = size(X, 1)
+  @inbounds for j in 1:p
+    d = X[j, j]
+    @simd for i in 1:p
+      X[i, j] = prox_block(g, X[i, j], 1, γ)
+    end
+    X[j, j] = d
+  end
+  X
+end
+
 function _l0od_prox!(Y, f::NormL0OffDiag, X, γ)
   _l0od_check_pair(Y, X)
   _l0od_check_step(γ)
   _l0od_scan(X)
-  _l0od_loop!(Y, _l0od_rule(f, X, γ), X, γ)
+  g = _l0od_rule(f, X, γ)
+  Y === X ? _l0od_inplace!(X, g, γ) : _l0od_loop!(Y, g, X, γ)
   nothing
 end
 

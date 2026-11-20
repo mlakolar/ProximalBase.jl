@@ -1,5 +1,6 @@
 # Paired in-process timing of NormL0OffDiag against the all-entry NormL0 on the same symmetric
-# matrix: prox!, value_and_prox! and the value, for p = 8, 32, 64 and Float32 and Float64. About
+# matrix: prox!, value_and_prox!, the value and the in-place forms of the first two (each copies the
+# input into the buffer first, for both functions), for p = 8, 32, 64 and Float32 and Float64. About
 # half of the off-diagonal entries lie above the threshold. The two functions are timed in
 # alternating samples of one loop each, and the table gives the medians of the samples.
 #
@@ -61,6 +62,8 @@ function run()
     X = symmetric_matrix(rng, T, p)
     Y = similar(X)
     W = similar(X)
+    Zf = similar(X)
+    Zg = similar(X)
     λ, γ = T(0.3), T(1)
     f, g = NormL0OffDiag(λ), NormL0(λ)
     prox!(Y, f, X, γ)
@@ -73,6 +76,10 @@ function run()
       ("prox!", () -> (prox!(Y, f, X, γ); Float64(Y[1, 2])), () -> (prox!(W, g, X, γ); Float64(W[1, 2]))),
       ("value_and_prox!", () -> Float64(value_and_prox!(Y, f, X, γ)), () -> Float64(value_and_prox!(W, g, X, γ))),
       ("value", () -> Float64(f(X)), () -> Float64(g(X))),
+      ("prox! in place", () -> (copyto!(Zf, X); prox!(Zf, f, Zf, γ); Float64(Zf[1, 2])),
+                         () -> (copyto!(Zg, X); prox!(Zg, g, Zg, γ); Float64(Zg[1, 2]))),
+      ("v&p! in place", () -> (copyto!(Zf, X); Float64(value_and_prox!(Zf, f, Zf, γ))),
+                        () -> (copyto!(Zg, X); Float64(value_and_prox!(Zg, g, Zg, γ)))),
     )
     base = nothing
     for (name, a, b) in ops

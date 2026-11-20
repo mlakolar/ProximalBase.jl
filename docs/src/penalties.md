@@ -366,19 +366,19 @@ input of four, and the proximal operator chooses zero. See the
 [SCAD numerical contract](@ref spec-scad) for the penalty formula,
 supported storage and endpoint rules.
 
-## Off-diagonal cardinality penalty
+## [Off-diagonal cardinality penalty](@id norml0offdiag-guide)
 
 `NormL0OffDiag(λ)` charges `λ` for each nonzero off-diagonal entry of a
 matrix and nothing for the diagonal, so a nonzero symmetric pair costs `2λ`.
 It accepts finite dense `Float32` or `Float64` matrices that are symmetric
 under `==`. The proximal map copies the diagonal and decides each
 off-diagonal entry with the rule of [`NormL0`](@ref): an entry is kept when
-its square exceeds `2γλ` and is positive zero otherwise, with the
-comparison exact when `λ` and `γ` convert exactly to the working type of
-`NormL0`; other levels and steps, for example a `Rational` or an `Int` above
-`2^53`, are rounded to that type first. The all-entry
-`NormL0` applies the same rule to the diagonal, which can set a small
-diagonal entry to zero.
+its square exceeds `2γλ` and is positive zero otherwise. The comparison is
+exact when `λ` and `γ` convert exactly to a `Float32` or `Float64` working
+type; other levels and steps, for example a `Rational` or an `Int` above
+`2^53`, are rounded to that type first, and with a `BigFloat` working type the
+product `2γλ` is rounded too. The all-entry `NormL0` applies the same rule to
+the diagonal, which can set a small diagonal entry to zero.
 
 ```@example norml0offdiag
 using ProximalBase
@@ -399,5 +399,4 @@ writes anything for an asymmetric or non-finite matrix, a matrix type that is
 not strided, mixed element types and a step that is not finite and positive.
 It does not promise that the output is positive definite. See the
 [`NormL0OffDiag`](@ref) entry and the
-[cardinality endpoint rules](numerics.md#Off-diagonal-cardinality-penalty)
-for the full list.
+[NormL0OffDiag numerical contract](@ref spec-norml0offdiag) for the full list.

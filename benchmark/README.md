@@ -645,15 +645,24 @@ inputs and 4096-bit arithmetic over the wider exponent range.
 
 `norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0OffDiag` against
 the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 8, 32, 64` and
-`Float32` and `Float64`. About half of the off-diagonal entries lie above the threshold. It
-checks that the two maps agree off the diagonal, alternates the order of the paired samples and
+`Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
+buffer first, for both functions). About half of the off-diagonal entries lie above the threshold.
+It checks that the two maps agree off the diagonal, alternates the order of the paired samples and
 prints the median per call, the ratio, the ratio to the `prox!` of `NormL0` and the allocated
 bytes. It runs in the root project:
 
 ```sh
-julia --threads=1 --project=. benchmark/norml0offdiag.jl
+julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchmark/norml0offdiag.jl")'
 ```
 
 The validation pass of `NormL0OffDiag` reads both triangles before the proximal map writes, so
-the ratio to `NormL0` exceeds one. In one run on Julia 1.13.4 the ratio of `prox!` at `p = 64` was
-2.8 for `Float64` and 7.8 for `Float32`.
+the ratio to `NormL0` exceeds one. One run on Julia 1.13.4 at commit `378ecf63a` gave these ratios
+to the same operation of `NormL0` (the allocation was zero bytes in every row):
+
+| Operation | `Float32`, `p = 8, 32, 64` | `Float64`, `p = 8, 32, 64` |
+|:--|:--|:--|
+| `prox!` | 7.5, 7.5, 6.6 | 5.8, 5.0, 2.7 |
+| `value_and_prox!` | 5.3, 4.5, 3.5 | 4.4, 2.6, 1.9 |
+| value | 11.2, 6.5, 5.3 | 7.4, 3.3, 2.7 |
+| `prox!` in place | 2.4, 1.3, 1.1 | 2.3, 1.3, 1.1 |
+| `value_and_prox!` in place | 2.5, 1.3, 1.0 | 2.2, 1.2, 1.0 |

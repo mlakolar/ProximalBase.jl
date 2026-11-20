@@ -7,7 +7,8 @@
   },
   "manifests": [
     "moves-indnonnegative.json",
-    "moves-sqrnorml2.json"
+    "moves-sqrnorml2.json",
+    "moves-leastsquares.json"
   ],
   "changes": [
     {
@@ -341,6 +342,117 @@
           "dest_sha": "a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
           "manifest": "moves-sqrnorml2.json",
           "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::42",
+      "baseline_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+          "source_start": 6499,
+          "source_end": 6824,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "06ee36094018ee3e2c26b989e7f113ba2ba347f0056a14f6377b7ef08cf15d19",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::43",
+      "baseline_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+          "source_start": 6825,
+          "source_end": 7276,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "ef48bd21e1c53e110161e486c0a898cefa7de91beb745b7b3630b436bd2daa55",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::44",
+      "baseline_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4"
+      ],
+      "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+      "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+          "source_start": 7277,
+          "source_end": 7584,
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-range",
+          "dest_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12",
+      "baseline_sha": "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/spec/leastsquares.md#spec-leastsquares-limitations;docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+      "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c;7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845;7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+      "reviewer": "reconcile_pr_review@22e4fae3ccb5cf66912b747cb60c55d8a6461eda",
+      "pieces": [
+        {
+          "source_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c",
+          "source_start": 5478,
+          "source_end": 5608,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c"
+        },
+        {
+          "source_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
+          "source_start": 5609,
+          "source_end": 5738,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:2",
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+          "dest_sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 1
+        },
+        {
+          "source_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+          "source_start": 5739,
+          "source_end": 5825,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:3",
+          "dest": "docs/src/spec/leastsquares.md#spec-leastsquares-limitations",
+          "dest_sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d",
+          "manifest": "moves-leastsquares.json",
+          "manifest_index": 1
         }
       ]
     }

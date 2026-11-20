@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "family": "leastsquares",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 6499,
+      "source_end": 7584,
+      "source_line": 105,
+      "text": "The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the product `Xβ` overflows\nalthough `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` attempt to form `Xβ` again in units of a power of\ntwo, without recovering every representable value (the smooth-functions guide gives a counterexample). The oracles at a caller-supplied predictor or residual (`ProximalBase.value_from_predictor` and the others\ndescribed with the [smooth functions](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))\ntake the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the\nvalue alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.\nFor strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value\nwhose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with\nthe length, does not decide between a finite value and `Inf`.",
+      "destination": "docs/src/spec/leastsquares.md",
+      "anchor": "spec-leastsquares-range",
+      "destination_text": "The `LeastSquaresLoss` value has one more recovery, which needs `β`: where the product `Xβ` overflows\nalthough `β`, `X` and `Y` are finite, `f(β)` and `value_and_gradient!` attempt to form `Xβ` again in units of a power of\ntwo, without recovering every representable value (the smooth-functions guide gives a counterexample). The oracles at a caller-supplied predictor or residual (`ProximalBase.value_from_predictor` and the others\ndescribed with the [smooth functions](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))\ntake the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the\nvalue alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.\nFor strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value\nwhose ordinary computation `α s / 2` is above `floatmax(T)/2`, so that the error of the ordinary sum of squares, which grows with\nthe length, does not decide between a finite value and `Inf`.",
+      "source_sha256": "cf403d8bf281c6bc578a9465156384bf798925e509f49547e613f8dd8f8d7de3",
+      "destination_sha256": "eed54052c7cc60c899c79911d0ce8f48c1570891621a3249f30a781ce4bbbb55",
+      "forwarding_text": "See the [LeastSquaresLoss range clauses](@ref spec-leastsquares-range)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 5609,
+      "source_end": 5825,
+      "source_line": 109,
+      "text": "SVD-based\nproximal evaluation is intended for finite data; no general non-finite-data\nrecovery is promised for the decomposition. Value range recovery is separate\nfrom the ordinary matrix-product gradient arithmetic.",
+      "destination": "docs/src/spec/leastsquares.md",
+      "anchor": "spec-leastsquares-limitations",
+      "destination_text": "SVD-based\nproximal evaluation is intended for finite data; no general non-finite-data\nrecovery is promised for the decomposition. Value range recovery is separate\nfrom the ordinary matrix-product gradient arithmetic.",
+      "source_sha256": "cf5e2ebca119ee57cbec5c82a56faaac64ff18a0e0bdea6c094827a0dd2c39d8",
+      "destination_sha256": "cf5e2ebca119ee57cbec5c82a56faaac64ff18a0e0bdea6c094827a0dd2c39d8",
+      "forwarding_text": "See the [LeastSquaresLoss limitations and non-guarantees](@ref spec-leastsquares-limitations)."
+    }
+  ]
+}

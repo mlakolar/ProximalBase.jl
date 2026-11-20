@@ -36,6 +36,16 @@ that happens to pass.
   · [Scaling source](../../../src/functions/scaled.jl)
   · [Tests](../../../test/indnonnegative.jl)
 
+- The `GroupNormLinf` optimality section says a zero group's signed margin
+  and full-point distance are “equal where `v_G` has one nonzero entry”.
+  This could include negative margins or apply only to nonnegative margins.
+  The same paragraph gives zero distance for a negative margin. The scoring
+  branches and tests distinguish the two values. The scope of equality
+  awaits the owner's decision.
+  [Guide](../../src/group_penalty.md#Optimality-scores-2)
+  · [Source](../../../src/functions/groupnormlinf.jl)
+  · [Tests](../../../test/groupnormlinf.jl)
+
 - The `SqrNormL2` endpoint text says “`NaN` at a zero residual, `Inf`
   elsewhere” at infinite level with finite `v` and `x`. “Elsewhere” could
   refer to a nonzero residual that is not `NaN` or include a `NaN` center.
@@ -43,6 +53,14 @@ that happens to pass.
   `NaN`. The tests exercise `NaN` centers and infinite levels separately.
   The wording awaits the owner's decision.
   [Source](../../../src/functions/sqrnorml2.jl) · [Tests](../../../test/kkt_point.jl)
+
+- The `LeastSquaresLoss` range text says “For strided `Float32` and `Float64`
+  vectors”. This could describe the caller's coefficients `β` or the operands
+  of the squared-residual kernel, including the predictor or residual. The
+  coefficient methods use an internal work vector, and the fast value kernel
+  dispatches on strided operands of a common type. The scope of the phrase
+  awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
+  · [Tests](../../../test/leastsquares_predictor.jl)
 
 ## Owner review and next gates
 
@@ -54,8 +72,8 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The reconciliation through `5cf8b27f`
-has 60 receipts covering 109 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `d3b671e8`
+has 60 receipts covering 124 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.

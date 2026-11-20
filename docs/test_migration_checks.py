@@ -15,19 +15,19 @@ import migration_checks as m
 
 
 class FamilyMapTests(unittest.TestCase):
-    def check(self, reference, rows, pages=(), other_sections=""):
+    def check(self, reference, rows, pages=None, other_sections=""):
         index = (
             "## Family map\n\n"
             "| Family or operation | Current entry point | Migration state |\n"
             "|:--|:--|:--|\n" + rows + "\n" + other_sections
         )
-        return family_map_errors(reference, index, set(pages))
+        return family_map_errors(reference, index, pages or {})
 
     def test_requires_exact_row_in_family_map_for_qualified_type(self):
         reference = "```@docs\nProximalBase.NewFamily{T}\nProximalBase.some_oracle!\n```\n"
         errors = self.check(
             reference, "| `NewFamilyVariant` | [Guide](newfamilyvariant.md) | Authored contract |",
-            pages=("newfamilyvariant.md",),
+            pages={"newfamilyvariant.md": "# NewFamilyVariant numerical contract"},
             other_sections="## Other table\n\n| `NewFamily` | [Guide](newfamily.md) | Authored contract |\n",
         )
         self.assertEqual(errors, ["api/functions.md: NewFamily is missing from the family map in spec/index.md"])
@@ -62,7 +62,7 @@ class FamilyMapTests(unittest.TestCase):
         errors = self.check(
             "```@docs\nNewFamily\n```\n",
             "| `LinearFunction` and `NewFamily` | [Guide](newfamily.md) | Existing pages |",
-            pages=("newfamily.md",),
+            pages={"newfamily.md": "# NewFamily numerical contract"},
         )
         self.assertEqual(len(errors), 1)
         self.assertIn("NewFamily cannot enter the family map as Existing pages", errors[0])
@@ -70,11 +70,34 @@ class FamilyMapTests(unittest.TestCase):
     def test_requires_own_contract_page_or_thin_constructor_marker(self):
         reference = "```@docs\nNewFamily\n```\n"
         row = "| `NewFamily` | [Contract](newfamily.md) | Authored contract |"
-        errors = self.check(reference, row, pages=("otherfamily.md",))
+        errors = self.check(reference, row, pages={"otherfamily.md": "# OtherFamily numerical contract"})
         self.assertEqual(len(errors), 1)
         self.assertIn("NewFamily needs a family contract page", errors[0])
-        self.assertEqual(self.check(reference, row, pages=("newfamily.md",)), [])
+        self.assertEqual(self.check(reference, row, pages={"newfamily.md": "# NewFamily numerical contract"}), [])
         self.assertEqual(self.check(reference, "| `NewFamily` | [Owner](@ref IndBox) | Thin constructor of `IndBox` |"), [])
+
+    def test_linked_contract_may_use_a_short_filename_and_declare_two_families(self):
+        reference = "```@docs\nLinearFunction\nZeroFunction\n```\n"
+        row = "| `LinearFunction` and `ZeroFunction` | [Contract](linear.md) | Verbatim migration |"
+        linear = "# [Affine contracts](@id spec-linear)\n\n## [Identity](@id spec-linear-identity)\n\n"
+        linear += "[`LinearFunction`](@ref) and [`ZeroFunction`](@ref ProximalBase.ZeroFunction)."
+        self.assertEqual(self.check(reference, row, pages={"linear.md": linear}), [])
+
+    def test_contract_must_link_to_a_page_that_declares_the_family(self):
+        reference = "```@docs\nNewFamily\n```\n"
+        pages = {"newfamily.md": "# NewFamily contract", "other.md": (
+            "# [NewFamilyVariant contract](@id NewFamily)\n\n"
+            "## Identity\n\n```markdown\n[`NewFamily`](@ref)\n```\n\n"
+            "``[`NewFamily`](@ref)``\n\n"
+            "## Definition and domain\n\n[`NewFamily`](@ref) is a related type.\n"
+        )}
+        for entry in ("[Contract](other.md)", "[Guide](../smooth.md)", "`[Contract](newfamily.md)`",
+                      "![Contract](newfamily.md)", r"\[Contract](newfamily.md)"):
+            with self.subTest(entry=entry):
+                row = f"| `NewFamily` | {entry} | Authored contract |"
+                errors = self.check(reference, row, pages=pages)
+                self.assertEqual(len(errors), 1)
+                self.assertIn("NewFamily needs a family contract page", errors[0])
 
 
 class PreservationTests(unittest.TestCase):

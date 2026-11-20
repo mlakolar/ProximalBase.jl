@@ -54,7 +54,7 @@ end
 function SparseGroupNormL2(λ1::Real, λ2::Real, groups::AbstractVector{<:AbstractVector{<:Integer}})
   T = float(promote_type(typeof(λ1), typeof(λ2)))
   G = _own_groups(groups)
-  w = [sqrt(T(length(g))) for g in G]
+  w = T[sqrt(T(length(g))) for g in G]
   SparseGroupNormL2{T, typeof(G)}(T(λ1), T(λ2), G, w)
 end
 

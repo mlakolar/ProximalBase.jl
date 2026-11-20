@@ -302,6 +302,12 @@ a newer master push cancelled its workflow.
 [Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
 and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
 
+The weight of `groupnormlinf` is 125 seconds, replacing the 35-second snapshot weight. It rounds one observation of
+`test/groupnormlinf.jl`, 122.629 seconds on Julia 1.13.4 (shard 3/3), up to the next five seconds, from the run of the pull request that added
+the nonzero-group and full-point scores of `kkt_violation` for `GroupNormLinf`.
+[PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44663113969/attempts/1).
+The observation was taken before two testsets of the file were shortened, so the weight is conservative.
+
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
 Update the affected weights and record the timing sources. If a new test has

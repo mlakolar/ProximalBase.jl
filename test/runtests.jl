@@ -29,7 +29,7 @@ for selector in selectors
 end
 isempty(selectors) || filter!(n -> any(s -> startswith(n,s),selectors),selected)
 if shard !== nothing
-    selected = TestTiers.shard_files(selected,shard...)
+    selected = TestTiers.shard_files(selected,shard...; weights=manifest.weights)
 end
 isempty(selected) && error("no tests selected")
 shard_label = shard === nothing ? "all" : "$(shard[1])/$(shard[2])"

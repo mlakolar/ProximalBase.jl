@@ -1,0 +1,61 @@
+{
+  "reviewed_commit": "b1d3e327473ee75b12aca909c1a28ac5fa902536",
+  "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536",
+  "comparison_base": "b27e0d264fddf10c67a65d0e6765fabc3239cc2e",
+  "file_blobs": {
+    "docs/src/spec/elasticnet.md": "86f9dd96fcddd310464cc322171ffed68d9a79af",
+    "docs/src/penalties.md": "92a3facc4d7fb255c1ca3383f4f27a132504be63",
+    "docs/src/numerics.md": "a84438539cec587595fc19c56104178b3460a018"
+  },
+  "records": [
+    {
+      "action": "reword",
+      "scope": "example sandbox label only",
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The elastic-net penalty](@id The-elastic-net-penalty) / [Steps and endpoint rules](@id elastic-net-steps)::89",
+      "baseline_sha": "27988fc89eba073f339154517469fcdf91aafcbfa08cfa78474a49d427374a05",
+      "destination": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "destination_sha": "9f2890262de9baf797580a6607ac7fd7335c1e56d79d9d04c265c5cbfc499656",
+      "old_fence": "```@example library_l1",
+      "new_fence": "```@example elasticnet_contract",
+      "unchanged_body_sha256": "f51dcf5028938dcf138d0483f3038318bc0a3d58e4d982da404a24940bada208",
+      "body_hash_scope": "everything after the opening-fence newline, including the closing fence; matches the proposal",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536"
+    },
+    {
+      "action": "reword",
+      "scope": "example sandbox label only",
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The elastic-net penalty](@id The-elastic-net-penalty) / [Steps and endpoint rules](@id elastic-net-steps)::92",
+      "baseline_sha": "9f3461dce27cd6c406547331018cb3c4cdd8ea4d16d5af9008c69525679443de",
+      "destination": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "destination_sha": "4f6b06cc30db878c10287ad72562cbccf1ced4b099bcafce6f948f614bbbf5fe",
+      "old_fence": "```@example library_l1",
+      "new_fence": "```@example elasticnet_contract",
+      "unchanged_body_sha256": "80825d69eafde2d668090fb9f003cf32f39b3d2bb69db6e4dded06347513cbd8",
+      "body_hash_scope": "everything after the opening-fence newline, including the closing fence; matches the proposal",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536"
+    },
+    {
+      "action": "reword",
+      "scope": "example sandbox label only",
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::155",
+      "baseline_sha": "e17c5d5cc06130eda48f34c29c7e6c4e0e62db703c671bf77b3ff95f9c09d489",
+      "destination": "docs/src/spec/elasticnet.md#spec-elasticnet-endpoints",
+      "destination_sha": "a1d70b68e76111a5b5949001237d0bd1857e5a69e7b13491ff6aa6d80f725149",
+      "old_fence": "```@example numerical_endpoints",
+      "new_fence": "```@example elasticnet_numerical_endpoints",
+      "unchanged_body_sha256": "bcf9a85c8652d2a4133588563ff7f84c596fc4984e2b3deca2514aa18de30d95",
+      "body_hash_scope": "everything after the opening-fence newline, including the closing fence; matches the proposal",
+      "reviewer": "plan_consistency@b1d3e327473ee75b12aca909c1a28ac5fa902536"
+    }
+  ],
+  "scope_proof": "All nine moved spans occur once at the intended destination after exactly three sandbox-label repairs and one relative-link rebase. Source files equal the preceding PR contents plus the nine declared replacements and deletion of only the unused numerical_endpoints setup. All source headings remain in order.",
+  "unused_setup": {
+    "path": "docs/src/numerics.md",
+    "removed_exact_text": "```@setup numerical_endpoints\nusing ProximalBase\n```",
+    "remaining_sandbox_consumers": 0,
+    "frozen_root": null
+  },
+  "validation": "Fetched all three files from GitHub at this exact public revision and verified inspected blobs. All three repaired fences occur uniquely in remote content; every executable body is byte-identical to its frozen source. No paragraph splitting, clause identifiers, or numerical-status assignment.",
+  "source_commit": "b27e0d264fddf10c67a65d0e6765fabc3239cc2e",
+  "moved_baseline_roots": 39
+}

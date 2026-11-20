@@ -654,17 +654,18 @@ function test_normL1_values(::Type{T}) where {T<:AbstractFloat}
     @test isnan(NormL1(T(Inf))(T[NaN, 0]))
     @test isnan(NormL1(T(2), T[1, 1])(T[NaN, 1])) && NormL1(T(2), T[1, 1])(T[Inf, 1]) === T(Inf)
     @test NormL1(T(2))(T[-0.0, 0.0]) === zero(T)                          # signed zeros: |-0| = +0
-    # a level outside the argument's precision is applied before the final conversion (a wider level)
+    # A mixed level is converted before the unweighted dense value is formed.
     W = T === Float32 ? Float64 : BigFloat
-    for (λ, xe) in ((W(2)^(T === Float32 ? 200 : 1500), -(T === Float32 ? 100 : 1000)), (W(2)^-(T === Float32 ? 200 : 1500), T === Float32 ? 100 : 1000))
-      x = T[signif(rng, T, xe), signif(rng, T, xe - 1), 0, signif(rng, T, xe + 1)]
-      @test !PB._level_fits(T, λ)
-      @test within(NormL1(λ)(x), big(λ) * sum(abs, big.(x)), 2)
-      @test within(PB._converted_l1_value(λ, x), big(λ) * sum(abs, big.(x)), 2)
+    e = T === Float32 ? 200 : 1500
+    for F in (NormL1, NormL1Nonneg)
+      @test F(W(0.5))(T[1, 2]) === T(1.5)
+      @test F(W(2)^e)(T[pow2(T, -(T === Float32 ? 100 : 1000))]) === T(Inf)
+      @test F(W(2)^-e)(T[pow2(T, T === Float32 ? 100 : 1000)]) === zero(T)
+      @test F(W(2)^e)(T[Inf, 1]) === T(Inf)
+      @test isnan(F(W(2)^e)(T[NaN, 1]))
+      @test F(W(2)^e)(zeros(T, 2)) === zero(T)
     end
-    @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[Inf, 1]) === T(Inf)
-    @test isnan(NormL1(W(2)^(T === Float32 ? 200 : 1500))(T[NaN, 1]))
-    @test NormL1(W(2)^(T === Float32 ? 200 : 1500))(zeros(T, 2)) === zero(T)
+    @test NormL1Nonneg(W(2)^-e)(T[-1, 2]) === T(Inf)
     # the scaled sum with its compensated accumulation
     xs = T[1, -2, 3] .* pow2(T, 40)
     sf = PB._power_factors(T, -40)
@@ -983,9 +984,6 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
       @test isequal(Scaled(NormL1(one(T), wz), T(Inf))(y), iszero(vz) ? T(NaN) : T(Inf))
     end
     @test Scaled(NormL1(one(T), wz), T(Inf))(zeros(T, 2)) === zero(T)
-    λw = W2(2)^(T === Float32 ? -200 : -1500)                           # a level out of the range of T, unweighted
-    xw = fill(T(1.5) * pow2(T, T === Float32 ? 100 : 1000), 3)
-    @test within(NormL1(λw)(xw), big(λw) * sum(abs, big.(xw)), 2)
   end
 end
 
@@ -1106,7 +1104,7 @@ function test_sqrnorml2_oracles(::Type{T}) where {T<:AbstractFloat}
   δ = nextfloat(zero(T))
   precT = precision(T)
   rng = Xoshiro(1011)
-  @testset "SqrNormL2 oracles: ridge weights, owners, wide levels and centers" begin
+  @testset "SqrNormL2 oracles: ridge weights and owners" begin
     rng = Xoshiro(41)
     ridge(x, c, t) = (big(x) + t * (c === nothing ? big(0) : big(c))) / (1 + t)
     # the prox weights a = 1/(1+t), b = t/(1+t) for t = γλ below, in and above the ordinary band (the scaled weights
@@ -1144,44 +1142,6 @@ function test_sqrnorml2_oracles(::Type{T}) where {T<:AbstractFloat}
         @test value_and_prox!(zf, f, xd, γ) === f(zf) && zf == zd
       end
     end
-    # a Float64 level with a Float32 model, and a BigFloat level with a Float64 model (outside the range of T): the level is
-    # applied before the final rounding, for the dense and owner gradient and for the value
-    W = T === Float32 ? Float64 : BigFloat
-    λw = W(2)^(T === Float32 ? 200 : 1500)
-    xe = -(T === Float32 ? 100 : 1000)
-    xs = T[signif(rng, T, xe), signif(rng, T, xe + 1), 0]
-    @test !PB._level_fits(T, λw)
-    gd = gradient!(zeros(T, 3), SqrNormL2(λw), xs)
-    @test all(within(gd[i], big(λw) * big(xs[i]), 2) for i in 1:3)
-    # the entry that overflows in the model precision is Inf; the others are exact
-    xw = T[signif(rng, T, xe), 1, -2]
-    gw = gradient!(zeros(T, 3), SqrNormL2(λw), xw)
-    @test within(gw[1], big(λw) * big(xw[1]), 2) && gw[2] === T(Inf) && gw[3] === -T(Inf)
-    xo2 = SymmetricSparseIterate(T, 2); xo2[2, 1] = signif(rng, T, xe); xo2[1, 1] = signif(rng, T, xe + 1)
-    go = SymmetricSparseIterate(T, 2)
-    gradient!(go, SqrNormL2(λw), xo2)
-    @test all(within(go[r, c], big(λw) * big(Matrix(xo2)[r, c]), 2) for r in 1:2, c in 1:2)
-    @test Matrix(go) == gradient!(zeros(T, 2, 2), SqrNormL2(λw), xo2)
-    @test within(SqrNormL2(λw)(xs), big(λw) * sum(abs2, big.(xs)) / 2, 2)
-    # a center wider than the model precision and outside its range: the entry is computed in the wider type
-    Wc = T === Float32 ? Float64 : BigFloat
-    cw = Wc[Wc(2)^(T === Float32 ? 200 : 1100), 3, -Wc(2)^-(T === Float32 ? 200 : 1100)]
-    xv = T[1, 2, 3]
-    for (λf, γf) in ((T === Float32 ? 2.0^-100 : 2.0^-80, T(1)), (T(1), T(1)))
-      f = SqrNormL2(λf, cw)
-      t = big(γf) * big(λf)
-      z = prox!(zeros(T, 3), f, xv, γf)
-      @test all(within(z[i], ridge(xv[i], cw[i], t), 4) for i in 1:3)
-      @test z == T[prox_block(f, xv[i], i, γf) for i in 1:3]
-      gc = gradient!(zeros(T, 3), f, xv)
-      @test all(within(gc[i], big(λf) * (big(xv[i]) - big(cw[i])), 3) for i in 1:3)
-    end
-    # a Float64 center entry out of the Float32 range: the value reads it unrounded where rounding leaves the range
-    if T === Float32
-      cc = Float64[2.0^200, 3.0, 2.0^-200]
-      fc = SqrNormL2(2.0^-300, cc)
-      @test within(fc(T[1, 2, 3]), big(2.0)^-300 * sum(abs2, big.(T[1, 2, 3]) .- big.(cc)) / 2, 4)
-    end
     # gradient on a sparse owner and on a block iterate argument, in place of the dense one
     bx = BlockIterate(T[pow2(T, E - 3), 1, pow2(T, E - 4)], [[1, 2], [3]])
     @test gradient!(zeros(T, 3), SqrNormL2(pow2(T, -E + 6)), bx) == gradient!(zeros(T, 3), SqrNormL2(pow2(T, -E + 6)), bx.storage)
@@ -1191,17 +1151,6 @@ function test_sqrnorml2_oracles(::Type{T}) where {T<:AbstractFloat}
     @test prox!(zeros(T, 2), SqrNormL2(T(2), T[3, 4]), T[3, 4], T(7)) == T[3, 4]
     # infinite level and positive step: the prox is the center (weight 1 on the center); the gradient is IEEE
     @test prox!(zeros(T, 2), SqrNormL2(T(Inf), T[3, 4]), T[1, 2], T(7)) == T[3, 4]
-    # an owner output with a center wider than the model and outside its range
-    Wco = T === Float32 ? Float64 : BigFloat
-    cbig = Matrix{Wco}([Wco(2)^(T === Float32 ? 200 : 1100) 3; 3 -Wco(2)^-(T === Float32 ? 200 : 1100)])
-    xob = SymmetricSparseIterate(T, 2); xob[1, 1] = T(1); xob[2, 1] = T(2); xob[2, 2] = T(3)
-    λb = T === Float32 ? 2.0^-100 : 2.0^-80
-    zob = SymmetricSparseIterate(T, 2)
-    prox!(zob, SqrNormL2(λb, cbig), xob, T(1))
-    tb = big(λb)
-    xbm = Matrix(xob)
-    @test all(within(zob[r, c], ridge(xbm[r, c], cbig[r, c], tb), 4) for r in 1:2, c in 1:2)
-    @test Matrix(zob) == prox!(zeros(T, 2, 2), SqrNormL2(λb, cbig), xbm, T(1))
   end
 end
 
@@ -2028,6 +1977,106 @@ function test_scaled_threshold_guards(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+struct FoldWeightReads{T} <: AbstractVector{T}
+  w::Vector{T}
+  reads::Vector{Int}
+end
+Base.size(w::FoldWeightReads) = size(w.w)
+Base.IndexStyle(::Type{<:FoldWeightReads}) = IndexLinear()
+Base.@propagate_inbounds function Base.getindex(w::FoldWeightReads, i::Int)
+  w.reads[i] += 1
+  w.w[i]
+end
+
+function test_scaled_fold_weights(::Type{T}) where {T}
+  E = emax(T)
+  p = E ÷ 2 + 20
+  cases = (
+    (pow2(T, 20 - E), (pow2(T, p), pow2(T, p)), pow2(T, -30), pow2(T, -32)),
+    (T(1.5) * pow2(T, -8), (pow2(T, E - 2),), pow2(T, 10), pow2(T, -2 - E)),
+  )
+  @testset "scalar proximal folds reuse the leaf weights" begin
+    for (λ, factors, γ, wi) in cases, leaf in (NormL1, NormL1Nonneg)
+      for n in (10, 1000)
+        w = FoldWeightReads(fill(wi, n), zeros(Int, n))
+        s, _ = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+        source, _ = PB._scaled_chain(s)
+        fill!(w.reads, 0)
+        g, step, factor = PB._nested_step(s, γ)
+        @test factor === nothing && g.w === source.w === w
+        @test all(iszero, w.reads)
+        if leaf === NormL1Nonneg
+          @test g.l1.w === w && g.l1.λ0 === g.λ0
+          @test source.l1.w === w && source.l1.λ0 === λ
+        end
+        @test source.λ0 === λ
+        # Update the original array away from the first index. The folded leaf sees the live weights.
+        w.w[n] *= 2
+        expected = T(4 - chain_product(λ, factors, γ) * big(w.w[n]))
+        @test prox_block(g, T(4), n, step) === expected
+        fill!(w.reads, 0)
+        @test prox_block(s, T(4), n, γ) === expected
+        @test w.reads[n] == 1 && sum(w.reads) == 1
+      end
+
+      # A view and a sparse parameter array retain their identities when the level changes.
+      data = T[0, wi, 2wi, Inf, 0]
+      x = T[4, 5, 6, 7, 8]
+      for w in (view(data, :), sparsevec(data))
+        s, ts = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+        g, _, factor = PB._nested_step(s, γ)
+        @test factor === nothing && g.w === w
+        leaf === NormL1Nonneg && @test g.l1.w === w && g.l1.λ0 === g.λ0
+        want = T[refprox(x[i], ts[i], leaf === NormL1Nonneg) for i in eachindex(x)]
+        @test [prox_block(s, x[i], i, γ) for i in (1, 3, 5)] == want[[1, 3, 5]]
+        y = copy(x)
+        @test prox!(y, s, y, γ) == want
+        copyto!(y, x)
+        @test isequal(value_and_prox!(y, s, y, γ), s(want))
+        @test y == want
+        xs = SparseIterate(x)
+        ys = prox!(similar(xs), s, xs, γ)
+        @test collect(ys) == want && collect(xs) == x
+      end
+
+      # Off-diagonal weights use full-matrix linear indexing even with a symmetric owner.
+      w = T[wi 2wi; 2wi 0]
+      s, ts = weighted_chain(λ, w, factors, γ; nonneg = leaf === NormL1Nonneg)
+      xs = SymmetricSparseIterate(T[4 5; 5 6])
+      x0 = Matrix(xs)
+      want = T.(refprox.(x0, ts, leaf === NormL1Nonneg))
+      ys = similar(xs)
+      @test Matrix(prox!(ys, s, xs, γ)) == want
+      @test Matrix(xs) == x0
+      @test value_and_prox!(xs, s, xs, γ) === s(ys)
+      @test Matrix(xs) == want
+    end
+
+    for leaf in (NormL1, NormL1Nonneg)
+      under = pow2(T, emin(T) + 8)
+      s = Scaled(leaf(one(T)), under)
+      g, _, factor = PB._nested_step(s, under)
+      @test factor === nothing && g.w === nothing
+      @test prox_block(s, T(4), 1, under) === T(4)
+
+      # This product is beyond the range of a normal level and step together.
+      f = leaf(floatmax(T), T[1])
+      large = pow2(T, E)
+      s = Scaled(Scaled(f, large), large)
+      g, step, factor = PB._nested_step(s, large)
+      @test g === f && step === T(Inf) && factor !== nothing
+      @test prox_block(s, T(4), 1, large) === zero(T)
+      @test prox!(ones(T, 1), s, T[4], large) == T[0]
+
+      @test_throws ArgumentError leaf(T(-1), T[1])
+      @test_throws ArgumentError leaf(T(NaN), T[1])
+      @test_throws ArgumentError leaf(one(T), T[1, -1])
+      @test_throws ArgumentError leaf(one(T), T[1, NaN])
+      @test_throws ArgumentError leaf{T, Vector{T}}(one(T), T[1, -1])
+    end
+  end
+end
+
 function test_recorded_defects(::Type{T}) where {T<:AbstractFloat}
   E = emax(T)
   @testset "recorded defect (see the audit document): @test_broken against the independent reference" begin
@@ -2056,7 +2105,7 @@ setprecision(BigFloat, 2400) do
   test_normL1_prox(T)   # NormL1 prox thresholds and the weight kernels
   test_product_sum_shift(T)
   test_square_consumers(T)   # squared-residual consumers: the exceptional branches of the value
-  test_sqrnorml2_oracles(T)   # SqrNormL2 oracles: ridge weights, owners, wide levels and centers
+  test_sqrnorml2_oracles(T)   # SqrNormL2 oracles: ridge weights and owners
   test_leastsquares(T)   # LeastSquaresLoss: SVD prox, multi-response data and iterate arguments
   test_linear_function(T)   # LinearFunction: overflowing dots, owners and iterates
   test_norms(T)   # norms: the symmetric owner multiplicity and the norm_diff scaled fallback
@@ -2067,8 +2116,21 @@ setprecision(BigFloat, 2400) do
   test_scaled_weighted_threshold(T)   # Scaled weighted ℓ1: the scalar-step threshold when the level cannot hold the factors and the step (#886)
   test_scaled_threshold_sweep(T)   # the same, a seeded sweep over the exponents of the factors, the step, the level and the weight
   test_scaled_threshold_guards(T)   # the same, cases that were already right and the endpoint rules
+  test_scaled_fold_weights(T)
   test_recorded_defects(T)   # a recorded defect (see the audit document): @test_broken against the independent reference
 end
+end
+
+@testset "Scaled fused value with a folded level outside Float32 range" begin
+  for (λ, α, x, step, expected) in (
+      (2.0^20, 2f0^110, Float32[nextfloat(0f0)], 0f0, 2f0^-19),
+      (2.0^-160, 2f0, Float32[2f0^33], Float32[0], 2f0^-126))
+    h = Scaled(NormL1(λ), α)
+    y = similar(x)
+    @test value_and_prox!(y, h, x, step) === expected
+    @test y == x
+    @test h(y) === expected
+  end
 end
 
 @testset "least-squares recovery at the BigFloat exponent limit" begin

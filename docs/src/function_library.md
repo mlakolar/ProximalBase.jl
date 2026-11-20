@@ -22,6 +22,7 @@ For a task-oriented starting point, use [Choose a function or operation](choosin
 | [`ZeroFunction()`](@ref ZeroFunction) | ``f(x)=0`` | No parameters | [Zero function](smooth.md#Zero-function) |
 | [`LinearFunction(c, d)`](@ref LinearFunction) | ``f(x)=\langle c,x\rangle+d`` | ``c``: coefficient array; ``d``: constant (zero when omitted) | [Linear function](smooth.md#Linear-function) |
 | [`NormL0(λ)`](@ref NormL0) | Level times the number of nonzero entries | ``\lambda\geq0``: level; nonconvex with a hard-thresholding proximal operator | [Numerical contract](numerics.md#Cardinality-penalty-endpoints) |
+| [`MCP(λ, a)`](@ref MCP) | Minimax concave penalty applied entrywise | ``\lambda\geq0`` is the level and ``a>0`` is the shape. The proximal map uses firm or hard thresholding depending on the step. | [Minimax concave penalty](@ref mcp-guide) |
 | [`SCAD(λ, a)`](@ref SCAD) | Sum of smoothly clipped absolute deviations | ``\lambda\geq0``: level, ``a>2``: shape (default 3.7) | [SCAD penalty](penalties.md#SCAD-penalty) |
 | [`NormL1(λ0, w)`](@ref NormL1) | ``g(x)=\lambda_0\sum_i w_i\lvert x_i\rvert`` | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The ℓ₁ norm](penalties.md) |
 | [`NormL1Nonneg(λ0, w)`](@ref NormL1Nonneg) | ``g(x)=\lambda_0\sum_i w_ix_i`` for ``x\geq0``, ``+\infty`` otherwise | ``\lambda_0\geq0``: overall level; ``w``: nonnegative weights (all one when omitted) | [The nonnegative ℓ₁ penalty](penalties.md#The-nonnegative-l1-penalty) |

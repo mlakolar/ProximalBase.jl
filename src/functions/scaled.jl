@@ -249,6 +249,10 @@ _fold_level(f::Scaled, α) = _fold_level(f.f, _projection_accumulate(α, f.α))
 # kernel is 1 for it as for zero. The folded function then lacks that ridge term, and its value is not
 # the value of the chain.
 _fold_level_step(f, α) = _fold_level(f, α)
+function _fold_level_step(f::Union{NormL1, NormL1Nonneg}, α)
+  c = _folded_level(f.λ0, α)
+  c === nothing ? nothing : _with_folded_level(f, c)
+end
 function _fold_level_step(f::ElasticNet, α)
   c1 = _elastic_folded(f.λ1, α)
   c = iszero(f.λ2) || isinf(f.λ2) ? f.λ2 : _apply_scale(α, f.λ2)
@@ -388,11 +392,19 @@ function _scaled_stored_l1_value(f, α, x, r::T) where {T}
   convert(T, _apply_parts(scale, m, acc.ex))
 end
 
+_scaled_folded_value(f, x) = _value_unchecked(f, x)
+
+# A folded level can leave the array's range even when the scaled sum fits.
+@inline function _scaled_folded_value(f::NormL1{<:Real, Nothing}, x::DenseArray{T}) where {T<:Union{Float32, Float64}}
+  _level_fits(T, f.λ0) && return _value_unchecked(f, x)
+  all(isfinite, x) ? _l1_underflow_value(f, x, zero(T)) : _value_dense(f, x)
+end
+
 @noinline function _scaled_value_recover(f, α, x, v, r, out = nothing)
   _stored_l1_small(f, α, x, v) && return _scaled_stored_l1_value(f, α, x, r)
   x isa SymmetricSparseIterate && return _scaled_value_recover(f, α, matrixview(x), v, r, out)
   g = _fold_level(f, _value_fold_scale(α))
-  g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+  g === nothing || return convert(typeof(r), _scaled_folded_value(g, x))
   a, d = _partial_plan(α, v)
   if d != 0
     z = _scaled_value_partial(f, a, d, x, v, r)
@@ -400,7 +412,7 @@ end
     # no level that is a normal number gives a finite normal leaf value (levels of very different
     # size, say): the fold into a subnormal level, which has fewer bits but may still hold the value
     g = _fold_level(f, α)
-    g === nothing || return convert(typeof(r), _value_unchecked(g, x))
+    g === nothing || return convert(typeof(r), _scaled_folded_value(g, x))
   end
   if isnan(r) && !isnan(v)
     z = _scaled_nan_value(f, α, x, r)
@@ -684,7 +696,7 @@ end
   k = (e + _frexp(λ)[2]) >> 1
   step = ldexp(mγ, k)
   floatmin(T) <= step <= floatmax(T) || return nothing
-  g = _fold_level(f, _NormalScale(_ProjectionScale(ma, e - k)))
+  g = _fold_level_step(f, _NormalScale(_ProjectionScale(ma, e - k)))
   g === nothing ? nothing : (g, step)
 end
 

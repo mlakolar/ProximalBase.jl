@@ -1,0 +1,80 @@
+{
+  "reviewed_commit": "dcfc56dec0cdf72cee0f30916782f8fec72582e9",
+  "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9",
+  "file_blobs": {
+    "docs/src/spec/norml1nonneg.md": "e32fb4ab67d7326054541b7be466aa65acc284cb",
+    "docs/src/penalties.md": "4deb0b8da43820c9d46cb02df54af4a78237c7c2",
+    "docs/src/numerics.md": "891951cf4690661257bbfdefa4e947c25cb0279c"
+  },
+  "records": [
+    {
+      "action": "reword",
+      "scope": "example sandbox label only",
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty)::102",
+      "baseline_sha": "440a8426364e5388ba4bde16062629c384f5722ad5aae4b0b5b6ff853b359345",
+      "destination": "docs/src/penalties.md#The-nonnegative-l1-penalty",
+      "destination_sha": "73eb642b66225a881d0839bb5b38311efaea045945a8e60aa92decabac8d6971",
+      "old_fence": "```@example nonneg_l1",
+      "new_fence": "```@example nonneg_l1_introduction",
+      "unchanged_body_sha256": "eed4948a186488dc70df6f1fe6c5792568119e29fc42b0e7fa8f4e5db7669878",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9"
+    },
+    {
+      "action": "reword",
+      "scope": "example sandbox label only",
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::156",
+      "baseline_sha": "08a06edc172322a4c4cd7fe3971a0ce181730372d7e81a5be7a26d205a9218a4",
+      "destination": "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-endpoints",
+      "destination_sha": "792996edbbd37bca67c137380dfce5674257dc3b809f6547e2ded3dc2ae82244",
+      "old_fence": "```@example numerical_endpoints",
+      "new_fence": "```@example norml1nonneg_endpoints",
+      "unchanged_body_sha256": "638e773b2cd351152b9f6455dd956827db2fe180f5914acb26686ba5cd18b0d0",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9"
+    },
+    {
+      "action": "split",
+      "scope": "unchanged paragraph; destination sentence inventory only",
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty) / KKT scores, restriction and scaling::136",
+      "baseline_sha": "7909959a14963949d29eb9c3b8104047b7a20408b5304c7b809af0b3c4abf584",
+      "destinations": [
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary",
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary",
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary"
+      ],
+      "ordered_child_hashes": [
+        "dda24f129b2d20dccfbf9155164319a2affc95d86ebd81f62c0883fadcc0a898",
+        "9fbf41c2478af490e078c3bcc74465f624a8a99809c281a9ca091d60e3f4d735",
+        "1a8788736af6c3b770e007c243fb6df544b0eae1809e3112e68b0f8578ae5b0e"
+      ],
+      "source_raw_sha256": "9acfb0dae3daa20f5a48ef4463d1130fe202aed74e6192d5737e19ba5ce6b397",
+      "destination_raw_sha256": "aebd9b57df36e6d6eef90b7dfc3ab795a15304004740434851c6822da8ea7f5b",
+      "allowed_text_change": "relative link target prefix ../ only",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9"
+    },
+    {
+      "action": "split",
+      "scope": "unchanged paragraph; destination sentence inventory only",
+      "block_id": "docs/src/penalties.md::[The ℓ₁ norm and soft thresholding](@id l1-guide) / [The nonnegative ℓ₁ penalty](@id The-nonnegative-l1-penalty) / KKT scores, restriction and scaling::138",
+      "baseline_sha": "0dcecaa6bf0d815ef4e1f753a8a9481eb99228f32190a8be4b25008bf5b89f88",
+      "destinations": [
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary",
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary",
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary",
+        "docs/src/spec/norml1nonneg.md#spec-norml1nonneg-ordinary"
+      ],
+      "ordered_child_hashes": [
+        "528d721e4f4d50068c20907a9685820866e551cc3aa491c9c2e01f4b97a12b2a",
+        "e3f5686fdfda5f98ac9aee262a50e698773995e376f77f943f271b4251ea46f5",
+        "89cde085297b8d9b726697df36c7f3e561e247e55c44dd86ecb986fb8c9756f3",
+        "31cd135f05e56346ac4c32bb3fda50c0e4afdd462e26fdd5c6ccc87e01edc743"
+      ],
+      "source_raw_sha256": "40df5c91eaae70903e63cbe309078661004f99a9967c45bab6e704a626c75e65",
+      "destination_raw_sha256": "fc2ee6ebac1fbd30ef9164101e6c8d4373c0ec8aea0ce304200f7d08ee3b9d3c",
+      "allowed_text_change": "relative link target prefix ../ only",
+      "reviewer": "plan_consistency@dcfc56dec0cdf72cee0f30916782f8fec72582e9"
+    }
+  ],
+  "validation": "Fetched all three files from GitHub at the exact public revision; their blobs match inspected local files. Each reviewed destination paragraph/fence occurs once in fetched content. Example bodies are exact. Each split paragraph remains one contiguous ordered raw span, altered only by its explicit relative-link prefix; no clause text/status conversion.",
+  "source_commit": "c54241b15d0d435f4a87f0da0ddea9449f14a106",
+  "moved_baseline_roots": 43
+}

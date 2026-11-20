@@ -24,10 +24,12 @@ For a symmetric ``X``, a pair ``X_{ij}=X_{ji}\neq0`` with ``i<j`` contributes
 ``2\lambda``; the diagonal contributes nothing. Both signed zeros count as zero.
 
 The oracles accept a one-based, strided ``p\times p`` matrix of `Float32` or
-`Float64` (``p=0`` is allowed) with finite entries. The step ``\gamma`` is a
-finite positive real number. Symmetry of the matrix under `==` is a precondition
-of the statements about the symmetric problem on this page, and it is not
-checked; a pair `(+0.0, -0.0)` is symmetric. For a finite ``V`` that is
+`Float64` (``p=0`` is allowed) with finite entries, under the storage
+preconditions of the [supported-argument](@ref spec-norml0offdiag-arguments)
+section. The step ``\gamma`` is a finite positive real number. Symmetry of the
+matrix under `==` is the caller's precondition for the symmetric
+interpretation on this page; it is not checked, and asymmetry alone causes no
+refusal. A pair `(+0.0, -0.0)` is symmetric. For a finite ``V`` that is
 symmetric under `==`, when the comparison of the
 [ordinary-path clauses](@ref spec-norml0offdiag-ordinary) is exact, the proximal
 map solves
@@ -50,7 +52,11 @@ diagonal term ``(z-v)^2/(2\gamma)`` is minimized by ``z=v``.
 `X` and the output `Y` are `StridedMatrix` values with the same element type,
 `Float32` or `Float64`, that Base can both read and write. Dense matrices,
 strided views and reshapes, and strided reinterpreted arrays that Base can both
-read and write are accepted. The step is a scalar `Real`.
+read and write are accepted, provided that distinct entries of `Y`, and of `X`
+when `Y === X`, occupy distinct memory. A destination that repeats a storage
+position, such as a zero-stride view, is unsupported and may go undetected, as
+in `Base.mightalias`; the statements of this page do not apply to it. The step
+is a scalar `Real`.
 Choosing `diagonal = false` changes the penalty and narrows the arguments: the
 vectors, sparse matrices, [`SparseIterate`](@ref SparseIterate) and
 [`SymmetricSparseIterate`](@ref SymmetricSparseIterate) values and array steps
@@ -60,22 +66,27 @@ that `NormL0(λ)` accepts are refused here; the
 
 ## [Preconditions](@id spec-norml0offdiag-preconditions)
 
-Exact input/output identity `Y === X` is supported. A different output `Y` for
-which `Base.mightalias(Y, X)` is true is refused. Other ownership rules follow
-the [array and precision conventions](@ref numerical-usage). The caller
-establishes the symmetry of the matrix; see the definition above.
+Exact input/output identity `Y === X` is supported when distinct entries of
+`X` occupy distinct memory (see the
+[supported arguments](@ref spec-norml0offdiag-arguments)). A different output
+`Y` for which `Base.mightalias(Y, X)` is true is refused. Other ownership rules
+follow the [array and precision conventions](@ref numerical-usage). Symmetry is
+the caller's precondition for the symmetric interpretation; asymmetry alone
+causes no refusal.
 
 For a scale `α` that `Scaled` accepts, the step passed to this function, the
 value and the fused value of `Scaled(NormL0(λ; diagonal = false), α)` follow
 the rules of `Scaled`, including its rounding in the exceptional range (see
 [Scaling a function](@ref scaling-guide)). They can differ from the ordinary
-products `α * γ` and ``\alpha g(X)``, and a step that is not finite and
-positive after this computation is refused.
+products `α * γ` and ``\alpha g(X)``, the fused value need not equal the value
+of `Scaled` at the stored output, and a step that is not finite and positive
+after this computation is refused.
 
 ## [Results](@id spec-norml0offdiag-results)
 
 `prox` returns `similar(X, T)`, a `Matrix` for Base arrays, `prox!` returns the
-destination, and `value_and_prox!` returns the value at the stored output. The
+destination, and a direct call of `value_and_prox!` returns the value at the
+stored output. The
 value has the element type `T` of the matrix. With ``k`` the number of nonzero
 entries off the diagonal, it is `zero(T)` when ``k=0`` or ``\lambda=0``, and
 otherwise `convert(T, R(λ) * R(k))` with `R = promote_type(T, float(typeof(λ)))`,
@@ -83,11 +94,16 @@ so a `Float64` level is not rounded to `Float32` before the product.
 
 ## [Ordinary-path clauses](@id spec-norml0offdiag-ordinary)
 
-The diagonal is copied bit for bit, including `-0.0`. Each entry ``(i,j)`` with
+Under the storage preconditions of the
+[supported arguments](@ref spec-norml0offdiag-arguments), the diagonal is
+copied bit for bit, including `-0.0`. Each entry ``(i,j)`` with
 ``i\neq j`` is the ``(i,j)`` entry of `prox(NormL0(λ), V, γ)`, computed from
 ``V_{ij}`` alone and not mirrored from ``V_{ji}``. For ``\lambda>0`` the entry
-is kept when ``|V_{ij}|^2>2\gamma\lambda`` and is positive zero otherwise, so, when the
-comparison is exact as described below, a mathematical tie gives zero. At ``\lambda=0`` the map is the identity, and a pair
+is kept when the scalar comparison of `NormL0` on the converted operands finds
+its square above ``2\gamma\lambda``, and is positive zero otherwise, so a tie of
+the converted operands gives zero; when the comparison is exact as described
+below, a mathematical tie gives zero. Otherwise a mathematical tie can be kept:
+a pair of ones at `λ = 1//3` and `γ = 3//2` is kept. At ``\lambda=0`` the map is the identity, and a pair
 `(+0.0, -0.0)` stays as it is. At ``\lambda>0`` the same pair becomes
 `(+0.0, +0.0)`. The output is symmetric under `==` when the input is.
 
@@ -118,7 +134,8 @@ overflow to `Inf` when the product rounds beyond `floatmax(T)`.
 
 ## [Endpoint clauses](@id spec-norml0offdiag-endpoints)
 
-Each row describes a call in which that condition is the only one that fails.
+Each row describes a case with the other preconditions met. The zero level is
+a supported endpoint.
 
 | Level, step or input | Behavior |
 |:--|:--|
@@ -135,7 +152,7 @@ These statements describe direct calls of the value, `prox`, `prox!` and
 - Every refusal happens before any write, so `X` and `Y` are unchanged by a
   refused call.
 - A call in which exactly one of the following conditions fails throws
-  `ArgumentError`: offset axes; an argument that is not a strided matrix (a
+  `ArgumentError`: offset axes; an argument of one of these storage kinds (a
   vector, a tuple, a sparse or other non-strided matrix such as `Symmetric`,
   `Adjoint` or [`matrixview`](@ref matrixview), a
   [`SparseIterate`](@ref SparseIterate), a
@@ -143,8 +160,8 @@ These statements describe direct calls of the value, `prox`, `prox!` and
   [`BlockIterate`](@ref BlockIterate)); an array step; an element type other
   than `Float32` and `Float64`, or different element types of `X` and `Y`; a
   reinterpreted array that Base cannot both read and write; a different `Y`
-  with `Base.mightalias(Y, X)` true; a step that is not finite and positive;
-  a non-finite entry of `X`.
+  with `Base.mightalias(Y, X)` true; a real scalar step that is nonpositive or
+  non-finite; a non-finite entry of `X`.
 - A call in which the only failing condition is a non-square `X`, or a `Y` of
   another size, throws `DimensionMismatch`.
 - When several conditions fail, which exception is thrown is not specified.
@@ -154,13 +171,15 @@ These statements describe direct calls of the value, `prox`, `prox!` and
   forms, `prox_block`, `prox_block!`, `restrict` and `kkt_violation` throw
   `ArgumentError`.
 
-An asymmetric `X` is not refused. The tests pin the current order of the
+Asymmetry alone causes no refusal: an asymmetric `X` with a non-finite entry
+is refused because the entry is non-finite. The tests pin the current order of the
 checks; that order is not part of this contract.
 
 Through `Scaled`, the unsupported arguments above are refused before any
-write, with the exception that the checks of `Scaled` or a missing method
-produce, for example `ArgumentError`, `DimensionMismatch` or `MethodError`, and
-`Scaled` may read such arguments before the refusal.
+write, with an exception from the preprocessing of `Scaled`, the checks of this
+function or dispatch, for example `ArgumentError`, `DimensionMismatch`,
+`MethodError` or `OverflowError`, and `Scaled` may read such arguments before
+the refusal.
 
 ## [Limitations and non-guarantees](@id spec-norml0offdiag-limitations)
 

@@ -1050,4 +1050,26 @@ without_diagonal(λ) = NormL0(λ; diagonal = false)
   end
 end
 
+
+@testset "documented examples of the contract text" begin
+  # a mathematical tie with operands that do not convert exactly: the scalar comparison keeps the pair
+  M = [1.0 1.0; 1.0 1.0]
+  @test isequal(prox(NormL0(1 // 3; diagonal = false), M, 3 // 2), M)
+  # asymmetry alone causes no refusal, and a non-finite entry of an asymmetric matrix is refused
+  A = [1.0 2.0; 0.5 1.0]
+  f = NormL0(1.0; diagonal = false)
+  @test isequal(prox(f, A, 1.0), [1.0 2.0; 0.0 1.0])
+  B = [1.0 Inf; 0.5 1.0]
+  Y = fill(7.0, 2, 2)
+  @test_throws ArgumentError prox!(Y, f, B, 1.0)
+  @test all(==(7.0), Y)
+  # Current, unsupported behaviour: a destination that repeats one storage position is not detected, and the
+  # stored entries are not the proximal point.
+  r = Base.StepRangeLen(1, 0, 2)
+  Z = view(zeros(1, 1), r, r)
+  @test Z isa StridedMatrix{Float64}
+  prox!(Z, f, [1.0 0.25; 0.25 2.0], 1.0)
+  @test Z == [2.0 2.0; 2.0 2.0]
+end
+
 end

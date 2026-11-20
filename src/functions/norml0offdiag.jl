@@ -10,8 +10,12 @@ as zero.
 
 **Inputs.** `X` and the output `Y` are one-based strided `p × p` matrices
 (`p = 0` is allowed) with the same element type, `Float32` or `Float64`, that
-Base can both read and write. `X` has finite entries. Symmetry of `X` under `==` is a precondition of the
-statements below about the symmetric problem, and it is not checked: a pair
+Base can both read and write. Distinct entries of `Y`, and of `X` when
+`Y === X`, occupy distinct memory: a destination that repeats a storage
+position, such as a zero-stride view, is unsupported and may go undetected, as
+in `Base.mightalias`. `X` has finite entries. Symmetry of `X` under `==` is
+the caller's precondition for the statements below about the symmetric
+problem; it is not checked, and asymmetry alone causes no refusal. A pair
 `(+0.0, -0.0)` is symmetric. The step `γ` is a finite real number that is
 positive.
 
@@ -35,9 +39,11 @@ is made with the converted and rounded values:
 - The diagonal is copied bit for bit, including `-0.0`.
 - Each entry `(i, j)` with `i ≠ j` is the `(i, j)` entry of
   `prox(NormL0(λ), V, γ)`, computed from `Vᵢⱼ` alone and not mirrored from
-  `Vⱼᵢ`. For `λ > 0` the entry is kept when `|Vᵢⱼ|² > 2γλ`, using the
-  comparison of [`NormL0`](@ref), and is positive zero otherwise, so a tie
-  gives zero. At `λ = 0` the map is the identity, and a `(+0.0, -0.0)` pair
+  `Vⱼᵢ`. For `λ > 0` the entry is kept when the scalar comparison of
+  [`NormL0`](@ref) on the converted operands finds its square above `2γλ`,
+  and is positive zero otherwise, so a tie of the converted operands gives
+  zero. A mathematical tie can be kept: a pair of ones at `λ = 1//3` and
+  `γ = 3//2` is kept. At `λ = 0` the map is the identity, and a `(+0.0, -0.0)` pair
   stays as it is.
 - A pair `i < j` costs `2λ·1{x ≠ 0} + 2(x - v)²/(2γ)`. Dividing by two gives
   the scalar problem of `NormL0`, so the threshold `2γλ` is unchanged. The
@@ -49,14 +55,14 @@ neither triangle is selected. The result need not be the proximal point over
 symmetric matrices, and the value counts every nonzero off-diagonal entry of
 the given matrix.
 
-`value_and_prox!` returns the value at the stored `Y`. `Y === X` is
-supported. `prox` returns `similar(X, T)`, a `Matrix` for Base arrays.
+A direct call of `value_and_prox!` returns the value at the stored `Y`.
+`Y === X` is supported under the storage precondition above. `prox` returns `similar(X, T)`, a `Matrix` for Base arrays.
 
 **Refusals.** Every refusal of a direct call happens before any write, so `X`
 and `Y` are left unchanged. A call in which exactly one of the following
 conditions fails throws `ArgumentError`:
 - offset axes;
-- an argument that is not a strided matrix: a vector, a tuple, a sparse or
+- an argument of one of these storage kinds: a vector, a tuple, a sparse or
   other non-strided matrix (for example `Symmetric`, `Adjoint` or
   [`matrixview`](@ref)), a [`SparseIterate`](@ref), a
   [`SymmetricSparseIterate`](@ref) or a [`BlockIterate`](@ref);
@@ -66,7 +72,7 @@ conditions fails throws `ArgumentError`:
 - a reinterpreted array that Base cannot both read and write, such as a
   `Float64` reinterpretation of a parent whose element type has padding;
 - a different `Y` for which `Base.mightalias(Y, X)` is true;
-- a step that is not finite and positive;
+- a real scalar step that is nonpositive or non-finite;
 - a non-finite entry of `X`.
 A call in which the only failing condition is a non-square `X`, or a `Y` of
 another size, throws `DimensionMismatch`. When several conditions fail, which
@@ -80,12 +86,13 @@ their generic forms, they throw `ArgumentError`.
 this function, the value and the fused value of `Scaled(NormL0(λ; diagonal =
 false), α)` follow the rules of `Scaled`, including its rounding in the
 exceptional range (see [Scaling a function](@ref scaling-guide)). They can
-differ from the ordinary products `α * γ` and `α * g(X)`, and a step that is
-not finite and positive after this computation is refused. Through `Scaled`,
-the unsupported arguments above are refused before any write, with the
-exception that the checks of `Scaled` or a missing method produce, for example
-`ArgumentError`, `DimensionMismatch` or `MethodError`, and `Scaled` may read
-such arguments before the refusal.
+differ from the ordinary products `α * γ` and `α * g(X)`, the fused value need
+not equal the value of `Scaled` at the stored output, and a step that is not
+finite and positive after this computation is refused. Through `Scaled`, the
+unsupported arguments above are refused before any write, with an exception
+from the preprocessing of `Scaled`, the checks of this function or dispatch,
+for example `ArgumentError`, `DimensionMismatch`, `MethodError` or
+`OverflowError`, and `Scaled` may read such arguments before the refusal.
 
 Not provided: positive definiteness of the output, steps `0` and `Inf`, and
 non-finite input. See the [numerical contract](@ref spec-norml0offdiag).

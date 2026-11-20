@@ -665,8 +665,8 @@ commit the finiteness pass counted the non-finite entries column by column for e
 current code sums `x - x` over a `Matrix` in one pass (see the implementation notes of the
 [numerical contract](../docs/src/spec/norml0offdiag.md)), so the table does not describe the current pass.
 More than half of the off-diagonal entries of that run's matrices lay above the threshold. The allocation was zero bytes in each row of that
-run. The in-place ratios are below one at some sizes because the in-place `prox!` of `NormL0` was
-slower than its out-of-place `prox!` in this run.
+run. In this run the in-place ratios were below one at some sizes, and the in-place `prox!` of
+`NormL0` was slower than its out-of-place `prox!`.
 
 | Operation | `Float32`, `p = 8, 32, 64` | `Float64`, `p = 8, 32, 64` |
 |:--|:--|:--|

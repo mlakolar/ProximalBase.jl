@@ -80,17 +80,7 @@ recomputation: each residual is formed before scaling (as `x/2 - y/2`, one
 binade up, when `x - y` itself overflows) and the squares are summed in units
 of the largest one. Genuine NaN/Inf data or parameters keep their ordinary
 IEEE result; only finite inputs whose intermediates leave the range are
-recomputed. For the `LinearFunction` value at a matrix `SparseIterate`, the finite
-inputs are `d`, the nonzero stored entries and the coefficients at them (for a `Diagonal`
-coefficient array, the nonzero stored diagonal entries and their coefficients: an off-diagonal
-`NaN` or `Inf` of the iterate is ignored): the
-recomputation sums their products as exponent-separated terms (as the `QuadraticFunction`
-recovery does), collapses the sum and adds `d` to it in its own units, and a nonfinite coefficient at a zero of the
-iterate does not prevent it. It reads the nonzero stored entries, `O(nactive(x))`; for a
-`Diagonal` coefficient array it scans the `p` diagonal positions, `O(p)`, whatever
-`nactive(x)` is. At a dense array, a vector `SparseIterate` and a `SymmetricSparseIterate`, the
-recomputation sums the same exponent-separated terms when `d`, all coefficients and all entries of
-the argument are finite. Recovery is worthwhile when it changes a materially inaccurate
+recomputed. See [LinearFunction range clauses](@ref spec-linear-range) for its finite-input recovery.  Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
 The squared-residual recomputation that `SqrNormL2` and the least-squares oracles share has the same kind of
@@ -303,7 +293,7 @@ all-NaN result or a particular exception.
 
 | Case | Retained behavior |
 |:--|:--|
-| `ZeroFunction` value | Zero even at NaN/Inf input entries |
+| `LinearFunction and ZeroFunction` | See the [LinearFunction and ZeroFunction endpoint clauses](@ref spec-linear-endpoints) |
 | `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 | `NormLinf`, negative or `NaN` step | Checked first: `ArgumentError` before any write, ahead of the rows below, also through `Scaled` (a size mismatch is a `DimensionMismatch`); no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write, also through `Scaled`) |
@@ -509,24 +499,7 @@ dropzeros!(x)
 dot(v,x)
 ```
 
-The `LinearFunction` value at a matrix `SparseIterate` follows the same rule, as
-its own computation and not through `dot(c, x)`: a position that is not stored, or is
-stored as `+0` or `-0`, contributes nothing and `c` is not read there, so a `NaN` or
-`±Inf` coefficient at it does not reach the value, while a nonzero entry keeps
-ordinary arithmetic. For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` takes the
-dense IEEE dot and gives `NaN` for such a coefficient.
-
-```@example numerical_linear_sparse
-using ProximalBase, LinearAlgebra
-x = SparseIterate(2, 2)
-x[1, 1] = 2
-activate!(x, 4)                    # the entry (2, 2) is stored as a zero
-c = [1.0 NaN; Inf 1.0]
-f = LinearFunction(c, 0.25)
-@assert f(x) == 2.25
-@assert isnan(f(Matrix(x)))
-f(x)
-```
+The [LinearFunction sparse-value rules and example](@ref spec-linear-endpoints) retain the corresponding strong-zero semantics.
 
 Five-argument products with β=0 overwrite the destination without reading its
 old numerical entries; α=0 scales/clears output without reading right-operand

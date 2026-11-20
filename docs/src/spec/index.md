@@ -43,7 +43,7 @@ apply alongside each entry.
 | `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
-| `LinearFunction` and `ZeroFunction` | [Linear function](@ref Linear-function) and [zero function](@ref Zero-function) | Existing pages |
+| `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
 | `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
 | `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
 | `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |

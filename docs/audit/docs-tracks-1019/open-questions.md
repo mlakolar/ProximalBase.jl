@@ -72,6 +72,13 @@ that happens to pass.
   [Source](../../../src/functions/sqrt_leastsquares.jl)
   · [Tests](../../../test/sqrt_leastsquares.jl)
 
+- The `LinearFunction` range paragraph gives the bound
+  `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)` without defining `n`. It could count
+  nonzero products or all entries in the argument or its storage. The recovery
+  tests count nonzero products. The intended scope awaits the owner's decision.
+  [Source](../../../src/functions/linear.jl)
+  · [Tests](../../../test/linear_value_recovery.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

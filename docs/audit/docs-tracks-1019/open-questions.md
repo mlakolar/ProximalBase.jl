@@ -26,6 +26,16 @@ that happens to pass.
   mixed-type calls. The wording awaits the owner's decision.
   [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
 
+- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
+  project”. This could refer to calls on a concrete `Scaled` wrapper or to
+  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
+  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
+  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
+  oracles check the step. The moved row retains the original wording pending
+  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+  · [Scaling source](../../../src/functions/scaled.jl)
+  · [Tests](../../../test/indnonnegative.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

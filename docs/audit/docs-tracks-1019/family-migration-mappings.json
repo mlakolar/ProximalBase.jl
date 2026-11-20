@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "raw_span_review": {
+    "reviewer": "reconcile_pr_review@9e3ec2f49ff566022d19083ebe07e9374fe68c29",
+    "scope": "The single IndNonnegative endpoint row, compared byte for byte with the frozen baseline and the reconciled prerequisite."
+  },
+  "manifests": [
+    "moves-indnonnegative.json"
+  ],
+  "changes": [
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
+      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
+      ],
+      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "source_start": 28481,
+          "source_end": 29181,
+          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "manifest": "moves-indnonnegative.json",
+          "manifest_index": 0
+        }
+      ]
+    }
+  ]
+}

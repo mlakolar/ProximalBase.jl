@@ -70,6 +70,16 @@ function check_reference(x, symmetric)
       @test size(out) == size(x)
       @test Array(out) == y
       @test f(out) === zero(T)
+      # an infinite step gives the result of the unit step, for the value and the projection
+      outinf = prox(f, input, T(Inf))
+      @test typeof(outinf) === typeof(out) && size(outinf) == size(out) && Array(outinf) == y
+      vout = similar(out)
+      @test value_and_prox!(vout, f, input, T(Inf)) === zero(T)
+      @test Array(vout) == y
+      if input isa Union{SparseIterate, SymmetricSparseIterate}
+        @test collect(activecoordinates(outinf)) == collect(activecoordinates(out))
+        @test collect(activecoordinates(vout)) == collect(activecoordinates(out))
+      end
       if input isa Union{SparseIterate, SymmetricSparseIterate}
         @test typeof(out) === typeof(input)
         @test collect(activecoordinates(out)) == collect(activecoordinates(input))
@@ -135,12 +145,18 @@ end
       @test nactive(trial) == count(!iszero, activevalues(trial))
 
       snapshot = copy(y)
-      for step in (T(Inf), T(NaN), T(-1))
+      for step in (T(-Inf), T(NaN), T(-1), -nextfloat(zero(T)))
         @test_throws ArgumentError prox!(y, f, source, step)
         @test_throws ArgumentError value_and_prox!(y, f, source, step)
       end
       @test isequal(Array(y), Array(snapshot))
       @test collect(activecoordinates(y)) == collect(activecoordinates(snapshot))
+      # an infinite step projects as the unit step does
+      @test prox!(y, f, source, T(Inf)) === y
+      @test Array(y) == expected
+      @test collect(activecoordinates(y)) == ids
+      @test value_and_prox!(y, f, source, T(Inf)) === zero(T)
+      @test Array(y) == expected
     end
     # Value classifies only counted entries. Free nonfinite diagonals can
     # pass through the copy without changing the stored indicator value.

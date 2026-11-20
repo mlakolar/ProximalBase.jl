@@ -58,7 +58,8 @@ avoids overflow and underflow of squared magnitudes and preserves exact
 ties even with subnormal inputs. The projection writes original values
 or positive zero. Both signs of zero count as zero. The fused call returns
 the typed zero value directly for the feasible stored result. Steps must
-be finite and nonnegative.
+be nonnegative, `Inf` included. `Scaled(f, α)`, `α * f` and `f * α` return `f` for a
+nonnegative `α`, so the same step rule applies through them.
 
 ## [Failure behavior](@id spec-indballl0-failures)
 

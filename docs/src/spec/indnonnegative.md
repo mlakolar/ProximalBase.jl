@@ -47,7 +47,7 @@ rules are in [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases
 
 | Case | Retained behavior |
 |:--|:--|
-| `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries, `prox_block` and `Scaled` routes do not check and project. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
+| `IndNonnegative` | Value `0` at a point with no negative and no `NaN` entry (`-0.0` and `+Inf` included), `Inf` at a negative entry (`-Inf` included) when no entry is `NaN`, `NaN` at a `NaN` entry. The projection is `max(v, 0)` at a step `γ ≥ 0`: `-0.0` and `-Inf` give `+0`, `NaN` stays `NaN`. A negative or `NaN` scalar step throws `ArgumentError` before any write in `prox`, `prox!` and `value_and_prox!`; array-step entries and `prox_block` do not check and project. `Scaled(f, α)`, `α * f` and `f * α` return `f` for a nonnegative `α`, so the same step check applies through them. `value_and_prox!` returns the value at the stored output: `NaN` at a `NaN` output entry, otherwise `0`. The tolerance of the archived value (`v >= -_tol`) is not kept: a negative entry of any size gives `Inf` |
 
 ## [Failure behavior](@id spec-indnonnegative-failures)
 
@@ -75,7 +75,7 @@ the [`IndNonnegative`](@ref) API entry for the available optimality screen.
 ## [Evidence](@id spec-indnonnegative-evidence)
 
 The tests cover endpoint values and projections, step checks, destination storage,
-scaling and the optimality screen. [`test/indnonnegative.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indnonnegative.jl)
+scaling (the indicator returned by `Scaled`) and the optimality screen. [`test/indnonnegative.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indnonnegative.jl)
 
 ## [History](@id spec-indnonnegative-history)
 

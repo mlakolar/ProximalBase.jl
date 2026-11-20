@@ -20,9 +20,18 @@ choose a nonnegative scale `α`, and construct `h = Scaled(f, α)`.
 The expressions `α * f` and `f * α` have the same meaning.
 Call `h(x)` to evaluate the scaled function. Thus **`f` is the function
 being scaled, `α` is the multiplier, and `x` is the evaluation point**.
-Negative or NaN scales throw `ArgumentError`; infinite scaling has
-function-specific exceptional arithmetic described in
+Negative or NaN scales throw `ArgumentError`; infinite scaling of a function other than the
+built-in indicators has function-specific exceptional arithmetic described in
 [Array and precision conventions](numerical_usage.md).
+
+**Built-in indicators.** The indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
+(including `IndBallLinf`) and `IndNonnegative` do not depend on a nonnegative scale.
+`Scaled(f, α)`, `α * f` and `f * α` return the indicator `f` itself for every valid `α`, including
+`0`, `-0.0` and `Inf`, and nested scalings of an indicator return it too, whatever the product of
+the factors. A negative, NaN or `-Inf` factor throws `ArgumentError` before the indicator
+is returned. The result is the indicator, so its steps, errors and extension hooks are the
+indicator's: a negative or NaN scalar step throws `ArgumentError` before writing, and
+`iszeropreserving(Inf * f)` is that of `f`.
 
 Smoothness, convexity, proximability and separability traits come from the
 original function. Zero preservation additionally requires a finite scale
@@ -52,6 +61,14 @@ x = [2.0,-1]
 @assert lipschitz(h) == 0.5
 @assert reset_cache!(h) === h
 prox(h,x,0.4)
+```
+
+A built-in indicator is returned as it is:
+
+```@example library_scaled
+box = IndBox(0.0, 1.0)
+@assert 2.0 * box === box && Scaled(box, Inf) === box && 0 * (Inf * box) === box
+prox(2.0 * box, [-1.0, 0.5, 3.0], 0.4)
 ```
 
 ## [Scoring optimality](@id scaled-kkt)
@@ -157,11 +174,12 @@ remain `BigFloat`.
   [smooth stationarity score](@ref smooth-kkt). Infinite factors and retained
   chains whose factors do not fold throw `ArgumentError`. The coordinate and
   group forms throw `ArgumentError`, including at zero.
-* **Functions without the forms.** `SqrtLeastSquaresLoss` and `IndNonnegative` have no
-  four-argument or full-point score under `Scaled`; the call throws a `MethodError` (the call
-  names the `Scaled` function). For a positive finite or infinite factor, `Scaled(f, α)` forwards the
-  supported three-argument screen of an indicator `f` with the supplied gradient and returns its result
-  unscaled. For `IndNonnegative` the result is `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
+* **Functions without the forms.** `SqrtLeastSquaresLoss` has no four-argument or full-point score
+  under `Scaled`; the call throws a `MethodError` that names the `Scaled` function. `IndNonnegative` has none
+  either, with or without a factor; the `MethodError` names the indicator, because `α * IndNonnegative()`
+  is the indicator. The same holds for the other built-in indicators. The three-argument screen of
+  a built-in indicator `α * f` is the screen of `f` with the supplied gradient, unscaled; for
+  `IndNonnegative` it is `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
   throws an `ArgumentError` for its other forms, also under `Scaled`. A function defined outside the package is treated as in
   [Writing your own function](extending.md).
 
@@ -246,8 +264,9 @@ identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])
 a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
-representation and throws. The indicator `IndNonnegative` does not depend on its scale:
-`Scaled(IndNonnegative(), 0)` and `0 * IndNonnegative()` return the indicator itself.
+representation and throws. The built-in indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
+(including `IndBallLinf`) and `IndNonnegative` do not depend on their scale: `Scaled(f, 0)` and
+`0 * f` return the indicator `f` itself, as every nonnegative scale does.
 Inspect the constructed object rather than assume it is always a `Scaled`.
 
 ```@example scaled_zero

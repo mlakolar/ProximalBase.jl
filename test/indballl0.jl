@@ -2,6 +2,76 @@ module IndBallL0Test
 
 using Test, ProximalBase, LinearAlgebra, Random, SparseArrays
 
+# ---- Scaled returns the indicator (the same checks for each built-in indicator) -----------------------------
+const CANON_FACTORS = Any[2, 0, 1, 0.5, 2.0, 2f0, 3f0, 5e-324, 1e-300, floatmax(Float64), floatmax(Float32), nextfloat(0f0),
+                          Inf, Inf32, 0.0, -0.0, big(2.0), big(0), big(Inf)]
+const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big(-1.0), big(NaN)]
+scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
+times_allocs(f, α) = (α * f; @allocated α * f)
+
+# Every valid factor, nested chains whatever their product, and the invalid factors; construction is inferred
+# and does not allocate.
+function check_canonical(f)
+  for α in CANON_FACTORS
+    @test Scaled(f, α) === f
+    @test α * f === f
+    @test f * α === f
+    @test Scaled{AbstractFunction, typeof(α)}(f, α) === f
+    @test Scaled{typeof(f), typeof(α)}(f, α) === f
+  end
+  @test Scaled(Scaled(f, 1e300), 1e100) === f
+  @test Scaled(Scaled(f, 1e-300), 1e-100) === f
+  @test Scaled(Scaled(f, 1f30), 1f30) === f
+  @test Scaled(Scaled(f, 5e-324), 5e-324) === f
+  @test 0 * (Inf * f) === f
+  @test Scaled(Scaled(f, Inf), 0) === f
+  @test Inf * (0 * f) === f
+  @test (2 * f) * 3 === f
+  for α in CANON_INVALID
+    @test_throws ArgumentError Scaled(f, α)
+    @test_throws ArgumentError α * f
+    @test_throws ArgumentError f * α
+    @test_throws ArgumentError Scaled{AbstractFunction, typeof(α)}(f, α)
+  end
+  @test_throws ArgumentError Scaled(Scaled(f, 2), -1)
+  @test_throws ArgumentError Scaled(Scaled(f, Inf), NaN)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300)
+    @test @inferred(Scaled(f, α)) === f
+    @test @inferred(α * f) === f
+    @test scaled_allocs(f, α) == 0
+    @test times_allocs(f, α) == 0
+  end
+  @test @inferred(Scaled(Scaled(f, 1e300), 1e100)) === f
+  @test !(Scaled(f, 2) isa Scaled) && Scaled(f, 2) isa typeof(f)
+  @test Scaled(NormL1(1.0), 2.0) isa Scaled
+end
+
+# A negative, NaN or tiny negative scalar step through a scaled indicator throws before anything is written, and
+# the other steps give the result of the indicator at the points x (the vectors of one element type).
+function check_scaled_steps(f, points)
+  for α in (2, Inf, 1e-300), x in points
+    T = eltype(x)
+    s = α * f
+    for γ in (-one(T), T(NaN), -nextfloat(zero(T)), -1)
+      y = fill(T(7), length(x))
+      @test_throws ArgumentError prox!(y, s, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError value_and_prox!(y, s, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError prox(s, x, γ)
+    end
+    for γ in (zero(T), one(T), T(0.3), T(Inf), 2, 0)
+      y1, y2 = similar(x), similar(x)
+      @test isequal(prox!(y1, s, x, γ), prox!(y2, f, x, γ)) && isequal(y1, y2)
+      @test isequal(s(x), f(x))
+      v1 = value_and_prox!(y1, s, x, γ)
+      v2 = value_and_prox!(y2, f, x, γ)
+      @test isequal(v1, v2) && isequal(y1, y2) && isequal(v1, s(y1))
+    end
+  end
+end
+
+
 ####################################
 #  A reference independent of the implementation
 ####################################
@@ -237,14 +307,17 @@ end
   message(g) = try; g(); "no error"; catch e; sprint(showerror, e); end
 
   Y = zeros(3, 3)
-  for γ in (-1.0, -0.5, NaN, Inf, -Inf, prevfloat(0.0), -1, NaN32, Inf32, -1//2)
+  for γ in (-1.0, -0.5, NaN, -Inf, prevfloat(0.0), -1, NaN32, -Inf32, -1//2, -nextfloat(0f0))
     refused(ArgumentError, Y, f, X, γ)
     refused(ArgumentError, Y, f, Symmetric(X, :L), γ)
     @test_throws ArgumentError prox(f, X, γ)
   end
-  @test occursin("finite and nonnegative", message(() -> prox!(Y, f, X, Inf)))
-  # step zero, negative zero and a rational step project
-  for γ in (0.0, -0.0, 0, 1//2, big"2.5", 1e300, floatmax(), Float16(2), UInt8(3))
+  for γ in (-1.0, NaN, -Inf)
+    msg = message(() -> prox!(Y, f, X, γ))
+    @test occursin("must be nonnegative", msg) && !occursin("finite", msg)
+  end
+  # step zero, negative zero, an infinite step and a rational step project
+  for γ in (0.0, -0.0, 0, 1//2, big"2.5", 1e300, floatmax(), Float16(2), UInt8(3), Inf, Inf32, big(Inf), Float16(Inf))
     fill!(Y, 42)
     @test isequal(prox!(Y, f, X, γ), [5.0 0 -3; 0 7 0; -3 0 9])
   end
@@ -537,12 +610,16 @@ end
   @test isequal(Z, Y1)
 end
 
-@testset "Scaled" begin
+@testset "Scaled returns the indicator" begin
+  for f in (IndBallL0(2; diagonal = false), IndBallL0(0), IndBallL0(3), IndBallL0(typemax(Int); diagonal = false))
+    check_canonical(f)
+  end
   f = IndBallL0(2; diagonal = false)
   X = [5.0 1 -3; 1 7 2; -3 2 9]
   Y1 = [5.0 0 -3; 0 7 0; -3 0 9]
   Y = zeros(3, 3)
   h = Scaled(f, 3.0)
+  @test h === f && 3.0 * f === f && f * 3.0 === f
   @test isequal(prox(h, X, 0.5), Y1)
   @test isequal(prox!(fill!(Y, 42), h, X, 1.0), Y1)
   @test h(X) == Inf
@@ -551,34 +628,97 @@ end
   @test isequal(Y, Y1)
   @test Scaled(f, 0) === f
   @test 0 * f === f
-  # an infinite step is refused, also as the product of the scale and the step
+  # an infinite or overflowing scale returns the indicator, and the step is the caller's
   Yc = fill(42.0, 3, 3)
   hinf = Scaled(f, Inf)
-  @test_throws ArgumentError prox!(Yc, hinf, X, 1.0)
-  @test all(==(42), Yc)
-  @test_throws ArgumentError value_and_prox!(Yc, hinf, X, 1.0)
-  @test all(==(42), Yc)
   hbig = Scaled(f, floatmax())
-  @test_throws ArgumentError prox!(Yc, hbig, X, 2.0)
-  @test all(==(42), Yc)
-  @test_throws ArgumentError value_and_prox!(Yc, hbig, X, 2.0)
-  @test all(==(42), Yc)
-  @test_throws ArgumentError prox!(Yc, hbig, X, Inf)
-  @test all(==(42), Yc)
-  # a zero step stays zero for an indicator
-  @test isequal(prox!(fill!(Yc, 42), hinf, X, 0.0), Y1)
-  @test isequal(prox!(fill!(Yc, 42), hbig, X, 0.0), Y1)
-  # a negative or NaN step
-  @test_throws ArgumentError prox!(Yc, h, X, -1.0)
-  @test_throws ArgumentError prox!(Yc, h, X, NaN)
-  # two factors with a normal product merge into one wrapper
+  @test hinf === f && hbig === f
+  for hh in (hinf, hbig), γ in (0.0, 1.0, 2.0, Inf)
+    @test isequal(prox!(fill!(Yc, 42), hh, X, γ), Y1)
+    @test value_and_prox!(fill!(Yc, 42), hh, X, γ) === 0.0
+    @test isequal(Yc, Y1)
+  end
+  # a negative or NaN step is refused before writing, whatever the scale
+  for α in (3.0, Inf, floatmax(), 1e-300, 0.5), γ in (-1.0, NaN, -Inf, -nextfloat(0.0), -1e-300)
+    fill!(Yc, 42)
+    @test_throws ArgumentError prox!(Yc, α * f, X, γ)
+    @test all(==(42), Yc)
+    @test_throws ArgumentError value_and_prox!(Yc, α * f, X, γ)
+    @test all(==(42), Yc)
+  end
+  # nested factors, whatever their product, return the indicator
+  @test Scaled(Scaled(f, 2.0), 3.0) === f
   @test isequal(prox(Scaled(Scaled(f, 2.0), 3.0), X), Y1)
-  # a chain whose factor product overflows passes the step γ and projects
   chain = Scaled(Scaled(f, floatmax()), 4.0)
+  @test chain === f && 0 * (Inf * f) === f
   @test isequal(prox!(fill!(Yc, 42), chain, X, 1.0), Y1)
   @test value_and_prox!(fill!(Yc, 42), chain, X, 1.0) === 0.0
   @test isequal(Yc, Y1)
   @test isequal(prox(Scaled(f, 2.0), Symmetric(X)), Y1)
+end
+
+@testset "an infinite step projects" begin
+  @test prox(IndBallL0(1), [3.0, -1.0], Inf) == [3.0, 0.0]
+  @test prox(IndBallL0(1), Float32[3, -1], Inf32) == Float32[3, 0]
+  rng = Xoshiro(1080)
+  for T in (Float32, Float64), diagonal in (true, false), s in (0, 1, 2, 5, typemax(Int))
+    f = IndBallL0(s; diagonal)
+    A = T.(rand(rng, -3:3, 4, 4))
+    S = Symmetric(Matrix(Symmetric(A, :L)), :L)
+    sp = SparseIterate(T, 12)
+    for k in (1, 3, 4, 9, 12)
+      activate!(sp, k); coordinates(sp)[k] = T(k) * (isodd(k) ? 1 : -1)
+    end
+    spm = SparseIterate(T, 4, 4)
+    for k in (1, 6, 7, 11, 16)
+      activate!(spm, k); coordinates(spm)[k] = T(k) * (isodd(k) ? 1 : -1)
+    end
+    ss = SymmetricSparseIterate(T, 4)
+    for k in (1, 2, 5, 7, 10)
+      activate!(ss, k); coordinates(ss)[k] = T(k) * (isodd(k) ? 1 : -1)
+    end
+    for x in (T.(rand(rng, -3:3, 9)), A, S, Symmetric(A, :U), sp, spm, ss)
+      y1 = x isa Symmetric ? similar(Matrix(x)) : similar(x)
+      y2 = copy(y1)
+      @test prox!(y1, f, x, one(T)) === y1
+      @test prox!(y2, f, x, T(Inf)) === y2
+      @test Array(y2) == Array(y1)
+      @test typeof(prox(f, x, T(Inf))) === typeof(prox(f, x, one(T)))
+      @test Array(prox(f, x, T(Inf))) == Array(prox(f, x, one(T)))
+      if x isa Union{SparseIterate, SymmetricSparseIterate}
+        @test collect(activecoordinates(y2)) == collect(activecoordinates(y1))
+      end
+      v1 = value_and_prox!(y1, f, x, one(T))
+      v2 = value_and_prox!(y2, f, x, T(Inf))
+      @test v1 === zero(T) && v2 === zero(T)
+      @test Array(y2) == Array(y1)
+      # the infinite step passes through a scale unchanged
+      y3 = copy(y1)
+      @test value_and_prox!(y3, 2 * f, x, T(Inf)) === zero(T) && Array(y3) == Array(y1)
+    end
+    # errors precede writes at an invalid step
+    for γ in (-one(T), T(NaN), -nextfloat(zero(T)), T(-Inf))
+      y = fill(T(42), 4, 4)
+      @test_throws ArgumentError prox!(y, f, A, γ)
+      @test all(==(T(42)), y)
+      @test_throws ArgumentError value_and_prox!(y, f, A, γ)
+      @test all(==(T(42)), y)
+      @test_throws ArgumentError prox!(y, f, S, γ)
+      @test all(==(T(42)), y)
+      ys = SparseIterate(T, 4, 4)
+      activate!(ys, 2); coordinates(ys)[2] = T(42)
+      @test_throws ArgumentError prox!(ys, f, spm, γ)
+      @test_throws ArgumentError value_and_prox!(ys, f, spm, γ)
+      @test coordinates(ys)[2] == T(42) && nactive(ys) == 1
+      yss = SymmetricSparseIterate(T, 4)
+      activate!(yss, 2); coordinates(yss)[2] = T(42)
+      @test_throws ArgumentError prox!(yss, f, ss, γ)
+      @test_throws ArgumentError value_and_prox!(yss, f, ss, γ)
+      @test coordinates(yss)[2] == T(42) && nactive(yss) == 1
+    end
+  end
+  # a zero step and negative zero project, as before
+  @test prox(IndBallL0(1), [3.0, -1.0], 0.0) == [3.0, 0.0] && prox(IndBallL0(1), [3.0, -1.0], -0.0) == [3.0, 0.0]
 end
 
 # Each helper calls once before it measures, so that the buffer of the object and the compiled methods exist.

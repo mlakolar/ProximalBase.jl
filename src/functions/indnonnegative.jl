@@ -30,9 +30,10 @@ julia> prox(f, [2.0, -1.0], 0.5)
   in the projection; it is not reported as feasible. `-0.0` and `+Inf` are feasible with
   value `0`; the projection of `-0.0` and of `-Inf` is `+0.0`.
 - A scalar step that is negative or `NaN` throws an `ArgumentError` before anything is written in
-  [`prox`](@ref), [`prox!`](@ref) and [`value_and_prox!`](@ref). Array-step entries, scalar
-  `prox_block` steps and the `Scaled` routes do not check the step, and project; the step
-  does not enter the result.
+  [`prox`](@ref), [`prox!`](@ref) and [`value_and_prox!`](@ref). Array-step entries and scalar
+  `prox_block` steps are not checked, and project; the step does not enter the result.
+- `Scaled(f, α)`, `α * f` and `f * α` return `f` itself for a nonnegative `α`,
+  including `0` and `Inf`. A negative or `NaN` factor throws `ArgumentError`.
 - [`value_and_prox!`](@ref) returns the value at the stored output: `NaN` when an
   output entry is `NaN`, and otherwise `0`.
 - The value of a [`SparseIterate`](@ref) or [`SymmetricSparseIterate`](@ref), and the proximal operator
@@ -64,8 +65,7 @@ Base.@propagate_inbounds prox_block(::IndNonnegative, v::T, ::Integer, ::Real) w
 
 # Step check (#908; numerics.md, "NaN, infinities and zeros"): the public array oracles refuse a negative or NaN
 # scalar step before anything is written, and then take the checked separable route, as ElasticNet does
-# (_SeparableScalarStep is defined in elasticnet.jl). prox_block, array-step entries and the Scaled routes do not
-# test the step.
+# (_SeparableScalarStep is defined in elasticnet.jl). prox_block and array-step entries do not test the step.
 @noinline _indnonnegative_step_error(γ) =
   throw(ArgumentError("IndNonnegative requires a nonnegative step γ, got $γ"))
 @inline _check_indnonnegative_step(γ::Real) = (γ >= 0 || _indnonnegative_step_error(γ); nothing)

@@ -2,8 +2,7 @@
 # a second compilation of the candidate (the A/A control), Float32 and Float64: a loop of prox_block, dense
 # prox! with a scalar step and with an array of steps, dense values at a feasible input and at an input with one
 # negative entry (the last), value_and_prox! (a scalar step and an array of steps) with its comparator cells,
-# SparseIterate, BlockIterate and SymmetricSparseIterate values and prox!, and the prox! of a Scaled
-# IndNonnegative, at n = 1024 and 65536.
+# SparseIterate, BlockIterate and SymmetricSparseIterate values and prox!, at n = 1024 and 65536.
 #
 #   PB_ARCHIVE=<root of the archived tree> PB_CANDIDATE=<root of the candidate> PB_OUTPUT=<dir> \
 #   PB_ROUNDS=21 julia --threads=1 --check-bounds=no --project=benchmark benchmark/indnonnegative.jl
@@ -103,7 +102,6 @@ function makeprobes(PB, role, ::Type{T}, D) where {T}
     # the comparator runs in the candidate's tree, in the role "archive"
     CPB = getfield(Candidate, :ProximalBase)
     cf, cpx = CPB.IndNonnegative(), CPB.prox!
-    fs = PB.Scaled(f, T(2))
     for n in SIZES
         d = D[n]
         n == 1024 && add("prox_block_loop/n$n", n, :prox, loop_case(pb, f, d.x, γ))
@@ -120,7 +118,6 @@ function makeprobes(PB, role, ::Type{T}, D) where {T}
             add("comparator/value_and_prox!/scalar_step/n$n", n, :vprox, vprox_case(vp, d.out, f, d.x, γ))
             add("comparator/value_and_prox!/array_step/n$n", n, :vprox, vprox_case(vp, d.out, f, d.x, d.steps))
         end
-        add("scaled_prox!/n$n", n, :prox, prox_case(px, d.out, fs, d.x, γ))
     end
     I = D[:iterates]
     n = length(I.xsp)

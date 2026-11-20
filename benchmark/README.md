@@ -145,7 +145,7 @@ second compilation of the candidate as the A/A control, in Float32 and Float64: 
 `prox_block`, dense `prox!` with a scalar step and with an array of steps, dense values at a
 feasible input and at an input with one negative entry (the last), `value_and_prox!` (a scalar
 step and an array of steps), `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` values
-and `prox!`, and the `prox!` of a `Scaled` `IndNonnegative`, at n = 1024 and 65536. The roles share
+and `prox!`, at n = 1024 and 65536. The roles share
 their plain input and output arrays, and the summary has the columns of the ElasticNet harness
 (median, minimum and maximum of the paired ratios candidate/archive and control/candidate, warmed
 allocations of the archive and candidate roles, with those of the control in `raw.csv`, medians above 1.05

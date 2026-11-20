@@ -13,9 +13,7 @@ function _value_and_prox_unchecked!(y, s::Scaled, x, γ::AbstractArray)
 end
 # With an array step and a factor inside the band, recover an overflow with α < 1 or a
 # zero or subnormal NormL1 leaf value with α > 1 by recomputing at the stored output.
-# ElasticNet keeps its separate nonzero subnormal recovery. An indicator ignores its scale
-# and stays on this route for any factor: its value is exactly 0 or Inf, so an infinite
-# factor at 0 gives 0, and a NaN value stays NaN.
+# ElasticNet keeps its separate nonzero subnormal recovery.
 @inline function _scaled_value_overflow(f, α, y, v)
   r = α * v
   if (!isfinite(r) && _scale_below_one(α)) ||
@@ -24,16 +22,16 @@ end
   end
   _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : _indicator_product(f, r, v)
 end
-@inline _indicator_product(f, r, v) = _isindicator(f) ? _weighted_value(r, v) : r
+# The product α v of a scaled value, as formed on the array route.
+@inline _indicator_product(f, r, v) = r
 
 # Whether an entry of an array step may leave the range in the product with the factors. A chain whose
 # factors have a product that is not a normal number takes the route below. A single factor does
 # when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
 # 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
 # on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
-# inside the band, is rounded with the product as before. An indicator ignores its scale. An infinite
-# factor over any other function takes the route below too, which hands it on as before and applies the
-# rule of its value there.
+# inside the band, is rounded with the product as before. An infinite factor takes the route below too,
+# which hands it on as before and applies the rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
   !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))
@@ -42,7 +40,7 @@ end
 @inline _wide_factor(α::Real, ::Nothing) = false
 @inline function _wide_scale(s::Scaled, x, γ::AbstractArray)
   α = s.α
-  (α > 0 && !_isindicator(s.f)) || return false
+  α > 0 || return false
   _wide_factor(α, float(promote_type(eltype(γ), typeof(α)))) || _wide_factor(α, _wide_factor_type(x))
 end
 @inline _array_route(s::Scaled, x, γ::AbstractArray) = _chained(s) || _wide_scale(s, x, γ)

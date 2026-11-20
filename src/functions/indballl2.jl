@@ -15,6 +15,9 @@ input. At a positive finite radius a single infinite entry, with no
 `NaN`, projects to the signed radius at that entry and zeros elsewhere.
 Several infinite entries or a `NaN` entry produce an all-`NaN` projection.
 
+`Scaled(f, α)`, `α * f` and `f * α` return `f` itself for a nonnegative `α`,
+including `0` and `Inf`. A negative or `NaN` factor throws `ArgumentError`.
+
 The value reads stored entries of a `SparseIterate`. With sparse input and
 output buffers, the projection visits stored entries except when it fills
 the logical array with `NaN`. A `BlockIterate` uses its full vector.
@@ -158,17 +161,6 @@ end
   end
   (a, b, c, d), (m <= r ? zero(T) : T(Inf))
 end
-
-# A ball indicator ignores the scale. Keep the original step for validation,
-# including a negative step whose product with a small scale rounds to -0.
-# IndBallL1 (indballl1.jl) shares this route.
-const _BallIndicator = Union{IndBallL2, IndBallL1}
-_scaled_step(::Scaled{<:_BallIndicator}, γ::Real) = γ
-@inline _ball_leaf(::Type) = false
-@inline _ball_leaf(::Type{<:_BallIndicator}) = true
-@inline _ball_leaf(::Type{<:Scaled{F}}) where {F} = _ball_leaf(F)
-@inline _scaled_step(s::Scaled{<:Scaled}, γ::Real) =
-  _ball_leaf(typeof(s)) ? γ : invoke(_scaled_step, Tuple{Scaled, Real}, s, γ)
 
 @inline _ball_l2_result(y, r, ::Nothing) = y
 @inline _ball_l2_result(y, r, f::IndBallL2) = _ball_l2_finite_radius_value(r, y)

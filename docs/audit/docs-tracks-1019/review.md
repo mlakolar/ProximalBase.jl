@@ -746,3 +746,13 @@ The hub retains a forwarding row. The new page's section links lead to the
 existing definitions, shared numerical rules and tests. The family map points
 to the new page. The scope of the `Scaled` description awaits owner review in
 `open-questions.md`.
+
+## Reconciliation after NormLinf performance changes (#1065)
+
+`sparsegroup_receipt_review@5cf8b27f79a1a76ffd49d38b76c4debdd41bbc9f`
+verified that [#1065](https://github.com/mlakolar/ProximalBase.jl/pull/1065)
+merged with actual first parent `77a4024307ad376c225297fdddffd4730f8a8167`.
+The changed test-inventory block in `test/TESTING.md` retains its original
+identity and gains one verified event. The review compared the landed Git
+blobs and the test assertions for the one-group comparison and Michelot
+handover. The audit now holds 60 receipts and 109 transitions.

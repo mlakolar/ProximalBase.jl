@@ -10,8 +10,8 @@ const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big
 scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
 times_allocs(f, α) = (α * f; @allocated α * f)
 
-# Every valid factor, nested chains whatever their product, and the invalid factors; construction is inferred
-# and does not allocate.
+# The listed valid factors, nested chains whose product overflows, underflows or passes through Inf, and the
+# invalid factors; construction is inferred and does not allocate.
 function check_canonical(f)
   for α in CANON_FACTORS
     @test Scaled(f, α) === f

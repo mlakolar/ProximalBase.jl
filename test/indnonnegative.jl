@@ -464,7 +464,7 @@ end
   end
 end
 
-# the factors of the canonicalization tests: every kind of valid scale
+# the factors of the canonicalization tests: Int, Float32, Float64 and BigFloat, zero, subnormal, huge and infinite
 scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 5e-324, 1e-300, floatmax(Float64), Inf, Inf32,
                                          0.0, -0.0, nextfloat(zero(T)), floatmax(T), T(Inf), big(2.0), big(0), big(Inf)]
 
@@ -476,7 +476,7 @@ scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 
     @test Scaled{AbstractFunction, typeof(α)}(IND, α) === IND
     @test Scaled{IndNonnegative, typeof(α)}(IND, α) === IND
   end
-  # nested scalings return the indicator whatever the product of the factors
+  # nested scalings return the indicator, also when the product of the factors overflows or underflows
   @test Scaled(Scaled(IND, 1e300), 1e100) === IND
   @test Scaled(Scaled(IND, 1e-300), 1e-100) === IND
   @test Scaled(Scaled(IND, 1f30), 1f30) === IND

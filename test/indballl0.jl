@@ -9,8 +9,8 @@ const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big
 scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
 times_allocs(f, α) = (α * f; @allocated α * f)
 
-# Every valid factor, nested chains whatever their product, and the invalid factors; construction is inferred
-# and does not allocate.
+# The listed valid factors, nested chains whose product overflows, underflows or passes through Inf, and the
+# invalid factors; construction is inferred and does not allocate.
 function check_canonical(f)
   for α in CANON_FACTORS
     @test Scaled(f, α) === f
@@ -638,7 +638,7 @@ end
     @test value_and_prox!(fill!(Yc, 42), hh, X, γ) === 0.0
     @test isequal(Yc, Y1)
   end
-  # a negative or NaN step is refused before writing, whatever the scale
+  # a negative or NaN step is refused before writing, at each scale of the list
   for α in (3.0, Inf, floatmax(), 1e-300, 0.5), γ in (-1.0, NaN, -Inf, -nextfloat(0.0), -1e-300)
     fill!(Yc, 42)
     @test_throws ArgumentError prox!(Yc, α * f, X, γ)
@@ -646,7 +646,7 @@ end
     @test_throws ArgumentError value_and_prox!(Yc, α * f, X, γ)
     @test all(==(42), Yc)
   end
-  # nested factors, whatever their product, return the indicator
+  # nested factors return the indicator, also when their product overflows
   @test Scaled(Scaled(f, 2.0), 3.0) === f
   @test isequal(prox(Scaled(Scaled(f, 2.0), 3.0), X), Y1)
   chain = Scaled(Scaled(f, floatmax()), 4.0)

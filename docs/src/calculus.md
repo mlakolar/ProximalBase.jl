@@ -26,9 +26,9 @@ built-in indicators has function-specific exceptional arithmetic described in
 
 **Built-in indicators.** The indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
 (including `IndBallLinf`) and `IndNonnegative` do not depend on a nonnegative scale.
-`Scaled(f, α)`, `α * f` and `f * α` return the indicator `f` itself for every valid `α`, including
-`0`, `-0.0` and `Inf`, and nested scalings of an indicator return it too, whatever the product of
-the factors. A negative, NaN or `-Inf` factor throws `ArgumentError` before the indicator
+`Scaled(f, α)`, `α * f` and `f * α` return the indicator `f` itself for any nonnegative `α`, including
+`0`, `-0.0` and `Inf`. Nested scalings of an indicator return it too, also when the product of
+the factors overflows, underflows or passes through `Inf`. A negative, NaN or `-Inf` factor throws `ArgumentError` before the indicator
 is returned. The result is the indicator, so its steps, errors and extension hooks are the
 indicator's: a negative or NaN scalar step throws `ArgumentError` before writing, and
 `iszeropreserving(Inf * f)` is that of `f`.
@@ -266,7 +266,7 @@ a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 throw `ArgumentError`. A custom function's zero scale has no generic supported
 representation and throws. The built-in indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
 (including `IndBallLinf`) and `IndNonnegative` do not depend on their scale: `Scaled(f, 0)` and
-`0 * f` return the indicator `f` itself, as every nonnegative scale does.
+`0 * f` return the indicator `f` itself, as any nonnegative scale does.
 Inspect the constructed object rather than assume it is always a `Scaled`.
 
 ```@example scaled_zero

@@ -473,7 +473,7 @@ _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scale
 
 # Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
 # computed value. Called only where the computed value of f is 0 (not NaN). The families below:
-# their value is 0 exactly when every entry they penalize is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
+# their value is 0 exactly when all the entries they penalize are 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
 # value, whatever they hold, as in the function's own value. Any other function: false.
 _exactly_zero_at(f, x) = false
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)

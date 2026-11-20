@@ -8,6 +8,7 @@
   "manifests": [
     "moves-indnonnegative.json",
     "moves-leastsquares.json",
+    "moves-linear.json",
     "moves-quadratic.json",
     "moves-sqrnorml2.json",
     "moves-sqrt_leastsquares.json"
@@ -33,6 +34,75 @@
           "dest_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
           "manifest": "moves-sqrnorml2.json",
           "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::36",
+      "baseline_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+          "source_start": 4735,
+          "source_end": 5272,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "9eff6290a2f361c69b01f0b32b35f7a06bb217406a7a4bff0d8317d5254561b2",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::37",
+      "baseline_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+          "source_start": 5273,
+          "source_end": 5432,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "679a0ddde29b953f855ebcf470d04f6c762cb9ff2ea26914caa1c4e0e69042a2",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::38",
+      "baseline_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+          "source_start": 5433,
+          "source_end": 5635,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "c02f8b2a4414739c73e1a3be81608f6ea01b66106c4bc9ecc377e48fa90a1ac7",
+          "manifest": "moves-linear.json",
+          "manifest_index": 1
         }
       ]
     },
@@ -106,6 +176,29 @@
       ]
     },
     {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::115",
+      "baseline_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+          "source_start": 22914,
+          "source_end": 22975,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "e0266197aa00db3caf0ac4f8b549dec91fecc364a5b2436c395dcb6a929dd760",
+          "manifest": "moves-linear.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::131",
       "baseline_sha": "8bbbb237e7a2cd2901a256b31b883c86a4661f50f54121622ffba9480ba084b9",
       "previous_action": "stay",
@@ -171,6 +264,75 @@
           "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
           "manifest": "moves-indnonnegative.json",
           "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::185",
+      "baseline_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+          "source_start": 54410,
+          "source_end": 54761,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "8532115a58b8d128523a914ae2294d366b5b6035fe5d4501bf996a6b6d9a7e27",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::186",
+      "baseline_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+          "source_start": 54762,
+          "source_end": 54883,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "3734e95a40d345b588bd3647cc905c0b74c2e928fd4f3f53f57236172353bc9a",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Sparse product semantics](@id Sparse-product-semantics)::187",
+      "baseline_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+      "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+          "source_start": 54885,
+          "source_end": 55173,
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "8c0e7c1a702ce3123158680b58197a34b6b9ca338fc5683f58646c4caf0d0f5f",
+          "manifest": "moves-linear.json",
+          "manifest_index": 2
         }
       ]
     },
@@ -819,6 +981,251 @@
           "dest_sha": "e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a",
           "manifest": "moves-quadratic.json",
           "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70",
+      "baseline_sha": "eec27c29e41899e36c55943db46ee030d7975c247eee98c1c2e9d5f89ac27415",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "eec27c29e41899e36c55943db46ee030d7975c247eee98c1c2e9d5f89ac27415"
+      ],
+      "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/linear.md#spec-linear-endpoints;docs/src/smooth.md",
+      "dest_sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611;b96118c6fcbb086844e6fb9059d3b1914eaa4fec2f9d60027754c8a02c63ae8b;bd4c707f84de0638a880f8592a1d8c9bf7a24c5da3067e7d313811bf0a345ef5;8660a2cf299c063f4c63dab7a32da69cfc8237986dbe5c285cdd73687798643c;d04184176b478538332067d317e03f121600b77e4506ac1c1ce9ad91c574d60f;5bc963d762b2c25a5d8d29dfbb7e5b48165fdc38cab672ed771c287c9995c107",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611",
+          "source_start": 39002,
+          "source_end": 39134,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:1",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611"
+        },
+        {
+          "source_sha": "b96118c6fcbb086844e6fb9059d3b1914eaa4fec2f9d60027754c8a02c63ae8b",
+          "source_start": 39135,
+          "source_end": 39185,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:2",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "b96118c6fcbb086844e6fb9059d3b1914eaa4fec2f9d60027754c8a02c63ae8b"
+        },
+        {
+          "source_sha": "bd4c707f84de0638a880f8592a1d8c9bf7a24c5da3067e7d313811bf0a345ef5",
+          "source_start": 39186,
+          "source_end": 39328,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:3",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "bd4c707f84de0638a880f8592a1d8c9bf7a24c5da3067e7d313811bf0a345ef5"
+        },
+        {
+          "source_sha": "8660a2cf299c063f4c63dab7a32da69cfc8237986dbe5c285cdd73687798643c",
+          "source_start": 39329,
+          "source_end": 39416,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:4",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "8660a2cf299c063f4c63dab7a32da69cfc8237986dbe5c285cdd73687798643c"
+        },
+        {
+          "source_sha": "d04184176b478538332067d317e03f121600b77e4506ac1c1ce9ad91c574d60f",
+          "source_start": 39417,
+          "source_end": 39567,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:5",
+          "dest": "docs/src/spec/linear.md#spec-linear-endpoints",
+          "dest_sha": "d04184176b478538332067d317e03f121600b77e4506ac1c1ce9ad91c574d60f",
+          "manifest": "moves-linear.json",
+          "manifest_index": 4
+        },
+        {
+          "source_sha": "5bc963d762b2c25a5d8d29dfbb7e5b48165fdc38cab672ed771c287c9995c107",
+          "source_start": 39568,
+          "source_end": 39618,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:6",
+          "dest": "docs/src/smooth.md",
+          "dest_sha": "5bc963d762b2c25a5d8d29dfbb7e5b48165fdc38cab672ed771c287c9995c107"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71",
+      "baseline_sha": "ee12bbfd43960ebb7b9c3c2963d26923cbec80157c13b7a26c19a86e4882c0cc",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "ee12bbfd43960ebb7b9c3c2963d26923cbec80157c13b7a26c19a86e4882c0cc"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59;95730d00b703924ce8c81730cbec2af86543f4a5806755b356984f3b995c25fb;e2a40da51cf320904c7eed2ab992ddf622733753872f12e3f8d0747cdca7ed06;89a2ab5924a9a8ff35df74d84e6210e8d97cfd51a79f7e8f69b64faf4467f8b3;b64c8d1be269fd5158d044d99a447a48ee2f0a7acf11e2c0288ee2f11b1da8da;d33c90583b9960f5f603268b5364b814af222295dc02c49f20cd7a1a1ae77ce1;bae2aa8a2efe015ebe0869e470d33047d5484dd0cc469ce5d43888c2dd1a2ec6;21c0552184214d24f110b86284032dbcb1cb72f231b3105434d589749fa05b8d;b9af7ac9c6a21c9528a3a670cb10d5f2eb9311f7d63bb3dc7329d0d26a1f3476",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59",
+          "source_start": 39620,
+          "source_end": 39845,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:1",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "95730d00b703924ce8c81730cbec2af86543f4a5806755b356984f3b995c25fb",
+          "source_start": 39846,
+          "source_end": 40103,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:2",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "95730d00b703924ce8c81730cbec2af86543f4a5806755b356984f3b995c25fb",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "e2a40da51cf320904c7eed2ab992ddf622733753872f12e3f8d0747cdca7ed06",
+          "source_start": 40104,
+          "source_end": 40365,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:3",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "e2a40da51cf320904c7eed2ab992ddf622733753872f12e3f8d0747cdca7ed06",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "89a2ab5924a9a8ff35df74d84e6210e8d97cfd51a79f7e8f69b64faf4467f8b3",
+          "source_start": 40366,
+          "source_end": 40582,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:4",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "89a2ab5924a9a8ff35df74d84e6210e8d97cfd51a79f7e8f69b64faf4467f8b3",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "b64c8d1be269fd5158d044d99a447a48ee2f0a7acf11e2c0288ee2f11b1da8da",
+          "source_start": 40583,
+          "source_end": 40623,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:5",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "b64c8d1be269fd5158d044d99a447a48ee2f0a7acf11e2c0288ee2f11b1da8da",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "d33c90583b9960f5f603268b5364b814af222295dc02c49f20cd7a1a1ae77ce1",
+          "source_start": 40624,
+          "source_end": 40926,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:6",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "d33c90583b9960f5f603268b5364b814af222295dc02c49f20cd7a1a1ae77ce1",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "bae2aa8a2efe015ebe0869e470d33047d5484dd0cc469ce5d43888c2dd1a2ec6",
+          "source_start": 40927,
+          "source_end": 41173,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:7",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "bae2aa8a2efe015ebe0869e470d33047d5484dd0cc469ce5d43888c2dd1a2ec6",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "21c0552184214d24f110b86284032dbcb1cb72f231b3105434d589749fa05b8d",
+          "source_start": 41174,
+          "source_end": 41392,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:8",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "21c0552184214d24f110b86284032dbcb1cb72f231b3105434d589749fa05b8d",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "b9af7ac9c6a21c9528a3a670cb10d5f2eb9311f7d63bb3dc7329d0d26a1f3476",
+          "source_start": 41393,
+          "source_end": 41656,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:9",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "b9af7ac9c6a21c9528a3a670cb10d5f2eb9311f7d63bb3dc7329d0d26a1f3476",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72",
+      "baseline_sha": "2959737ac47f4f3e8916a4f2129c77f2ba473dd067475a65c65d150b5e2c7f72",
+      "previous_action": "stay",
+      "action": "split",
+      "comparison_source_shas": [
+        "2959737ac47f4f3e8916a4f2129c77f2ba473dd067475a65c65d150b5e2c7f72"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range;docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a;efefbfce1ccff87b63d003ef00b944ae5ca8ad205092c5be4df4ec2fa8a1aebe;56aca9dcfd3d52cb4cff2cc554be3e88670a703f937d788084ff9933a18be1ae;aec3a6592e1efc9aa6305b5c66918229211cfbb131a6b5743f4ae08c4ee57a36",
+      "reviewer": "lead-independent-migration@5cf01e4",
+      "pieces": [
+        {
+          "source_sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a",
+          "source_start": 41658,
+          "source_end": 41892,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:1",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "efefbfce1ccff87b63d003ef00b944ae5ca8ad205092c5be4df4ec2fa8a1aebe",
+          "source_start": 41893,
+          "source_end": 42146,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:2",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "efefbfce1ccff87b63d003ef00b944ae5ca8ad205092c5be4df4ec2fa8a1aebe",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "56aca9dcfd3d52cb4cff2cc554be3e88670a703f937d788084ff9933a18be1ae",
+          "source_start": 42147,
+          "source_end": 42496,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:3",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "56aca9dcfd3d52cb4cff2cc554be3e88670a703f937d788084ff9933a18be1ae",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        },
+        {
+          "source_sha": "aec3a6592e1efc9aa6305b5c66918229211cfbb131a6b5743f4ae08c4ee57a36",
+          "source_start": 42497,
+          "source_end": 42697,
+          "child_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:4",
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "aec3a6592e1efc9aa6305b5c66918229211cfbb131a6b5743f4ae08c4ee57a36",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::73",
+      "baseline_sha": "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d"
+      ],
+      "dest": "docs/src/spec/linear.md#spec-linear-range",
+      "dest_sha": "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d",
+          "source_start": 42699,
+          "source_end": 42966,
+          "dest": "docs/src/spec/linear.md#spec-linear-range",
+          "dest_sha": "4489ab928ce4468a0a8bac514a8685e01a0a26c4d678ad4317f5e60a5e260c6d",
+          "manifest": "moves-linear.json",
+          "manifest_index": 3
         }
       ]
     }

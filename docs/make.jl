@@ -116,6 +116,7 @@ makedocs(;
             "LeastSquaresLoss" => "spec/leastsquares.md",
             "SqrtLeastSquaresLoss" => "spec/sqrt_leastsquares.md",
             "QuadraticFunction" => "spec/quadratic.md",
+            "LinearFunction and ZeroFunction" => "spec/linear.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

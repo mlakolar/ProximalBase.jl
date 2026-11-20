@@ -88,7 +88,9 @@ Through `Scaled`, an unsupported argument can be read by the preprocessing of
 `Scaled`, for example an array step or a matrix input with a
 `SymmetricSparseIterate` output, before the refusal. Through `Scaled`,
 `prox_block` of a vector block, `prox_block!` and the four-argument and
-full-point forms of `kkt_violation` throw `MethodError`.
+full-point forms of `kkt_violation` throw `MethodError`, and so can `prox` of
+an array whose element type has no float type or of a tuple that holds a
+non-array or comes with an array step.
 
 Not provided: positive definiteness of the output, `restrict`,
 `prox_block`, `prox_block!` and `kkt_violation` (each throws `ArgumentError`

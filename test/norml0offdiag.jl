@@ -612,6 +612,11 @@ end
       @test_throws MethodError kkt_violation(s, zeros(T, p, p), xss)
       @test_throws MethodError kkt_violation(s, zeros(T, p, p), xss, 1)
       @test_throws MethodError kkt_violation(s, zeros(T, 4), BlockIterate(T, 4, [1:2, 3:4]), 1)
+      @test_throws MethodError prox(s, ["a", "b"])
+      @test_throws MethodError prox(s, fill("a", 2, 2))
+      @test_throws MethodError prox(s, (S, 0))
+      @test_throws MethodError prox(s, (S,), steps)
+      @test steps == fill(T(1), p, p) && X == S
     end
   end
 end

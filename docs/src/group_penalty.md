@@ -291,41 +291,7 @@ scores
 
 ### [Exceptional parameters and values](@id group-l2-endpoints)
 
-| Case | Result for group ``k`` |
-|:--|:--|
-| ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included; value zero |
-| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` included, also for `NaN` and `±Inf` inputs (see [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)) |
-| ``\lambda_0=0`` or ``\gamma=0``, finite parameters | The identity |
-| ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
-| A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN` |
-| A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged: the norm is infinite and the threshold ``\gamma\lambda_0w_k`` is finite, also when its floating-point product overflows |
-| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
-
-The common interpretation of [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)
-applies. A finite zero group becomes `+0` under positive finite parameters. An
-infinite-weight or infinite-level group's value is zero at a zero group, `NaN`
-when it contains `NaN`, and `Inf` otherwise; a zero weight overrides these value
-rules and contributes zero.
-For finite inputs, norms whose sums of squares overflow or underflow and
-thresholds outside the floating-point range are recomputed in power-of-two
-units, so that a representable proximal point is returned accurately. Values recover terms that round below `floatmin`: for `Float32` and `Float64`,
-a sum below `K*floatmin`, where `K` is the total number of groups, is recomputed
-using term exponents. Values at or above `floatmax/2` are recomputed in
-power-of-two units and accumulated in at least `Float64`. Within a few eps of
-the overflow threshold the result may be `floatmax` or `Inf`, regardless of
-which one the exact value rounds to. See [value range limits](@ref numerical-value-range).
-
-`GroupNormL2` does not apply to a `SymmetricSparseIterate` (its proximal operators
-throw an `ArgumentError` before anything is written), and it has no
-`restrict`, no per-group step and no compact block method under `Scaled`.
-With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
-`α`, computes the array proximal operator with the step `αγ`, and scores a group by evaluating the score of
-`GroupNormL2` on `v/α` and multiplying it by `α` (see the [scaling guide](@ref scaling-guide)
-for the limits and the unsupported cases); `test/kkt_block.jl` checks these scores
-against the definition of the scaled function. A zero `α` throws an
-`ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
-[group-lasso example](examples/group_lasso_prox.md) checks the value, the
-proximal operators, the block operations and the screen against their formulas.
+See the [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints).
 
 ## [The group ℓ∞ norm](@id group-linf-guide)
 

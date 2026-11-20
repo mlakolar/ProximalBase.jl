@@ -9,6 +9,16 @@
         "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
       ],
       "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::75",
+      "baseline_sha": "48f623081889dfbbb4b5ff7460ba25c8898efe792e41ea18d10566e67fd26d6c",
+      "upstream_sha": "c3f2ecda520a07082a9e2442071631f5dcb41db23370c79e2bc557a2c8207495",
+      "source_shas": [
+        "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
+        "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
+      ],
+      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
     }
   ]
 }

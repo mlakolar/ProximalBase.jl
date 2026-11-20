@@ -99,12 +99,18 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The reconciliation through `bc9e888d`
-has 66 receipts covering 131 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `8364532f`
+has 66 receipts covering 132 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
+
+The #1063 test inventory says the historical snapshot at `879e067` “added a
+provisional 40-second weight”. This could refer to the measured checkout or
+to the later weight based on its timing. The measured checkout used a weight
+of 35 seconds and #1063 landed with 40 seconds. The wording awaits the owner's
+decision. [Test inventory](../../../test/TESTING.md#ci-sharding)
 
 Heading compatibility retains explicit IDs and authored link/citation targets.
 The uncited original API heading's two automatic fragments remain the only

@@ -787,3 +787,13 @@ sentences at the same scope. The audit records the complete replacement. The
 scope of “the same squared-residual recovery” awaits owner review in
 `open-questions.md`. The audit holds 66 receipts and 131 transitions across the
 same 2,162 original block identities.
+
+## Reconciliation after diagonal-free NormL0 (#1063)
+
+`sparsegroup_receipt_review@735de29173bd3e547c5d40039d3f27aece83d915`
+verified that [#1063](https://github.com/mlakolar/ProximalBase.jl/pull/1063)
+merged with actual first parent `bc9e888d09e5fc3c3feb35905dd7a14e70657fa5`.
+The landed Git blobs add one timing paragraph to the existing CI sharding
+receipt in `test/TESTING.md`, extending the ordered span from eight blocks
+to nine. The later GroupNormLinf wording commit at `8364532f` edits text added
+after the frozen inventory. The audit holds 66 receipts and 132 transitions.

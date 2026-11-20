@@ -434,6 +434,11 @@ with `prox_block` and in calls through `Scaled`.
 See the [MCP numerical contract](@ref mcp-contract) for step rules,
 value endpoints and the supported array and iterate routes.
 
+### [Off-diagonal cardinality penalty](@id spec-norml0offdiag-numerics)
+
+See the [numerical contract of `NormL0(λ; diagonal = false)`](@ref spec-norml0offdiag) for the
+input domain, the proximal and value rules, refusals and storage.
+
 ### SCAD endpoints
 
 See the [SCAD endpoint clauses](@ref scad-endpoints) for the proximal and

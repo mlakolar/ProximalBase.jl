@@ -412,6 +412,8 @@ for the finite-data scores.
 
 ### Cardinality penalty endpoints
 
+See the [IndBallL0 endpoint rules](@ref spec-indballl0-endpoints).
+
 For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
 distance cost of setting a finite input `v` to zero with the penalty cost
 of keeping it. The comparison uses the exact products of the represented

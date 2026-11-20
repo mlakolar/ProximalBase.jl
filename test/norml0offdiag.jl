@@ -190,7 +190,7 @@ end
   end
 end
 
-# A random exactly symmetric matrix, and entries planted at and next to the threshold t.
+# A random matrix that is symmetric under ==, and entries planted at and next to the threshold t.
 function symmetric_random(rng, ::Type{T}, p) where {T}
   A = randn(rng, T, p, p)
   A .+ A'
@@ -609,7 +609,7 @@ end
     expected = prox(f, S, γ)
     ev = f(expected)
     nans() = fill(NaN32, p, p)
-    # as the input only
+    # as the input, with a Matrix output
     X = reinterpreted(P, S)
     @test X isa StridedMatrix{Float32} && isequal(Matrix(X), S)
     Y = nans()
@@ -619,7 +619,7 @@ end
     @test isequal(prox(f, X, γ), expected)
     @test f(X) === f(S)
     @test isequal(Matrix(X), S)
-    # as the output only
+    # as the output, with a Matrix input
     Y = reinterpreted(P, nans())
     @test prox!(Y, f, S, γ) === Y && isequal(Matrix(Y), expected)
     Y = reinterpreted(P, nans())

@@ -1006,7 +1006,7 @@ class UpstreamTests(unittest.TestCase):
         self.save()
         self.assert_rejected("share a changed diff hunk")
 
-    def test_upstream_chain_keeps_original_file_restriction(self):
+    def test_upstream_chain_cannot_be_redirected_to_another_file(self):
         self.extend_chain()
         target = self.root / "docs/src/other.md"
         target.parent.mkdir(parents=True)
@@ -1014,6 +1014,84 @@ class UpstreamTests(unittest.TestCase):
         self.rows[0]["dest"] = self.record["dest"] = "docs/src/other.md"
         self.save()
         self.assert_rejected("original file")
+
+    def post_move_fixture(self, *, prior_fields=None, duplicate=False, outside_heading=False):
+        old = self.baseline[0]
+        m.git("checkout", "--quiet", "--detach", self.before, root=self.root)
+        (self.root / old.path).write_text(self.original.replace(old.text, "See the family contract."))
+        m.git("add", old.path, root=self.root)
+        self.path = "docs/src/spec/family.md"
+        (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.move_scope = self.path + "#family-range"
+        self.prior_move = dict(self.rows[0], action="move", dest=self.move_scope,
+                               dest_sha=old.sha, reviewer="mechanical")
+        self.prior_ledger = self.receipt.parent / "ledger.tsv"
+        recorded = dict(self.prior_move, **(prior_fields or {}))
+        m.write_tsv(self.prior_ledger, m.FIELDS, [recorded, recorded] if duplicate else [recorded])
+        m.git("add", str(self.prior_ledger.relative_to(self.root)), root=self.root)
+        template = "# Family\n\n## [Range](@id family-range)\n\n{}\n\n## Other\n\n"
+        if outside_heading:
+            template = template.format("A rule in the recorded section.") + "{}\n"
+        before = self.commit(template.format(old.text), "move original block")
+        self.after_move = template.format("Updated `1` rule. The endpoint is finite. Test the selected range.")
+        after = self.commit(self.after_move, "upstream edit at moved destination")
+        section = self.after_move if outside_heading else m.section_text(self.after_move, "family-range")
+        self.moved_hashes = [block.sha for block in m.blocks(section, self.path) if block.kind == "prose"][-3:]
+        self.event = self.make_event(before, after, old.sha, self.moved_hashes[0])
+        del self.event["replacement_sha"]
+        self.event["replacement_shas"] = self.moved_hashes
+        self.rows[0].update(action="upstream", dest=";".join([self.move_scope] * 3),
+                            dest_sha=";".join(self.moved_hashes), reviewer=self.event["reviewer"])
+        self.record = dict(block_id=old.id, baseline_sha=old.sha, dest=self.rows[0]["dest"],
+                           dest_sha=self.rows[0]["dest_sha"], reviewer=self.event["reviewer"],
+                           events=[self.event])
+        self.save()
+
+    def test_post_move_upstream_uses_committed_move_and_shallow_event_blobs(self):
+        self.post_move_fixture()
+        (self.root / ".git/shallow").write_text(
+            self.event["before_commit"] + "\n" + self.event["after_commit"] + "\n")
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual([b.sha for b in mappings[self.baseline[0].id][1]], self.moved_hashes)
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_post_move_upstream_can_extend_the_exact_span_in_place(self):
+        self.post_move_fixture()
+        final = self.after_move.replace("The endpoint is finite.", "The endpoint is `Inf`.")
+        after = self.commit(final, "second upstream edit at moved destination")
+        hashes = [b.sha for b in m.blocks(m.section_text(final, "family-range"), self.path) if b.kind == "prose"]
+        second = self.make_event(self.event["after_commit"], after, self.moved_hashes[0], hashes[0], number=1022)
+        del second["source_sha"], second["replacement_sha"]
+        second.update(source_shas=self.moved_hashes, replacement_shas=hashes)
+        self.record["events"].append(second)
+        self.rows[0]["dest_sha"] = self.record["dest_sha"] = ";".join(hashes)
+        self.save()
+        self.assertEqual(self.check()[0], [])
+
+    def test_post_move_upstream_requires_one_exact_tracked_move(self):
+        for fields, duplicate in (({"action": "stay"}, False),
+                                  ({"kind": "code"}, False),
+                                  ({"sha": "0" * 64}, False),
+                                  ({"dest_sha": "0" * 64}, False),
+                                  ({"dest": "docs/src/spec/family.md#Other"}, False),
+                                  ({}, True)):
+            with self.subTest(fields=fields, duplicate=duplicate):
+                self.post_move_fixture(prior_fields=fields, duplicate=duplicate)
+                self.assert_rejected("matching move in the first event's parent ledger")
+        self.post_move_fixture(prior_fields={"action": "stay"})
+        m.write_tsv(self.prior_ledger, m.FIELDS, [self.prior_move])
+        self.assert_rejected("matching move in the first event's parent ledger")
+
+    def test_post_move_upstream_rejects_a_span_outside_the_recorded_heading(self):
+        self.post_move_fixture(outside_heading=True)
+        self.assert_rejected("span must stay inside its recorded heading")
+
+    def test_post_move_upstream_cannot_supply_a_migration_basis(self):
+        self.post_move_fixture()
+        with self.assertRaisesRegex(ValueError, "migration bases require upstream edits in the original file"):
+            m.validate_upstream(self.baseline[0], self.record, self.record, self.root, current=False)
 
     def split_fixture(self):
         self.path = "docs/src/numerics.md"

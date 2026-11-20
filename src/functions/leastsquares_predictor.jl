@@ -85,11 +85,11 @@ already computed by the caller. Here `α = 1` for a [`LeastSquaresLoss`](@ref), 
 is the factor of one [`Scaled`](@ref) wrapper. No design entries are read and no
 loss fields are written. The call neither reads nor writes `f.tmp`; the supplied `z` may be a view of `f.tmp`.
 
-Use a vector-response loss with strided `Float32` or `Float64` data of one type
-`T`, and a `StridedVector{T}` predictor with the response's axes. Other types
-throw `MethodError`; mismatched axes throw `DimensionMismatch`. The result is `T`.
-For a matrix-response least-squares loss, use dense `Matrix{T}` data and a
-`StridedMatrix{T}` predictor with the response's axes. The norm is Frobenius.
+For vector responses, use strided `Float32` or `Float64` data of one type `T`
+and a `StridedVector{T}` predictor with the response's axes. For matrix-response
+least squares, use dense `Matrix{T}` data and a `StridedMatrix{T}` predictor with
+the response's axes. The matrix norm is Frobenius. Other types throw
+`MethodError` and mismatched axes throw `DimensionMismatch`. The result is `T`.
 
 # Examples
 ```jldoctest
@@ -100,7 +100,7 @@ julia> ProximalBase.value_from_predictor(f, [3.0])
 ```
 
 For [`SqrtLeastSquaresLoss`](@ref), or one `Scaled` wrapper, this returns
-`α*norm(z-Y)` rather than a squared loss. The strided type, axes and factor
+`α*norm(z-Y)` rather than a squared loss. The vector-response type, axes and factor
 restrictions are the same, including rejection of an infinite scale **before**
 evaluating a zero residual. Extreme sums and products use power-of-two range
 recovery, not `sqrt(2*v)` of the squared-loss value; see the
@@ -273,7 +273,8 @@ function value_from_predictor(f::_LSMatrixPredictorLoss{T}, z::StridedMatrix{T})
   base, a = _ls_base_scale(f)
   Y = base.Y
   axes(z) == axes(Y) || _ls_axes_error("z", axes(z), axes(Y))
-  s = isempty(z) ? zero(T) : _ls_sumabs2_diff_pairwise(z, Y)
+  # A linear index range keeps mapreduce pairwise even for Cartesian-indexed views.
+  s = mapreduce(i -> @inbounds(abs2(z[i] - Y[i])), +, 1:length(z); init=zero(T))
   _ls_matrix_predictor_value(f, z, _LSResponse(), s, a)
 end
 
@@ -288,7 +289,9 @@ function value_and_gradient_from_predictor!(g::StridedMatrix{T}, d::StridedMatri
   Base.require_one_based_indexing(g)
   _ls_checkalias(g, d, base, z)
   _leastsquares_residual_gradient!(g, d, X, z, Y)
-  v = _ls_matrix_predictor_value(f, d, nothing, _sumabs2_loop(d), a)
+  s = length(d) > _LS_ONE_LOOP_MAX ?
+      mapreduce(i -> @inbounds(abs2(d[i])), +, 1:length(d)) : _simd_sumabs2(d)
+  v = _ls_matrix_predictor_value(f, d, nothing, s, a)
   _ls_scale_gradient!(g, f, a)
   v
 end

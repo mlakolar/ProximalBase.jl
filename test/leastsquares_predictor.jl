@@ -1331,6 +1331,39 @@ end
   end
 end
 
+@testset "long matrix views keep pairwise summation" begin
+  for T in (Float32, Float64)
+    n, K = 2^17, 2
+    Y, X = zeros(T, n, K), ones(T, n, 1)
+    Z = view(ones(T, 2n, K), 1:2:2n, :)
+    D = view(zeros(T, 2n, K), 1:2:2n, :)
+    G = zeros(T, 1, K)
+    large = pow2(T, T === Float32 ? 12 : 27)
+    Z[1, 1] = large
+    exact = with256(() -> (big(large)^2 + length(Z) - 1) / 2)
+    f = LeastSquaresLoss(Y, X)
+    for v in (PB.value_from_predictor(f, Z), PB.value_and_gradient_from_predictor!(G, D, f, Z))
+      @test abs(big(v) - exact) <= 4 * eps(T) * exact
+    end
+  end
+end
+
+@testset "matrix predictor value can recover an overflowing difference" begin
+  for T in (Float32, Float64)
+    X = ones(T, 2, 1)
+    Y, Z = T[-floatmax(T) 0; 0 0], T[floatmax(T) 1; 0 0]
+    α = floatmin(T) / 32
+    f = mkloss(Y, X, α)
+    G, D = zeros(T, 1, 2), similar(Y)
+    ref = ref_value(α, Z, Y)
+    @test value_ok(PB.value_from_predictor(f, Z), ref, T, length(Z))
+    @test PB.value_and_gradient_from_predictor!(G, D, f, Z) === T(Inf)
+    @test D[1, 1] === T(Inf)
+    @test G[1, 1] === T(Inf)
+    @test G[1, 2] === α
+  end
+end
+
 @testset "matrix predictor refusal before writes" begin
   for T in (Float32, Float64)
     U = T === Float32 ? Float64 : Float32
@@ -1354,9 +1387,10 @@ end
                             (G, reshape(D, K, n), DimensionMismatch),
                             (G, Doff, DimensionMismatch), (Goff, D, ArgumentError),
                             (U.(G), D, MethodError), (G, U.(D), MethodError))
-        snapshot = map(copy, (g, d))
+        buffers = (g === Goff ? parent(g) : g, d === Doff ? parent(d) : d)
+        snapshot = map(copy, buffers)
         @test_throws error PB.value_and_gradient_from_predictor!(g, d, f, Z)
-        @test isequal((g, d), snapshot)
+        @test isequal(buffers, snapshot)
       end
       for invalid in (LeastSquaresLoss(Y, sparse(X)), LeastSquaresLoss(U.(Y), X),
                       LeastSquaresLoss(view(Y, :, :), X), Scaled(Scaled(raw, 1e200), 1e200),

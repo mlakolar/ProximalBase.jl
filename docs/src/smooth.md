@@ -128,8 +128,8 @@ out = similar(x)
 A solver that keeps the linear predictor ``z=X\beta`` current (after a coordinate update, say) can
 evaluate the loss from it without a product by ``X``. Three qualified public functions, not exported,
 serve this for a vector-response `LeastSquaresLoss` or one `Scaled` of it, and a fourth returns the data
-of the loss. The two predictor oracles also take matrix-response least squares. Here ``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself. The
-value oracles and the accessor serve `SqrtLeastSquaresLoss` as well, which has its
+of the loss. The two predictor oracles also take matrix-response least squares. Here
+``\alpha`` is the factor of the `Scaled` wrapper, and ``\alpha=1`` for the loss itself. The value oracles and the accessor serve `SqrtLeastSquaresLoss` as well, which has its
 [own section](#Square-root-least-squares-is-not-smooth) below:
 
 ```math
@@ -171,10 +171,11 @@ loop for up to ``2^{17}`` entries and by Julia's pairwise summation for longer v
 promoted type of ``\alpha`` and `T`, and the product is rounded to `T` at the result (a subnormal result can round
 twice). For a matrix response, the predictor value uses a pairwise sum of squared
 differences. The fused oracle sums the stored residual squares, with the same
-length cutoff as the vector implementation, applied to `nK`. Where the squares overflow or underflow, where the difference ``z-Y`` overflows, and where the ordinary
+length cutoff as the vector implementation, applied to `nK`. Where the squares
+overflow or underflow, where the difference ``z-Y`` overflows, and where the ordinary
 value ``\alpha s/2`` is above ``\texttt{floatmax}(T)/2``, the value is recomputed from the squares in units of a power of two with
 ``\alpha`` folded in, summed compensated, the computation that `SqrNormL2` uses for its exceptional values. The
-last case keeps the error of the ordinary sum, which grows with ``n``, from deciding between a finite value and
+last case keeps the error of the ordinary sum, which depends on the number of entries, from deciding between a finite value and
 `Inf`. The recomputation gives a finite value where the value is representable with margin (see the range
 statement below). Against 256-bit references the tests require
 ``(m+8)\,\varepsilon_T|v|`` accuracy for finite data and a value that is representable with that margin, plus

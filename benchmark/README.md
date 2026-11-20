@@ -640,3 +640,38 @@ control runs in both comparisons.
 
 The independent correctness sweep uses 256-bit arithmetic for ordinary
 inputs and 4096-bit arithmetic over the wider exponent range.
+
+## NormL0 with diagonal = false
+
+`norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0(λ; diagonal = false)` against
+the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 8, 32, 64` and
+`Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
+buffer first, for both functions). It checks that the two maps agree off the diagonal, alternates
+the order of the paired samples and prints, for each operation, the fraction of off-diagonal entries
+that the map keeps on the matrix of that run, rounded to two decimal places (`kept`), the median
+time per call of each function over `PB_SAMPLES` samples, a positive count (the mean of the two
+middle samples when the count is even), their ratio, the ratio of the
+diagonal-free time to the out-of-place `prox!` of `NormL0`, and the bytes allocated by the
+diagonal-free operation. It runs in the root project:
+
+```sh
+julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchmark/norml0offdiag.jl")'
+```
+
+Before the proximal map writes, `NormL0(λ; diagonal = false)` makes a finiteness pass over the entries of the
+input; it does not compare the two triangles. One run on Julia 1.13.4 at commit `0d9ceb65b`, before the function
+moved to the `diagonal` keyword of `NormL0`, gave these ratios to the same operation of `NormL0`. At that
+commit the finiteness pass counted the non-finite entries column by column for every strided matrix; the
+current code sums `x - x` over a `Matrix` in one pass (see the implementation notes of the
+[numerical contract](../docs/src/spec/norml0offdiag.md)), so the table does not describe the current pass.
+More than half of the off-diagonal entries of that run's matrices lay above the threshold. The allocation was zero bytes in each row of that
+run. In this run the in-place ratios were below one at some sizes, and the in-place `prox!` of
+`NormL0` was slower than its out-of-place `prox!`.
+
+| Operation | `Float32`, `p = 8, 32, 64` | `Float64`, `p = 8, 32, 64` |
+|:--|:--|:--|
+| `prox!` | 4.7, 3.7, 3.7 | 3.4, 3.0, 1.7 |
+| `value_and_prox!` | 3.6, 2.5, 2.1 | 2.8, 1.8, 1.3 |
+| value | 5.7, 2.6, 1.9 | 3.8, 1.8, 1.4 |
+| `prox!` in place | 1.3, 0.6, 0.5 | 1.2, 0.8, 0.7 |
+| `value_and_prox!` in place | 1.5, 0.7, 0.5 | 1.3, 0.8, 0.7 |

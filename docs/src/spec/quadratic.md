@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`QuadraticFunction`](@ref).
 
 Source: [`src/functions/quadratic.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/quadratic.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-quadratic-definition)
 
@@ -89,7 +89,7 @@ exceptional value-summation recovery.
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/quadratic_domain.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/quadratic_domain.jl)
-- [`test/numerical_kernels.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_kernels.jl)
+- [`test/numerical_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_recovery.jl)
 - [`test/kkt_smooth.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_smooth.jl)
 
 ## [History](@id spec-quadratic-history)

@@ -8,7 +8,7 @@
       "source_shas": [
         "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
       ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+      "evidence": "sparsegroup_receipt_review@39486aad79a3d8184945a249543b31185ff90d86 verified the retained Git receipt and its complete terminal span against the reviewed move."
     }
   ]
 }

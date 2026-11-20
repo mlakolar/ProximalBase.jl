@@ -20,6 +20,8 @@ retained test files.
 
 ## [Definition and domain](@id spec-norml1-definition)
 
+**Links only.**
+
 The mathematical definition, constructor arguments and ordinary weighted
 penalty interpretation remain in
 [Mathematical definition and Julia constructor](../penalties.md#Mathematical-definition-and-Julia-constructor).
@@ -27,6 +29,8 @@ The endpoint text below retains the distinctions between finite parameters,
 infinite weights and an infinite overall level.
 
 ## [Traits](@id spec-norml1-traits)
+
+**Links only.**
 
 See the [function-family description](../penalties.md#Mathematical-definition-and-Julia-constructor),
 the [`NormL1`](@ref) API entry, and
@@ -49,6 +53,8 @@ The complete operation and representation boundaries remain in
 
 ## [Preconditions](@id spec-norml1-preconditions)
 
+**Links only.**
+
 Constructor conditions are in the [`NormL1`](@ref) API entry.
 Shared array and precision conditions are in
 [Shapes and destination-first mutation](../numerical_usage.md#Shapes-and-destination-first-mutation)
@@ -64,6 +70,8 @@ views are not. Weights are stored by reference, so modifying them also
 changes the function.
 
 ## [Ordinary-path clauses](@id spec-norml1-ordinary)
+
+**Links only.**
 
 The ordinary formula and executable examples remain in
 [Proximal operator: soft thresholding](../penalties.md#Proximal-operator:-soft-thresholding)
@@ -148,6 +156,8 @@ infinite **level** at any nonnegative step retains its distinct fixed-zero rule
 for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
 
 ## [Failure behavior](@id spec-norml1-failures)
+
+**Links only.**
 
 The common owners are
 [Predictable failures and partial writes](../numerical_usage.md#Predictable-failures-and-partial-writes),

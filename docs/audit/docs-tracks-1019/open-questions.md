@@ -62,6 +62,16 @@ that happens to pass.
   awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
   · [Tests](../../../test/leastsquares_predictor.jl)
 
+- The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
+  could mean the loss from unrounded `Xβ` or the exact norm at the stored or
+  supplied predictor or residual. The same paragraph leaves open whether
+  the precision and layout conditions apply to the caller's coefficients and
+  design or to the operands of the sum. Its length-and-epsilon condition can
+  also be read to cover precisions beyond `Float32` and `Float64`, which the
+  kernel proof names. The scope of the bound awaits the owner's decision.
+  [Source](../../../src/functions/sqrt_leastsquares.jl)
+  · [Tests](../../../test/sqrt_leastsquares.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

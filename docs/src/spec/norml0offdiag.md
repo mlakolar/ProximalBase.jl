@@ -110,7 +110,7 @@ overflow to `Inf` when the product rounds beyond `floatmax(T)`.
 
 ## [Failure behavior](@id spec-norml0offdiag-failures)
 
-The checks run in this order and precede every write, so `X` and `Y` are
+The direct oracles run these checks in this order and precede every write, so `X` and `Y` are
 unchanged by a refused call.
 
 1. One-based axes: `ArgumentError`.
@@ -168,7 +168,7 @@ keep and drop patterns of the pairs, and with `NormL0` off the diagonal for
 mixed level and step types. It covers ties, signed zeros, the diagonal, the
 refusals listed in the failure section, with an unchanged sentinel output where
 the caller passes one, the `MethodError` refusals of non-matrix arguments, strided views, reshapes and
-reinterpreted matrices as input, output and in place, `Scaled`, and zero
+reinterpreted matrices as input and output, and strided views and reinterpreted matrices in place, `Scaled`, and zero
 allocation on both routes. The
 [penalty guide](@ref norml0offdiag-guide) contains an executable example, and
 [`benchmark/norml0offdiag.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/benchmark/norml0offdiag.jl)

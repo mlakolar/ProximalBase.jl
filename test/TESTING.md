@@ -335,5 +335,5 @@ keep and drop patterns of the pairs: exhaustively for `p = 2, 3` over values bel
 threshold with both signs and the four zero pairs, and on seeded samples for `p = 4`. It checks the
 diagonal, symmetry, ties, the value and the fused value, agreement with the all-entry `NormL0` off
 the diagonal for `p` up to 64 with mixed level and step types, the contrast on the diagonal, the
-refusals with a sentinel output, strided views and reshapes, default steps, scaling and warmed
+refusals listed in the failure section, with a sentinel output where the caller passes one, strided views and reshapes, default steps, scaling and warmed
 allocations on both kernel routes.

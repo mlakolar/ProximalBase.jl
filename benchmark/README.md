@@ -646,7 +646,7 @@ inputs and 4096-bit arithmetic over the wider exponent range.
 `norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0OffDiag` against
 the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 8, 32, 64` and
 `Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
-buffer first, for both functions). About half of the off-diagonal entries lie above the threshold.
+buffer first, for both functions). More than half of the off-diagonal entries lie above the threshold.
 It checks that the two maps agree off the diagonal, alternates the order of the paired samples and
 prints the median per call, the ratio, the ratio to the `prox!` of `NormL0` and the allocated
 bytes. It runs in the root project:

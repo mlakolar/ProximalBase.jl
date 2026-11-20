@@ -108,7 +108,9 @@ value_and_prox!(Y::SymmetricSparseIterate, f::IndBallL0, X, γ::AbstractArray) =
 _value_and_prox_unchecked!(Y, f::IndBallL0, X, γ::Real) = value_and_prox!(Y, f, X, γ)
 
 _l0_project!(Y, f, X, γ) = _l0_unsupported("the output or input", typeof.((Y, X)))
+@inline _l0_check_eltype(x) = isconcretetype(eltype(x)) || _l0_unsupported("the argument", typeof(x))
 @inline function _l0_preflight(Y, X, γ)
+  _l0_check_eltype(X)
   size(Y) == size(X) || throw(DimensionMismatch("the output has size $(size(Y)) and the input $(size(X))"))
   (isfinite(γ) && γ >= 0) || _l0_step_error(γ)
   nothing
@@ -140,10 +142,12 @@ end
 
 @inline _l0_value(::Type{T}, f, n, nan) where {T} = nan ? T(NaN) : n <= f.s ? zero(T) : T(Inf)
 function (f::IndBallL0)(x::_L0Dense{T}) where {T<:_L0Float}
+  _l0_check_eltype(x)
   n, nan = _l0_entry_stats(x, eachindex(x), _l0_free_diagonal(f, x), Val(:value))
   _l0_value(T, f, n, nan)
 end
 function (f::IndBallL0)(x::_L0Sparse{T}) where {T<:_L0Float}
+  _l0_check_eltype(x)
   n, nan = _l0_entry_stats(activevalues(x), activecoordinates(x), _l0_free_diagonal(f, x), Val(:value))
   _l0_value(T, f, n, nan)
 end
@@ -346,12 +350,13 @@ function (f::IndBallL0)(x::_L0Symmetric{T}) where {T<:_L0Float}
 end
 (f::IndBallL0)(x::SymmetricSparseIterate{T}) where {T<:_L0Float} = _l0_symmetric_value(T, f, x)
 function _l0_symmetric_value(::Type{T}, f, x) where {T}
+  _l0_check_eltype(x)
   d, e, nan = _l0_symmetric_stats(x, f.diagonal, Val(:value))
   nan ? T(NaN) : _l0_feasible(f.s, d, e) ? zero(T) : T(Inf)
 end
 
 prox(f::IndBallL0, x::SymmetricSparseIterate{T}, γ::Real = 1) where {T<:_L0Float} =
-  prox!(similar(x), f, x, γ)
+  (_l0_check_eltype(x); prox!(similar(x), f, x, γ))
 prox(f::IndBallL0, x::SymmetricSparseIterate, γ::Real = 1) =
   _l0_unsupported("the argument", typeof(x))
 prox(f::IndBallL0, x::SymmetricSparseIterate, γ::AbstractArray) =

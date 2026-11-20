@@ -770,3 +770,30 @@ GroupNormLinf heading was absent from the frozen anchor inventory and had no
 authored incoming references in the repository audit. No moved family blocks
 in #1088–#1092 share these receipt roots. The audit now holds 60 receipts and
 124 transitions.
+
+## Reconciliation after matrix predictor oracles (#1115)
+
+`sparsegroup_receipt_review@bc9e888d09e5fc3c3feb35905dd7a14e70657fa5`
+verified that [#1115](https://github.com/mlakolar/ProximalBase.jl/pull/1115)
+merged with actual first parent `0e09b38cb128697a78a76fa2087dcbfad1812756`.
+The landed Git blobs account for five predictor guide blocks in `smooth.md`
+and one test inventory block in `test/TESTING.md`.
+
+The seventh block is the frozen range guarantee `numerics.md` root `::44`,
+which #1088 moved to `spec/leastsquares.md#spec-leastsquares-range`. The first
+parent's ledger records that exact move and the parent blob holds its frozen
+hash at that scope. The landed blob replaces the sentence with three ordered
+sentences at the same scope. The audit records the complete replacement. The
+scope of “the same squared-residual recovery” awaits owner review in
+`open-questions.md`. The audit holds 66 receipts and 131 transitions across the
+same 2,162 original block identities.
+
+## Reconciliation after diagonal-free NormL0 (#1063)
+
+`sparsegroup_receipt_review@735de29173bd3e547c5d40039d3f27aece83d915`
+verified that [#1063](https://github.com/mlakolar/ProximalBase.jl/pull/1063)
+merged with actual first parent `bc9e888d09e5fc3c3feb35905dd7a14e70657fa5`.
+The landed Git blobs add one timing paragraph to the existing CI sharding
+receipt in `test/TESTING.md`, extending the ordered span from eight blocks
+to nine. The later GroupNormLinf wording commit at `8364532f` edits text added
+after the frozen inventory. The audit holds 66 receipts and 132 transitions.

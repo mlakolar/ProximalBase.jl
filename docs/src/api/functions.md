@@ -51,6 +51,15 @@ SCAD
 MCP
 ```
 
+## [Cardinality penalty without the diagonal](@id api-norml0-diagonal-free)
+
+`NormL0(λ; diagonal = false)` returns a different function from `NormL0(λ)`, with its own
+argument set; see also its [numerical contract](@ref spec-norml0offdiag).
+
+```@docs
+NormL0(::Real)
+```
+
 ## Entrywise ℓ₁ norm, its nonnegative form and elastic net
 
 ```@docs

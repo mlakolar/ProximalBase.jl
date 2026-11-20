@@ -627,7 +627,7 @@ with ``u=`` `eps(W)/2` for the working type `W`, ``n`` the group size and ``c_k`
 checked (at most 512 entries per group in `Float16`); out of the ordinary range the value is formed in units of a power of two or
 recomputed in a wider type, which extends the range and not the precision (see the [numerical contract](numerics.md)). In the tests, the calls on `Array`
 arguments of these types allocate nothing after the first call, and write neither `v` nor `x`. The four-argument call reads one group: a zero group has the zero test of ``x_{G_k}`` and one sum of ``\lvert v_i\rvert``, with no classification pass, and at a nonzero group the zero test comes before the passes below.
-The full-point call reads every group; apart from the early exits of the exceptional values and of a zero group inside the ball, a nonzero group runs the pass of the face, the
+The full-point call reads every group, and each group first has two classification passes, one over ``x_{G_k}`` and one over ``v_{G_k}``, before any early exit. After them, apart from the early exits of the exceptional values and of a zero group inside the ball, a nonzero group runs the pass of the face, the
 level iteration where the closed-form level is not certified, and the pass of the squares, and a zero group outside the ball runs the level iteration and the
 pass of the squares; the paths for values out of the ordinary range add passes. The speed of the call is not tuned.
 

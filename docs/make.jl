@@ -110,6 +110,7 @@ makedocs(;
             "NormL1Nonneg" => "spec/norml1nonneg.md",
             "ElasticNet" => "spec/elasticnet.md",
             "SCAD" => "spec/scad.md",
+            "IndBallL0" => "spec/indballl0.md",
             "IndBallL1" => "spec/indballl1.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",

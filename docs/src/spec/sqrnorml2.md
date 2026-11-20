@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`SqrNormL2`](@ref).
 
 Source: [`src/functions/sqrnorml2.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/sqrnorml2.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-sqrnorml2-definition)
 
@@ -62,6 +62,9 @@ read an aliased center.
 coefficients.
 
 ## [Endpoint clauses](@id spec-sqrnorml2-endpoints)
+
+The [SqrNormL2 guide](@ref Squared-Euclidean-norm) gives the score formula.
+See the [shared non-finite KKT rules](../numerics.md#NaN,-infinities-and-zeros) for the referenced rows.
 
 | Case | Retained behavior |
 |:--|:--|

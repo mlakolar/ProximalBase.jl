@@ -1,0 +1,1642 @@
+{
+  "schema": 1,
+  "baseline": "7ae86e2093060eb124211e2f21f043c6379f97ae",
+  "parents": [
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide)::3",
+      "sha": "6d2ef0b32b38ece4050583b392ef8afab8391fe870b56f965f74b27e8b09694b",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide)::3::sentence:1",
+          "sha": "397ddd564df8899b7499f633ba858be236cd92970296fafcf9816ed399328b9a"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide)::3::sentence:2",
+          "sha": "bafa2098d45fc1a63aa7bcc791825e3e04bfe5d91800556caa0acc7ae4d31993"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7",
+      "sha": "6572b7ca052c0092d336cf8b71fc34995e0f7ad4fb000e4fa256892ab0a9d71f",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7::sentence:1",
+          "sha": "354e2ac2bf3b8944a5fff6548302d7a78f25ec62b811ced9beba49dd0f6a842c"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7::sentence:2",
+          "sha": "e99bc8b8bca4ad423abc1d84d6e024e9476cf4c424463072d8d1f73095fa3fbf"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7::sentence:3",
+          "sha": "c371a2e74c403599257f822946a7a3c892436cfb9cf6f45f937da2602dc4a084"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7::sentence:4",
+          "sha": "a28b1eb9160720eae2f50b7b3ff248b360dcb5e4f79434e9e93076fdc644f6d7"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::7::sentence:5",
+          "sha": "727c798d16ad7a68c5e491ce1f116d9cb5f99ec56efc459cd6e74717a1691c16"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8",
+      "sha": "62fb01d42d53efb57e35ac08841c1c58a57267910f34bb37a17d9fc7f560a025",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8::sentence:1",
+          "sha": "acee270c7a658d94a25dfbd9f7301a6b538d75b35cb0cec7fcdea94b0c213ad9"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8::sentence:2",
+          "sha": "14d61dca1541ba958a76bccc9fcd912bdfdbb641ead6c720bff32c30ee3828c7"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8::sentence:3",
+          "sha": "7c8dfd24eb892f5f12a27a99ae5bde85dd53a7877128bb0eca3c17c8a5b2ef56"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8::sentence:4",
+          "sha": "a71132d1e25dc2349d36d33e91a638d41530d6029e3a24a71b0e09f06896cb12"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::8::sentence:5",
+          "sha": "b016c7e426f248b1e9de9abe08264b21d1112a30aa2d6dae43e9f7b3c2dc5391"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9",
+      "sha": "50334ebffb410e9ca7adf7690b5395a9017ef7de8e8d763a9e5fc6c48ce9b211",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9::sentence:1",
+          "sha": "978e5bc61afd70c046aedc6be35967ca85dc02c77e1f59e3c48221d406392b7f"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9::sentence:2",
+          "sha": "73b3ed5f9b3956405c01ee975819980eeeb8889fa03f015e47aa43310abbe898"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9::sentence:3",
+          "sha": "b34e0c9f5b0238d4dd9fcd669ab50296a1065c41bc2699b4465ab0b87d561b91"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9::sentence:4",
+          "sha": "1aea9e20f354b64f43690035277bcbbd1a6c2a29d90f21fdd894a8f96800fbb3"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / Nonnegative scaling::9::sentence:5",
+          "sha": "863a80fe883cb58fe97e74d4c631504f09b171ebd7bc9027954dd1d97b94d4fd"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12",
+      "sha": "da2e3160a27e4688f2236e02c581e90ef5ff9279caee2b23e274df2234044ef8",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12::sentence:1",
+          "sha": "cf7726d89bb3afcb9ad22a1f0c3902d5f2e91808ec55005710a54bf9e969356b"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12::sentence:2",
+          "sha": "825d1962b32c1948a3f8c2ab03fe85009730670f1ef45545b64b539281f42947"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12::sentence:3",
+          "sha": "094c7f66b26a6596db0231db4106f983e621fdac13fe5246ca32be10bc8095e2"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12::sentence:4",
+          "sha": "d2b9fe00693b9844c177d0576690d70e2400770c5fac3388f09317e8d48af773"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14",
+      "sha": "248b0343986ac8889e4977ae5de3450a22e5c602674dcf8851427f2228d35af6",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:1",
+          "sha": "32cb2055a646706fea19e9a334b1473ecd8da07162ad2f0bf4a9ac16c32b7758"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:2",
+          "sha": "3cfb78b443873ff8d3a8508d611ebc0669d693f23a38006ace4ba70307262d16"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:3",
+          "sha": "bad4bb4403bf7279b1229fdd8298bea449a996ecc032451d96b34048dbc15cba"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::14::sentence:4",
+          "sha": "25080dd223d95847c3f22b359bc8d0ebff4a55a1dd351e5524e2d4084f2f7816"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15",
+      "sha": "2049329176efae2de5d0e864fab856eafc369ef0b3166839dfb25819fab0ebba",
+      "children": [
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15::sentence:1",
+          "sha": "e10e467f3959bf8f77a1a888a9384c4fb06dd6a96d64319f6e7d10e2fb732ffa"
+        },
+        {
+          "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::15::sentence:2",
+          "sha": "2043b2b786d08305ce730ce155c5ad027a8c3876f6da30db60a59a15f7af8291"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::4",
+      "sha": "54bdf23a884fa09b3ae75177be99f770544af121cef955450756110eb13030d6",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::4::sentence:1",
+          "sha": "4762c7972c78c0940235c973f83980d20cb0ad9e487d6009010768d1bbd9a50c"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::4::sentence:2",
+          "sha": "096f0d6921215b0bd6b86879d1c40f6a35b5823a92907d2538b62f3a51f9d259"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::4::sentence:3",
+          "sha": "05976ed5069c3255929daf9b47b2cf186ef8bd188bddc57c284e1b9615409fc6"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6",
+      "sha": "d32b8f5a5fdb55526b7f7acf4b556c311bd0dc2cd90de340560911276e64e2fa",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:1",
+          "sha": "9eed85bd07def7bacbdbb97f83b088edd28e68363a1194560a94ccb7683fdbbf"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:2",
+          "sha": "6307090cca14c67f0c71462cda5c8c9cd4dbf743a1fe2992f65799775507118a"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:3",
+          "sha": "a974eee472cdf37bd7e101ad1a4819edc76bc89808630506b98466b1e693e2af"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:4",
+          "sha": "fa4c2126ae4d53470c59b57e6c17102bc6492d768bcc842a6ef81e25c7d38ca3"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:5",
+          "sha": "b6ef9720452ed69b43ef9671003bb8d430fa7a241a4c36345bc62b143b3e708c"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:6",
+          "sha": "868b6eafc75859b2f3b78d3bb8b1f2a7b36df277a25c494546ef8d43b6868575"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:7",
+          "sha": "b89bdda819f37eb60548c740d9dd2f3bfb10316f3fa66da907045f76841c8683"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The ℓ₂ norm](@id norm-l2-guide)::6::sentence:8",
+          "sha": "57ee2396640d08b3bb80752f9f4520de18c83fdc1313ddfefc5942dec8ceb379"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
+      "sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:1",
+          "sha": "cb2f3945090241b09c6cfaa88ae4f32b2b83007c62b760cd70423ed877f99059"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:2",
+          "sha": "6fb8dd1fcbd5bcfa1369bbe933d538360a505f3234b3a609077d788671810bb3"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:3",
+          "sha": "7bae4c4c8901d3acb390f90193f2b60ad6ef4e7e7466c46e5a56013cac31503a"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:4",
+          "sha": "3e666b9c196cd41a500a0ff12050a8b6e7a2e479429bf840ba8c07293e4a95e7"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:5",
+          "sha": "e799b8b73a8e04eeb685998ae058e70797207cf4167731394f31dd0ce6aa65e0"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:6",
+          "sha": "2dc8bbf58d8f315111d1b20a61c2f31fefdff0aa83efc1543ea3964866990929"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:7",
+          "sha": "43cad4a2e4bec2e399f547f9f7406f34c603e7b6a4d58bf96aacf26fb8b0b1e1"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8::sentence:8",
+          "sha": "6fa169bb4be9c7f4b9d3040b3bcbd225a1be7976c1f8224e84b6a3edb85eb350"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::13",
+      "sha": "9e6a7750719bb55f840e19cedd3072bf4f577797618ab3ba2a8e8382bff26d07",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::13::sentence:1",
+          "sha": "6a7e8a17178663725f4d4eb10a41803c5d6a47877e03b919bba364fa1c9a6e73"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::13::sentence:2",
+          "sha": "16f43d09b41eae7a6fa7a3ed3dd61c94899ba44489f520ac42ec180ab68b3f22"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::13::sentence:3",
+          "sha": "19bf60a8f2f21d345a803587934f512eb834dc0f453bd0bf257f288a3568a9cd"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19",
+      "sha": "0f8b3935baa8e2a705650874162a31adf2fcd27b3a1cfe5b6fd3b993e5ada5f8",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:1",
+          "sha": "66f7a699071dee50a863b0b4c92dec78ba7654561a10f2e2fe62516ed8afbd1e"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:2",
+          "sha": "d795907efd071c45a6cb7a578076bf12c8869df577923e1495fcb71dd2210270"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:3",
+          "sha": "1601d21a7784e7efd24e06381130aa0d28f0f72a21a13ed47d04bfacc027c7f4"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:4",
+          "sha": "065781c4697e2bf79afe2019cfa629cd69afd0837f8d81ff56765061b357d047"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:5",
+          "sha": "6d41761d8136d3f2ae9575c7f75bd95d0912f13f1531d63c9e57953fbedae991"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:6",
+          "sha": "c9041eacdb0dc873179b2fcfbecab423d68b6d968fc6996bcfef441561179faa"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide)::19::sentence:7",
+          "sha": "fe81ec651eecd5640742ea8855568431b0bc8eaa5ae2db2317bb06ee2eb7975d"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::24",
+      "sha": "a4eddf381490dad35215fe7e1ffc165ba24034633cd4548174c4fd591d4f6f70",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::24::sentence:1",
+          "sha": "5bc2fe29a85834921c1888092ae5c1ddde527de525b622be74c8c4ee2711ef8c"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::24::sentence:2",
+          "sha": "1c5c6cbd474e6a15d0c90741740fc68f3e8f237a829aa861bdff04cce43d477e"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::26",
+      "sha": "74506fa13ddb86485f615cbd177a279d1c99c99b23057d71eed09990da2d1cb9",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::26::sentence:1",
+          "sha": "6e9480ebbdf53d999c9d0b10b5a9026436d41ee9529d8e9bb53bf74fa9c57b21"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::26::sentence:2",
+          "sha": "e04e038a0b7dcfd571145a3eda246ca8b2c73f2444ac3c84acc947b5346a5748"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Proximal operator: group soft thresholding::26::sentence:3",
+          "sha": "6b1f17d8e2a7e5e534f0fab1d059aef59e5f6bee1fd16841963dc0d2ba157c7b"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28",
+      "sha": "a9ccf88432d8bfc85958b0cd0ee6f5badcd02673bcdf7be294b4252f5f480e9f",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:1",
+          "sha": "ae1baef5ea4dde8e77ad0a9c1a07bee9ccdd66efa665c87e89cc1e2903a9bc4a"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:2",
+          "sha": "8ebf955ea33b7a4d072c95e45863018822a28171dbfa501b70ade578d3ac89ae"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:3",
+          "sha": "77cf98e20c246a4389a480455f39a07a0d365ae6e0bd4d70f68b4b4356586690"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:4",
+          "sha": "4db6ee2f3359fdbb51ac4e4df75f87f94114bf47b324a6aa692ab087c4f0af6c"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:5",
+          "sha": "afb86add2e6483fded2d18f7a7e16d601a415ed5612885831edd177129918cf6"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::28::sentence:6",
+          "sha": "d2be41dee73219edc4cf87e1b051a0725921c3933b075f387cca2f625aa5c0c4"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::29",
+      "sha": "c1d9fc2dfbd38edf47684d5a6c0f483fc539b6af4c46d6fae135ef7fbc6c56f7",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::29::sentence:1",
+          "sha": "cda15a0ed7064c9a58346ada855f3fd85eec5209b59ee4d6109d1afe99bd1483"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::29::sentence:2",
+          "sha": "9c83c577eb5658bed34259e74b9139015f983f56e90473e0f0122e0ac56c601d"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Compact block operations::29::sentence:3",
+          "sha": "71ee72a77575859144d1b49edbcfb390f5c7dad75e18f19b647ad5fe642dfa65"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::33",
+      "sha": "3c36a032ba9a16c6f269e3fa1b36005fda7d15d31ca110d04cd0a0dd4285bf44",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::33::sentence:1",
+          "sha": "85dd2e4b202f610ec33ce3f9a0505b0d7cc069bbe197e2315d6c2b6e12b1cfd5"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::33::sentence:2",
+          "sha": "8299eeaad7a17acef83b82b31263086a0c47dfb028e75bdc690922412e111179"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38",
+      "sha": "58ab7761a340761c144f19b190e6df6a590604bfbeab76df30364cfc91f4f5fb",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38::sentence:1",
+          "sha": "1efe4edd2d10ff3b7084c8b0fec8199031673d73b480973e21abb098db300fb4"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38::sentence:2",
+          "sha": "0de0539613d947578cd27e2d1eface51f627d909fcd89476f3b8dec6b9e888f8"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38::sentence:3",
+          "sha": "aac1a0718110ed325f201d28492da3830c780a00d853319ca0ea49142d9ca155"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38::sentence:4",
+          "sha": "7768e3b3d5310dabdd0b767eedbad577e9b61abfd8be768c940bb292831c9346"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::38::sentence:5",
+          "sha": "6cb7774b32008b29f59449057fe9560a5aa57700f87465abeb6a5d54d7b5f69b"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39",
+      "sha": "20e38365a2b82dee92fdcaa82aaba2279d8af7247df074bf8106523bfb271e0c",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:1",
+          "sha": "b4515952a13d6504d3fe05dd20e392be0e288b7b8407273aa6d7e3f1136c75f0"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:2",
+          "sha": "15a652b10c50af02946889bd69b8f9b5ca06129366919ad526a5ff08a2b9b565"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:3",
+          "sha": "fa9f93670be3dff534699d17798d114ba520cd13d8a92dfafedff52bdb8acb12"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:4",
+          "sha": "d7537f06fe868f4b242359a1eb915eb5bf66f900434c81c41c8069d07f873bfd"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:5",
+          "sha": "276bbb6776c1fdd3d9952121af7d0a7ad71858b8aead50e03a71e939b9f66cb4"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::39::sentence:6",
+          "sha": "834a5c0b4e148adda5b99dac5481fa608dd0c192350b578b01508d75a154f069"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::40",
+      "sha": "63ef4ab6d240dcf9543fcba7c3bbfd34df66ff3dd7dae621302a7347c2aa5b27",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::40::sentence:1",
+          "sha": "15c7bc5eea84f534c3169fdbdc244dca6c2e1621ba792d7d9664829d0d40f7a7"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::40::sentence:2",
+          "sha": "133955602d9ba12fa88c934decb518d823d7cbca5f73bd49dd558c9c1beb5a76"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::42",
+      "sha": "ed1935801bc431ae38e103866ccd62578c10b1a14fd20c69496869b81ad3820d",
+      "children": [
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::42::sentence:1",
+          "sha": "900750a100340af458a5605c6d8b01b96112a9170f433617a3851e17fd3e11f2"
+        },
+        {
+          "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / Optimality scores::42::sentence:2",
+          "sha": "86254f37c272c57a0996df61433b3638f41c02a7224afef100740cd94e75319b"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::3",
+      "sha": "e210a18a0979b451c54ba6030dc6077a7caa5dab09123f4e987accd5d63750bf",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::3::sentence:1",
+          "sha": "7aa2cb10c8bd871bbf80a2dd58e180df5ac68682634de6ce99334fe6ab310bdf"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::3::sentence:2",
+          "sha": "9cba45d9561a6da12f9150f00eddee9d5626b03d1453900e7d1a5369a680fa32"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::3::sentence:3",
+          "sha": "12d1c2ce732201d54afbdcbff5522e523f5f97a5438c96814bfd54473ea661ac"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::4",
+      "sha": "ebe91672fda446fb308f8e66332fdead5f10402b6891d75c0fef1714448ff569",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::4::sentence:1",
+          "sha": "ba6f328266a455db3cd96d1e48dc9f4dcd53d90cced627428907513955a5cde0"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::4::sentence:2",
+          "sha": "e1a284759f3407ce34adf50b8404db9aea297f28ac12c87cd377a64e46c39849"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions)::4::sentence:3",
+          "sha": "9d63bf13f0cb1f3098e4574de3806759d2a4d5500eb951400a452e73c2505648"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7",
+      "sha": "63e3e6e6d2bc5d5223d25b027aa5b168c6e8c220031a1c17bf80752969baaca4",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:1",
+          "sha": "7c37c43a8814fb0bcd8b556eea38c57f781701d88da8a60ac6217525695b0c61"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:2",
+          "sha": "7d3f6a6b2332779029d9aa7b04de9ef2a3bf7e2000e8a42d6e9f1ad90094fc4d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:3",
+          "sha": "3eb7651a4c2b2c2da890fef0685a1764dd603c0447153bca5a24c8cd7ade3e77"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:4",
+          "sha": "9cb588d67455f88228b81c7de5cec300dddd88aedf7767a28f1b9f8eab76c87c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:5",
+          "sha": "64ba672ca12580198c2da9c274a72d2db5a9c8487766e890d144ea6176ff37f9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::7::sentence:6",
+          "sha": "c538ff1bc6137494e107ab08db5ef4f66dc088d3c60aefd127832d63783b5668"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::8",
+      "sha": "cab454e84eaf5b40ce05523840f8496dfbd9e29040d5e3c6742fe98054ccf432",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::8::sentence:1",
+          "sha": "b27cb1995870f8fc1a9ff241b9263939c314d7bc8a7c61382227cdac5c7e239f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::8::sentence:2",
+          "sha": "b14029b43a845787f0af54e2c8d4d2709bc77c0b5f9bc0f73423f4bb9c32241c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::8::sentence:3",
+          "sha": "6e2d990d5e8ac3ef87e83adec12a859544c57b64c3f6dc00b0ef071b1e823849"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10",
+      "sha": "6d859c39272b13895e10fca219106ac743652a0dae0fcb51350e39540ac3cd75",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:1",
+          "sha": "0068fc5cf64c368e2be5ef286d4c4738a215a0060ec4dab4fffc183650a12096"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:2",
+          "sha": "0aa9045661dbeb7c466413bb52966b6fe4c5ddc70bb1259bcb7be87f3154d166"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:3",
+          "sha": "9fe4ddeb7801429ad61cb743f16e700a1fbed426f7cb702772e3f21c0b36d027"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:4",
+          "sha": "50956816e96e2c4ac96ab70812f0a04e3ad548a092fb30b9db65e5deb431a20d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:5",
+          "sha": "af17eb1ba67b0809315fa09cbb524527c2a5763139388b3b4da4f285a6fdc1f8"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::10::sentence:6",
+          "sha": "3158d934a4f05a4e52a7c3f5f6e2733d1142bc9438f3b5c59f627eeb7583bf09"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11",
+      "sha": "58c4c1ebbe689c257a118280dfde5f6d9dbee618dedbb3eb4e0aaa89b04c29fc",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11::sentence:1",
+          "sha": "d474b2fd0e9bf936407cdeea569551944d9f2d4e1fd9e476b305a07812698cd7"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11::sentence:2",
+          "sha": "ed86278b30007d01285630205f8f2622aabc02fcc62b1cb4fc45848538b5f79d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11::sentence:3",
+          "sha": "a7ed6de3ac94f7941c6a08509eb7e48f8a7a8467f06501dc9b5fc76ee393d389"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11::sentence:4",
+          "sha": "0cfca0d79e5abc2096a877232cb8520df7ea28ce6b49437cee7fece39d66d6e6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::11::sentence:5",
+          "sha": "0b7e1ced3211786e02916e3dcbb09f0bccda785f5a4e4798bfd2ba811f77ebf1"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12",
+      "sha": "bdc52a1dda4a0fbd1cca27a9cc8172d116028a170b97f9fe89a222ee3a2897c0",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:1",
+          "sha": "f543f9011941b53d755c3f3fc830748a88e4140d0eabcb453b5fc459d345719c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:2",
+          "sha": "7e8d0dda9e2d114558ebe9f2447abfe56831b0514a82672e19dc4cbac6771845"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss)::12::sentence:3",
+          "sha": "7772c7b0fef18f37061eb5d7c13d360317344412419c6ed499de0b5ef3c8eb7d"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15",
+      "sha": "b12de60b85b714b7acde42f7e7b1ba37a72278b36708cb58ccd141107fd88130",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15::sentence:1",
+          "sha": "164f2b24a9655b69100128cf785948b88c6a868dba3c11d3c39ace29bfaa761e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15::sentence:2",
+          "sha": "ba10b78c502f6b3b3a0763a9ff3158bbb649144a85b479bd0e4e293f5429790d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15::sentence:3",
+          "sha": "79d360d9ed551370b512614eff0c7eb29cd487f1b4cfb62408e5816aae7eaa5f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15::sentence:4",
+          "sha": "49db8337d149998e9e746b1ef9eb67c4b2d2bfccf3c1bcf6c9e28f3b8481b379"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21",
+      "sha": "bb396d248892b3ac15ee66e62554947e37a3a5081c7215171b22366ce2181aa2",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:1",
+          "sha": "1813bfe72ff302c16da04e3dc8d8cdaac6f4c6e0558f44817c2e796f7f53fd3b"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:2",
+          "sha": "c75e51e85e9fad671ea64dff61f722a643b6505e8dbb984678aab8ec0ad87b9e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:3",
+          "sha": "c9dbc5e707176b73ccd1e3b3a96b94bcf3410e403187812b47974deee2bdf93e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:4",
+          "sha": "4f6a23839f258dc0931e788ff3231adb3b4c303efe61b92927058cf238a250e9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:5",
+          "sha": "7b9b8c5032e81a50a356062c4a8190932d19a51a4ce7beccaee2f5005e998af6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::21::sentence:6",
+          "sha": "b94db61734c1b6e7ace4e1d8699cf40483cec893634b2ee5a8b724de1df4e42d"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::22",
+      "sha": "e731ac03341f3bc1f31ab23a0a43b680adfd8afd7e9bfd814ea4be89ad091184",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::22::sentence:1",
+          "sha": "ebf4fb03e3aa226bbb9fa5893ec79244c2c96a5b26e160f231ee763bea6f6f76"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::22::sentence:2",
+          "sha": "8439826f0f6a3b9bad16183e735e6762867ef3c2f02970ee21087dda08fc9d07"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::22::sentence:3",
+          "sha": "0cec51705095c357f0ca681d3323adcbad2951c2776fa139dfec295dcca523d6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::22::sentence:4",
+          "sha": "9a591c4c200e4079c63038767f25311b7745a26886e5eab4536a595c4e11599e"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23",
+      "sha": "015cd81e8ed6cb2654ae38cad66b436d62d44729b4c993725e749a41d42981b9",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:1",
+          "sha": "ebda0f3e8da1e1c166b9deccf2d3c1db388a891779896fd9e462430d0be968f9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:2",
+          "sha": "4fabd368bb97df492bcdb88ba9ee931f58129031edd3e6ea792e49f56536692b"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:3",
+          "sha": "8d16545aaac578b9a03e8bd5a1d8d6c996024f1bf762069bd197e8df0f9498f3"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:4",
+          "sha": "153f25083f8acebbc4c3d74335981e619fa09a1521cd206bb9c19b798f60a29f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:5",
+          "sha": "f479bdd228b7a95fedfb1f4669e2da8412f1253bd868a2eae4c2936cb37f46c3"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::23::sentence:6",
+          "sha": "8c9f817179efe7af8a4637f4c97941a6ca8b1e3ed62d916e63ddbd62e6c7c678"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24",
+      "sha": "81aef834de125252e1f9788af55a57767f4ad2ea47a082c33866efb6ab94c760",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:1",
+          "sha": "ad9b821e56ca6a4580f236761618d6f650eb23067292f7ba1457dbf6734000ab"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:2",
+          "sha": "ecfe17f0104f6a13d1234b68defcdba536abb26ee7f3497e2419ca12abb94940"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:3",
+          "sha": "4dfbc2be39b7eb89be7277777beacd61746846a3309bf422df165fd369441110"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:4",
+          "sha": "c2fb52d13adcc4124fa01429133bb8053b98087c8855ef285e58a8c094cb84e9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:5",
+          "sha": "6b9cb20738c11fa1f1a99c422372165cad024ed59af73bbcbc36063e23133e41"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:6",
+          "sha": "9518c1719b9ef7072ba7954c4d3e3583102963ce00f287b6da7d449d6539acec"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:7",
+          "sha": "09a6e2bcff52366f937a4de8e381474a83b0e70818bc78d643db95a8be503900"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:8",
+          "sha": "9f3b3d0f3f41bee384e8c963287c4aad44a19b82707aebfccdd4fb966e4daca9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::24::sentence:9",
+          "sha": "f9bbfc288135e349a8a350aa407e6acb3b4842d20ec8c86b6e2f6ad0291563b8"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::25",
+      "sha": "e14e258d824fcc764eec30420679710df3c18f0a7300c18fa9d347dbb2f4bbd2",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::25::sentence:1",
+          "sha": "d6590c8c438a893e6d14c9e248653115b65887e05ab34ad353f8fbb72f3a21fa"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::25::sentence:2",
+          "sha": "a3a4d97d8033f149daaea3eba2e92c395392383b449b4ba116e92d87ba74e525"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::25::sentence:3",
+          "sha": "f0226ed093db33cf71feda6c3a16d86c822e142ad3e18bb6aba5d304e57845cc"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::25::sentence:4",
+          "sha": "b7b4e9b76cf131f42682653d19717e158d9ed5e16b394b68f9e7f345eee50f55"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::26",
+      "sha": "4104aa4090c90253f4982c67e2c557318499248b51c81dfb1cd6b94caf3b009d",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::26::sentence:1",
+          "sha": "9f6711d4b0f2de45a6d1887a31f4f235e95adbcaa302ea89e252220db68e60e6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::26::sentence:2",
+          "sha": "c8061dd858e1a229cc9130a476e3eb694d0e7d39bd1e4e9b68f84a3249d14637"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::26::sentence:3",
+          "sha": "f9e480e3e06a630bd11d873f873be919471b2188b6d7e1a33f1890385d6b1b7e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::26::sentence:4",
+          "sha": "49819bf3552a71efb2b344a300327430f579564d4566af7c60a27194eec0c614"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27",
+      "sha": "39150a78d58f8ae3b31d5d1f8be5caeae8abd4645d89cbe469de79be6c503803",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:1",
+          "sha": "ade16d8f43e28032472f6523fbe19215769f269eadf08e074d0ecb143c1012b6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:2",
+          "sha": "7fbfa124039982d27d14105e77c52e9d19cd4c006ab384013ff788c4cc1168a1"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:3",
+          "sha": "d1c5b9dd406ca737c1741cd1b0e98ae3b050e743e008192f7ebabd17a1c23b5d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:4",
+          "sha": "13a015b8136ba1efd325974db5025cd6bf3e58e2fdbb0df6a33b81892e2115f7"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:5",
+          "sha": "b2012263e599973e33653eba801df2462b473f26c3ccc1080302eba45fe43479"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:6",
+          "sha": "d8dd51a22f36d55b2c459e14b1d13816d1be111653ea82cd5d73818792c707c3"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::27::sentence:7",
+          "sha": "89953ac6d763e4b5dc688cecb1e5c5e411a9208ad44c387ea1180941206cd5be"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::32",
+      "sha": "b71b7b086f9d87a931f8c5e8f2a8eacabeeec3efd76f735b0cf212a23eb5cf47",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::32::sentence:1",
+          "sha": "547a3fdfcea3ec1a73b1d70c9138c88373a0a20fefddc45dc2006a6d2f230379"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::32::sentence:2",
+          "sha": "204413f81a8ede6c9525669b2abde295d5274eb846dd49996814a12aef1f8824"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::32::sentence:3",
+          "sha": "77e165fd65d41912008605fff014ad495d6968390503dde37c4c3ddf24084d39"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::32::sentence:4",
+          "sha": "e5a42b47c5a2065ba33fb6c7b570864f831a0ec642e33b8b3c5bcdc61fc69d99"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::34",
+      "sha": "f5ab020f4987cd15db8a2b7433fbfdac830e3adf0dc50c494aeb3277261e44a3",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::34::sentence:1",
+          "sha": "c989e161b5c160e229cfe84ddf28013774d1ffa8bb842c94622ea8df27171e6e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::34::sentence:2",
+          "sha": "172012f048e43f80d2a901f16a70b0ccc190581b17e853989bebf8fd95feb17b"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::35",
+      "sha": "a87d61752827f53d5a661855e0c96da93329a1fbd45e8d98119b3d97b8fa7407",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::35::sentence:1",
+          "sha": "c67bf71b4f5c78944dc0fffacd179b6e43dabfcac0cef2ca41fc12c4bf841709"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::35::sentence:2",
+          "sha": "3e1a8b9f50edbd17e2f5ff82c434b0fcf3a2009b4a8e7983bab542c3f27bec25"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::35::sentence:3",
+          "sha": "e28a64158ee9e49a6b4237a271f67e97d85d71b0ab27bab434153236a7b88fbc"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::35::sentence:4",
+          "sha": "b0db1c14a0ec61489adaec9238def9c1198deb4d349262e5e23cb1d981521b40"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::36",
+      "sha": "4e8382c55493e86bd9a7d8f53944b23a316e9ef60903182bc1ab4960385aa2a9",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::36::sentence:1",
+          "sha": "c9a39901b018d10030237aa9c82dbaaefc77799338db375d9f41ef149cf9dd25"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::36::sentence:2",
+          "sha": "ea6626af4719dd816a3a68c0de1592a756f9fcf37e16cf5b63cbe3ad8930a4b2"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::36::sentence:3",
+          "sha": "77af351df1a53a2a374ca82a346045147a728b143d6eb56d2fad1c6e3701369b"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37",
+      "sha": "9e0cbdc4009293a25790de6506c71d2d6cd5a9f43c6e932af870526cfa6b63bf",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:1",
+          "sha": "892cf3e7bc7b61f69e46a078ba431057d00380846c92e6ae941bfdacee6c3e4c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:2",
+          "sha": "fd446e95dd32e83ac7de6fa62fcedfeb5814cb5b04118f55203a159d15a82dcb"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::37::sentence:3",
+          "sha": "13829253e9efce5f4df7e73a63b734cc74dbe1956f3ce4a0056812147d17466c"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::39",
+      "sha": "9f42fbfbb1c3bdfd8e6be426517a013fcee2792041c47f4d924aeabb45ca35d5",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::39::sentence:1",
+          "sha": "6df67b1aca319c60d7cbbbfd68e0191aefaec82b46fdc81b4903dcd3f8c79cc4"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::39::sentence:2",
+          "sha": "950c17e77170d8f334534f2b76794dd83d25682e47471ed81234ccc7f817728d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::39::sentence:3",
+          "sha": "a3f62931b232bef23a613d9cd4fa9d3d855d2d175ef65ca90db1fcebcaca912f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::39::sentence:4",
+          "sha": "89677a6ab72aaddf64c4bb4d6364f749d335f8d903a8a2c16abdb154b13e9090"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40",
+      "sha": "df1840a51fb83d33564ae3ea53e15aced9a7a3f708dfef22f7890e9d8f3089a5",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:1",
+          "sha": "64d46dcb17fe039936e6216e8ca6e70cfe04a9cd3fe151a8b0372e3346ea81f2"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:2",
+          "sha": "7a5fe2f89dd26b413db31826bf22a1bf3089e0856e4b814760bffe842b511821"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:3",
+          "sha": "6ea0080a27a2ce6d38b979115a3a9f1e9f4995f83fdc75141bbc578066fe9a93"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:4",
+          "sha": "2dddd1c94692491b2916d838dbe6c16aa8dafaa080a6abc0b082431a1014cb6e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:5",
+          "sha": "4ade6423a6dc8f53b42ac827e73e1815b562d70c177004af63e2bed7ed64db6d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:6",
+          "sha": "09db543dd8eba43eea38080dd94b26441e48bcb5e2ec970ae7bb4dc8f29f14c0"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:7",
+          "sha": "8b9cb88fe32c15c49ac943470d7226efe48a982e2262bd4aca0b3cdc625de04a"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:8",
+          "sha": "b11ff09666611fad954055becaedcf12acf5fec9ae2b5318e3557c69b2e4b2cc"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:9",
+          "sha": "40e555337fdec6a64fd45eba9f4577382c64856f9b81d6a7471c712347ee0fe1"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::40::sentence:10",
+          "sha": "0f2e6a79c4d3170aab9dd46c61e3392152bc21f1acd9d7230243fd844a0046d4"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41",
+      "sha": "903a387f09952cce59c9eefb8d33f0bf1c3f57cadc5b457549dee6a2e754ef4b",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:1",
+          "sha": "d3ecf691d31ecba4e6396ca1b63c5737ec107d29ac70a8d4e20a91e0f13f12e6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:2",
+          "sha": "8917c4a4c26dd5b4669cd8f6c9f1457402b32bc686538ac0dd88f7363ae370d8"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:3",
+          "sha": "25e4f22f2f0eaf4cf127454cc4de075676d213b8016554e9bcd6dfb644243760"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:4",
+          "sha": "2aceab5841e4dd291965c58e972d1ba0d86f6d2ef777195e4c0c6e6fa4cc73f7"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / Square-root least squares is not smooth::41::sentence:5",
+          "sha": "ca4d3490c455a3e660ec482d618eef8e1f4c31a323ec052c97a5b3a70e9da5b0"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45",
+      "sha": "819134f2596c923c2e20c9fd21e893fba43c6e2b515d9e27fc64e5583abe198c",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:1",
+          "sha": "48eee740bfb0c270c594d3d1a11c62bba6e0ac0dde6370ea12337b299d99114f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:2",
+          "sha": "af9a8cea558e078817a959e79b33791fbc011d8ca20f0dac4d389de9bb0cafb8"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:3",
+          "sha": "77ef8176eb130de74c1bff4bd31e484cd3b309f6ec0e8edbf5d04fd747ca4381"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:4",
+          "sha": "c11c1131d8df8fd335447f4fb6455b4b97b37cc9136d8e721614be4e421d286a"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:5",
+          "sha": "12b834b063d9ef63ed9f491bf91d8638b4fa9890a279953216bc33dd7a67a543"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:6",
+          "sha": "bb7eb8aba3a4d846d3d73c69a0190d67cbe4d3914a3ce48dea8272dc7451f829"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::45::sentence:7",
+          "sha": "437df4eb6a72799ccc19413f5c390058037cb42c987932e62c99154c32488960"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46",
+      "sha": "636db9b64979a381efdaa3f7290ae2a294dd1cf0fb7d907a973f6b7fab95b82c",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:1",
+          "sha": "869e5a191c7d358c289280b86a76d8de5c8f10b7065f4f635d288627733cd335"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:2",
+          "sha": "c1dfaf1938ef0b4372b502f7638500203ea5c4c039b1082f47d3fc2f86dabf64"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:3",
+          "sha": "ef07b486e116e6e82b91d797540097e66206b27597294fc9e0250bad16c6d3fb"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:4",
+          "sha": "ae66add41aab31e9bfb159812ab684e900b53c7ff1f75e077dd98c0f3d28e7e6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:5",
+          "sha": "e88f5403d54479435590bc7dd7c3fbc23284c129835b1d48601f53d784b39263"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:6",
+          "sha": "e75c3a4dafac6700516394ef8101ac87773a09ffa43e07ab2290d05d9ef50b32"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:7",
+          "sha": "16c3a7e3622751e553f811628b9aa2c689ede106a02b5cb1640c27179bcb6253"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:8",
+          "sha": "967fb0c2b6b7c685d4bb01b6e6dcf2b5ac1d2aa5bf34ea6d7552f23019c84a34"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::46::sentence:9",
+          "sha": "ff58f3ac259cdd86e8bce327d7aa627495ca0318c8e818518cc7ae2a3abc13a3"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47",
+      "sha": "c9ff1b92fe9ab8c0cdc3dd20a58c01ea0d0f51ffb8210ce7a3870ec9f84d54ed",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:1",
+          "sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:2",
+          "sha": "3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:3",
+          "sha": "1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:4",
+          "sha": "074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:5",
+          "sha": "070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47::sentence:6",
+          "sha": "a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48",
+      "sha": "8052021f421ec0f7b7b4f9ce7689dfed2ae277655ff0fbfd9013f0ef86a6769d",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:1",
+          "sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:2",
+          "sha": "78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:3",
+          "sha": "2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:4",
+          "sha": "3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:5",
+          "sha": "bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:6",
+          "sha": "19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:7",
+          "sha": "f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:8",
+          "sha": "6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:9",
+          "sha": "4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:10",
+          "sha": "d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:11",
+          "sha": "8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::48::sentence:12",
+          "sha": "bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49",
+      "sha": "394a8e63c2d51b203b28dbf877626de05ef5a8e25a6ab51c0f31c0bcae67cdf9",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:1",
+          "sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:2",
+          "sha": "b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::49::sentence:3",
+          "sha": "a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53",
+      "sha": "585cb56dbdf98d4aaed8739a41cf31063fc4699af680dd9f60bc4702f38a5649",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:1",
+          "sha": "97f127ebb1e3f843970ff5d9a32d8fd7891c8649cfbc29d47d316ffeb0c20c73"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:2",
+          "sha": "463bf666f584eba3bc2d9837e027045884e959886af2101d697e539d6600be89"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:3",
+          "sha": "571aa2e2a1038822af668c9e68068a650dd611228f762938c8992d3f8b9bd9bd"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:4",
+          "sha": "d41a120ee8c89c926a384dba291d3ca0624c7ae25b4209a3be8248e9fc7f5f07"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:5",
+          "sha": "a58ab988b37ea0af190c4c2a7e20e471060c1f3ac47d3a23f5f2a7c6eb2e24ec"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::53::sentence:6",
+          "sha": "f53ec0b11cd3060727a7d1952f67c1829bc1a50cd8ff9859fb8258b507e91be7"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::54",
+      "sha": "8209854b815bacd95828ddf0609c989add54d7621c5e1ef6a9a19a3a287126d1",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::54::sentence:1",
+          "sha": "f1f26eb87cbb10677cb8308aa2332f78c904125bcbbe09d9661cf147c03f56f0"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::54::sentence:2",
+          "sha": "7d58d7813824b5d2ae4d912adbd3f5d135b1a966ed614e482dc6ab3320131336"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::54::sentence:3",
+          "sha": "99b7073a8295f16990e96f30576ccfb3b03819ba497612420cf772cc34b2bb63"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::54::sentence:4",
+          "sha": "adb8d873063993af3b19761a5c1353e30b70c6c4c052ed51f86b38abae6327db"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55",
+      "sha": "29f64f123bc15937c230a1aefbd1333d48db536484ec9d377ceea85d9392c816",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:1",
+          "sha": "58046003dd5e75642089083f32cf14a808ab80ee70175f9ddba29768ddbff6cd"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:2",
+          "sha": "6922be2b3f314142c54344453e5a1a92c2ff4a8003013832815f333f819e3671"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::55::sentence:3",
+          "sha": "3f9f67725ad5fa6e44240e8338137741745162b6d994b46e7a81a3b9368e57d1"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56",
+      "sha": "f702ea439211e4a15d2863dc5038c9bed6ad6d0fcab550877f52ada0bb23bd26",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:1",
+          "sha": "593b7029d17c37094c5ed6caf2f5aad15b2607d6aaab946875d792fa8e3976db"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:2",
+          "sha": "91d3846794de3bc65bfe781c1efebc2d9b6de39032eba9542f01a8c6ad9226bb"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::56::sentence:3",
+          "sha": "8ebfa9f6e8105de5956253f4e6dd849f260455cb1e1c477975ba63661941387a"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::57",
+      "sha": "483d009d80715364a630c0c2bc33d6505ae72bf61cc45b0d62e50df692ffdffc",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::57::sentence:1",
+          "sha": "9c6ae24e376a7538b01b468eb8053441484d9fff9bb16811394baa4b4acf08bd"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::57::sentence:2",
+          "sha": "f5ab4357236fc4dfcdf2f4c642c4dbfd4756d38e432b8546a92e313112cd854a"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::57::sentence:3",
+          "sha": "c30477962cc0755016b0ab0e79b000b9465ed32b74548842f895b447e2589354"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58",
+      "sha": "c037c1a8f1f82bb5291f8c8dbd7814303ff5cc472873a58f2392ff2edf7cca87",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:1",
+          "sha": "f8ec90e0eafd5e370e9dc87bfe3589738a3176dadb85c7c8a1e368fe5d6914df"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:2",
+          "sha": "4554953c98982f30567daf7ccc7d5cd32625872a763d126e662634848e4a8e66"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:3",
+          "sha": "8dbb912f6870614c6153d7765002695f4a3cf8157d49413d85ec273078cb2065"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:4",
+          "sha": "c23a83e9c95a48571adb2da71665a6e85c0980035e384dfda4acb97ecd6ea9a9"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:5",
+          "sha": "7cefb8350b59e8c2b29ba0c83f9241e15d8001ba54d671f638ba9f41acae289f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:6",
+          "sha": "2f4854edde4994b07583b629fb2640233c0e870340d689941965e52fee64b02b"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:7",
+          "sha": "eb7036f58bae0263c700dc6cfcfbf47a86f6af42a5c77a2074df4a83ec767d10"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:8",
+          "sha": "441b60abc887e9d106b06f137569d49c25e57838e4103f631425a89022e4000e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:9",
+          "sha": "2c94400ace055cee6a45cce3ebd18cd694d962ad7ba35bb04c506723cb407d5f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::58::sentence:10",
+          "sha": "e2698039cbeb4cd8a3411b647a5bd67c7c8a4dc0e20e5b288dc31fbac57b84d2"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59",
+      "sha": "511542cbcdf0c5b903d28d1315a3bc3238999644240672ecfdd621417ac14339",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:1",
+          "sha": "166f59a84a56935669c11aabafa9bb1d0fd08c80e7243ae87c99ec3efaed124e"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:2",
+          "sha": "ab56d39c3a2cfd3a3aa3db56f0544db7d63a3df2eaff625b9e97b7e6c7c4e835"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:3",
+          "sha": "1f14a4ef6098d4abe2d73bca984632b4afd578899754efb97c9666c23ad64cc5"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:4",
+          "sha": "de371f4a520f9d47218ec8dd29826ceae24a7eb81860920fc4fa3bc0b80b4e69"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Quadratic function](@id Quadratic-function)::59::sentence:5",
+          "sha": "e4406c6c2add0418b92137d027043ff10f9d7d5727dfd8034002c005e106e62a"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62",
+      "sha": "8c8d4314f6034d6cf32c1f92ffd5a45e9aa5810f2471bf4a72530fe4de249652",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:1",
+          "sha": "ac6ede952363bd3924a937cb56df81de741c6b9195a4e7746ed825d34db2134f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:2",
+          "sha": "3a64aacfc5070343ac6121725e378e6338d5a575181f644abe08a141de07fa88"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:3",
+          "sha": "6e9477609a8f565bc1107a2de414822e00a289c6f216931ac7bb11e7b0c2841c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:4",
+          "sha": "0e71d9c32ea16617dc8d20a2afda3640ec01d23edb48d9a1205950619fbca07f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:5",
+          "sha": "d35c90cb8d26994a3c759169d17b1ec36741ddf72586e81f302631ad4b75b623"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::62::sentence:6",
+          "sha": "7ff0780e11f5677d79b73b03b48b984f445e24efe6b13aba0cb27c511b0d8059"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63",
+      "sha": "e65ed2b28460b16814cb5c52794ef0a51f717e125869ab2f850f34f556e506c7",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:1",
+          "sha": "5383eec1858ff327bbb21d9accdfaad43b31fd88febe3907d703982a2081100c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:2",
+          "sha": "ab891d353b7ede39dfcc3124ea65fb2fe7b03c5be7cffc7af1e698a915cfc561"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:3",
+          "sha": "f4eb1414b190bf1c7ed291b7215de25ed6a6073c925b8243967774bdcee44048"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:4",
+          "sha": "b7022b9bbb054b488abca5ebbd7e482ef2949cab8727b136dba907fc6f1e2a77"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:5",
+          "sha": "e4751a186ce998103adefe6db3e4f3cee5a2c82c737c94265e54c3876acab2fd"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::63::sentence:6",
+          "sha": "9c6e306c84d98f7f0d519f0ccc796b1677f2f34951efafa45c62179cb31d7a18"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64",
+      "sha": "184a960b9d41cc0709c05f4157b7a5d3a214df39189aec49d281b3941bb1ce20",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64::sentence:1",
+          "sha": "2d1915f8ec265eb2f852fb73d3edeac5d39b690b11d67e723fedfac424c75f22"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64::sentence:2",
+          "sha": "ca6e3ee45cbfb1daa20053dc3d5cb62efda8057383f4137501cc57efff41f792"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64::sentence:3",
+          "sha": "6d36d64b8a018c22527dba94ee7256627f159a32d6bbb0fcbed19a7fc0a15062"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64::sentence:4",
+          "sha": "ced1f2caac273b02f2c6875bc1a3c50d403547fa6222d03a0f1ec284d52e136c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Zero function](@id Zero-function)::64::sentence:5",
+          "sha": "806ce28959aaaf2fb4cfcaf9990c720b535f1cb4093fbb6c7eacd592207fc58e"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68",
+      "sha": "dc20936eecd62dac7d1120f0cdbe266b4994a6d360a208d6b56a99b13b3bc57c",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:1",
+          "sha": "7300ab06cdcdaf9abd7ae8c61750519402b7a41ebb53cb1579c21f0d9c9206f1"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:2",
+          "sha": "ff8b15ae7ede657db393395b4412acf3089a1696499f55252cdf2559ac8e2a25"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:3",
+          "sha": "4767c41959fa276c91448cda81210ea67686b86ee173e8afe9ebf72ad6f03d5c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:4",
+          "sha": "8a5b6a7ef0989b00cbbef8d9b15060f77d888ad6489d6dbfc35911ef33c46307"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:5",
+          "sha": "c6874d423ddb3c06c02b4e2968ddbdeef86a18b53300dac94e0d65c1f8ead363"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:6",
+          "sha": "4532f26ac5c91c7c266efe22080782b7c4b6ac5342619867592a0fa4af139143"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::68::sentence:7",
+          "sha": "59b030298183ae362d261925e0090abebcaa92073ef2ccff63334f52e21b606c"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::69",
+      "sha": "24044fe4583033f91728d6323821886d35d8a532acdea91529d10ad01068e06e",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::69::sentence:1",
+          "sha": "8b60c8b1cc77cc2c5531f774c9c149f86ee3d9708740800f9b055f71417c41c0"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::69::sentence:2",
+          "sha": "4190db75f44ff8ffd292903074d2071875b2c72876483f3bac319d684a5af592"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::69::sentence:3",
+          "sha": "a7b06f910928f708a18836bc08d1acc15192564579e7601a569e0e9927aed500"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::69::sentence:4",
+          "sha": "ff58f3ac259cdd86e8bce327d7aa627495ca0318c8e818518cc7ae2a3abc13a3"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70",
+      "sha": "eec27c29e41899e36c55943db46ee030d7975c247eee98c1c2e9d5f89ac27415",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:1",
+          "sha": "8cdb07fa522697281f7c37d7fedf88fdbdb215929e1ec8b2e474f17b56747611"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:2",
+          "sha": "b96118c6fcbb086844e6fb9059d3b1914eaa4fec2f9d60027754c8a02c63ae8b"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:3",
+          "sha": "bd4c707f84de0638a880f8592a1d8c9bf7a24c5da3067e7d313811bf0a345ef5"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:4",
+          "sha": "8660a2cf299c063f4c63dab7a32da69cfc8237986dbe5c285cdd73687798643c"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:5",
+          "sha": "d04184176b478538332067d317e03f121600b77e4506ac1c1ce9ad91c574d60f"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::70::sentence:6",
+          "sha": "5bc963d762b2c25a5d8d29dfbb7e5b48165fdc38cab672ed771c287c9995c107"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71",
+      "sha": "ee12bbfd43960ebb7b9c3c2963d26923cbec80157c13b7a26c19a86e4882c0cc",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:1",
+          "sha": "a2f1ffb8e01df6b47591fe67d3435676cef23b5b6ffb8d8e20836553a6fbca59"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:2",
+          "sha": "95730d00b703924ce8c81730cbec2af86543f4a5806755b356984f3b995c25fb"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:3",
+          "sha": "e2a40da51cf320904c7eed2ab992ddf622733753872f12e3f8d0747cdca7ed06"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:4",
+          "sha": "89a2ab5924a9a8ff35df74d84e6210e8d97cfd51a79f7e8f69b64faf4467f8b3"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:5",
+          "sha": "b64c8d1be269fd5158d044d99a447a48ee2f0a7acf11e2c0288ee2f11b1da8da"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:6",
+          "sha": "d33c90583b9960f5f603268b5364b814af222295dc02c49f20cd7a1a1ae77ce1"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:7",
+          "sha": "bae2aa8a2efe015ebe0869e470d33047d5484dd0cc469ce5d43888c2dd1a2ec6"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:8",
+          "sha": "21c0552184214d24f110b86284032dbcb1cb72f231b3105434d589749fa05b8d"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::71::sentence:9",
+          "sha": "b9af7ac9c6a21c9528a3a670cb10d5f2eb9311f7d63bb3dc7329d0d26a1f3476"
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72",
+      "sha": "2959737ac47f4f3e8916a4f2129c77f2ba473dd067475a65c65d150b5e2c7f72",
+      "children": [
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:1",
+          "sha": "32eae9e8079cfd21df1531a1e067f40a9820ee08dfda4e3b7a7abbec29847a3a"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:2",
+          "sha": "efefbfce1ccff87b63d003ef00b944ae5ca8ad205092c5be4df4ec2fa8a1aebe"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:3",
+          "sha": "56aca9dcfd3d52cb4cff2cc554be3e88670a703f937d788084ff9933a18be1ae"
+        },
+        {
+          "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Linear function](@id Linear-function)::72::sentence:4",
+          "sha": "aec3a6592e1efc9aa6305b5c66918229211cfbb131a6b5743f4ae08c4ee57a36"
+        }
+      ]
+    }
+  ]
+}

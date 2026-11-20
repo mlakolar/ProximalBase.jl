@@ -340,6 +340,119 @@ against the definition of the scaled function. A zero `α` throws an
 [group-lasso example](examples/group_lasso_prox.md) checks the value, the
 proximal operators, the block operations and the screen against their formulas.
 
+## [Sparse group lasso](@id sparse-group-l2-guide)
+
+`SparseGroupNormL2(λ1, λ2, groups[, w])` combines entry sparsity with group
+sparsity. For nonempty disjoint groups ``G_1,\ldots,G_K`` of positive linear
+indices, set ``U=\bigcup_k G_k``. The penalty is
+
+```math
+f(x)=\lambda_1\sum_{i\in U}|x_i|+\lambda_2\sum_{k=1}^K w_k\lVert x_{G_k}\rVert_2.
+```
+
+Entries outside ``U`` are free in both terms and retain their values in the
+proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term
+still acts on that group. The constructor keeps the order of the groups and
+indices and copies the supplied groups and weights. The levels and weights
+are converted to one promoted floating type and checked for nonnegativity
+and NaN. The default is ``w_k=\sqrt{|G_k|}``. With no groups, the value is
+zero and the proximal map is the identity.
+
+For finite levels and weights and a positive finite ``\gamma``, let ``S_a(t)=\operatorname{sign}(t)(|t|-a)_+``.
+First soft-threshold each entry in the group, then shrink the resulting vector:
+
+```math
+s_i=S_{\gamma\lambda_1}(x_i),\quad c_k=\gamma\lambda_2 w_k,\qquad
+y_{G_k}=\begin{cases}
+0, & \lVert s\rVert_2\le c_k,\\
+(1-c_k/\lVert s\rVert_2)s, & \lVert s\rVert_2>c_k.
+\end{cases}
+```
+
+Soft thresholding projects the difference ``x_{G_k}-s`` onto the
+coordinate box ``[-\gamma\lambda_1,\gamma\lambda_1]^{|G_k|}``.
+When the result is nonzero, the group shrink preserves the signs and
+zero entries of ``s``, so this difference is still an admissible
+ℓ₁ subgradient contribution at ``y_{G_k}``. The shrink difference
+``s-y_{G_k}`` gives the group ℓ₂ contribution. When the group shrinks
+to zero, ``s`` lies inside the group ℓ₂ subgradient ball of radius ``c_k``,
+and the original difference still lies in the box.
+
+```@example sparse_group_penalty
+using ProximalBase
+f = SparseGroupNormL2(1.0, 2.0, [[3, 1]], [1.0])
+x = [-5.0, 99.0, 4.0]
+y = similar(x)
+v = value_and_prox!(y, f, x, 1.0)
+@assert y ≈ [-2.4, 99.0, 1.8]
+@assert v ≈ f(y)
+y
+```
+
+`prox` allocates, `prox!` accepts exact in-place use, and
+`value_and_prox!` returns the value at the stored destination. Array
+oracles accept real one-based CPU arrays, including `SparseIterate` and
+`BlockIterate`. Groups index matrices linearly. Full-array partial
+overlap is unsupported. See the [endpoint rules](@ref sparse-group-l2-endpoints)
+for zero or infinite steps, nonfinite entries and infinite parameters.
+
+### Compact groups
+
+`prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,
+returns `out` and accepts `out === u`. It checks the group, lengths,
+one-based real buffers, step and detected nonidentical overlap before
+writing. The caller supplies an output buffer independent of iterate
+storage. `prox_block(f, u, k, γ)` allocates that buffer. To store the
+result, the caller writes it into the matching block as a separate step.
+
+```@example sparse_group_penalty
+p = SparseGroupNormL2(1.0, 2.0, [[3, 1], [2]], [1.0, 0.0])
+z = BlockIterate(3, p)
+out = prox_block(p, [4.0, -5.0], 1, 1.0)
+@assert out ≈ [1.8, -2.4]
+@assert nactive(z) == 0
+copyto!(blockview(z, 1), out)
+@assert collect(activecoordinates(z)) == [1]
+out
+```
+
+`BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)`
+require the groups to partition the iterate. A `SymmetricSparseIterate`
+is unsupported for prox and KKT. The family has no scalar entry prox,
+step vectors, or `restrict`. Positive finite `Scaled` supports generic
+array value and prox with the scale applied to the step. A scaled product
+outside the working range can round before the sparse-group oracle sees it.
+`Scaled` compact-block and KKT calls are unsupported.
+
+### Zero-group screening and active-group mismatch
+
+Let `v` be the supplied smooth gradient, and set ``c_k=\lambda_2w_k``.
+At a zero group, `kkt_violation(f, v, x, k)` returns the signed margin
+
+```math
+\bigl\lVert S_{\lambda_1}(v_{G_k})\bigr\rVert_2-c_k.
+```
+
+The norm is the distance from the negative gradient to the ℓ₁ subgradient
+box. A positive margin means the gradient is too far from the box to be
+offset by the group ℓ₂ subgradient ball.
+
+At a nonzero group the ℓ₂ subgradient is fixed. Set
+``r_i=v_i+c_k x_i/\lVert x_{G_k}\rVert_2``. The block score is
+the Euclidean norm of the residual whose entry is
+``r_i+\lambda_1\operatorname{sign}(x_i)`` at a nonzero entry and
+``S_{\lambda_1}(r_i)`` at a zero entry. This is the distance from
+``-v_{G_k}`` to the subdifferential at the current group.
+
+On an ordinary array `k` is an entry index and selects its group.
+An uncovered index has score `abs(v[k])`. On a `BlockIterate`,
+`k` is a group number and the selected ordered layout must agree.
+The full-point `kkt_violation(f, v, x)` checks the full block layout
+and returns the maximum across zero, the block scores and the
+uncovered-entry magnitudes. The result measures the worst block
+or free-coordinate mismatch. The three-argument assumed-zero
+form with an integer index throws `ArgumentError`.
+
 ## [The group ℓ∞ norm](@id group-linf-guide)
 
 `GroupNormLinf` represents the group ℓ₁/ℓ∞ penalty

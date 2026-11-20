@@ -705,3 +705,44 @@ passed all nine isolated examples, doctests and manual examples. All six
 preservation checks passed in blocking mode, all 79 checker fixtures passed,
 and Markdown, schema and rendered-link checks passed. These are lead-agent
 implementation checks; no claim of an external human review is made.
+
+## Reconciliation after SparseGroupNormL2 (#1076)
+
+`sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81`
+verified the merged status of [#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076),
+its actual first parent `a31ba29c633414d6f2aa05ad16f84e99eb6dc52c`, and all
+eleven complete replacements against the landed Git blobs. Ten replacements
+each cover a single block. The zero-step endpoint receipt extends from three
+sentences to five, preserving the three earlier sentences in order.
+
+The independent reviewer inspected the compact buffer checks, group layout,
+point-aware KKT forms and zero-step projection in the landed source and tests.
+The review verified Git provenance and source evidence. It did not rerun Julia.
+The interpretation of the retained-and-removed scope paragraph is recorded in
+`open-questions.md` for owner review. The audit now records 106 transitions in
+the same 60 receipts and retains all 2,162 original block identities and hashes.
+
+## Reconciliation after IndBallL0 (#1062)
+
+`sparsegroup_receipt_review@1299e54621a63788d306fc549091303a88007cdc`
+verified that [#1062](https://github.com/mlakolar/ProximalBase.jl/pull/1062)
+merged with actual first parent `d93ccabe55cd0ada3a629d685a1e4893facc3565`.
+Two existing receipts each gained one transition. They cover the Indicators
+`@docs` fence and the retained-and-removed scope paragraph. The independent
+review compared both raw spans, Git blobs, earlier events and the landed
+IndBallL0 source and tests. The audit holds 60 receipts and 108 transitions,
+with all 2,162 original identities and hashes preserved.
+
+## IndNonnegative verbatim move
+
+The `IndNonnegative` endpoint row moves from `numerics.md` to
+`spec/indnonnegative.md#spec-indnonnegative-endpoints`. Its exact bytes match
+the row in the frozen baseline and on the preceding NormL1 labels branch
+at `6d596e7e08575979166c3379d03275efcfbd171e`. Its frozen ledger root still
+has hash `eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d`
+and uses the ordinary `move` action.
+
+The hub retains a forwarding row. The new page's section links lead to the
+existing definitions, shared numerical rules and tests. The family map points
+to the new page. The scope of the `Scaled` description awaits owner review in
+`open-questions.md`.

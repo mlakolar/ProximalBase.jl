@@ -2,14 +2,37 @@
   "schema": 1,
   "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
   "raw_span_review": {
-    "reviewer": "lead-independent-migration@5cf01e4",
-    "scope": "The 76 complete raw source/destination spans, nonoverlap and normalized equivalence. Rendered review and final acceptance remain separate."
+    "reviewer": "reconcile_pr_review@9e3ec2f49ff566022d19083ebe07e9374fe68c29",
+    "scope": "The single IndNonnegative endpoint row, compared byte for byte with the frozen baseline and the reconciled prerequisite."
   },
   "manifests": [
     "moves-indnonnegative.json",
     "moves-sqrnorml2.json"
   ],
   "changes": [
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
+      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
+      ],
+      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "source_start": 28481,
+          "source_end": 29181,
+          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
+          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+          "manifest": "moves-indnonnegative.json",
+          "manifest_index": 0
+        }
+      ]
+    },
     {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::33",
       "baseline_sha": "0f45821599c772834f4cbf7b4544f02a43014ac31db6f2195ae48ba306a9957c",
@@ -80,29 +103,6 @@
       ]
     },
     {
-      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
-      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-      "previous_action": "stay",
-      "action": "move",
-      "comparison_source_shas": [
-        "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d"
-      ],
-      "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
-      "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-      "reviewer": "mechanical",
-      "pieces": [
-        {
-          "source_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-          "source_start": 28481,
-          "source_end": 29181,
-          "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
-          "dest_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
-          "manifest": "moves-indnonnegative.json",
-          "manifest_index": 0
-        }
-      ]
-    },
-    {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Squared Euclidean norm](@id Squared-Euclidean-norm)::47",
       "baseline_sha": "c9ff1b92fe9ab8c0cdc3dd20a58c01ea0d0f51ffb8210ce7a3870ec9f84d54ed",
       "previous_action": "stay",
@@ -112,7 +112,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
       "dest_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875;3a07ea981b8441999d76ab3b4159980f2b1017734f2e81d999459ef282d675d2;1edc887aac02a90b37ca07955e43c584d7962719be310e9a8d206e16f5d9d1ec;074ad876216e5e09d510984ce823fc744eb3510b7ba80ab6f0c266e255de4794;070112dcd7f32941ea4978a0b877b0519399ac8057defd8da040b551b1d3507d;a572b95de02532b20a0d5e299e4d779fcf8ca93ae1e1ef983476182946890554",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "49b4796fff9ba566352c39c301c16230f246461d8087b61b99e2c8ccea89a875",
@@ -180,7 +180,7 @@
       ],
       "dest": "docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-range",
       "dest_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc;78a1539a291e7d28fcfb85f7efa0e9be1f9268bd5d93bef421c0dca9f068989b;2e34904135f0a4091551f81e134a973f085e344542efe0c171e351d04d8c9d77;3435b3c4b0b79356bcf2e7a4a6167fcb9c6a7aba7dd9d5595989459091399ddf;bf88fb65d02152cc985dfa95b56fe4c98c61a064e1260ea48e886f904abb242d;19da82b292840595f5607f2042466444113dce08910a4b3ad924e34c9b1a7111;f7d70f484093570c6aef6226153d447325151485b9975418178e4ed01756d0e2;6110f58980805c869d4617aca083e44000c1e56449dc3e8ac3c74d5ba1f355ce;4e5af53058ceffbc7a230bf84093fbd32750c26841a70cd68445441802679f2f;d4a96a9abe33a6800141590803c0d7d489a3b3ea895a61d26e44fec233fb8ac1;8360f8f2dd9956228aa2141c14093dab12c53b124b0ed0c456ad29e871f4fd8d;bf5ee5ca035dc4585982923ae35f1795322b403ea2dfda59087ec8793d376103",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "fb9f6c9cfc6facdfa0b15d6d7f7a7f4a6692c7b7f78a8530c61b1a991e474bcc",
@@ -314,7 +314,7 @@
       ],
       "dest": "docs/src/smooth.md;docs/src/smooth.md;docs/src/spec/sqrnorml2.md#spec-sqrnorml2-endpoints",
       "dest_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7;b1c86d653b735c30f17d4812cb128b0b1ad607dfd7b6b5b130f371ed2a3b7590;a199140b2a1e7e10221f65c951947991f43c29acf3941b108a018954015d3a2a",
-      "reviewer": "lead-independent-migration@5cf01e4",
+      "reviewer": "reconcile_pr_review@6e1f295b7e90f1dcac5552bcfc83644d06c32f66",
       "pieces": [
         {
           "source_sha": "1255e0781d58f45a1fd4b501c364f347e362f53ff0ed98c474199b0433e9e2d7",

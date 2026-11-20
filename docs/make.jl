@@ -110,6 +110,7 @@ makedocs(;
             "NormL1Nonneg" => "spec/norml1nonneg.md",
             "ElasticNet" => "spec/elasticnet.md",
             "SCAD" => "spec/scad.md",
+            "IndBallL0" => "spec/indballl0.md",
             "IndBallL1" => "spec/indballl1.md",
             "IndNonnegative" => "spec/indnonnegative.md",
             "SqrNormL2" => "spec/sqrnorml2.md",

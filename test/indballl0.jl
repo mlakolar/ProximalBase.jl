@@ -125,7 +125,6 @@ end
       f = IndBallL0(s; diagonal = false)
       @test f.s == s
       best, Yexp, E = brute(Xm, s)
-      check_case(f, s, Xm, best, Yexp, E, T, () -> copy(Xm))
       SL = Symmetric(PL, :L)
       check_case(f, s, SL, best, Yexp, E, T, () -> Symmetric(copy(PL), :L))
       SU = Symmetric(PU, :U)
@@ -139,7 +138,7 @@ end
   Y1 = [5.0 0 -3; 0 7 0; -3 0 9]
   for s in (2, 3)
     f = IndBallL0(s; diagonal = false)
-    Y = prox(f, X)
+    Y = prox(f, Symmetric(X, :L))
     @test isequal(Y, Y1)
     @test all(x -> x === 0.0, Y[[2, 4, 6, 8]])
     @test f(X) == Inf
@@ -147,24 +146,27 @@ end
   end
   for s in (6, 7, typemax(Int))
     f = IndBallL0(s; diagonal = false)
-    @test isequal(prox(f, X), X)
+    @test isequal(prox(f, Symmetric(X, :L)), X)
     @test f(X) === 0.0
   end
-  @test isequal(prox(IndBallL0(0; diagonal = false), X), [5.0 0 0; 0 7 0; 0 0 9])
+  @test isequal(prox(IndBallL0(0; diagonal = false), Symmetric(X, :L)), [5.0 0 0; 0 7 0; 0 0 9])
   @test IndBallL0(1; diagonal = false)(X) == Inf
 
   Xt = [0.0 2 2; 2 0 -2; 2 -2 0]
-  @test isequal(prox(IndBallL0(2; diagonal = false), Xt), [0.0 2 0; 2 0 0; 0 0 0])
-  @test isequal(prox(IndBallL0(4; diagonal = false), Xt), [0.0 2 2; 2 0 0; 2 0 0])
-  @test isequal(prox(IndBallL0(6; diagonal = false), Xt), Xt)
+  @test isequal(prox(IndBallL0(2; diagonal = false), Symmetric(Xt, :L)), [0.0 2 0; 2 0 0; 0 0 0])
+  @test isequal(prox(IndBallL0(4; diagonal = false), Symmetric(Xt, :L)), [0.0 2 2; 2 0 0; 2 0 0])
+  @test isequal(prox(IndBallL0(6; diagonal = false), Symmetric(Xt, :L)), Xt)
 
   # Symmetric(A, :U) reads the upper triangle of A
   A = [1.0 2 3; 99 4 5; 98 97 6]
   @test isequal(prox(IndBallL0(2; diagonal = false), Symmetric(A, :U)), [1.0 0 0; 0 4 5; 0 5 6])
   @test isequal(prox(IndBallL0(2; diagonal = false), Symmetric(A, :L)), [1.0 99 0; 99 4 0; 0 0 6])
 
+  # The same raw matrix can retain just one position of a mirrored pair.
+  @test prox(IndBallL0(1; diagonal = false), X) == [5.0 0 0; 0 7 0; -3 0 9]
+  @test prox(IndBallL0(1; diagonal = false), Symmetric(X)) == Diagonal(diag(X))
   # a larger budget than the number of pairs, and a one-by-one matrix
-  @test isequal(prox(IndBallL0(10^6; diagonal = false), X), X)
+  @test isequal(prox(IndBallL0(10^6; diagonal = false), Symmetric(X, :L)), X)
   @test isequal(prox(IndBallL0(0; diagonal = false), [3.0;;]), [3.0;;])
   @test IndBallL0(0; diagonal = false)([3.0;;]) === 0.0
   @test IndBallL0(0; diagonal = false)(Float32[3;;]) === 0.0f0
@@ -172,25 +174,25 @@ end
 
 @testset "signed zeros" begin
   f0 = IndBallL0(0; diagonal = false)
-  # the pair (+0.0, -0.0) passes the symmetry check and both slots take the lower entry
+  # Both output slots take the signed zero from the selected lower triangle.
   X = [1.0 -0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
-  Y = prox(f0, X)
+  Y = prox(f0, Symmetric(X, :L))
   @test Y[2, 1] === 0.0 && Y[1, 2] === 0.0
   @test f0(X) === 0.0
   # a kept -0.0 entry is read from the lower entry
   X = [1.0 0.0 0.0; -0.0 1.0 0.0; 0.0 0.0 1.0]
-  Y = prox(f0, X)
+  Y = prox(f0, Symmetric(X, :L))
   @test Y[2, 1] === -0.0 && Y[1, 2] === -0.0
   # an entry that is dropped becomes +0.0
   f2 = IndBallL0(2; diagonal = false)
   X = [1.0 -0.0 3.0; -0.0 1.0 2.0; 3.0 2.0 1.0]
-  Y = prox(f2, X)
+  Y = prox(f2, Symmetric(X, :L))
   @test isequal(Y, [1.0 0.0 3.0; 0.0 1.0 0.0; 3.0 0.0 1.0])
   @test Y[2, 1] === 0.0 && Y[1, 2] === 0.0
   # a diagonal -0.0 is copied
   X = [-0.0 3.0; 3.0 -0.0]
-  @test isequal(prox(f0, X), [-0.0 0.0; 0.0 -0.0])
-  @test isequal(prox(f2, X), X)
+  @test isequal(prox(f0, Symmetric(X, :L)), [-0.0 0.0; 0.0 -0.0])
+  @test isequal(prox(f2, Symmetric(X, :L)), X)
 end
 
 @testset "value" begin
@@ -212,15 +214,13 @@ end
     @test f(T[NaN 0; 0 NaN]) === zero(T)
     @test f(Symmetric(T[1 2 3; 99 1 4; 98 97 1], :U)) === T(Inf)
     @test f(Symmetric(T[1 2 0; 99 1 0; 98 97 1], :U)) === zero(T)
-    # not symmetric
-    @test_throws ArgumentError f(T[1 2; 3 4])
-    @test_throws ArgumentError f(T[1 0; 1e-30 1])
-    @test_throws DimensionMismatch f(zeros(T, 2, 3))
-    @test_throws ArgumentError f(zeros(T, 0, 0))
+    @test f(T[1 2; 3 4]) === zero(T)
+    @test IndBallL0(1; diagonal = false)(T[1 0; 1e-30 1]) === zero(T)
+    @test f(zeros(T, 2, 3)) === zero(T)
+    @test f(zeros(T, 0, 0)) === zero(T)
   end
-  # NaN matches NaN: a pair of NaN entries is symmetric
   @test isnan(f([1.0 NaN; NaN 1.0]))
-  @test_throws ArgumentError f([1.0 NaN; 0.0 1.0])
+  @test isnan(f([1.0 NaN; 0.0 1.0]))
 end
 
 @testset "errors precede writes" begin
@@ -249,21 +249,11 @@ end
     @test isequal(prox!(Y, f, X, γ), [5.0 0 -3; 0 7 0; -3 0 9])
   end
 
-  # not symmetric
-  Xn = [1.0 2 3; 2.5 1 4; 3 4 1]
-  refused(ArgumentError, Y, f, Xn)
-  refused(ArgumentError, Y, IndBallL0(typemax(Int); diagonal = false), Xn)
-  refused(ArgumentError, Y, f, [1.0 NaN 3; 0.0 1 4; 3 4 1])
-  @test occursin("symmetric", message(() -> prox!(Y, f, Xn, 1.0)))
-  @test occursin("symmetric", message(() -> f(Xn)))
-  @test_throws ArgumentError prox(f, Xn)
-
-  # nonfinite entries read: the diagonal and the strict lower triangle
-  for budget in (0, 2, 4, typemax(Int)), bad in (NaN, Inf, -Inf), (i, j) in ((1, 1), (3, 3), (2, 1), (3, 1), (3, 2))
+  # Nonfinite counted entries are classified during the support count.
+  for budget in (0, 2, 4, typemax(Int)), bad in (NaN, Inf, -Inf), (i, j) in lower_pairs(3)
     g = IndBallL0(budget; diagonal = false)
     Xb = copy(X)
-    Xb[i, j] = bad
-    Xb[j, i] = bad
+    Xb[i, j] = Xb[j, i] = bad
     refused(ArgumentError, Y, g, Xb)
     refused(ArgumentError, Y, g, Symmetric(Xb, :L))
     refused(ArgumentError, Y, g, Symmetric(Xb, :U))
@@ -274,23 +264,14 @@ end
   Xu[1, 3] = NaN
   fill!(Y, 42)
   @test isequal(prox!(Y, f, Symmetric(Xu, :L), 1.0), [5.0 0 -3; 0 7 0; -3 0 9])
-  @test occursin("(3, 2)", message(() -> prox!(Y, IndBallL0(0; diagonal = false),
-                                              [1.0 0 0; 0 1 Inf; 0 Inf 1], 1.0)))
-
   # shapes
   @test_throws DimensionMismatch prox!(zeros(2, 2), f, X, 1.0)
   @test_throws DimensionMismatch prox!(zeros(3, 4), f, X, 1.0)
   @test_throws DimensionMismatch prox!(zeros(3, 3), f, zeros(3, 2), 1.0)
-  @test_throws DimensionMismatch prox!(zeros(3, 2), f, zeros(3, 2), 1.0)
   @test_throws DimensionMismatch value_and_prox!(zeros(2, 2), f, X, 1.0)
-  @test_throws DimensionMismatch prox(f, zeros(2, 3))
   fill!(Y, 42)
   @test_throws DimensionMismatch prox!(Y, f, zeros(2, 2), 1.0)
   @test all(==(42), Y)
-  @test_throws ArgumentError prox!(zeros(0, 0), f, zeros(0, 0), 1.0)
-  @test_throws ArgumentError prox(f, zeros(0, 0))
-  @test_throws ArgumentError value_and_prox!(zeros(0, 0), f, zeros(0, 0), 1.0)
-  @test_throws ArgumentError prox!(zeros(0, 0), f, Symmetric(zeros(0, 0)), 1.0)
 
   # unsupported arguments name the supported types
   Yf = fill(Float32(42), 3, 3)
@@ -309,20 +290,17 @@ end
   refused(ArgumentError, Yd, f, X, ones(3))
   refused(ArgumentError, Yd, f, X, 1:3)
   Yv = fill(42.0, 9)
-  @test_throws ArgumentError prox!(Yv, f, vec(X), 1.0)
   @test_throws ArgumentError prox!(Yv, f, X, 1.0)
   @test all(==(42), Yv)
   @test_throws ArgumentError prox!(Yd, f, vec(X), 1.0)
   @test_throws ArgumentError prox!(view(Yd, :, :), f, X, 1.0)
   @test_throws ArgumentError prox!(Symmetric(Yd), f, X, 1.0)
   @test_throws ArgumentError prox!(Yd, f, X, "1")
-  @test_throws ArgumentError prox(f, vec(X))
   @test_throws ArgumentError prox(f, X, ones(3, 3))
   @test_throws ArgumentError prox(f, Hermitian(X))
   @test_throws ArgumentError prox(f, round.(Int, X))
   @test_throws ArgumentError prox(f, BigFloat.(X))
   @test_throws ArgumentError prox(f, (X,))
-  @test_throws ArgumentError f(vec(X))
   @test_throws ArgumentError f(Hermitian(X))
   @test_throws ArgumentError f(round.(Int, X))
   @test_throws ArgumentError f(BigFloat.(X))
@@ -332,20 +310,16 @@ end
   @test_throws ArgumentError f(zeros(2, 2, 2))
   @test all(==(42), Yd)
   for T in (Float32, Float64)
-    msg = message(() -> prox!(zeros(T, 3), f, zeros(T, 3), one(T)))
+    msg = message(() -> prox!(zeros(T, 3), f, zeros(T, 3, 1), one(T)))
     @test occursin("Float32", msg) && occursin("Float64", msg)
   end
 
   # SymmetricSparseIterate: an input, an output, an array step
   ssi = SymmetricSparseIterate(Float64[8 1 0; 1 8 0; 0 0 8])
   before = collect(matrixview(ssi))
-  @test_throws ArgumentError f(ssi)
-  @test_throws ArgumentError prox(f, ssi)
-  @test_throws ArgumentError prox(f, ssi, 1.0)
   @test_throws ArgumentError prox(f, ssi, ones(3, 3))
   @test_throws ArgumentError prox!(zeros(3, 3), f, ssi, 1.0)
   @test_throws ArgumentError prox!(ssi, f, X, 1.0)
-  @test_throws ArgumentError prox!(ssi, f, ssi, 1.0)
   @test_throws ArgumentError prox!(ssi, f, X, ones(3, 3))
   @test_throws ArgumentError prox!(ssi, f, X)
   @test_throws ArgumentError value_and_prox!(zeros(3, 3), f, ssi, 1.0)
@@ -355,13 +329,8 @@ end
   @test collect(matrixview(ssi)) == before
 
   # constructor
-  @test_throws ArgumentError IndBallL0(2)
-  @test_throws ArgumentError IndBallL0(2; diagonal = true)
   @test_throws ArgumentError IndBallL0(-1; diagonal = false)
   @test_throws ArgumentError IndBallL0(-big(2)^70; diagonal = false)
-  @test_throws ArgumentError IndBallL0(0)
-  @test occursin("diagonal = false", message(() -> IndBallL0(2)))
-  @test occursin("diagonal = false", message(() -> IndBallL0(2; diagonal = true)))
   @test_throws MethodError IndBallL0(2.5; diagonal = false)
   @test_throws MethodError IndBallL0(; diagonal = false)
 end
@@ -380,14 +349,14 @@ brute_or_nothing(A, s) = size(A, 1) <= 4 ? brute(A, s) : (nothing, nothing, noth
     @test isequal(prox(f, X), X)
     @test f(X) === 0.0
   end
-  @test isequal(prox(IndBallL0(4; diagonal = false), X), [5.0 0 -3; 0 7 2; -3 2 9])
-  @test isequal(prox(IndBallL0(5; diagonal = false), X), [5.0 0 -3; 0 7 2; -3 2 9])
+  @test isequal(prox(IndBallL0(4; diagonal = false), Symmetric(X, :L)), [5.0 0 -3; 0 7 2; -3 2 9])
+  @test isequal(prox(IndBallL0(5; diagonal = false), Symmetric(X, :L)), [5.0 0 -3; 0 7 2; -3 2 9])
   # one object serves different sizes and element types
   f = IndBallL0(4; diagonal = false)
   for p in (3, 5, 2, 7), T in (Float32, Float64, Float32)
     A = T[min(i, j) * (-1)^(i + j) for i in 1:p, j in 1:p]
     best, Yexp, E = brute_or_nothing(A, 4)
-    Y = prox(f, A)
+    Y = prox(f, Symmetric(A, :L))
     @test Y isa Matrix{T}
     best === nothing || @test isequal(Y, Yexp)
     @test offdiagonal_count(Y) <= 4
@@ -412,7 +381,7 @@ end
       for s in budgets(p)
         best, Yexp, E = brute(Xm, s)
         f = IndBallL0(s; diagonal = false)
-        Y = prox(f, Xm)
+        Y = prox(f, Symmetric(Xm, :L))
         @test isequal(Y, Yexp)
         @test exact_error(Y, Xm) == best
         @test f(Y) === zero(T)
@@ -422,10 +391,10 @@ end
     huge = floatmax(T)
     tiny = nextfloat(zero(T))
     X = T[0 huge tiny; huge 0 2*tiny; tiny 2*tiny 0]
-    @test isequal(prox(IndBallL0(2; diagonal = false), X), T[0 huge 0; huge 0 0; 0 0 0])
+    @test isequal(prox(IndBallL0(2; diagonal = false), Symmetric(X, :L)), T[0 huge 0; huge 0 0; 0 0 0])
     X = T[0 tiny tiny; tiny 0 2*tiny; tiny 2*tiny 0]
-    @test isequal(prox(IndBallL0(2; diagonal = false), X), T[0 0 0; 0 0 2*tiny; 0 2*tiny 0])
-    @test isequal(prox(IndBallL0(4; diagonal = false), X), T[0 tiny 0; tiny 0 2*tiny; 0 2*tiny 0])
+    @test isequal(prox(IndBallL0(2; diagonal = false), Symmetric(X, :L)), T[0 0 0; 0 0 2*tiny; 0 2*tiny 0])
+    @test isequal(prox(IndBallL0(4; diagonal = false), Symmetric(X, :L)), T[0 tiny 0; tiny 0 2*tiny; 0 2*tiny 0])
   end
 end
 
@@ -475,7 +444,7 @@ end
       A[c, r] = v
     end
     for s in (0, 1, 2, 5, 10, 40, 100, p * (p - 1) - 2, p * (p - 1))
-      @test isequal(prox(IndBallL0(s; diagonal = false), A), sort_reference(A, s))
+      @test isequal(prox(IndBallL0(s; diagonal = false), Symmetric(A, :L)), sort_reference(A, s))
     end
   end
 end
@@ -491,7 +460,7 @@ end
       "distance" => T[abs(i - j) for i in 1:p, j in 1:p],
       "distance with ties and zeros" => T[abs(i - j) % 4 for i in 1:p, j in 1:p])
     for (name, A) in inputs, s in (0, 2, 10, 2p, 20p, p * (p - 1) - 2, p * (p - 1))
-      Y = prox(IndBallL0(s; diagonal = false), A)
+      Y = prox(IndBallL0(s; diagonal = false), Symmetric(A, :L))
       @test isequal(Y, sort_reference(A, s))
     end
   end
@@ -505,6 +474,10 @@ end
   @test !issmooth(f) && !isseparable(f)
   @test sprint(show, f) == "IndBallL0(4; diagonal = false)"
   @test f == IndBallL0(4; diagonal = false)
+  @test f != IndBallL0(4)
+  @test IndBallL0(4) == IndBallL0(4; diagonal = true)
+  @test sprint(show, IndBallL0(4)) == "IndBallL0(4; diagonal = true)"
+  @test isempty(Test.detect_ambiguities(ProximalBase; recursive = true))
   @test f != IndBallL0(2; diagonal = false)
   @test hash(f) == hash(IndBallL0(4; diagonal = false))
   @test hash(f) != hash(IndBallL0(2; diagonal = false))
@@ -537,7 +510,7 @@ end
   # in place on a Matrix, and on the parent of a Symmetric of either triangle
   Z = copy(X)
   @test prox!(Z, f, Z) === Z
-  @test isequal(Z, Y1)
+  @test isequal(Z, prox(f, X))
   for uplo in (:L, :U)
     P = copy(X)
     S = Symmetric(P, uplo)

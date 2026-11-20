@@ -106,4 +106,52 @@ end
   end
 end
 
+@testset "Owner state replacement, alias and Scaled" begin
+  for T in (Float32, Float64), symmetric in (false, true)
+    # For symmetric projection the pair beats the two smaller diagonals.
+    x = T[1 7 0; 7 -0.0 0; 0 0 4]
+    source = make_owner(x, reverse, symmetric)
+    ids = collect(activecoordinates(source))
+    y = similar(source)
+    coordinates(y)[2] = 42
+    activate!(y, ncoordinates(y))
+    for diagonal in (true, false)
+      f = IndBallL0(2; diagonal)
+      expected, _ = reference(x, 2, diagonal; symmetric)
+      @test prox!(y, f, source) === y
+      @test collect(activecoordinates(y)) == ids
+      @test Array(y) == expected
+      @test Array(source) == x
+      scaled = Scaled(f, T(3))
+      @test Array(prox(scaled, source)) == expected
+      @test value_and_prox!(y, scaled, source, T(1)) === scaled(y)
+      @test Array(y) == expected
+      trial = copy(source)
+      @test prox!(trial, f, trial) === trial
+      @test Array(trial) == expected
+      @test collect(activecoordinates(trial)) == ids
+      dropzeros!(trial)
+      @test Array(trial) == expected
+      @test nactive(trial) == count(!iszero, activevalues(trial))
+
+      snapshot = copy(y)
+      for step in (T(Inf), T(NaN), T(-1))
+        @test_throws ArgumentError prox!(y, f, source, step)
+        @test_throws ArgumentError value_and_prox!(y, f, source, step)
+      end
+      @test isequal(Array(y), Array(snapshot))
+      @test collect(activecoordinates(y)) == collect(activecoordinates(snapshot))
+    end
+    # Value classifies only counted entries. Free nonfinite diagonals can
+    # pass through the copy without changing the stored indicator value.
+    source[2, 2] = T(NaN)
+    f = IndBallL0(2; diagonal = false)
+    @test value_and_prox!(y, f, source) === f(y) === zero(T)
+    @test isnan(y[2, 2])
+    @test isnan(IndBallL0(typemax(Int))(source))
+    @test_throws ArgumentError prox!(y, IndBallL0(2), source)
+    @test isnan(y[2, 2])
+  end
+end
+
 end

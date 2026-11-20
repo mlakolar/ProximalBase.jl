@@ -65,6 +65,7 @@ ElasticNet
 IndBox
 IndBallLinf
 IndNonnegative
+IndBallL0
 IndBallL1
 IndBallL2
 ```

@@ -385,7 +385,10 @@ array prox and are ignored by the value.
 | Other finite positive steps | Apply the entrywise soft threshold. A zero group term leaves that result in place. A positive group term then applies the group shrink. |
 
 The entrywise threshold at a finite step propagates NaN at the corresponding
-entry when the ℓ₁ term is positive. The group shrink distinguishes a product
+entry when the ℓ₁ term is positive. When finite `γλ1` overflows in the
+working type, a coupled group retains genuine infinite inputs. An ℓ₁-only
+group follows the [NormL1 endpoint rule](@ref spec-norml1-endpoints)
+and returns NaN at such an entry. The group shrink distinguishes a product
 of finite factors outside the working range from a stored infinite parameter.
 The supported homogeneous precision and general range limits above apply.
 For mixed-width calls, the stored intermediate and destination conversions

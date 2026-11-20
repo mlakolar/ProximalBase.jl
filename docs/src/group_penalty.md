@@ -422,6 +422,7 @@ is unsupported for prox and KKT. The family has no scalar entry prox,
 step vectors, or `restrict`. Positive finite `Scaled` supports generic
 array value and prox with the scale applied to the step. A scaled product
 outside the working range can round before the sparse-group oracle sees it.
+A zero scale throws `ArgumentError` through the generic constructor.
 `Scaled` compact-block and KKT calls are unsupported.
 
 ### Zero-group screening and active-group mismatch

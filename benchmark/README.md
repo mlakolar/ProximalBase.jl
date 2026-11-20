@@ -641,9 +641,9 @@ control runs in both comparisons.
 The independent correctness sweep uses 256-bit arithmetic for ordinary
 inputs and 4096-bit arithmetic over the wider exponent range.
 
-## NormL0OffDiag
+## NormL0 with diagonal = false
 
-`norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0OffDiag` against
+`norml0offdiag.jl` times `prox!`, `value_and_prox!` and the value of `NormL0(λ; diagonal = false)` against
 the same operations of the all-entry `NormL0` on one symmetric matrix, for `p = 8, 32, 64` and
 `Float32` and `Float64`, and the in-place forms of the first two (each copies the input into the
 buffer first, for both functions). More than half of the off-diagonal entries lie above the threshold.
@@ -655,8 +655,9 @@ bytes. It runs in the root project:
 julia --threads=1 --project=. -e 'using Pkg; Pkg.instantiate(); include("benchmark/norml0offdiag.jl")'
 ```
 
-Before the proximal map writes, `NormL0OffDiag` makes a finiteness pass over the entries of the
-input; it does not compare the two triangles. One run on Julia 1.13.4 at commit `0d9ceb65b` gave
+Before the proximal map writes, `NormL0(λ; diagonal = false)` makes a finiteness pass over the entries of the
+input; it does not compare the two triangles. One run on Julia 1.13.4 at commit `0d9ceb65b`, before the function
+moved to the `diagonal` keyword of `NormL0` with the same kernels, gave
 these ratios to the same operation of `NormL0`. The allocation was zero bytes in each row of that
 run. The in-place ratios are below one at some sizes because the in-place `prox!` of `NormL0` was
 slower than its out-of-place `prox!` in this run.

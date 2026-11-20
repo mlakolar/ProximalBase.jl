@@ -1,5 +1,5 @@
 """
-    NormL0OffDiag(λ = 1)
+    NormL0(λ; diagonal = false)
 
 The nonconvex penalty `g(X) = λ ⋅ #{(i, j) : i ≠ j, Xᵢⱼ ≠ 0}` on a square
 matrix: each nonzero off-diagonal entry costs `λ` and the diagonal costs
@@ -56,32 +56,39 @@ matrices, `Adjoint`, `Transpose`, [`matrixview`](@ref)), offset axes, an element
 type other than `Float32` and `Float64` or differing types of `X` and `Y`, a
 step that is not finite and positive, and a non-finite entry of `X`.
 `DimensionMismatch`: a non-square `X`, or a `Y` of another
-size. Arguments that are not matrices, such as vectors, tuples,
-[`SymmetricSparseIterate`](@ref) and [`BlockIterate`](@ref), and array steps give
-`MethodError`, or `ArgumentError` where a generic fallback rejects them first.
+size. Arguments that are not matrices throw `ArgumentError`: vectors, tuples,
+[`SparseIterate`](@ref) vectors, [`SymmetricSparseIterate`](@ref) and
+[`BlockIterate`](@ref), as the argument of the value, or as `X` or `Y` of
+`prox`, `prox!` and `value_and_prox!`. So does an array step. A step that is
+neither `Real` nor an array throws `ArgumentError` from `prox!` and
+`value_and_prox!`, and `MethodError` from `prox`, which has no method for it.
 
-`Scaled(NormL0OffDiag(λ), α)` multiplies the value by `α`, and its proximal
+`Scaled(NormL0(λ; diagonal = false), α)` multiplies the value by `α`, and its proximal
 map at step `γ` is this map at step `α * γ`, for positive finite `α` when the
 rounded product `α * γ` is finite and positive.
 
 Not provided: positive definiteness of the output, `restrict`,
-`prox_block` and `kkt_violation` (each throws `MethodError`), steps `0` and
-`Inf`, and non-finite input. See the [numerical contract](@ref spec-norml0offdiag).
+`prox_block`, `prox_block!` and `kkt_violation` (each throws `ArgumentError`),
+steps `0` and `Inf`, and non-finite input. See the [numerical contract](@ref spec-norml0offdiag).
 """
-struct NormL0OffDiag{T<:Real} <: AbstractFunction
+NormL0(::Real)
+
+# The function of NormL0(λ; diagonal = false). It is not exported; the keyword constructor in norml0.jl returns it.
+struct _NormL0OffDiag{T<:Real} <: AbstractFunction
   λ::T
 
-  function NormL0OffDiag{T}(λ::T) where {T<:Real}
-    isfinite(λ) || throw(ArgumentError("NormL0OffDiag requires a finite λ, got $λ"))
+  function _NormL0OffDiag{T}(λ::T) where {T<:Real}
+    isfinite(λ) || throw(ArgumentError("NormL0(λ; diagonal = false) requires a finite λ, got $λ"))
     _checknonneg("λ", λ)
     new{T}(λ)
   end
 end
-NormL0OffDiag(λ::Real = 1) = NormL0OffDiag{typeof(λ)}(λ)
 
-isproximable(::Type{<:NormL0OffDiag}) = true
+isproximable(::Type{<:_NormL0OffDiag}) = true
 
-@noinline _l0od_error(what) = throw(ArgumentError("NormL0OffDiag $what"))
+Base.show(io::IO, f::_NormL0OffDiag) = (print(io, "NormL0("); show(io, f.λ); print(io, "; diagonal = false)"))
+
+@noinline _l0od_error(what) = throw(ArgumentError("NormL0(λ; diagonal = false) $what"))
 
 # The checks on the matrix X of the value oracle; the proximal oracles use _l0od_check_pair.
 function _l0od_check_matrix(X)
@@ -152,7 +159,7 @@ end
 @inline _l0od_value(::Type{T}, λ, k::Integer) where {T} =
   (k == 0 || iszero(λ)) ? zero(T) : (R = promote_type(T, float(typeof(λ))); convert(T, R(λ) * R(k)))
 
-function (f::NormL0OffDiag)(X::AbstractMatrix)
+function (f::_NormL0OffDiag)(X::AbstractMatrix)
   _l0od_check_matrix(X)
   _l0od_scan(X)
   _l0od_value(eltype(X), f.λ, _l0od_count(X))
@@ -162,8 +169,8 @@ end
 # in the same cases as in its dense kernel: equal element, level and step types
 # and at least 64 entries. The union result is handed to a loop that does not
 # depend on it.
-@inline _l0od_rule(f::NormL0OffDiag, X, γ) = NormL0(f.λ)
-@inline function _l0od_rule(f::NormL0OffDiag{T}, X::AbstractMatrix{T}, γ::T) where {T<:Union{Float32, Float64}}
+@inline _l0od_rule(f::_NormL0OffDiag, X, γ) = NormL0(f.λ)
+@inline function _l0od_rule(f::_NormL0OffDiag{T}, X::AbstractMatrix{T}, γ::T) where {T<:Union{Float32, Float64}}
   g = NormL0(f.λ)
   length(X) < 64 ? g : _l0_cutoff(g, γ)
 end
@@ -197,7 +204,7 @@ function _l0od_inplace!(X::StridedMatrix, g, γ)
   X
 end
 
-function _l0od_prox!(Y, f::NormL0OffDiag, X, γ)
+function _l0od_prox!(Y, f::_NormL0OffDiag, X, γ)
   _l0od_check_pair(Y, X)
   _l0od_check_step(γ)
   _l0od_scan(X)
@@ -206,12 +213,41 @@ function _l0od_prox!(Y, f::NormL0OffDiag, X, γ)
   nothing
 end
 
-function prox!(Y::AbstractMatrix, f::NormL0OffDiag, X::AbstractMatrix, γ::Real)
+function prox!(Y::AbstractMatrix, f::_NormL0OffDiag, X::AbstractMatrix, γ::Real)
   _l0od_prox!(Y, f, X, γ)
   Y
 end
 
-function value_and_prox!(Y::AbstractMatrix, f::NormL0OffDiag, X::AbstractMatrix, γ::Real)
+function value_and_prox!(Y::AbstractMatrix, f::_NormL0OffDiag, X::AbstractMatrix, γ::Real)
   _l0od_prox!(Y, f, X, γ)
   _l0od_value(eltype(Y), f.λ, _l0od_count(Y))
 end
+
+# Arguments without a method above: the value, prox! and value_and_prox! of other argument types, and the
+# block, restriction and screening operations. The methods with typed arguments repeat the signatures of
+# generic methods in interface.jl, block_prox.jl and symmetric_parameters.jl, so that no call is ambiguous.
+@noinline _l0od_unsupported(what, T) = throw(ArgumentError(
+  "NormL0(λ; diagonal = false) supports strided square matrices with Float32 or Float64 entries and a real " *
+  "step; got $what of type $T"))
+@noinline _l0od_not_provided(op) = throw(ArgumentError("NormL0(λ; diagonal = false) does not provide $op"))
+
+(f::_NormL0OffDiag)(X) = _l0od_unsupported("the argument", typeof(X))
+prox!(Y, f::_NormL0OffDiag, X, γ) = _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
+prox!(Y::SymmetricSparseIterate, f::_NormL0OffDiag, X, γ::AbstractArray) =
+  _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
+value_and_prox!(Y, f::_NormL0OffDiag, X, γ) = _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
+value_and_prox!(Y, f::_NormL0OffDiag, X, γ::Real) = _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
+value_and_prox!(Y::SymmetricSparseIterate, f::_NormL0OffDiag, X, γ::AbstractArray) =
+  _l0od_unsupported("the output, input or step", typeof.((Y, X, γ)))
+prox(f::_NormL0OffDiag, X::SymmetricSparseIterate, γ::Real = 1) = _l0od_unsupported("the input", typeof(X))
+
+prox_block(f::_NormL0OffDiag, v, k, γ) = _l0od_not_provided(:prox_block)
+prox_block(f::_NormL0OffDiag, u::AbstractVector, k::Integer, γ::Real) = _l0od_not_provided(:prox_block)
+prox_block!(out, f::_NormL0OffDiag, u, k, γ) = _l0od_not_provided(:prox_block!)
+restrict(f::_NormL0OffDiag, S) = _l0od_not_provided(:restrict)
+kkt_violation(f::_NormL0OffDiag, v, i) = _l0od_not_provided(:kkt_violation)
+kkt_violation(f::_NormL0OffDiag, v, x, k) = _l0od_not_provided(:kkt_violation)
+kkt_violation(f::_NormL0OffDiag, v::AbstractArray, x::AbstractArray, k::Integer) = _l0od_not_provided(:kkt_violation)
+kkt_violation(f::_NormL0OffDiag, v::AbstractArray, x::BlockIterate, k::Integer) = _l0od_not_provided(:kkt_violation)
+kkt_violation(f::_NormL0OffDiag, v::AbstractArray, x::SymmetricSparseIterate, k::Integer) =
+  _l0od_not_provided(:kkt_violation)

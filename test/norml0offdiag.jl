@@ -1,4 +1,4 @@
-module NormL0OffDiagTest
+module NormL0DiagonalFreeTest
 
 using Test, ProximalBase, LinearAlgebra, Random, SparseArrays, OffsetArrays
 
@@ -57,7 +57,7 @@ end
 # patterns of the pairs, and a description of the first failure otherwise.
 function problem(V::Matrix{T}, λ, γ) where {T}
   p = size(V, 1)
-  f = NormL0OffDiag(λ)
+  f = NormL0(λ; diagonal = false)
   X = copy(V)
   Y = fill(T(NaN), p, p)
   v = value_and_prox!(Y, f, X, γ)
@@ -116,12 +116,12 @@ function pair_values(::Type{T}, tie) where {T}
 end
 
 @testset "constructor, traits and types" begin
-  f = NormL0OffDiag()
-  @test f.λ == 1 && f isa NormL0OffDiag{Int} && f isa AbstractFunction
-  @test NormL0OffDiag(0.5f0).λ === 0.5f0
-  @test NormL0OffDiag(0).λ == 0
+  f = NormL0(; diagonal = false)
+  @test f.λ == 1 && f isa ProximalBase._NormL0OffDiag{Int} && f isa AbstractFunction
+  @test NormL0(0.5f0; diagonal = false).λ === 0.5f0
+  @test NormL0(0; diagonal = false).λ == 0
   for bad in (-1, -1.0, -0.5f0, NaN, -NaN, Inf, -Inf, Float32(Inf), Float32(NaN))
-    @test_throws ArgumentError NormL0OffDiag(bad)
+    @test_throws ArgumentError NormL0(bad; diagonal = false)
   end
   @test isproximable(f) && isproximable(typeof(f))
   @test !isconvex(f) && !issmooth(f) && !isseparable(f)
@@ -131,7 +131,7 @@ end
 
 @testset "documented examples, $T" for T in (Float32, Float64)
   # λ = 2, γ = 1/2: the threshold of the squared entry is 2.
-  f = NormL0OffDiag(T(2))
+  f = NormL0(T(2); diagonal = false)
   V = T[0.01 1.5 1.4 -1.5; 1.5 3 0 1.5; 1.4 0 0.5 0; -1.5 1.5 0 0]
   Y = prox(f, V, T(0.5))
   @test Y[1, 2] === T(1.5) && Y[2, 1] === T(1.5)
@@ -142,7 +142,7 @@ end
   @test prox(NormL0(T(2)), V, T(0.5))[1, 1] === zero(T)
 
   # λ = 2, γ = 1: the threshold of the squared entry is 4.
-  g = NormL0OffDiag(T(2))
+  g = NormL0(T(2); diagonal = false)
   tie = T(2)
   for s in (1, -1), (x, kept) in ((tie, false), (nextfloat(tie), true), (prevfloat(tie), false))
     for p in (2, 9)
@@ -179,7 +179,7 @@ end
 end
 
 @testset "diagonal has no penalty, $T" for T in (Float32, Float64)
-  f = NormL0OffDiag(T(5))
+  f = NormL0(T(5); diagonal = false)
   for d in T[0, -0.0, 1e-3, 0.01, -2, 7], γ in T[0.1, 1, 10]
     Y = prox(f, fill(d, 1, 1), γ)
     @test isequal(Y[1, 1], d)
@@ -216,7 +216,7 @@ end
     for i in 1:min(p, 3)
       V[i, i] = (T(0.01), T(-0.0), T(0.2))[i]
     end
-    f = NormL0OffDiag(λ)
+    f = NormL0(λ; diagonal = false)
     W = prox(NormL0(λ), V, γ)
     Y = prox(f, V, γ)
     offdiag = [(i, j) for j in 1:p for i in 1:p if i != j]
@@ -235,7 +235,7 @@ end
   end
   # About half of the entries are above the threshold.
   V = symmetric_random(rng, T, 64)
-  Y = prox(NormL0OffDiag(T(0.3)), V, T(1))
+  Y = prox(NormL0(T(0.3); diagonal = false), V, T(1))
   @test 0.3 < nonzero_offdiagonal(Y) / (64 * 63) < 0.7
 end
 
@@ -244,7 +244,7 @@ end
   @test isposdef(V)
   λ, γ = T(0.1), T(1)
   W = prox(NormL0(λ), V, γ)
-  Y = prox(NormL0OffDiag(λ), V, γ)
+  Y = prox(NormL0(λ; diagonal = false), V, γ)
   @test isequal(W[1, 1], zero(T)) && W[2, 2] === T(2)
   @test Y[1, 1] === T(0.4) && Y[2, 2] === T(2) && Y[3, 3] === T(1.5)
   @test Y == T[0.4 0.7 0; 0.7 2 0; 0 0 1.5]
@@ -261,7 +261,7 @@ function refuses(E, f, Y, X, γ = 1; watch = (Y, X), value = false)
 end
 
 @testset "refusals, $T" for T in (Float32, Float64)
-  f = NormL0OffDiag(T(1))
+  f = NormL0(T(1); diagonal = false)
   p = 5
   rng = Xoshiro(5)
   S = symmetric_random(rng, T, p)
@@ -311,8 +311,8 @@ end
     X[2, 1] = T(-0.0)
     @test prox(f, X) isa Matrix{T}
     # the value counts every nonzero off-diagonal entry of the given matrix
-    @test NormL0OffDiag(3)(T[1 2 0; 0 1 0; 0 0 1]) === T(3)
-    @test NormL0OffDiag(3)(T[1 2 0; 4 1 0; 0 0 1]) === T(6)
+    @test NormL0(3; diagonal = false)(T[1 2 0; 0 1 0; 0 0 1]) === T(3)
+    @test NormL0(3; diagonal = false)(T[1 2 0; 4 1 0; 0 0 1]) === T(6)
   end
 
   @testset "non-finite input" begin
@@ -401,11 +401,19 @@ end
     for γ in (0, -1, 0.0, -0.0, -1.0, T(-1), NaN, Inf, -Inf, T(NaN), T(Inf), T(0), 0//1, -1//2)
       refuses(ArgumentError, f, sentinel(), S, γ)
     end
-    # a step of a type that is not Real, and array steps, give a MethodError
-    for γ in (fill(T(1), p, p), T[1, 2], (1.0,), 1im, "1", nothing)
+    # array steps give an ArgumentError, also through the allocating oracle
+    for γ in (fill(T(1), p, p), T[1, 2])
       Y, X = sentinel(), copy(S)
-      @test_throws MethodError prox!(Y, f, X, γ)
-      @test_throws MethodError value_and_prox!(Y, f, X, γ)
+      @test_throws ArgumentError prox!(Y, f, X, γ)
+      @test_throws ArgumentError value_and_prox!(Y, f, X, γ)
+      @test_throws ArgumentError prox(f, X, γ)
+      @test Y == sentinel() && X == S
+    end
+    # a step that is neither Real nor an array: prox has no method for it
+    for γ in ((1.0,), 1im, "1", nothing)
+      Y, X = sentinel(), copy(S)
+      @test_throws ArgumentError prox!(Y, f, X, γ)
+      @test_throws ArgumentError value_and_prox!(Y, f, X, γ)
       @test_throws MethodError prox(f, X, γ)
       @test Y == sentinel() && X == S
     end
@@ -413,32 +421,63 @@ end
 
   @testset "arguments that are not matrices" begin
     v = T[1, 2, 3]
-    @test_throws MethodError f(v)
-    @test_throws MethodError f((S,))
-    @test_throws MethodError f(zeros(T, 2, 2, 2))
-    @test_throws MethodError f(SymmetricSparseIterate(S))
-    @test_throws MethodError prox!(copy(v), f, v, 1)
-    @test_throws MethodError prox!(copy(v), f, v)
-    @test_throws MethodError value_and_prox!(copy(v), f, v, 1)
-    @test_throws MethodError prox(f, v)
-    @test_throws MethodError prox!(sentinel(), f, v, 1)
-    @test_throws MethodError prox!(vec(sentinel()), f, S, 1)
-    @test_throws MethodError prox!((sentinel(),), f, (S,), 1)
-    @test_throws MethodError prox(f, (S,))
-    @test_throws MethodError prox!(sentinel(), f, SymmetricSparseIterate(S), 1)
-    @test_throws MethodError prox!(SymmetricSparseIterate(S), f, S, 1)
-    @test_throws MethodError prox(f, SymmetricSparseIterate(S))
-    @test_throws MethodError f(1.0)
+    w = T[4, 5, 6]
+    Y = sentinel()
+    X = copy(S)
+    xs = SparseIterate(T, 3)
+    xs[2] = T(1)
+    xb = BlockIterate(T, 4, [1:2, 3:4])
+    xb[1] = T(1)
+    xss = SymmetricSparseIterate(S)
+    snapshot() = map(copy, (v, w, Y, X, xs, xb, Matrix(matrixview(xss))))
+    before = snapshot()
+    @test_throws ArgumentError f(v)
+    @test_throws ArgumentError f((S,))
+    @test_throws ArgumentError f(zeros(T, 2, 2, 2))
+    @test_throws ArgumentError f(xss)
+    @test_throws ArgumentError f(xs)
+    @test_throws ArgumentError f(xb)
+    @test_throws ArgumentError f(1.0)
+    for (out, inp) in ((w, v), (v, v), (Y, v), (vec(Y), X), (xs, xs), (xb, xb), (Y, xss), (xss, X), (xss, xss),
+                       (copy(xs), xs), (Y, xs), (Y, xb))
+      @test_throws ArgumentError prox!(out, f, inp, 1)
+      @test_throws ArgumentError prox!(out, f, inp)
+      @test_throws ArgumentError value_and_prox!(out, f, inp, 1)
+      @test_throws ArgumentError value_and_prox!(out, f, inp)
+    end
+    @test_throws ArgumentError prox!((Y,), f, (S,), 1)
+    @test_throws ArgumentError value_and_prox!((Y,), f, (S,), 1)
+    @test_throws ArgumentError prox(f, v)
+    @test_throws ArgumentError prox(f, v, T(1))
+    @test_throws ArgumentError prox(f, (S,))
+    @test_throws ArgumentError prox(f, xss)
+    @test_throws ArgumentError prox(f, xss, T(1))
+    @test_throws ArgumentError prox(f, xs)
+    @test_throws ArgumentError prox(f, xb)
+    # a symmetric sparse iterate with an array step
+    @test_throws ArgumentError prox!(xss, f, xss, fill(T(1), p, p))
+    @test_throws ArgumentError value_and_prox!(xss, f, xss, fill(T(1), p, p))
+    @test_throws ArgumentError prox(f, xss, fill(T(1), p, p))
+    @test all(map(isequal, before, snapshot()))
   end
 
   @testset "operations that are not provided" begin
     g = zeros(T, p, p)
-    @test_throws MethodError prox_block(f, T(1), 1, T(1))
-    @test_throws MethodError prox_block(f, T[1, 2], 1, T(1))
-    @test_throws MethodError restrict(f, [1, 2])
-    @test_throws MethodError kkt_violation(f, g, S, 1)
-    @test_throws MethodError kkt_violation(f, g, S)
-    @test_throws MethodError kkt_violation(f, g, 1)
+    xb = BlockIterate(T, 4, [1:2, 3:4])
+    xss = SymmetricSparseIterate(S)
+    out = fill(T(7.5), 2)
+    @test_throws ArgumentError prox_block(f, T(1), 1, T(1))
+    @test_throws ArgumentError prox_block(f, T[1, 2], 1, T(1))
+    @test_throws ArgumentError prox_block!(out, f, T[1, 2], 1, T(1))
+    @test out == fill(T(7.5), 2)
+    @test_throws ArgumentError prox_block(Scaled(f, T(2)), T(1), 1, T(1))
+    @test_throws ArgumentError restrict(f, [1, 2])
+    @test_throws ArgumentError kkt_violation(f, g, S, 1)
+    @test_throws ArgumentError kkt_violation(f, g, S)
+    @test_throws ArgumentError kkt_violation(f, g, 1)
+    @test_throws ArgumentError kkt_violation(f, zeros(T, 4), xb, 1)
+    @test_throws ArgumentError kkt_violation(f, g, xss, 1)
+    @test_throws ArgumentError kkt_violation(f, g, xss)
   end
 
   @testset "prox of a Symmetric matrix is refused" begin
@@ -456,7 +495,7 @@ end
 end
 
 @testset "small matrices, $T" for T in (Float32, Float64)
-  f = NormL0OffDiag(T(2))
+  f = NormL0(T(2); diagonal = false)
   X0 = zeros(T, 0, 0)
   Y0 = zeros(T, 0, 0)
   @test prox!(Y0, f, X0, 1) === Y0
@@ -468,7 +507,7 @@ end
   @test value_and_prox!(Y1, f, X1, 100) === zero(T) && Y1[1, 1] === T(0.01)
   @test f(X1) === zero(T)
   @test isequal(prox(f, fill(T(-0.0), 1, 1)), fill(T(-0.0), 1, 1))
-  @test prox(NormL0OffDiag(T(0)), X1) == X1
+  @test prox(NormL0(T(0); diagonal = false), X1) == X1
 end
 
 @testset "views and reshapes, $T" for T in (Float32, Float64)
@@ -476,7 +515,7 @@ end
   p = 6
   S = symmetric_random(rng, T, p)
   S[1, 2] = S[2, 1] = T(0.001)
-  f = NormL0OffDiag(T(0.3))
+  f = NormL0(T(0.3); diagonal = false)
   γ = T(1)
   expected = prox(f, S, γ)
   expected_value = f(expected)
@@ -524,7 +563,7 @@ end
 @testset "default step, $T" for T in (Float32, Float64)
   rng = Xoshiro(3)
   S = symmetric_random(rng, T, 6)
-  f = NormL0OffDiag(T(0.7))
+  f = NormL0(T(0.7); diagonal = false)
   Y = fill(T(NaN), 6, 6)
   @test prox!(Y, f, S) === Y
   @test isequal(Y, prox(f, S, 1)) && isequal(Y, prox(f, S)) && isequal(Y, prox(f, S, T(1)))
@@ -536,30 +575,30 @@ end
 
 @testset "value, $T" for T in (Float32, Float64)
   S = T[1 5; 5 1]
-  @test NormL0OffDiag(T(0))(S) === zero(T)
-  @test NormL0OffDiag(T(3))(Matrix{T}(I, 4, 4)) === zero(T)
-  @test NormL0OffDiag(3)(S) === T(6)
-  @test NormL0OffDiag(T(3))(S) === T(6)
-  @test NormL0OffDiag(T(3))(T[0 -0.0 0; 0.0 0 0; 0 0 1]) === zero(T)
+  @test NormL0(T(0); diagonal = false)(S) === zero(T)
+  @test NormL0(T(3); diagonal = false)(Matrix{T}(I, 4, 4)) === zero(T)
+  @test NormL0(3; diagonal = false)(S) === T(6)
+  @test NormL0(T(3); diagonal = false)(S) === T(6)
+  @test NormL0(T(3); diagonal = false)(T[0 -0.0 0; 0.0 0 0; 0 0 1]) === zero(T)
   # a (+0, -0) pair has no nonzero entry
   M = T[1 0.0 2; -0.0 1 0; 2 0 1]
-  @test NormL0OffDiag(2)(M) === T(4)
-  @test NormL0OffDiag(floatmax(T))(S) === T(Inf)
-  @test NormL0OffDiag(floatmax(T))(Matrix{T}(I, 3, 3)) === zero(T)
-  @test NormL0OffDiag(floatmax(T))(T[1 0; 0 1]) === zero(T)
-  @test NormL0OffDiag(floatmax(T) / 2)(S) === floatmax(T)
-  @test NormL0OffDiag(1 // 3)(S) === convert(T, (1 / 3) * 2.0)
+  @test NormL0(2; diagonal = false)(M) === T(4)
+  @test NormL0(floatmax(T); diagonal = false)(S) === T(Inf)
+  @test NormL0(floatmax(T); diagonal = false)(Matrix{T}(I, 3, 3)) === zero(T)
+  @test NormL0(floatmax(T); diagonal = false)(T[1 0; 0 1]) === zero(T)
+  @test NormL0(floatmax(T) / 2; diagonal = false)(S) === floatmax(T)
+  @test NormL0(1 // 3; diagonal = false)(S) === convert(T, (1 / 3) * 2.0)
   X = T[1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1]
   four = T[1 1 0 0; 1 1 0 0; 0 0 1 0; 0 0 0 1]
-  @test NormL0OffDiag(0.1)(four) === convert(T, 0.1 * 2.0)
+  @test NormL0(0.1; diagonal = false)(four) === convert(T, 0.1 * 2.0)
   # the level of a wider type is not rounded to T before the product
-  @test NormL0OffDiag(0.1)(X) === convert(T, 0.1 * 12.0)
-  @test NormL0OffDiag(Float64(nextfloat(T(0.1))))(X) === convert(T, Float64(nextfloat(T(0.1))) * 12.0)
-  @test NormL0OffDiag(1.0e300)(S) === (T === Float64 ? 2.0e300 : T(Inf))
+  @test NormL0(0.1; diagonal = false)(X) === convert(T, 0.1 * 12.0)
+  @test NormL0(Float64(nextfloat(T(0.1))); diagonal = false)(X) === convert(T, Float64(nextfloat(T(0.1))) * 12.0)
+  @test NormL0(1.0e300; diagonal = false)(S) === (T === Float64 ? 2.0e300 : T(Inf))
 end
 
 @testset "Float32 matrix with a Float64 level" begin
-  f = NormL0OffDiag(0.1)
+  f = NormL0(0.1; diagonal = false)
   X = Float32[1 1 1 1; 1 1 1 0; 1 1 1 0; 1 0 0 1]
   @test f(X) === Float32(0.1 * 8)
   Y = similar(X)
@@ -576,26 +615,26 @@ end
   M[2, 1] = -z
   @test M == transpose(M) && signbit(M[2, 1]) && !signbit(M[1, 2])
   # an identity map keeps the pair as it is
-  Y = prox(NormL0OffDiag(T(0)), M, 1)
+  Y = prox(NormL0(T(0); diagonal = false), M, 1)
   @test isequal(Y, M)
   # at a positive level both entries are positive zero
-  Y = prox(NormL0OffDiag(T(1)), M, 1)
+  Y = prox(NormL0(T(1); diagonal = false), M, 1)
   @test isequal(Y[1, 2], z) && isequal(Y[2, 1], z)
   @test Y[1, 3] === T(2) && Y[3, 1] === T(2) && Y[2, 3] === T(3)
   N = copy(M)
   N[1, 2] = N[2, 1] = -z
-  @test isequal(prox(NormL0OffDiag(T(1)), N, 1)[1, 2], z) && isequal(prox(NormL0OffDiag(T(1)), N, 1)[2, 1], z)
-  @test isequal(prox(NormL0OffDiag(T(0)), N, 1), N)
+  @test isequal(prox(NormL0(T(1); diagonal = false), N, 1)[1, 2], z) && isequal(prox(NormL0(T(1); diagonal = false), N, 1)[2, 1], z)
+  @test isequal(prox(NormL0(T(0); diagonal = false), N, 1), N)
   # a negative zero on the diagonal is copied
   D = Matrix{T}(I, 3, 3)
   D[2, 2] = -z
-  @test isequal(prox(NormL0OffDiag(T(1)), D, 1), D)
+  @test isequal(prox(NormL0(T(1); diagonal = false), D, 1), D)
 end
 
 @testset "scaling, $T" for T in (Float32, Float64)
   rng = Xoshiro(11)
   S = symmetric_random(rng, T, 9)
-  f = NormL0OffDiag(T(0.4))
+  f = NormL0(T(0.4); diagonal = false)
   for α in T[0.5, 1, 2, 3], γ in T[0.3, 1, 2]
     s = Scaled(f, α)
     @test isequal(prox(s, S, γ), prox(f, S, α * γ))
@@ -630,7 +669,7 @@ end
   S = symmetric_random(rng, Float32, p)
   γ = 1f0
   for λ in (0.5f0, 0.5)
-    f = NormL0OffDiag(λ)
+    f = NormL0(λ; diagonal = false)
     expected = prox(f, S, γ)
     ev = f(expected)
     nans() = fill(NaN32, p, p)
@@ -688,7 +727,7 @@ end
   steps = (T(1), 1, T(0.5), 0.5)
   levels = (T(0.3), 1, 0.3, Float32(0.3))
   for λ in levels, γ in steps
-    f = NormL0OffDiag(λ)
+    f = NormL0(λ; diagonal = false)
     @test bytes_prox!(Y, f, X, γ) == 0
     @test bytes_fused!(Y, f, X, γ) == 0
     @test bytes_value(f, X) == 0
@@ -697,8 +736,127 @@ end
   V = view(zeros(T, 2p, p), 1:2:2p, :)
   V .= X
   W = view(zeros(T, 2p, p), 1:2:2p, :)
-  f = NormL0OffDiag(T(0.3))
+  f = NormL0(T(0.3); diagonal = false)
   @test bytes_prox!(W, f, V, T(1)) == 0 && bytes_fused!(W, f, V, T(1)) == 0 && bytes_value(f, V) == 0
+end
+
+
+# The result of op(f), or the type of the exception it throws, in a form that isequal compares bit for bit.
+function outcome(op, f)
+  try
+    r = op(f)
+    r isa SymmetricSparseIterate ? (:ok, Matrix(matrixview(r))) : (:ok, r)
+  catch e
+    (:error, typeof(e))
+  end
+end
+same(op, f, g) = isequal(outcome(op, f), outcome(op, g))
+
+@testset "NormL0 diagonal keyword" begin
+  OD = ProximalBase._NormL0OffDiag
+
+  @testset "diagonal = true is NormL0(λ)" begin
+    for λ in (0, 1, 2.5, 0.5f0, Inf, 2, 1 // 3)
+      f = NormL0(λ)
+      g = NormL0(λ; diagonal = true)
+      @test f === g && typeof(g) === NormL0{typeof(λ)} && g.λ === λ && hash(f) == hash(g)
+    end
+    @test @inferred(NormL0(2.0)) === NormL0{Float64}(2.0)
+    @test @inferred(NormL0()) === NormL0{Int}(1)
+    @test @inferred(NormL0(2.0; diagonal = true)) === NormL0{Float64}(2.0)
+    @test @inferred(NormL0(0.5f0; diagonal = true)) === NormL0{Float32}(0.5f0)
+    @test NormL0{Float32}(1f0) === NormL0(1f0) === NormL0(1f0; diagonal = true)
+    @test NormL0(2) isa NormL0{Int} && NormL0(2).λ === 2
+    @test NormL0(Inf) isa NormL0{Float64} && NormL0(Inf; diagonal = true) === NormL0(Inf)
+    for bad in (-1, NaN, -Inf)
+      @test_throws ArgumentError NormL0(bad)
+      @test_throws ArgumentError NormL0(bad; diagonal = true)
+    end
+    # one constructor method for each positional signature
+    @test length(methods(NormL0, Tuple{})) == 1
+    @test length(methods(NormL0, Tuple{Float64})) == 1
+    @test allunique([m.sig for m in methods(NormL0)])
+  end
+
+  @testset "diagonal = true outputs, λ = $λ" for λ in (0, 1, 2.5, 0.5f0, Inf)
+    rng = Xoshiro(10581)
+    γ = 0.7
+    f = NormL0(λ)
+    g = NormL0(λ; diagonal = true)
+    v = randn(rng, 9)
+    v[3] = 0.0
+    v[4] = -0.0
+    v[5] = 0.5
+    A = randn(rng, 4, 4)
+    B = randn(rng, 5, 5)
+    sp = sparse(B .* (abs.(B) .> 0.6))
+    xss = SymmetricSparseIterate(B .+ B')
+    for x in (v, Float32.(v), A, Float32.(A), sp)
+      @test same(h -> h(x), f, g)
+      @test same(h -> prox(h, x, γ), f, g)
+      @test same(h -> prox(h, x), f, g)
+      @test same(h -> prox!(copy(x), h, x, γ), f, g)
+      @test same(h -> (y = copy(x); prox!(y, h, y, γ)), f, g)
+      @test same(h -> (y = copy(x); (value_and_prox!(y, h, x, γ), y)), f, g)
+      @test same(h -> (y = copy(x); (value_and_prox!(y, h, y, γ), y)), f, g)
+      steps = fill(γ, size(x))
+      steps[1] = 2.0
+      @test same(h -> prox(h, x, steps), f, g)
+      @test same(h -> prox!(copy(x), h, x, steps), f, g)
+      @test same(h -> (y = copy(x); (value_and_prox!(y, h, x, steps), y)), f, g)
+    end
+    @test same(h -> h(xss), f, g)
+    @test same(h -> prox(h, xss, γ), f, g)
+    @test same(h -> prox!(copy(xss), h, xss, γ), f, g)
+    @test same(h -> (y = copy(xss); (value_and_prox!(y, h, xss, γ), Matrix(matrixview(y)))), f, g)
+    @test same(h -> restrict(h, [1, 3]), f, g)
+    for u in (0.5, -1.3, 0.0, -0.0, 0.5f0)
+      @test same(h -> prox_block(h, u, 1, γ), f, g)
+      @test same(h -> value_entry(h, u, 1), f, g)
+    end
+    grad = randn(rng, 9)
+    @test same(h -> kkt_violation(h, grad, 3), f, g)
+    @test same(h -> kkt_violation(h, grad, v, 5), f, g)
+    @test same(h -> kkt_violation(h, grad, v), f, g)
+  end
+
+  @testset "diagonal = false" begin
+    for λ in (0, 1, 2.5, 0.5f0, 1 // 3)
+      h = NormL0(λ; diagonal = false)
+      @test typeof(h) === OD{typeof(λ)} && h.λ === λ && h isa AbstractFunction
+      @test h != NormL0(λ) && !isequal(h, NormL0(λ))
+      @test h == NormL0(λ; diagonal = false) && hash(h) == hash(NormL0(λ; diagonal = false))
+    end
+    @test @inferred(NormL0(2.0; diagonal = false)) === NormL0(2.0; diagonal = false)
+    @test NormL0(2; diagonal = false) isa OD{Int}
+    @test NormL0(; diagonal = false) isa OD{Int} && NormL0(; diagonal = false).λ === 1
+    diagonal = false
+    @test NormL0(2.0; diagonal) isa OD{Float64}
+    @test sprint(show, NormL0(2.5; diagonal = false)) == "NormL0(2.5; diagonal = false)"
+    @test sprint(show, NormL0(0.5f0; diagonal = false)) == "NormL0(0.5f0; diagonal = false)"
+    @test sprint(show, NormL0(; diagonal = false)) == "NormL0(1; diagonal = false)"
+    @test repr(NormL0(1 // 3; diagonal = false)) == "NormL0(1//3; diagonal = false)"
+    for bad in (Inf, -Inf, NaN, Inf32, -1, -0.5f0, -1 // 2)
+      @test_throws ArgumentError NormL0(bad; diagonal = false)
+    end
+    @test_throws TypeError NormL0(1.0; diagonal = 1)
+  end
+
+  @testset "Scaled diagonal-free penalty, $T" for T in (Float32, Float64)
+    rng = Xoshiro(10582)
+    S = symmetric_random(rng, T, 12)
+    for λ in (T(0.4), 1, 0.25)
+      f = NormL0(λ; diagonal = false)
+      for α in T[0.5, 1, 4], γ in T[0.25, 1]
+        s = Scaled(f, α)
+        @test s.f === f && s.α === α
+        @test s(S) === α * f(S)
+        @test isequal(prox(s, S, γ), prox(f, S, α * γ))
+        Y = fill(T(NaN), 12, 12)
+        @test value_and_prox!(Y, s, S, γ) === α * f(Y) && isequal(Y, prox(f, S, α * γ))
+      end
+    end
+  end
 end
 
 end

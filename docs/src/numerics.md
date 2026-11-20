@@ -468,7 +468,7 @@ value endpoints and the supported array and iterate routes.
 
 ### [Off-diagonal cardinality penalty](@id spec-norml0offdiag-numerics)
 
-See the [NormL0OffDiag numerical contract](@ref spec-norml0offdiag) for the
+See the [numerical contract of `NormL0(λ; diagonal = false)`](@ref spec-norml0offdiag) for the
 input domain, the proximal and value rules, refusals and storage.
 
 ### SCAD endpoints

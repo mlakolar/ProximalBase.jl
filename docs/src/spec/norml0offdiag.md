@@ -1,17 +1,19 @@
-# [NormL0OffDiag numerical contract](@id spec-norml0offdiag)
+# [`NormL0(λ; diagonal = false)` numerical contract](@id spec-norml0offdiag)
 
 ## [Identity](@id spec-norml0offdiag-identity)
 
-[`NormL0OffDiag`](@ref NormL0OffDiag) is the nonconvex cardinality penalty on
-the off-diagonal entries of a square matrix, with its proximal map. The
-implementation is in
+[`NormL0(λ; diagonal = false)`](@ref NormL0) is the nonconvex cardinality
+penalty on the off-diagonal entries of a square matrix, with its proximal map.
+It returns an internal type, not a `NormL0`. `NormL0(λ)` and
+`NormL0(λ; diagonal = true)` are the all-entry penalty with its full set of
+arguments and are not described on this page. The implementation is in
 [`src/functions/norml0offdiag.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml0offdiag.jl).
 It is not a [`SeparableFunction`](@ref SeparableFunction); it takes the
 scalar keep-or-drop decision from [`NormL0`](@ref NormL0).
 
 ## [Definition and domain](@id spec-norml0offdiag-definition)
 
-`NormL0OffDiag(λ)` takes a finite real level ``\lambda\geq0``. For a square
+`NormL0(λ; diagonal = false)` takes a finite real level ``\lambda\geq0``. For a square
 matrix ``X`` it is
 
 ```math
@@ -48,12 +50,17 @@ diagonal term ``(z-v)^2/(2\gamma)`` is minimized by ``z=v``.
 `X` and the output `Y` are `StridedMatrix` values with the same element type,
 `Float32` or `Float64`. Dense matrices, strided views and reshapes and
 reinterpreted arrays that are strided are accepted. The step is a scalar
-`Real`. The methods dispatch on `AbstractMatrix` arguments and a `Real` step,
-so a vector, a tuple, a [`SymmetricSparseIterate`](@ref SymmetricSparseIterate),
-a [`BlockIterate`](@ref BlockIterate) and an array step give `MethodError`, or
-`ArgumentError` where a generic fallback rejects them first.
-`prox_block`, `restrict` and `kkt_violation` have no method for this function
-and give `MethodError`.
+`Real`. Choosing `diagonal = false` changes the penalty and narrows the
+arguments: the vectors, sparse matrices, [`SparseIterate`](@ref SparseIterate)
+and [`SymmetricSparseIterate`](@ref SymmetricSparseIterate) values and array
+steps that `NormL0(λ)` accepts are refused here. A vector, a tuple, a
+[`SparseIterate`](@ref SparseIterate) vector, a
+[`SymmetricSparseIterate`](@ref SymmetricSparseIterate), a
+[`BlockIterate`](@ref BlockIterate) and an array step throw `ArgumentError`
+from the value, `prox`, `prox!` and `value_and_prox!`. A step that is neither
+`Real` nor an array throws `ArgumentError` from `prox!` and
+`value_and_prox!`, and `MethodError` from `prox`. `prox_block`,
+`prox_block!`, `restrict` and `kkt_violation` throw `ArgumentError`.
 
 ## [Preconditions](@id spec-norml0offdiag-preconditions)
 
@@ -63,8 +70,8 @@ the [array and precision conventions](@ref numerical-usage). The step is
 checked before any entry is read. The caller establishes the symmetry of the
 matrix; see the definition above.
 
-`Scaled(NormL0OffDiag(λ), α)` takes the value ``\alpha g`` and the proximal map
-of `NormL0OffDiag(λ)` at step `α * γ`, for positive finite `α` when the rounded
+`Scaled(NormL0(λ; diagonal = false), α)` takes the value ``\alpha g`` and the proximal map
+of `NormL0(λ; diagonal = false)` at step `α * γ`, for positive finite `α` when the rounded
 product `α * γ` is finite and positive. A product that rounds to zero or to
 `Inf` is refused as a step.
 
@@ -147,15 +154,24 @@ or for array steps, and these calls are refused as the
 [failure](@ref spec-norml0offdiag-failures) sections state. A zero-stride
 view as `Y` is not detected as self-aliased, as in `Base.mightalias`.
 
-**Implementation notes (not guarantees).** The scalar decision is
-`prox_block(NormL0(λ), v, 1, γ)`. When `λ`, `γ` and the element type are the
-same float type and the matrix has at least 64 entries, the implementation
-uses the certified magnitude cutoff of the dense `NormL0` kernel instead when a
-cutoff can be certified, behind a function barrier. The validation reads every entry once, column by column,
-before the first write. The write loop uses `@simd` without `ivdep`, because on
-Julia 1.10 the loop with `ivdep` gave wrong entries for a reinterpreted
-`Float32` matrix over `Float64` or `ComplexF32` storage. `Y === X` has its own
-single-array loop. These choices can change.
+### [Implementation notes](@id spec-norml0offdiag-implementation)
+
+These notes describe the current code and are not guarantees; they can change.
+
+- The scalar decision is `prox_block(NormL0(λ), v, 1, γ)`. When `λ`, `γ` and
+  the element type are the same float type and the matrix has at least 64
+  entries, the implementation uses the certified magnitude cutoff of the dense
+  `NormL0` kernel instead when a cutoff can be certified, behind a function
+  barrier.
+- The validation reads every entry once, column by column, before the first
+  write. Each column sum of the non-finite entries is an integer of the entry
+  width (`Int32` for `Float32`, `Int64` for `Float64`).
+- The write loop uses `@simd` without `ivdep`, because on Julia 1.10 the loop
+  with `ivdep` gave wrong entries for a reinterpreted `Float32` matrix over
+  `Float64` or `ComplexF32` storage. `Y === X` has its own single-array loop.
+- The [benchmark notes](https://github.com/mlakolar/ProximalBase.jl/blob/master/benchmark/README.md)
+  record measured time ratios to the `NormL0` oracles. They describe one
+  machine and Julia version.
 
 ## [Clauses owned elsewhere](@id spec-norml0offdiag-elsewhere)
 
@@ -174,9 +190,11 @@ compares the proximal map with an exact `Rational{BigInt}` minimization over the
 keep and drop patterns of the pairs, and with `NormL0` off the diagonal for
 mixed level and step types. It covers ties, signed zeros, the diagonal, the
 refusals listed in the failure section, with an unchanged sentinel output where
-the caller passes one, the entrywise result for an asymmetric input, the `MethodError` refusals of non-matrix arguments, strided views, reshapes and
+the caller passes one, the entrywise result for an asymmetric input, the `ArgumentError` refusals of non-matrix arguments, strided views, reshapes and
 reinterpreted matrices as input and output, and strided views and reinterpreted matrices in place, `Scaled`, and zero
-allocation on both routes. The
+allocation on both routes. It also checks that `NormL0(λ)` and
+`NormL0(λ; diagonal = true)` are the same object, with bit-identical values and
+proximal outputs. The
 [penalty guide](@ref norml0offdiag-guide) contains an executable example, and
 [`benchmark/norml0offdiag.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/benchmark/norml0offdiag.jl)
 times the oracles against `NormL0`.
@@ -185,7 +203,7 @@ times the oracles against `NormL0`.
 
 The [feature issue](https://github.com/mlakolar/ProximalBase.jl/issues/1058)
 and its [pull request](https://github.com/mlakolar/ProximalBase.jl/pull/1063)
-record the choice of a separate type over a diagonal option on `NormL0`, and
-the probe of the all-entry prox with a positive-definiteness check, which
+record the choice of a separate type, later replaced by the `diagonal`
+keyword of `NormL0` with an internal type, and the probe of the all-entry prox with a positive-definiteness check, which
 accepted smaller steps at levels of two and above and with different variable
 scales.

@@ -328,12 +328,14 @@ and a bounded numerical search. It covers Float32/64, steps on both sides of the
 transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
 and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
 
-## NormL0OffDiag coverage
+## Coverage of NormL0 with diagonal = false
 
-`norml0offdiag` compares the proximal map with an exact `Rational{BigInt}` minimization over the
+`norml0offdiag` compares the proximal map of `NormL0(λ; diagonal = false)` with an exact `Rational{BigInt}` minimization over the
 keep and drop patterns of the pairs: exhaustively for `p = 2, 3` over values below, at and above the
 threshold with both signs and the four zero pairs, and on seeded samples for `p = 4`. It checks the
 diagonal, symmetry of the output, ties, the value and the fused value, the entrywise result for an asymmetric input, agreement with the all-entry `NormL0` off
 the diagonal for `p` up to 64 with mixed level and step types, the contrast on the diagonal, the
 refusals listed in the failure section, with a sentinel output where the caller passes one, strided views and reshapes, default steps, scaling and warmed
-allocations on both kernel routes.
+allocations on both kernel routes. It also checks that `NormL0(λ)` and `NormL0(λ; diagonal = true)` are the same
+object with bit-identical values and proximal outputs on vectors, dense and sparse matrices, a
+`SymmetricSparseIterate` and array steps.

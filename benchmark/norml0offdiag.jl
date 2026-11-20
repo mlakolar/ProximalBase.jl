@@ -1,4 +1,4 @@
-# Paired in-process timing of NormL0OffDiag against the all-entry NormL0 on the same symmetric
+# Paired in-process timing of NormL0(λ; diagonal = false) against the all-entry NormL0 on the same symmetric
 # matrix: prox!, value_and_prox!, the value and the in-place forms of the first two (each copies the
 # input into the buffer first, for both functions), for p = 8, 32, 64 and Float32 and Float64. About
 # half of the off-diagonal entries lie above the threshold. The two functions are timed in
@@ -65,7 +65,7 @@ function run()
     Zf = similar(X)
     Zg = similar(X)
     λ, γ = T(0.3), T(1)
-    f, g = NormL0OffDiag(λ), NormL0(λ)
+    f, g = NormL0(λ; diagonal = false), NormL0(λ)
     prox!(Y, f, X, γ)
     prox!(W, g, X, γ)
     for j in 1:p, i in 1:p

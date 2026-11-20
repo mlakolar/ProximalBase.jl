@@ -1020,8 +1020,8 @@ end
 # and the exponent), and τ = 2^k τ′. k starts at ceil(log2 n) + 2, where the scaled magnitudes sum to at most floatmax/4 before
 # rounding, and is raised until the scaled sum is in the range of the ordinary path (`_linf_in_range`); the pass that forms the
 # scaled sum also gives the largest scaled magnitude mv′, which the certificate of the face needs. The loop ends: the scaled
-# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because
-# `_level_point` has refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
+# entries shrink as k grows, the scaled sum decreases to zero, and (n + 1)·0 = 0 satisfies the predicate because the callers (`_level_point`,
+# GroupNormLinf's `_linf_group_distance`) have refused the lengths for which n + 1 is not finite in W. Then the ordinary path's formulas hold in these
 # units, with the same preconditions: the scaled sum is within the limits of `_linf_in_range`, c′ ≤ c/4 is finite (k ≥ 2, as
 # _linf_exponent(n) ≥ 2), S′ is finite, the zero point has 0 ≤ c′ < sv′ when it does not return, and τ0′ = (S′ - c′)/cnt is finite as
 # |S′| ≤ 1.29 · 1.41 Σ|vᵢ|′ ≤ 0.23 floatmax (n + 1 ≥ 2) and c′ ≤ floatmax/4; the range of the shifted values is as above, with mv′

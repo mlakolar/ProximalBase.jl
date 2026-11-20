@@ -7,7 +7,8 @@ module GroupNormLinfTest
 # compared with NormLinf, and singleton groups with NormL1: the proximal outputs bit for bit, the values within a tolerance.
 # kkt_violation: the margin of a zero group, the distance of a nonzero group to the subdifferential of the penalty, the full-point form
 # (the maximum over the groups of that distance, zero groups included, and over the entries in no group of |vᵢ|) and the scores under
-# Scaled, against BigFloat references written in this file, by sorting, within the first-order bound of the kernel of NormLinf.
+# Scaled, against BigFloat references written in this file, by sorting: the distances within the first-order bound of the kernel of
+# NormLinf, the margins within the bound of a sum of magnitudes.
 using Test, ProximalBase, LinearAlgebra, Random, OffsetArrays
 using ..TestUtils
 
@@ -1203,9 +1204,13 @@ end
   @test !kk_ok(kkt_violation(fv, vv, xv, 5), one(T), one(T), vv, T[1, 2, 7, 8, 2], [5, 2])
 end
 
-# the branches of the kernel through a group: the entries scaled by a power of two when the sums are out of range, a first level that
-# is not finite, and the sum of squares recomputed when it is out of range. The entries around the group are NaN and Inf and do not
-# reach the result.
+# The branches of the kernel through a group, each by a case that reaches it (confirmed by calling the helpers of the kernel on the
+# same inputs: the range test `_linf_in_range`, the first level τ0, and the sum of squares Q):
+#   - the range test sends the face to the scaled path (the sum of magnitudes times n + 1 is above floatmax/4);
+#   - the range test sends the zero point to the scaled path (the sum of magnitudes is above floatmax/2, or overflows);
+#   - the range test passes and the first level τ0 of the face is -Inf, which sends it to the scaled path;
+#   - the ordinary sum of squares Q is not normal (the squares underflow), which sends it to the recomputation.
+# The entries around the group are NaN and Inf and do not reach the result of the four-argument form.
 @testset "branches of the kernel through a group ($T)" for T in (Float32, Float64)
   M, δ = floatmax(T), nextfloat(zero(T))
   emax, emin = exponent(M), exponent(floatmin(T))
@@ -1223,21 +1228,30 @@ end
     @test allocs(kkt_violation, f, vv, xx, 2) == 0
     r
   end
-  # entries near floatmax: the sum of magnitudes is above the range of the ordinary path (the scaled path of a face), also at the zero
-  # point
+  # entries near floatmax: (n + 1) times the sum of magnitudes is above floatmax/4, so that the range test sends the face to the scaled
+  # path (faces of three entries, of one entry, and of all four)
   v = T[0.9, -0.8, 0.7, 0.2] .* (M / 8)
   for x in (T[1, -1, 1, 0], T[0, 1, 0, 0], T[1, 1, 1, 1]), λ0 in (M / 64, M / 8, M / 3)
     check(λ0, one(T), v, x; slack = 4)
   end
-  for λ0 in (M / 64, M / 3)
-    check(λ0, one(T), v, T[1, 1, 1, 1]; slack = 4)
-  end
-  # a level that makes the first level of the face not finite although the sum of magnitudes is far below the range
+  # the same for a face of 300 entries, with a level at floatmax: the range test sends it to the scaled path
   check(M, one(T), fill(M / (5 * 301), 300), ones(T, 300); slack = 4)
+  # the range test passes ((n + 1) times the sum of magnitudes is at most floatmax/4) and the first level (S - c)/cnt is -Inf, because
+  # S - c is below -floatmax: the exit of the ordinary path to the scaled path
+  check(M * (1 - T(2)^-6), one(T), T[M / 32, M / 32], T[1, 1]; slack = 4)
+  # the zero point, by the full-point form: the sum of magnitudes is above floatmax/2 (0.6 floatmax), and it overflows (4/3 floatmax, with
+  # a distance of about 0.94 floatmax in each type): the range test sends the zero point to the scaled path
+  for v0 in (T[0.3 * M, 0.3 * M], fill(M / T(1.5), 2))
+    f0 = GroupNormLinf(one(T), [1:2])
+    r0 = kkt_violation(f0, v0, zeros(T, 2))
+    @test kk_ok(r0, one(T), one(T), v0, zeros(T, 2), 1:2; slack = 4)
+    @test isfinite(r0) && allocs(kkt_violation, f0, v0, zeros(T, 2)) == 0
+    @test kkt_violation(f0, v0, zeros(T, 2), 1) > M / 2                       # the margin of the zero group
+  end
   # a distance above floatmax is Inf, and an entry at floatmax against a level at floatmax cancels
   @test check(M, one(T), T[M], T[1]) === T(Inf)
   @test check(M, one(T), T[-M], T[1]) === zero(T)
-  # a residual far below the level, whose square underflows: the value is the residual (the sum of squares is recomputed)
+  # a residual far below the level, whose square underflows to zero: Q is not normal, and the value is the residual (the recomputation)
   small = ldexp(one(T), emin ÷ 2 - 30)
   r = check(one(T), one(T), T[-1, small], T[1, 0.5]; far = false)
   @test isapprox(r, small; rtol = 16 * eps(T))
@@ -1270,8 +1284,8 @@ end
   @test full_ok(f, v, x)
   R = kkt_violation(f, v, x)
   @test typeof(R) === T
-  # one score per group: the entries of a group give the same value, and the four-argument scores of the nonzero groups and the
-  # entries in no group are at most the full-point value, which is the maximum with the distances of the zero groups
+  # one score per group: the entries of a group give the same value, and the full-point value agrees (within 16 eps of the scale) with
+  # the maximum of zero, the four-argument scores of the nonzero groups and of the entries in no group, and the distances of the zero groups
   s = norm(v) + 8
   nonzero = [k for k in 1:5 if any(!iszero, x[groups[k]])]
   @test nonzero == [1, 4]
@@ -1303,8 +1317,9 @@ end
   @test kkt_violation(f1, g1, zeros(T, 2), 1) === T(0.25)
   d = kkt_violation(f1, g1, zeros(T, 2))
   @test isapprox(d, sqrt(T(2)) / 8; rtol = 8 * eps(T)) && d < T(0.25)
-  @test T(0.25) <= sqrt(T(2)) * d + 8 * eps(T)                         # distance ≤ margin ≤ √n distance, here with equality
-  # and where the margin is positive in general: distance ≤ margin ≤ √n distance, within the bound of the calls
+  @test T(0.25) <= sqrt(T(2)) * d + 8 * eps(T)                         # distance ≤ margin ≤ √n distance in exact arithmetic, with equality on the right here (up to rounding)
+  # and where the margin is positive in general: distance ≤ margin ≤ √n distance in exact arithmetic, within the bound of the calls
+  # for the computed values
   for n in (1, 2, 5, 17, 64), _ in 1:6
     vg = randn(rng, T, n)
     c = T(rand(rng, (0.1, 0.3, 0.6))) * sum(abs, vg)
@@ -1314,7 +1329,8 @@ end
     @test mg > 0 && dist <= mg + tolr && mg <= sqrt(T(n)) * dist + tolr
     @test kk_ok(dist, c, one(T), vg, zeros(T, n), 1:n)
   end
-  # one group over all of x: the value of NormLinf with the level λ0 w, at the zero point and at another point
+  # one group over all of x agrees with NormLinf with the level λ0 w, at the zero point and at another point: both calls are within
+  # the bound of the same reference (they are not compared bit for bit)
   for n in (1, 2, 17, 64), x0 in (zeros(T, n), kk_tie_face(rng, T, n))
     vg = randn(rng, T, n)
     h = GroupNormLinf(T(0.7), [1:n], T[2])
@@ -1527,7 +1543,8 @@ end
   for i in 1:10
     @test kk_close(kkt_violation(fl, v, x, i), kkt_violation(f1, v, x, i), T, 4)   # the zero entries: the margin |vᵢ| - cᵢ
   end
-  # the full-point values agree: the maximum of zero and the scores of the entries, where a zero entry has the positive part of its margin
+  # the full-point values agree within a few ulps: the maximum of zero and the scores of the entries, where a zero entry has the positive
+  # part of its margin
   @test kk_close(kkt_violation(fl, v, x), kkt_violation(f1, v, x), T, 4)
   @test kk_close(kkt_violation(fl, v, zeros(T, p)), kkt_violation(f1, v, zeros(T, p)), T, 4)
 end
@@ -1616,16 +1633,18 @@ end
   @test_throws ArgumentError kkt_violation(si, v, zeros(T, 4))
   @test_throws ArgumentError kkt_violation(si, v, T[1, 0, 0, 0])
   @test occursin("infinite factor", kk_msg(() -> kkt_violation(si, v, T[1, 0, 0, 0])))
-  # stacks that nest an infinite factor with other wrappers, built by the parameterized constructor, are refused in the same cases
+  # stacks that nest an infinite factor with other wrappers, built by the parameterized constructor, are refused in the same cases. The
+  # stack decides the route, so the first stack is tried on every kind of point and the other two on arrays
   stacks = (kk_raw(kk_raw(Scaled(f, inf), t), t), kk_raw(kk_raw(Scaled(f, t), inf), t), kk_raw(kk_chain(T, f), inf))
+  rows = ((T[1, 0, 0, 0], 1), (T[1, 0, 0, 0], 2), (T[0, 0, 0, 1], 4))
+  allrows = (rows..., (SparseIterate(T[1, 0, 0, 0]), 2), (BlockIterate(T[1, 0, 0], [[1, 2], [3]]), 1))
   for (depth, st) in enumerate(stacks)
     @test st.f isa Scaled
     depth == 1 && @test PB._chained(st)
     depth == 1 && @test occursin("infinite factor", kk_msg(() -> kkt_violation(st, v, T[1, 0, 0, 0], 1)))
     @test_throws ArgumentError kkt_violation(st, v, zeros(T, 4))
     @test_throws ArgumentError kkt_violation(st, v, T[1, 0, 0, 0])
-    for (pt, k) in ((T[1, 0, 0, 0], 1), (T[1, 0, 0, 0], 2), (T[0, 0, 0, 1], 4), (SparseIterate(T[1, 0, 0, 0]), 2),
-                    (BlockIterate(T[1, 0, 0], [[1, 2], [3]]), 1))
+    for (pt, k) in (depth == 1 ? allrows : rows)
       @test_throws ArgumentError kkt_violation(st, pt isa BlockIterate ? v[1:3] : v, pt, k)
     end
   end
@@ -1746,7 +1765,8 @@ end
     @test allocs(kkt_violation, h, v[1:175], bx, 2) == 0
     @test allocs(kkt_violation, h, v[1:175], bx, 3) == 0
   end
-  # a point with a zero largest group and with ties, a gradient out of the ordinary range of the squares, and a NaN
+  # cold paths of the nonzero group nz (all x equal, so that the face is the whole group; and the zero point): a gradient whose squares
+  # underflow in Float32, a gradient near floatmax, a NaN gradient, and a zero point
   for (vv, xx) in ((fill(T(1e-30), p), fill(T(2), p)), (fill(floatmax(T) / 8, p), ones(T, p)), (fill(T(NaN), p), ones(T, p)), (ones(T, p), zeros(T, p)))
     @test allocs(kkt_violation, f, vv, xx, nz) == 0
     @test allocs(kkt_violation, f, vv, xx) == 0

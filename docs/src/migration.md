@@ -167,7 +167,7 @@ What changed besides the values of the table:
   `abs(v[i])` at an entry of a nonzero group of an array point, neither of which is a score of the nonzero group; the Euclidean screen of
   `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)). `Scaled` over it has the routes of `GroupNormL2`
   (the [scaling guide](@ref scaled-kkt)).
-* `Scaled` over a function of the package without a score (the losses in the four-argument and full-point forms) throws a
+* `Scaled` over a function of the package without a score (for example `SqrtLeastSquaresLoss` and `IndNonnegative`, in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero

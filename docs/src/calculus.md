@@ -63,9 +63,10 @@ together. `f` is `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `Linear
 `GroupNormL2`, `GroupNormLinf` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
 or `QuadraticFunction`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
-parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
+parameters of one floating type, the signed score of a function that has a three-argument screen (`NormL1`, `NormL1Nonneg`,
+`ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`) agrees bit for bit with the scaled three-argument
 screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
-whose score takes its gradient entry from the ridge-gradient helpers.
+whose score takes its gradient entry from the ridge-gradient helpers. `GroupNormL2` and `GroupNormLinf` have no three-argument screen.
 The scores of the function are in [scoring a coordinate](@ref kkt-screens).
 
 ```@example library_scaled
@@ -126,7 +127,7 @@ remain `BigFloat`.
   applied in one last step, without forming ``a\lambda`` or dividing `v` by ``a``. A zero weight gives the coefficient 0 (also
   under an infinite level), and an infinite weight or level gives `Inf`. For finite entries of `v` the value is
   ``\lvert v_i\rvert-a\lambda w_i`` for a coordinate (``-v_i-a\lambda w_i`` for `NormL1Nonneg`), ``\lVert v_G\rVert_2-a\lambda w_G`` for a group of `GroupNormL2` and ``\lVert v_G\rVert_1-a\lambda w_G`` for a group of `GroupNormLinf`, up to the rounding
-  of the coefficient and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
+  of the coefficient, of the sum over the group (``\lVert v_G\rVert_1``, or ``\lVert v_G\rVert_2`` for `GroupNormL2`) and of the difference in the type of the call. A `NaN` entry gives `NaN`. An infinite entry gives what the
   three-argument screen gives for `NormL1` and `ElasticNet` (`Inf - Inf` is `NaN`), and `Inf` for `GroupNormL2` and `GroupNormLinf`. An
   `ElasticNet` with an infinite `λ2` gives `-Inf` at a zero coordinate, whatever `v` holds.
   `Scaled(Scaled(NormL1(1.0), 2.0^-600), 2.0^-600)` at `v = [0.25]` returns `0.25`, the

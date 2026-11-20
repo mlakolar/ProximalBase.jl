@@ -454,7 +454,7 @@ optimality.
   nonzero coordinate it does not return the screen.*
 * `kkt_violation(f, v, x)` is `max(0, max_k score_k)`, nonnegative, and zero of the
   working type for an empty `x`. For [`GroupNormLinf`](@ref) a zero group contributes its Euclidean distance to the ℓ1
-  ball of its coefficient (zero when the margin is not positive), not its margin.
+  ball of its coefficient (zero when `norm(v_G, 1) <= c`), not its margin.
 
 With `cᵢ = λ0*wᵢ` (`λ1*wᵢ` for `ElasticNet`), the scores of entry `i` at `xᵢ = 0` and
 at `xᵢ ≠ 0` are, for the six functions that have all three forms:

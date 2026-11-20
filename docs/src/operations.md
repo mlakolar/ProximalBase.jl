@@ -315,8 +315,8 @@ full-point form and no form for a block:
 | `NormL2` | (no form for a block) | (no form for a block) | the positive part of that score with ``G`` all of `x`, the 2-norm distance from ``-v`` to ``\partial g(x)`` |
 | `NormLinf` | (no form for a block) | (no form for a block) | the 2-norm distance from ``-v`` to ``\partial g(x)`` for ``g(x)=\lambda\max_i\lvert x_i\rvert``: at ``x=0``, the distance from ``v`` to the ℓ₁ ball of radius ``\lambda`` (``0`` when ``\sum_i\lvert v_i\rvert\le\lambda``); at ``x\ne0``, the distance with the face of the entries of largest magnitude, compared for equality after conversion to the working type |
 
-For a positive margin at a zero group of `GroupNormLinf`, the distance is at most the margin and the margin is at most ``\sqrt n`` times the distance, for a
-group of ``n`` entries, so the full-point value is not the maximum of the four-argument scores there; the three-argument form throws an
+In exact arithmetic, for a positive margin at a zero group of `GroupNormLinf`, the distance is at most the margin and the margin is at most ``\sqrt n`` times the distance, for a
+group of ``n`` entries, so the full-point value need not be the maximum of the four-argument scores there; the three-argument form throws an
 `ArgumentError`. See [the group ℓ∞ norm](group_penalty.md#group-linf-guide).
 
 The local form of `GroupNormL2` and `GroupNormLinf` takes an entry of an array point, which selects its group, or the group

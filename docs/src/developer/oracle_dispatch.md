@@ -104,7 +104,7 @@ throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `S
 `GroupNormL2` supplies a native block score instead (one block kernel, `_l2_score`), checking the
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws
-because it is not entrywise separable. `GroupNormLinf` uses the layout checks of `GroupNormL2` (`_level_score`, `_level_point`, `_check_point_layout`) and
+because it is not entrywise separable. `GroupNormLinf` has its own `_level_score` and `_level_point`, which repeat the checks of `GroupNormL2` (and share its `_check_point_layout`), and
 returns a dual-norm margin at a zero group and, at a nonzero group, the distance that the full-point kernel of `NormLinf` (`_linf_point`)
 computes for the group read through `_IndexedValues`; its full-point form scores every group by that kernel, a zero group included.
 It is in the class of the functions with a score under `Scaled`, with the routes of `GroupNormL2`. `NormL2` has the full-point form, the kernel with all of `x`

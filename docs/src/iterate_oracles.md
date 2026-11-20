@@ -93,7 +93,7 @@ full-point form and no other.
 | `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group, the distance from `-v_G` to the subdifferential at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
-| Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of the distances of all groups, and the three-argument form throws `ArgumentError` |
+| Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of zero, of `abs(v[i])` over the entries in no group and of the distances of the groups, and the three-argument form throws `ArgumentError` |
 | Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument

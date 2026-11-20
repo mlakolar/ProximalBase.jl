@@ -13,6 +13,7 @@
     "moves-kkt_violation.json",
     "moves-leastsquares.json",
     "moves-linear.json",
+    "moves-logdet.json",
     "moves-norml0.json",
     "moves-norml2.json",
     "moves-normlinf.json",

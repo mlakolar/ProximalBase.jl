@@ -479,7 +479,10 @@ before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate. `NormL1Nonneg` applies it to an infinite level (positive-weight entries become `+0`; zero-weight entries are projected onto the orthant, not left unchanged). `GroupNormL2` and `GroupNormLinf` apply the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight. `NormL0`, `NormL2` and `NormLinf` apply
+a positive weight become `+0`) and to an infinite group weight. `SparseGroupNormL2` also projects
+onto its hard domain at zero step. An infinite ℓ₁ level fixes all covered entries, and an infinite ℓ₂
+level or weight follows the group rules in the [sparse-group endpoint table](@ref sparse-group-l2-endpoints).
+`NormL0`, `NormL2` and `NormLinf` apply
 it to an infinite level. No other function
 is claimed to implement a zero-step projection rule.
 

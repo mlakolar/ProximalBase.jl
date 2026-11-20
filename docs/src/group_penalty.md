@@ -393,7 +393,10 @@ y
 `value_and_prox!` returns the value at the stored destination. Array
 oracles accept real one-based CPU arrays, including `SparseIterate` and
 `BlockIterate`. Groups index matrices linearly. Full-array partial
-overlap is unsupported. The soft-thresholded intermediate is written in the
+overlap is unsupported. Full-array writes can change output iterate activity.
+When copying free or identity entries into a floating-point `SparseIterate`,
+the array oracle stores negative zeros that would otherwise be read as positive.
+Absent positive zeros stay inactive. The soft-thresholded intermediate is written in the
 destination type before the group shrink. An explicit integer buffer can
 fail conversion here even when the final exact result is integral. Allocating
 `prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)

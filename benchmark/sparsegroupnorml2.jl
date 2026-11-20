@@ -297,8 +297,9 @@ function write_provenance(dir, rounds, samples, seconds, filter_pattern)
         println(io, "Rounds: ", rounds, ", maximum samples: ", samples, ", target cap (seconds): ", seconds)
         println(io, "Forced GC before trials or samples: disabled")
         println(io, "Filter: ", filter_pattern)
-        println(io, "Candidate module loaded before control; per-cell compile order in verification.csv")
-        println(io, "Measured role orders repeat every six rounds: ", ORDERS)
+        println(io, "Package module load order: X, XC")
+        println(io, "Per-cell verification and warmup role order: invocation_order in verification.csv")
+        println(io, "Timed role orders repeat every six rounds: ", ORDERS)
     end
 end
 
@@ -316,7 +317,7 @@ function run_matrix(outdir)
 
     cells = NamedTuple[]
     open(joinpath(outdir, "verification.csv"), "w") do io
-        println(io, "case,compile_order,aa,package_vs_bigfloat,reference_vs_bigfloat")
+        println(io, "case,invocation_order,aa,package_vs_bigfloat,reference_vs_bigfloat")
         for T in (Float32, Float64), m in SIZES, layout in (:range, :perm), kind in KINDS
             d = makedata(T, m, layout, kind)
             ref_penalty = ReferencePenalty(d.λ1, d.λ2, d.groups, d.w)

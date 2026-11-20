@@ -21,21 +21,23 @@ the same size. Other array arguments, outputs and array steps (a vector, a view,
 element type, mixed `Float32` and `Float64`) throw an `ArgumentError` that names the
 supported types; through `prox`, an array with offset axes gets the one-based-indexing
 `ArgumentError` instead. A scalar argument, or a step that is neither a real number nor
-an array, can give a `MethodError`. A non-square matrix, or an output of another size,
-throws a `DimensionMismatch`, and a `0 × 0` matrix an `ArgumentError`. A `Matrix` that
-is not symmetric in the sense above throws an `ArgumentError` in the value and in the
-proximal operator; pass `Symmetric(X, :L)` to use its lower triangle. A
-`Symmetric(A, :U)` argument reads the upper triangle of `A`.
+an array, can give a `MethodError`. A non-square `Matrix{T}` of a supported `T`, or a
+`Matrix{T}` output of another size, throws a `DimensionMismatch`, and a `0 × 0` matrix an
+`ArgumentError`. A `Matrix` that is not symmetric in the sense above throws an
+`ArgumentError` in the value and in the proximal operator; pass `Symmetric(X, :L)` to use its lower triangle. A
+`Symmetric(A, :U)` argument reads the upper triangle of `A`. These errors are those of
+`f` itself: a `Scaled` wrapper checks real entries and one-based axes first.
 
 # Value
 
-The value is `0` when `2 * #{i > j : Xᵢⱼ ≠ 0} ≤ s` and `Inf` otherwise. A `NaN` in a
-strict lower entry gives `NaN`. An infinite strict lower entry counts as nonzero, and
+The value is `0` when `2 * #{i > j : Xᵢⱼ ≠ 0} ≤ s` and `Inf` otherwise. For an
+argument that passes the symmetry check, a `NaN` in a strict lower entry gives `NaN`. An infinite strict lower entry counts as nonzero, and
 zeros of either sign count as zero.
 
 # Projection
 
-`prox!(Y, f, X, γ)` writes the Euclidean (Frobenius) projection of `X` onto the set.
+`prox!(Y, f, X, γ)` writes a Euclidean (Frobenius) projection of `X` onto the set, with
+ties broken as below.
 Let `n = p(p - 1) ÷ 2`, `k = min(s ÷ 2, n)`, and let `E` be the number of nonzero
 strict lower entries of `X`. If `E ≤ k`, every pair is kept. Otherwise the `k` strict
 lower entries of largest magnitude are kept and every other off-diagonal entry becomes
@@ -45,9 +47,9 @@ error. Ties in magnitude go to the entry earlier in the strict lower triangle re
 columns, `(2, 1), (3, 1), …, (p, 1), (3, 2), …`. Magnitudes are compared as `abs`
 values, without squaring.
 
-For the matrix `[5 1 -3; 1 7 2; -3 2 9]` and `s = 2` or `s = 3`, `k = 1` and the pair
-`(3, 1)` with value `-3` is kept: the projection is `[5 0 -3; 0 7 0; -3 0 9]`. For
-`s = 6` the matrix is returned unchanged.
+For the `Float64` matrix `[5.0 1 -3; 1 7 2; -3 2 9]` and `s = 2` or `s = 3`, `k = 1` and
+the pair `(3, 1)` with value `-3` is kept: the projection is `[5 0 -3; 0 7 0; -3 0 9]`.
+For `s = 6` the output equals the matrix.
 
 ```julia
 f = IndBallL0(2; diagonal = false)
@@ -67,7 +69,7 @@ stored output.
 The step `γ` is a scalar that must be finite and nonnegative; the projection does not
 depend on it, and `γ = 0` projects too. A negative, `NaN` or infinite step throws an
 `ArgumentError` before anything is written. A single `Scaled(f, α)` passes `α * γ`
-to `f`, so `Scaled(f, Inf)` at a positive step, or a finite `α` whose product `α * γ`
+to `f` (a zero step stays zero), so `Scaled(f, Inf)` at a positive step, or a finite `α` whose product `α * γ`
 overflows, throws an `ArgumentError` before writing (`Scaled(f, 0)` is `f`). A nested
 chain of `Scaled` wrappers whose factor product overflows passes `γ` to `f`, so it
 projects at a finite `γ ≥ 0`.
@@ -81,16 +83,17 @@ the first write.
 
 The projection takes `O(p²)` operations when `E ≤ k`. When `E > k`, the `k`-th largest
 magnitude is found by an in-place quickselect with pivot positions drawn from a
-pseudo-random sequence seeded by `n`; its expected cost is `O(p²)` and its worst case is
+pseudo-random sequence seeded by `n`; its cost is `O(p²)` when the positions behave like
+random ones, as they did on the structured orderings timed, and its worst case is
 quadratic in the number of pairs. The object keeps one buffer of `n` magnitudes of the
 element type, allocated at the first call that needs it and again when the size or the
-element type changes. A repeated call on the same object with the same size and element
-type does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task
+element type changes. Once the buffer exists, a `prox!` or `value_and_prox!` call with
+the same size and element type does not allocate. Use a separate `IndBallL0(f.s; diagonal = false)` in each task
 whose calls may run at the same time, since the buffer belongs to the object.
 
 `kkt_violation`, `restrict`, `prox_block` and `lipschitz` are not supported:
 `lipschitz` throws an `ArgumentError`, and `restrict`, `prox_block` and
-`kkt_violation` a `MethodError`.
+`kkt_violation` a `MethodError` (after the generic argument checks).
 """
 struct IndBallL0 <: AbstractFunction
   s::Int

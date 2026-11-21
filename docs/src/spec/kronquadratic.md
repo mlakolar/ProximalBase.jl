@@ -100,12 +100,13 @@ nothing to that accumulation. On the dense route ``AX`` is formed by `mul!` on a
 dense copy. A gradient call then forms ``(AX)B`` with `mul!` and writes
 ``W/2+W^\top/2+C`` with ``W=(AX)B`` in column order; on the accumulating route
 its value is a pass over the stored entries. The cutoff is a measured
-tradeoff: in exclusive sweeps on one x86-64 CPU with Julia 1.10.13 and 1.13.4,
-of a version with the same routes and an earlier gradient store, the
-accumulating routes ran below the cutoff at 0.045–0.825 (value-only calls) and,
-for ``p\geq200``, 0.528–0.943 (gradient calls) of the time of a straightforward
-dense implementation. The measured performance section of
-`benchmark/README.md` gives the method and the numbers per size. Results are rounded in
+tradeoff near the crossover: in exclusive sweeps on one x86-64 CPU with Julia
+1.10.13 and 1.13.4, for ``p\geq200`` and below the cutoff, the accumulating
+routes ran at 0.045–0.835 (value-only calls) and 0.511–0.881 (gradient calls)
+of the time of a straightforward dense implementation, at least 1.2× faster
+except in the last cells before the cutoff at ``p=800``, and the dense routes
+within 1.012 of it. The measured performance section of `benchmark/README.md`
+names those cells and gives the numbers per size. Results are rounded in
 working precision, and the routes can differ by rounding.
 
 ## [Range clauses](@id spec-kronquadratic-range)

@@ -447,11 +447,10 @@ active values, both calls take an accumulating route when ``32n\leq p^2``: the
 gradient accumulates ``AX`` over the active coordinates, and a value-only call
 accumulates ``AX`` and ``BX`` without forming ``(AX)B``. Above that cutoff they
 form ``AX`` from a dense copy and then ``(AX)B``. The cutoff is a measured
-tradeoff: in exclusive sweeps of a version with the same routes and an
-earlier gradient store, the accumulating routes ran below the cutoff at
-0.045–0.825 (value-only) and, for ``p\geq200``, 0.528–0.943 (gradient) of the
-time of a straightforward dense implementation; see the measured performance
-in `benchmark/README.md`.
+tradeoff near the crossover: in exclusive sweeps for ``p\geq200``, the
+accumulating routes ran below the cutoff at 0.045–0.835 (value-only) and
+0.511–0.881 (gradient) of the time of a straightforward dense implementation;
+see the measured performance in `benchmark/README.md`.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient

@@ -233,11 +233,12 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 
 # The products M X with the matrix that a symmetric iterate X represents take one of two routes: column by column
 # over the active coordinates (_kron_left!), or a matrix product on a dense copy. Value-only and gradient calls take
-# the dense route when 32n > p² for n nonzero active values. The cutoff is a measured tradeoff from exclusive sweeps on
-# one x86-64 CPU with Julia 1.10.13 and 1.13.4, against a straightforward dense implementation: below it the
-# accumulating route of a value-only call ran at 0.045–0.825 of the dense time, and that of a gradient call at
-# 0.528–0.943 for p ≥ 200. The CPU, the method and the per-size numbers are in benchmark/README.md, "Measured
-# performance". Counting the nonzero values needs no coordinate conversion.
+# the dense route when 32n > p² for n nonzero active values. The cutoff is a measured tradeoff from exclusive sweeps of
+# this code on one x86-64 CPU with Julia 1.10.13 and 1.13.4, against a straightforward dense implementation: for
+# p ≥ 200 and below the cutoff, the accumulating route of a value-only call ran at 0.045–0.835 of the dense time and
+# that of a gradient call at 0.511–0.881, at least 1.2× faster except in the last cells before the cutoff at p = 800.
+# The CPU, the cells and the per-size numbers are in benchmark/README.md, "Measured performance". Counting the
+# nonzero values needs no coordinate conversion.
 function _kron_dense_route(X::SymmetricSparseIterate, p::Int)
   vals = activevalues(X)
   n = 0

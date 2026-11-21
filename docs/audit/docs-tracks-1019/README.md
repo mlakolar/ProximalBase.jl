@@ -374,7 +374,7 @@ The standalone passage check covers the eight published moves and the two
 retained guide examples from [#1121](https://github.com/mlakolar/ProximalBase.jl/pull/1121).
 It reads the move manifest at the pinned merge commit and verifies the original
 spans against that commit's first parent. Both Git revisions must be available
-locally.
+locally. The check reads the authored UTF-8 Git blobs with LF line endings.
 
 ```sh
 python3 -B docs/check_migration_spans.py HEAD
@@ -391,9 +391,9 @@ new clause labels.
 
 The check compares protected token and example counts within each reviewed
 passage. A split also preserves the original words. Each replacement occupies
-its own occurrence in the contract, and both guide examples retain their
-original body, headings, and execution order. Take any intentional protected
-change to separate review. Run this blocking command alongside the six
+its own occurrence in the contract. The pilot retains the exact family guide
+section to preserve both example bodies and their surrounding Markdown. Take
+any intentional protected change to separate review. Run the command alongside the six
 preservation checks and the removed-lines report for the clause pilot.
 
 After the final Phase 5 blocking acceptance, retire the six temporary migration

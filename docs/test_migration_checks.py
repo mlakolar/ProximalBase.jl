@@ -32,6 +32,7 @@ class PostBaselineSpanTests(unittest.TestCase):
         m.git("init", "-q", root=self.root)
         m.git("config", "user.name", "Migration fixture", root=self.root)
         m.git("config", "user.email", "fixture@example.invalid", root=self.root)
+        m.git("config", "core.autocrlf", "false", root=self.root)
         self.guide = self.guide_text(self.array_example, self.compact_example)
         original = self.guide + "\n## Former rules\n\n" + self.first + "\n\n" + self.second + "\n"
         self.write(self.guide_path, original)
@@ -126,7 +127,20 @@ class PostBaselineSpanTests(unittest.TestCase):
         for first, second in ((changed, self.compact_example), (self.compact_example, self.array_example)):
             with self.subTest(first=first, second=second):
                 self.write(self.guide_path, self.guide_text(first, second))
-                self.assertTrue(any("retained examples changed" in line for line in self.check()["findings"]))
+                self.assertTrue(any("retained examples or their guide context changed" in line
+                                    for line in self.check()["findings"]))
+
+    def test_guide_fence_context_cannot_hide_an_example(self):
+        decoy = "```text\nExample explanation\n````\n"
+        guide = self.guide.replace(self.compact_example, decoy + self.compact_example)
+        self.write(self.guide_path, guide)
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_committed_raw_line_endings_are_checked(self):
+        spec = self.root / self.spec_path
+        spec.write_bytes(spec.read_bytes().replace(b"\n", b"\r\n"))
+        with self.assertRaisesRegex(ValueError, "expected LF line endings"):
+            self.check()
 
     def test_manifest_requires_exact_parent_span(self):
         self.manifest["moves"][0]["source_start"] += 1

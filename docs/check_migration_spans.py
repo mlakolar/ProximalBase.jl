@@ -31,21 +31,34 @@ def authored_path(path):
     return path
 
 
-def locate(span, page):
-    path, anchor = m.split_destination(span.scope)
-    if not anchor or not span.text:
-        raise ValueError(f"expected a nonempty passage in a named section: {span.scope}")
+def authored_blob(revision, path, root):
+    data = subprocess.check_output(["git", "show", revision + ":" + path], cwd=root)
+    text = data.decode("utf-8")
+    if "\r" in text:
+        raise ValueError(f"expected LF line endings in the authored Git blob: {path}")
+    return text
+
+
+def authored_section(page, path, anchor):
+    if not anchor:
+        raise ValueError(f"expected a named section in {path}")
     section = m.section_text(page, anchor)
-    start = section.find(span.text)
-    if start < 0 or section.find(span.text, start + 1) >= 0:
-        raise ValueError(f"passage {span.sha[:12]} must occur once in {span.scope}")
     # A fenced copy can contain the same section text as the authored heading.
     layout = m.located_destination_blocks(page, path)
     heading = section.split("\n", 1)[0].rstrip()
     headings = [first for block, first, _ in layout if block.kind == "heading" and block.text == heading]
     if len(headings) != 1 or not page.startswith(section, headings[0]):
-        raise ValueError(f"cannot locate a unique authored section for {span.scope}")
-    start += headings[0]
+        raise ValueError(f"cannot locate a unique authored section for {path}#{anchor}")
+    return section, headings[0], layout
+
+
+def locate(span, page):
+    path, anchor = m.split_destination(span.scope)
+    section, offset, layout = authored_section(page, path, anchor)
+    start = section.find(span.text)
+    if not span.text or start < 0 or section.find(span.text, start + 1) >= 0:
+        raise ValueError(f"passage {span.sha[:12]} must occur once in {span.scope}")
+    start += offset
     end = start + len(span.text)
     blocks = [(block, first, last) for block, first, last in layout
               if first < end and start < last]
@@ -70,7 +83,7 @@ def published_spans(reference, root):
     spans = {}
     for move in manifest["moves"]:
         path = authored_path(move["source"])
-        original = m.git("show", parent + ":" + path, root=root)
+        original = authored_blob(parent, path, root)
         start, end = move["source_start"], move["source_end"]
         text = move["text"]
         if (move["source_revision"] != parent or not 0 <= start < end <= len(original)
@@ -115,12 +128,6 @@ def tokens(blocks, count):
     return total
 
 
-def example_fences(page, path, anchor, sandbox):
-    section = m.section_text(page, anchor)
-    return [(block.heading, block.text) for block in m.blocks(section, path)
-            if block.kind == "code" and block.text.splitlines()[0] == "```@example " + sandbox]
-
-
 def check(reference, candidate, plan, root=m.ROOT):
     if not re.fullmatch(r"[0-9a-f]{40}", candidate):
         raise ValueError("candidate requires an exact Git commit")
@@ -131,8 +138,8 @@ def check(reference, candidate, plan, root=m.ROOT):
         raise ValueError("the reference manifest must cover one family contract")
     path = paths.pop()
     rewrites = declared_rewrites(plan, sources, path)
-    original = m.git("show", revision + ":" + path, root=root)
-    current = m.git("show", candidate + ":" + path, root=root)
+    original = authored_blob(revision, path, root)
+    current = authored_blob(candidate, path, root)
 
     findings = []
     occupied = []
@@ -163,19 +170,18 @@ def check(reference, candidate, plan, root=m.ROOT):
 
     examples = reference["guide_examples"]
     guide, anchor = m.split_destination(examples["scope"])
-    if not anchor:
-        raise ValueError("guide examples require a named section")
     authored_path(guide)
-    original_guide = m.git("show", revision + ":" + guide, root=root)
-    current_guide = m.git("show", candidate + ":" + guide, root=root)
-    before = example_fences(original_guide, guide, anchor, examples["sandbox"])
-    after = example_fences(current_guide, guide, anchor, examples["sandbox"])
-    if len(before) != examples["count"] or not before:
+    original_guide, _, _ = authored_section(authored_blob(revision, guide, root), guide, anchor)
+    current_guide, _, _ = authored_section(authored_blob(candidate, guide, root), guide, anchor)
+    opener = "```@example " + examples["sandbox"]
+    example_count = sum(block.kind == "code" and block.text.splitlines()[0] == opener
+                        for block in m.blocks(original_guide, guide))
+    if not example_count or example_count != examples["count"]:
         raise ValueError("reference guide example count differs from the published inventory")
-    if before != after:
-        findings.append(f"{examples['scope']}: retained examples changed or are out of order")
+    if original_guide != current_guide:
+        findings.append(f"{examples['scope']}: retained examples or their guide context changed")
     return dict(reference=revision, candidate=candidate, passages=len(sources),
-                guide_examples=len(before), findings=findings)
+                guide_examples=example_count, findings=findings)
 
 
 def main():

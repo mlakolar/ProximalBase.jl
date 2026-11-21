@@ -521,10 +521,10 @@ end
   @test prox(f, [3.0, 4.0, 3.0, 4.0], 0.0)[3:4] == [3.0, 4.0]
   @test f([0.0, -0.0, 3.0, 4.0]) == 1.5 && f([1.0, 0.0, 3.0, 4.0]) === Inf
   # norms beyond the input type (#534): the group norm is formed in the recovery type, not in the input type
-  x32 = Float32[3f38, 4f38]
+  x32 = Float32[2f38, 3f38]                                                          # r ≈ 3.6e38
   @test prox!(zeros(Float64, 2), GroupMCP(1.0, [1:2]), x32, 1.0) == Float64.(x32)      # kept
-  y = prox!(zeros(Float64, 2), GroupMCP(2e38, [1:2], [1.0]), x32, 1.0)                # firm: t* = 4.5e38
-  @test all(isfinite, y) && check_group(y, x32, 2e38, 1.0, 3.0, 1.0)
+  y = prox!(zeros(Float64, 2), GroupMCP(1.5e38, [1:2], [1.0]), x32, 1.0)              # firm: t* ≈ 3.2e38
+  @test all(isfinite, y) && check_group(y, x32, 1.5e38, 1.0, 3.0, 1.0)
   u = Float32[3f38, 3f38]
   y32 = prox(GroupMCP(2f38, [1:2], [1f0]), u, 1f0)
   @test all(isfinite, y32) && check_group(y32, u, 2f38, 1f0, 3f0, 1f0)

@@ -9,7 +9,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 
 **Links only until clause conversion.** [`IndBox`](@ref) owns the box projection rules. [`IndBallLinf`](@ref) is its thin constructor with bounds `-r` and `r`; its cases are retained in [Endpoint clauses](@ref spec-indbox-endpoints).
 
-Source: [`src/functions/indbox.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/indbox.jl). The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the interface.
+Source: [`src/functions/indbox.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/indbox.jl). The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the interface.
 
 ## [Definition and domain](@id spec-indbox-definition)
 
@@ -17,11 +17,11 @@ Source: [`src/functions/indbox.jl`](https://github.com/mlakolar/ProximalBase.jl/
 
 ## [Traits](@id spec-indbox-traits)
 
-**Links only until clause conversion.** Trait declarations are described by [`IndBox`](@ref) and [`IndBox`](@ref).
+**Links only until clause conversion.** Trait declarations are described by [`IndBox`](@ref).
 
 ## [Supported arguments](@id spec-indbox-arguments)
 
-**Links only until clause conversion.** Operation signatures and representations are described by [`IndBox`](@ref) and [`IndBox`](@ref).
+**Links only until clause conversion.** Operation signatures and representations are described by [`IndBox`](@ref).
 
 ## [Preconditions](@id spec-indbox-preconditions)
 
@@ -71,6 +71,7 @@ Source: [`src/functions/indbox.jl`](https://github.com/mlakolar/ProximalBase.jl/
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/indbox.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indbox.jl)
+- [`test/indballlinf.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indballlinf.jl)
 
 ## [History](@id spec-indbox-history)
 

@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`GroupNormLinf`](@ref).
 
 Source: [`src/functions/groupnormlinf.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/groupnormlinf.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-groupnormlinf-definition)
 
@@ -46,6 +46,9 @@ the calls ([ownership](../numerical_usage.md#Ownership-and-aliases)).
 **Links only until clause conversion.** The ordinary mathematical formulas and examples remain in [the function guide](../group_penalty.md#group-linf-guide).
 
 ## [Range clauses](@id spec-groupnormlinf-range)
+
+The [shared range guarantees](@ref numerical-value-range) describe the range check referenced here.
+The [endpoint table](@ref spec-groupnormlinf-endpoints) and the [ElasticNet range clauses](@ref spec-elasticnet-range) supply the endpoint and Julia 1.10 scaling context.
 
 `GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
 as `(λ0*w[k])*m` with two rounded products when `λ0*w[k]` is a normal number (and by the three-factor kernel otherwise)
@@ -93,8 +96,6 @@ each stored entry is at most ``8n\varepsilon\max_{i\in G_k}\lvert x_i\rvert+(2n+
 type. When ``\gamma\lambda_0`` is not a normal number, or the product leaves the normal range of the output type, it is
 formed from the significands and exponents of the three factors, so that an intermediate overflow or underflow does not
 decide it. The accuracy bound includes the case where the computed radius reaches the computed sum and the entire group becomes `+0`.
-
-The “same check” in the preserved value discussion is the shared [range recovery check](@ref numerical-value-range). Its references to endpoint precedence point to [Endpoint clauses](@ref spec-groupnormlinf-endpoints).
 
 ## [Endpoint clauses](@id spec-groupnormlinf-endpoints)
 
@@ -149,9 +150,12 @@ yh
 
 ## [Limitations and non-guarantees](@id spec-groupnormlinf-limitations)
 
+The [group optimality scores](../group_penalty.md#Optimality-scores-2) explain the scaling rules referenced here.
+
 `GroupNormLinf` has no `SymmetricSparseIterate`, `restrict`, per-group step or compact block method under `Scaled`.
 `Scaled(GroupNormLinf(...), α)` multiplies the value by `α` and computes the array proximal operator with the step
-`αγ`; it has no folded level, so a step `αγ` that overflows reaches the function as `Inf`. A group that reaches the
+`αγ`; it has no folded level for the proximal operator, so a step `αγ` that overflows reaches the function as `Inf` (the scores of
+`kkt_violation` fold the level of a chain, as above). A group that reaches the
 infinite-step exit then gives `+0`, where the exact radius ``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the
 group; a group with a zero weight or a zero level with a finite weight keeps the identity, because those exits come first.
 A zero `α` throws an `ArgumentError`.
@@ -174,6 +178,7 @@ prox(scaled, [2000.0, 500.0], 2.0^30)
 | Shapes and destination writes | [Shapes and destination-first mutation](../numerical_usage.md#Shapes-and-destination-first-mutation) |
 | Ownership and aliasing | [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases) |
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
+| Group optimality scores | [Point-aware scores](@ref spec-kkt_violation-endpoints) |
 
 ## [Evidence](@id spec-groupnormlinf-evidence)
 

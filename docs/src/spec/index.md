@@ -25,7 +25,7 @@ apply alongside each entry.
 
 | Family or operation | Current entry point | Migration state |
 |:--|:--|:--|
-| `NormL0` | [Numerical contract](norml0.md) | Verbatim migration |
+| `NormL0` | [Numerical contract](norml0.md); for `diagonal = false`, the authored [numerical contract](norml0offdiag.md) | Verbatim migration |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
 | `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
@@ -34,6 +34,7 @@ apply alongside each entry.
 | `IndNonnegative` | [Numerical contract](indnonnegative.md) | Verbatim migration |
 | `IndBox` | [Numerical contract](indbox.md) | Verbatim migration |
 | `IndBallLinf` | [IndBox endpoint clauses](@ref spec-indbox-endpoints) | Thin constructor of `IndBox` |
+| `IndBallL0` | [Numerical contract](indballl0.md) | Verbatim migration |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
 | `IndBallL2` | [Numerical contract](indballl2.md) | Verbatim migration |
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
@@ -46,6 +47,7 @@ apply alongside each entry.
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
+| `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
 | `GroupNormLinf` | [Numerical contract](groupnormlinf.md) | Verbatim migration |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |

@@ -102,3 +102,23 @@ does not establish that signatures, links or examples render correctly.
 An optional future source linter can begin in report-only mode after its
 parser assumptions and fixtures are audited. Word counts alone are not a
 blocking correctness check and do not justify dropping a precondition.
+
+## Numerical routines and Learn exercises
+
+Describe the calculation and its current implementation in a
+[numerical routine](@ref numerical-routines). Pin the source and test revision
+used to verify the description. Link supported arguments and numerical claims
+to their owning family or shared [contract section](../spec/index.md).
+
+Give readers enough information to predict the result, then use a Documenter
+example to check it against the derivation or a reference calculation. Use
+ordinary finite inputs for those exercises outside the
+[floating-point range lesson](@ref learn-floating-point). That lesson covers
+intermediate overflow and subnormal spacing in the working type.
+
+Regenerate the Learn figures from the repository root.
+
+```sh
+python3 docs/generate_learn_figures.py
+python3 docs/generate_learn_figures.py --check
+```

@@ -82,7 +82,9 @@ function (b::WarmBatch)()
     nothing
 end
 
-# m calls, each with a new step from gs (cycled) followed by the prox
+# m calls, each with the next step of gs (cycled) followed by the prox; the step and input positions continue from
+# the counter, which a caller can share between the batches of one role: for a gs with at least two different steps,
+# consecutive calls then differ in step also when a batch holds one call
 struct PenaltyBatch{P,R,O,B,Vs,Gs}
     px::P
     refactor::R
@@ -91,13 +93,16 @@ struct PenaltyBatch{P,R,O,B,Vs,Gs}
     vs::Vs
     gs::Gs
     m::Int
+    counter::Base.RefValue{Int}
 end
+PenaltyBatch(px, refactor, obj, β, vs, gs, m::Int) = PenaltyBatch(px, refactor, obj, β, vs, gs, m, Ref(0))
 function (b::PenaltyBatch)()
     K, G = length(b.vs), length(b.gs)
-    @inbounds for i in 1:b.m
-        γ = b.gs[mod1(i, G)]
+    @inbounds for _ in 1:b.m
+        k = (b.counter[] += 1)
+        γ = b.gs[mod1(k, G)]
         b.refactor(b.obj, γ)
-        b.px(b.β, b.obj, b.vs[mod1(i, K)], γ)
+        b.px(b.β, b.obj, b.vs[mod1(k, K)], γ)
     end
     nothing
 end
@@ -318,12 +323,13 @@ function run_penalty(w::Writer, roles, c::Case, d)
     ms, ts = calibrate((r, o, m) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, T[2], m), roles, objs;
                        min_calls = 1, target = 0.05)
     for (pname, gs) in patterns
+        counters = [Ref(0) for _ in roles]
         for round in 1:ROUNDS
             for (pos, idx) in enumerate(round_indices(length(roles), round))
-                role, obj = roles[idx], objs[idx]
+                role, obj, counter = roles[idx], objs[idx], counters[idx]
                 mm = ms[role.family]
                 nb = ts[role.family] >= 0.1 ? 1 : BATCHES
-                s = best_batch(() -> PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, gs, mm), nb)
+                s = best_batch(() -> PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, gs, mm, counter), nb)
                 emit(w, c.id, "penalty", pname, round, pos, role.name, s.time / mm; gc = s.gc / mm, bytes = s.bytes / mm,
                      allocs = s.allocs / mm)
             end

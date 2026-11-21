@@ -1,5 +1,5 @@
 # Accuracy evaluator of the wide least-squares study (#1103). It reads the prox outputs that harness.jl wrote for
-# the primary roles (group outputs) and the inputs of generate.jl, checks every file against its SHA-256 and
+# the primary roles (group outputs) and the inputs of generate.jl, checks each file against its SHA-256 and
 # evaluates, independently of the implementations and in BigFloat, from X, y, v and γ of each case:
 #   eta             the stationarity residual
 #                   ‖X'(Xβ - y) + ρ(β - v)‖∞ / (‖X'‖∞‖Xβ‖∞ + ‖X'y‖∞ + ρ(‖β‖∞ + ‖v‖∞)), ρ = 1/big(T(γ)), 256 bits,

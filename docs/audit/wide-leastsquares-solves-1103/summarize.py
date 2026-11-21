@@ -5,9 +5,10 @@
 
 It reads from the output directory (searched recursively) the files written by harness.jl
 (timings-*.tsv, admm-untimed-*.tsv, reference-*.tsv, outputs-*/outputs-index.tsv) and by accuracy.jl
-(accuracy-*.tsv), rebuilds every table from the raw rows, applies the pre-registered criteria of the plan and
+(accuracy-*.tsv), rebuilds the tables from the raw rows, applies the pre-registered criteria of the plan and
 prints markdown tables. It writes tables.md and verdict.json into the output directory. A timing file without
-its closing `# complete: yes` line is reported and left out.
+its closing `# complete: yes` line is reported and left out. Process files of different BLAS thread counts belong
+in different directories; the notes list header fields that differ between the processes read.
 
 Criteria as implemented (the plan is the reference; see the README):
   * Per cell (case, measurement, param) and variant V in {C_B, C_D, C_W}: each process gives the per-round paired
@@ -18,7 +19,7 @@ Criteria as implemented (the plan is the reference; see the README):
     The plan asks for six processes (three per role order); a cell with fewer is marked partial.
   * An output passes accuracy when eta <= 1e3 eps(T). A cell is left out of the speed criteria of a variant when
     the variant fails accuracy at its step (the step of a warm cell; step 1 for first use; any step for penalty).
-  * Recommendations (A), (B), (C) per variant, on every Julia version present (see recommend()).
+  * Recommendations (A), (B), (C) per variant, over the cells and outputs of all Julia versions present (see recommend()).
 """
 import collections
 import glob
@@ -255,7 +256,8 @@ def main(root):
         rows.append([k[0], k[1], k[2], ",".join(sorted(p.groups)), h.get("rounds"), h.get("blas_threads"), h.get("cpu_model"),
                      h.get("loadavg_start"), h.get("wall_seconds", "-")])
     section("Processes", md_table(["julia", "order", "proc", "groups", "rounds", "blas threads", "cpu", "load at start", "wall s"], rows))
-    for what in ("source_sha", "harness_sha", "inputs_index_sha256", "cpu_model", "blas_config", "openblas", "l3_cache"):
+    for what in ("source_sha", "harness_sha", "inputs_index_sha256", "cpu_model", "blas_config", "openblas", "l3_cache",
+                 "blas_threads", "check_bounds", "rounds"):
         vals = {p.header.get(what) for p in procs.values()}
         if len(vals) > 1:
             notes.append("processes differ in %s: %s" % (what, sorted(map(str, vals))))
@@ -410,7 +412,7 @@ def main(root):
         heads += [var + " max eta/eps", var + " failures", var + " max eta/eta_S"]
     section("Accuracy per main case (all outputs: steps by inputs)", md_table(heads, rows))
     section("Margin of S under the threshold (the plan asks for a factor %g in every main case)" % S_MARGIN,
-            md_table(["julia", "case", "S max eta/eps"], margin_bad) if margin_bad else "S has at least a factor %g margin in every main case." % S_MARGIN)
+            md_table(["julia", "case", "S max eta/eps"], margin_bad) if margin_bad else "S has at least a factor %g margin in every main case evaluated." % S_MARGIN)
 
     controls = []
     reduces = collections.Counter()
@@ -538,7 +540,7 @@ def instance_11_1(verdicts, versions):
 
 
 def recommend(versions, by_version, verdicts, acc, acc_versions, ref, notes):
-    """Applies the pre-registered criteria of the plan to every variant on every Julia version present."""
+    """Applies the pre-registered criteria of the plan to each variant over the Julia versions present."""
     result = {"variants": {}, "provisional": [], "versions": versions}
     inst, exact = instance_11_1(verdicts, versions)
     result["section_11_1_instance"] = inst
@@ -646,8 +648,8 @@ def format_verdict(verdict):
             rows.append([var, "cells with fewer than %d processes (warm, admm)" % PROCESSES_WANTED, str(d["partial_cells"]), ""])
     lines.append(md_table(["variant", "criterion", "value", "note"], rows))
     lines.append("\n(A) propose a PB fixed-penalty backend: A1, A2, A3 all true. (B) solver-side factorization only: not (A), "
-                 "and B1, A3 (faster at both levels) and B3 true. (C) no change otherwise. #1078 is unaffected in every "
-                 "outcome; see the table of controls for the residuals.")
+                 "and B1, A3 (faster at both levels) and B3 true. (C) no change otherwise. The recommendation does not close "
+                 "#1078; see the table of controls for the residuals.")
     return "\n".join(lines)
 
 

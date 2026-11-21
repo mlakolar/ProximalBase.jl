@@ -1,5 +1,5 @@
 # Writes the inputs of the wide least-squares study (#1103) as little-endian binary arrays with a manifest
-# (inputs-index.tsv) that lists the case, element type, shape and SHA-256 of every array. The harness and the
+# (inputs-index.tsv) that lists the case, element type, shape and SHA-256 of each array. The harness and the
 # accuracy evaluator check each file against the manifest before use.
 #
 #   PB_INPUTS=<dir> [PB_PROFILE=full|small] [PB_FILTER=<regex on case ids>] [PB_CHECK_ONLY=1] \
@@ -181,7 +181,7 @@ function generate(dir::String, profile::String, rx::Regex)
     length(rows)
 end
 
-# Reloads the manifest, checks every file against its SHA-256 and the structure of the arrays. The rank and
+# Reloads the manifest, checks each file against its SHA-256 and the structure of the arrays. The rank and
 # consistency checks use an SVD and run for the cases with n ≤ 200.
 function validate(dir::String)
     m = load_manifest(dir)

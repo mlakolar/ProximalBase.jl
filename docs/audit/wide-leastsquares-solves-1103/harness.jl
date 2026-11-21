@@ -3,8 +3,9 @@
 # the inputs written by generate.jl and times the roles against each other. The measurement groups are
 #   first_use       construction, factorization and first prox on a fresh object (one sample per role and round),
 #                   and the time of each setup step of the primary roles (first_use_part)
-#   warm            the warmed prox, minimum over batches of calls, at every step and for two kinds of inputs
-#   penalty         a new step on every call (S: the prox only; C: refactorization from the cached XX', then the prox)
+#   warm            the warmed prox, minimum over batches of calls, at each step of the case and for two kinds of inputs
+#   penalty         the step changes between calls, alternating between two steps or cycling through 16 (S: the prox only;
+#                   C: refactorization from the cached XX', then the prox)
 #   alloc           warmed bytes of the prox and of the step change, and the reachable bytes of each object
 #   admm_reference  S-ADMM to stationarity 1e-12·max(1, ‖X'y‖∞) on each lasso instance (the reference optimum)
 #   admm_untimed    the iteration counts of each role for the two stopping levels, with the trajectory
@@ -19,9 +20,9 @@
 #   julia --threads=1 --check-bounds=no --project=. docs/audit/wide-leastsquares-solves-1103/harness.jl
 #
 # PB_CHECK_ONLY=1 first checks the prototypes against S on a small full-rank case (the stationarity residual of
-# each in BigFloat, the warmed allocations, the finiteness error), then, when PB_INPUTS is set, runs every group
-# once on the smallest case of each element type with 2 rounds, 2 ADMM repeats and the output in PB_OUTPUT or a
-# temporary directory. The output is one tab-separated file per process, timings-<julia>-<order>-<proc>-<groups>.tsv,
+# each in BigFloat, the warmed allocations, the finiteness error), then, when PB_INPUTS is set, runs each group of
+# PB_GROUP (default: all) on the smallest case of each element type with 2 rounds, 2 ADMM repeats and the output in
+# PB_OUTPUT or a temporary directory. The output is one tab-separated file per process, timings-<julia>-<order>-<proc>-<groups>.tsv,
 # with a header of `# key: value` lines and one row per (case, measurement, param, round, role). Times are seconds
 # per call (the minimum over the batches of the round for warm), bytes and allocations per call.
 include(joinpath(@__DIR__, "common.jl"))
@@ -147,7 +148,9 @@ function breakdown_sample(role::Role{C}, X, y, γ) where {C<:PCtor}
     bp(L, X, y, γ)[2]
 end
 
-batch_calls(t) = t < 0.1 ? clamp(ceil(Int, 0.02 / t), 30, 3000) : 1
+# calls per batch for a call of t seconds: one call when t is at least 0.1 s, otherwise about `target` seconds of calls
+# and at least min_calls (30 for the warmed prox; the penalty groups use 1 and 0.05 s)
+batch_calls(t; min_calls = 30, target = 0.02) = t < 0.1 ? clamp(ceil(Int, target / t), min_calls, 3000) : 1
 
 # the minimum over nb batches of calls
 function best_batch(make, nb::Int)
@@ -234,15 +237,15 @@ function make_objects(roles, d, γ)
     Any[(obj = r.ctor(d.X, d.y, γ); r.prepare(obj); r.px(d.β, obj, d.vs[1], γ); obj) for r in roles]
 end
 
-# batch sizes of the families: at least 30 calls for calls under 0.1 s (one call at or above it)
-function calibrate(make_op, roles, objs)
+# batch sizes of the families (see batch_calls) and the seconds of one call of each primary role
+function calibrate(make_op, roles, objs; kw...)
     ms = Dict{String,Int}()
     ts = Dict{String,Float64}()
     for (r, o) in zip(roles, objs)
         r.control && continue
         op = make_op(r, o, 1)
         t = min(timed_sample(op).time, timed_sample(op).time, timed_sample(op).time)
-        ms[r.family] = batch_calls(t)
+        ms[r.family] = batch_calls(t; kw...)
         ts[r.family] = t
     end
     ms, ts
@@ -312,8 +315,9 @@ function run_penalty(w::Writer, roles, c::Case, d)
     T = c.T
     objs = make_objects(roles, d, one(T))
     patterns = (("alt2", T[1, 1e3]), ("newstep", T.(NEWSTEP_GRID)))
+    ms, ts = calibrate((r, o, m) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, T[2], m), roles, objs;
+                       min_calls = 1, target = 0.05)
     for (pname, gs) in patterns
-        ms, ts = calibrate((r, o, m) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, T[2], m), roles, objs)
         for round in 1:ROUNDS
             for (pos, idx) in enumerate(round_indices(length(roles), round))
                 role, obj = roles[idx], objs[idx]
@@ -534,9 +538,9 @@ end
 ###########################################################################################################
 
 # The prototypes against S on a small full-rank case in each element type: the stationarity residual of every role
-# (BigFloat; the 1e3 eps threshold applies at the steps γ ≤ 1, the residual at γ = 1e3 is only reported because the
-# form of C_B subtracts terms of size ‖X'y‖/ρ there), the A/A copies, the refactorization, the warmed allocations
-# and the finiteness error.
+# (BigFloat; the 1e3 eps threshold is tested at the steps γ ≤ 1, the residual at γ = 1e3 is reported but not tested,
+# since the plan expects C_B to lose accuracy at large steps), the A/A copies, the refactorization, the warmed
+# allocations and the finiteness error.
 function check_prototypes(roles)
     println("== prototypes against S on a small full-rank case (η in BigFloat; failure above 1e3 eps for γ ≤ 1)")
     failed = String[]
@@ -615,7 +619,8 @@ function check_prototypes(roles)
     println("prototype checks passed")
 end
 
-# compiles every code path of every role for both element types on small random data
+# calls the setup, prox, refactor, allocation-probe and ADMM routines of each role once per element type on small
+# random data, so that their compilation happens before the timed samples
 function warm_up(roles)
     for T in (Float32, Float64)
         n, p = 12, 40

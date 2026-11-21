@@ -83,6 +83,11 @@ IEEE result; only finite inputs whose intermediates leave the range are
 recomputed. See [LinearFunction range clauses](@ref spec-linear-range) for its finite-input recovery.  Recovery is worthwhile when it changes a materially inaccurate
 answer into a representable result in the working precision.
 
+`KronQuadratic` values and gradients are not among these recovered quadratic
+values: they use ordinary working-precision arithmetic, so an overflow gives
+`Inf` or `NaN` and a value below the subnormal range rounds to zero. See the
+[KronQuadratic range clauses](@ref spec-kronquadratic-range).
+
 The squared-residual recomputation that `SqrNormL2` and the least-squares oracles share has the same kind of
 boundary uncertainty as the `NormL2` recomputation below: within a few eps (the relative error bound of the sum) of
 the overflow threshold `floatmax(T) + ulp/2`, where `ulp` is the spacing between `floatmax(T)` and its predecessor, it

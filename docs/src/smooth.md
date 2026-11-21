@@ -429,6 +429,93 @@ x = [2.0, -1]
 prox(f,x,0.5)
 ```
 
+## [Kronecker quadratic](@id Kronecker-quadratic)
+
+```math
+q(X)=\frac12\langle X,AXB\rangle_F+\langle C,X\rangle_F
+=\frac12\operatorname{vec}(X)^\top(B\otimes A)\operatorname{vec}(X)+\operatorname{vec}(C)^\top\operatorname{vec}(X).
+```
+
+[`KronQuadratic(A, B, C)`](@ref KronQuadratic) takes a ``p\times p`` matrix `A`,
+a ``q\times q`` matrix `B` and a ``p\times q`` matrix `C`, zero when omitted.
+`A` and `B` are nonempty, finite and exactly symmetric, `C` is finite, and the
+three share one element type, `Float32` or `Float64`. The constructor copies
+them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
+``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
+products ``AX`` and ``(AX)B``.
+
+The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
+view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
+``AXB+C``. A [`SymmetricSparseIterate`](@ref) `X` (``p=q``) varies over
+symmetric matrices only, and its gradient is the derivative over that space
+with the Frobenius inner product:
+
+```math
+\nabla q(X)=\tfrac12(AXB+BXA)+C.
+```
+
+This is the full-matrix gradient that
+[`kkt_violation`](@ref) reads at a symmetric iterate. One coordinate
+``(r,c)``, ``r\neq c``, moves the two entries ``X_{rc}`` and ``X_{cr}``
+together, so the derivative of ``q`` along that coordinate is
+``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. Symmetric
+iterate calls require an exactly symmetric `C` and throw `ArgumentError`
+before writes otherwise. `matrixview(X)` is a matrix argument and gets
+``AXB+C``.
+
+```@example library_kronquadratic
+using ProximalBase, LinearAlgebra
+A = [1.0 0; 0 1]
+B = [1.0 0; 0 2]
+f = KronQuadratic(A, B)
+X = [0.0 1; 1 0]
+S = SymmetricSparseIterate(X)
+@assert gradient(f, X) == A * X * B == [0 2; 1 0]
+@assert gradient(f, S) == (A * X * B + B * X * A) / 2 == [0 1.5; 1.5 0]
+@assert f(S) == f(X) == 1.5
+gradient(f, S)
+```
+
+The value is the same formula for both arguments. `issmooth` is true;
+`isproximable`, `isseparable` and `isconvex` are false. ``q`` is convex when
+`A` and `B` are both positive semidefinite or both negative semidefinite,
+which the constructor does not check. `lipschitz(f)` returns the computed
+product ``\|A\|_2\|B\|_2`` of the spectral norms, which is the largest
+eigenvalue magnitude of ``B\otimes A``; it is not rounded up to a certified bound.
+
+**D-trace loss.** For covariance matrices ``\Sigma_x`` and ``\Sigma_y``, the
+loss ``\frac12\operatorname{tr}(\Sigma_x\Delta\Sigma_y\Delta)-\operatorname{tr}((\Sigma_y-\Sigma_x)\Delta)``
+of a symmetric ``\Delta`` is `KronQuadratic(Σx, Σy, Σx - Σy)` at a
+`SymmetricSparseIterate`. For positive-definite ``\Sigma_x`` and ``\Sigma_y``
+its gradient vanishes at ``\Delta^\star=\Sigma_x^{-1}-\Sigma_y^{-1}``, the
+difference of the precision matrices:
+
+```@example library_kronquadratic
+Σx = [2.0 1; 1 2]
+Σy = [1.0 0; 0 1]
+loss = KronQuadratic(Σx, Σy, Σx - Σy)
+Δ = SymmetricSparseIterate(inv(Symmetric(Σx)) - inv(Symmetric(Σy)))
+@assert maximum(abs, gradient(loss, Δ)) < 1e-14
+Matrix(Δ)
+```
+
+**Coordinate-descent direction model.** Around a positive-definite
+``\Theta`` with ``W=\Theta^{-1}``, the loss
+``w[\operatorname{tr}(S\Theta)-\log\det\Theta]`` of
+[`LogDetLoss(S, w)`](@ref LogDetLoss) has the second-order model
+``w[\operatorname{tr}((S-W)D)+\frac12\operatorname{tr}(WDWD)]`` in the
+direction ``D``, which is `KronQuadratic(w * W, W, w * (S - W))` evaluated at
+the direction ``D``, not at the new point ``\Theta+D``. The same model written
+as a function of the new point ``Z=\Theta+D`` has a different linear term:
+`KronQuadratic(w * W, W, w * (S - 2W))` at ``Z``, up to a constant, when
+``W\Theta W=W``.
+
+The oracles write scratch matrices that `f` owns: do not call them
+concurrently on one object (see the [ownership table](@ref numerical-usage)). Values and gradients use ordinary
+working-precision arithmetic: overflow gives `Inf` or `NaN` and results below
+the subnormal range round to zero, without the range recovery of other
+quadratic values. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
+
 ## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
 
 `kkt_violation(f, v, x)` returns `‖v + ∇f(x)‖∞` for `LeastSquaresLoss` and

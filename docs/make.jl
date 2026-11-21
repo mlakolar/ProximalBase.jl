@@ -118,6 +118,7 @@ makedocs(;
             "LeastSquaresLoss" => "spec/leastsquares.md",
             "SqrtLeastSquaresLoss" => "spec/sqrt_leastsquares.md",
             "QuadraticFunction" => "spec/quadratic.md",
+            "KronQuadratic" => "spec/kronquadratic.md",
             "LinearFunction and ZeroFunction" => "spec/linear.md",
             "NormL2" => "spec/norml2.md",
             "NormLinf" => "spec/normlinf.md",

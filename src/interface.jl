@@ -339,8 +339,9 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = (_check_one_based(x); prox!(
 Return a newly allocated gradient. Array inputs produce a dense floating-point
 array with the same shape; see [`gradient!`](@ref) to reuse an output buffer.
 
-Supported symmetric-iterate gradients (`SqrNormL2`, `LinearFunction` and
-supported `Scaled` leaves) produce a dense symmetric matrix. `ZeroFunction`
+Supported symmetric-iterate gradients (`SqrNormL2`, `LinearFunction`,
+`KronQuadratic` and supported `Scaled` leaves) produce a dense symmetric
+matrix. `ZeroFunction`
 has no symmetric-iterate gradient method. A capability trait does not supply
 missing operand methods.
 

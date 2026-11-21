@@ -675,3 +675,30 @@ run. In this run the in-place ratios were below one at some sizes, and the in-pl
 | value | 5.7, 2.6, 1.9 | 3.8, 1.8, 1.4 |
 | `prox!` in place | 1.3, 0.6, 0.5 | 1.2, 0.8, 0.7 |
 | `value_and_prox!` in place | 1.5, 0.7, 0.5 | 1.3, 0.8, 0.7 |
+
+## KronQuadratic harness
+
+`kronquadratic.jl` times `KronQuadratic` (issue #1059) between the archived source tree at
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
+second compilation of the candidate as the A/A control, in `Float32` and `Float64`, with one BLAS
+thread: the value and `value_and_gradient!` on dense `p × q` matrices with `p = q = 50, 200, 800`
+and `200 × 100`, and on `SymmetricSparseIterate` arguments at `p = 200` with 200, 2000 and 20100
+active coordinates (20100 is every coordinate). Each case cycles through eight distinct arguments.
+The roles share the dense arguments, the data and the output; each builds its own iterates from the
+same coordinates and values. Each round times the roles of every case in alternating order and keeps
+per role the median and the minimum of its samples. The summary (`summary.tsv`, also printed) gives
+per case the candidate's times, the median over the rounds of the ratios candidate/archive and
+control/candidate of the trial minima and medians, and the warmed allocations of each role, with the
+Julia version and `BLAS.get_config()` in its header; `raw.tsv` has every trial.
+
+Before timing, the script requires the control to reproduce the candidate's outputs exactly and the
+archive to agree within `1000 eps(T)` relative. An archive that does not load, or has no
+`KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads and times the
+candidate before the archive; `PB_FILTER` selects cases by a regular expression on their ids;
+`PB_CHECK_ONLY=1` stops after the output checks; `PB_QUICK=1` runs small sizes for one round.
+
+```sh
+mkdir -p /tmp/pb1059-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb1059-archive
+PB_ARCHIVE=/tmp/pb1059-archive PB_CANDIDATE="$PWD" PB_ROUNDS=11 PB_OUTPUT=/tmp/pb1059-results \
+  julia --threads=1 --project=benchmark benchmark/kronquadratic.jl
+```

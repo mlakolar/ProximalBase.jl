@@ -11,6 +11,8 @@ LogDetLoss
 LogisticLoss
 SqrNormL2
 QuadraticFunction
+KronQuadratic
+ProximalBase.kronquadratic_data
 ZeroFunction
 LinearFunction
 ```

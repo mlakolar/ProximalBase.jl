@@ -61,7 +61,7 @@ blocks; the code does not solve the full optimization problem.
 
 The [function library](docs/src/function_library.md) covers
 `LeastSquaresLoss`, `SqrtLeastSquaresLoss`, `LogDetLoss`, `LogisticLoss`,
-`SqrNormL2`, `QuadraticFunction`,
+`SqrNormL2`, `QuadraticFunction`, `KronQuadratic`,
 `ZeroFunction`, `LinearFunction`, `NormL1`, `NormL1Nonneg`, `ElasticNet`,
 `IndNonnegative`, `IndBox`, `IndBallL2`, `NormL2`, `NormLinf`, `GroupNormL2` and `Scaled`.
 The [iterate guide](docs/src/iterates.md) covers

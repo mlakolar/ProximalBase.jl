@@ -19,7 +19,7 @@ export AbstractFunction, SeparableFunction,
   issmooth, isproximable, isseparable, isconvex, iszeropreserving,
   prox!, prox, value_and_prox!, gradient!, gradient, value_and_gradient!, value_and_gradient,
   prox_block, prox_block!, value_entry, kkt_violation, restrict, lipschitz, opnorm2, reset_cache!,
-  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, LeastSquaresLoss, SqrtLeastSquaresLoss, LogDetLoss, LogisticLoss,
+  ZeroFunction, LinearFunction, SqrNormL2, QuadraticFunction, KronQuadratic, LeastSquaresLoss, SqrtLeastSquaresLoss, LogDetLoss, LogisticLoss,
   NormL0, NormL1, NormL1Nonneg, ElasticNet, SCAD, IndNonnegative, IndBox, IndBallL0, IndBallL1, IndBallL2, IndBallLinf, NormL2, NormLinf, GroupNormL2, GroupNormLinf, SparseGroupNormL2, Scaled,
   SparseIterate, SymmetricSparseIterate, BlockIterate,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
@@ -29,7 +29,8 @@ export MCP
 
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
-  :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data))
+  :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data,
+  :kronquadratic_data))
 
 include("compat.jl")
 include("utils.jl")
@@ -46,6 +47,7 @@ include("functions/quadratic.jl")
 include("functions/leastsquares.jl")
 include("functions/sqrt_leastsquares.jl")
 include("functions/logdet.jl")
+include("functions/kronquadratic.jl")
 include("functions/separable.jl")
 include("functions/norml1.jl")
 include("functions/elasticnet.jl")

@@ -23,6 +23,8 @@ the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restor
 and `IndBallL2` (#950). `IndBallL0(s; diagonal = true)` (#1084) is restored for
 dense vectors and matrices, `SparseIterate`, dense `Symmetric`, and
 `SymmetricSparseIterate` with `Float32` or `Float64`.
+The smooth `KronQuadratic` (#1059) is restored for dense matrices and
+`SymmetricSparseIterate` with `Float32` or `Float64`.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
@@ -267,6 +269,7 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps. 0.6: scaling returns the indicator; see above. |
 | `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
 | `IndBallL0(s; diagonal = true)` ([#1084](https://github.com/mlakolar/ProximalBase.jl/issues/1084)) | The indicator and projection with both diagonal modes. The budget counts full entries. Vectors and ordinary matrices select individual entries. Dense `Symmetric` and `SymmetricSparseIterate` select pairs at cost two and counted diagonals at cost one | In the initial #1057 draft a raw matrix selected symmetric pairs. Wrap the chosen triangle with `Symmetric(X, :L)` or `Symmetric(X, :U)` to request that projection. Use `diagonal = false` to keep the diagonal free. For an edge limit `k_edges`, use `s = 2*k_edges` as in [ProximalSolvers #449](https://github.com/mlakolar/ProximalSolvers.jl/issues/449). Earlier single-count pair budgets require conversion. With counted diagonals, a single rescaling cannot preserve the feasible set. The step is nonnegative. 0.6: accepts `γ = Inf`; scaling returns the indicator, see above. |
+| `KronQuadratic(A, B, C)` ([#1059](https://github.com/mlakolar/ProximalBase.jl/issues/1059)) | Constructor, `size`, value, `gradient!`, `value_and_gradient!` and the allocating gradients on `p × q` matrices (gradient `A X B + C`) and on a `SymmetricSparseIterate` (gradient `(A X B + B X A)/2 + C`), `lipschitz`, owned scratch | `A`, `B` and `C` must share one element type, `Float32` or `Float64`; the archive promoted mixed types. `isconvex` returns `false` (the archive returned `true` without checking semidefiniteness). The vector argument `vec(X)`, symmetric-iterate gradient outputs and the range recovery of values are not restored: values and gradients use ordinary working-precision arithmetic. A symmetric-iterate call needs an exactly symmetric `C`; the archive symmetrized `C` in a dense gradient at a symmetric iterate. New: `ProximalBase.kronquadratic_data(f)`. |
 
 ## Names, coordinates and writes
 

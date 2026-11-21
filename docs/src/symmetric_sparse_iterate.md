@@ -168,6 +168,11 @@ has symmetric-iterate value/prox, but no symmetric-iterate gradient. `LeastSquar
 `QuadraticFunction` have no symmetric-iterate interface. A true capability trait is not
 sufficient to accept a symmetric iterate.
 
+`KronQuadratic` has symmetric-iterate value and gradient methods, with no prox.
+Its gradient there is `(A X B + B X A)/2 + C`, a dense symmetric matrix, and
+differs from the gradient `A X B + C` that `matrixview(x)` gets as a matrix
+argument when `A X B` is not symmetric; see [Kronecker quadratic](@ref Kronecker-quadratic).
+
 When a supported `Scaled` gradient oracle writes to a symmetric iterate,
 a finite factor scales the active coordinates, including explicit zeros.
 A non-finite factor scales all independent coordinates with IEEE arithmetic.

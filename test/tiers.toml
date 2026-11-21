@@ -27,6 +27,7 @@ quick = [
   "kkt_linf",
   "kkt_point",
   "kkt_smooth",
+  "kronquadratic",
   "leastsquares_predictor",
   "linear_shapes",
   "linear_sparse_value",
@@ -95,6 +96,7 @@ kkt_block = 99.5
 kkt_linf = 42.4
 kkt_point = 43.8
 kkt_smooth = 85.0
+kronquadratic = 20.0
 leastsquares_predictor = 44.9
 linear_shapes = 112.3
 linear_sparse_value = 17.7

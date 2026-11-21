@@ -1078,8 +1078,8 @@ function planned_files(m::Manifest, outdir::String, refdir::String, tfile::Strin
     files
 end
 
-# Stops the process when a file that it would write exists already, so that an output directory holds the files of one
-# attempt only.
+# Stops the process when a file that it would write exists already, so that each file the harness writes comes from
+# one attempt (other processes can still write other files into the same directory).
 function refuse_existing(files)
     old = filter(isfile, files)
     isempty(old) || error("the output files exist already: " * join(old, ", ") *

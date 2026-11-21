@@ -9,9 +9,12 @@ Tables only, a diagnostic for partial or other data (no criteria, no recommendat
 
     python3 -I summarize.py <dir> --tables-only [--manifest <inputs-index.tsv>] [--source-sha <sha>] [--harness-sha <sha>]
 
-The checksum list of a gathered campaign (written at gather time, kept with the raw results):
+Gathering a campaign from the producer tree into a new directory, with its checksum list (kept with the raw results):
 
-    python3 -I summarize.py <campaign dir> --write-checksums
+    python3 -I summarize.py --gather <producer dir> <new campaign dir> [--inputs <inputs-index.tsv>]
+
+--write-checksums <dir> rewrites the checksum list of a directory over its ALLOWLIST files (used by the tests to
+re-list edited copies); a campaign is gathered with --gather.
 
 The campaign directory is searched recursively for the files that match ALLOWLIST: the manifest, the files of harness.jl
 (timings-*.tsv, admm-untimed-*.tsv, reference-*.tsv with their z binaries, outputs-index.tsv with outputs-failures.tsv)
@@ -63,6 +66,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import statistics
 import struct
 import sys
@@ -372,6 +376,78 @@ def write_checksums(root):
         fh.write("\n".join(lines) + "\n")
     os.replace(tmp, os.path.join(root, CHECKSUM_FILE))      # a new file, not a rewrite of the old one
     return len(files)
+
+
+# The destination of each kind of file in a gathered campaign: kind -> (file-name pattern, destination directory). The
+# outputs indices and accuracy files go into the directory named like their producer directory (outputs-<julia>).
+GATHER_KINDS = (("timings", "timings-*.tsv", "timings"), ("untimed", "admm-untimed-*.tsv", "reference"),
+                ("reference", "reference-*.tsv", "reference"), ("z", "reference-*-z.f64", "reference"),
+                ("outputs index", "outputs-index.tsv", None), ("failures index", "outputs-failures.tsv", None),
+                ("accuracy", "accuracy-*.tsv", None))
+
+
+class GatherError(Exception):
+    pass
+
+
+def gather_plan(src, dst, inputs):
+    """The source -> destination mapping of a gather, built before anything is copied. It refuses a destination that
+    exists and is not empty, a manifest other than `inputs` in the producer tree (or no single manifest when `inputs` is
+    not given), two sources with the same destination, an outputs file outside a directory named outputs-<julia>, and a
+    kind of file that the tree does not hold."""
+    if os.path.exists(dst) and (not os.path.isdir(dst) or os.listdir(dst)):
+        raise GatherError("the destination %s exists and is not an empty directory" % dst)
+    manifests = sorted(p for p in glob.glob(os.path.join(src, "**", "inputs-index.tsv"), recursive=True) if os.path.isfile(p))
+    if inputs:
+        if not os.path.isfile(inputs):
+            raise GatherError("--inputs %s is not a file" % inputs)
+        others = [p for p in manifests if os.path.abspath(p) != os.path.abspath(inputs)]
+        if others:
+            raise GatherError("the producer tree holds another manifest: %s" % ", ".join(others))
+        man = inputs
+    elif len(manifests) != 1:
+        raise GatherError("give --inputs, or keep exactly one inputs-index.tsv in the producer tree (found %d)" % len(manifests))
+    else:
+        man = manifests[0]
+    plan = {os.path.join(dst, "inputs-index.tsv"): man}
+    problems = []
+    for kind, pat, sub in GATHER_KINDS:
+        found = sorted(p for p in glob.glob(os.path.join(src, "**", pat), recursive=True) if os.path.isfile(p))
+        if kind == "reference":
+            found = [p for p in found if not p.endswith("-z.f64")]
+        if not found:
+            problems.append("no %s file (%s) in the producer tree" % (kind, pat))
+        for p in found:
+            d = sub
+            if d is None:
+                d = os.path.basename(os.path.dirname(p))
+                if not d.startswith("outputs-"):
+                    problems.append("%s is not in a directory named outputs-<julia>" % p)
+                    continue
+            target = os.path.join(dst, d, os.path.basename(p))
+            if target in plan:
+                problems.append("%s and %s would both be copied to %s" % (plan[target], p, os.path.relpath(target, dst)))
+                continue
+            plan[target] = p
+    if problems:
+        raise GatherError("; ".join(problems))
+    return plan
+
+
+def gather(src, dst, inputs):
+    """Copies the campaign files of the producer tree src into the new directory dst by gather_plan, stopping at the
+    first failed copy, and writes the checksum list from the copied bytes after every copy succeeded."""
+    plan = gather_plan(src, dst, inputs)
+    os.makedirs(dst, exist_ok=True)
+    for target, source in sorted(plan.items()):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if os.path.exists(target):
+            raise GatherError("%s exists already" % target)
+        shutil.copyfile(source, target)
+    copied = campaign_files(dst)
+    if len(copied) != len(plan):
+        raise GatherError("the destination holds %d campaign files after copying %d" % (len(copied), len(plan)))
+    return write_checksums(dst)
 
 
 def read_checksums(root, P):
@@ -2130,15 +2206,26 @@ def run_tables_only(args):
 
 def main(argv):
     ap = argparse.ArgumentParser(description="Summarizer of the wide least-squares study (#1103).")
-    ap.add_argument("dir", help="the campaign directory (searched recursively)")
+    ap.add_argument("dir", nargs="?", help="the campaign directory (searched recursively)")
+    ap.add_argument("--gather", nargs=2, metavar=("PRODUCER_DIR", "DEST_DIR"),
+                    help="copy the campaign files of the producer tree into a new directory and write %s" % CHECKSUM_FILE)
+    ap.add_argument("--inputs", default="", help="with --gather: the inputs-index.tsv of the campaign")
     ap.add_argument("--source-sha", default="", help="the pinned source commit")
     ap.add_argument("--harness-sha", default="", help="the pinned harness commit")
     ap.add_argument("--manifest", default="", help="the inputs-index.tsv of the campaign")
     ap.add_argument("--tables-only", action="store_true", help="print tables from the available files; no criteria or verdict")
     ap.add_argument("--write-checksums", action="store_true",
-                    help="write %s over the files of the gathered campaign (ALLOWLIST) and exit" % CHECKSUM_FILE)
+                    help="rewrite %s over the files of a directory (ALLOWLIST) and exit" % CHECKSUM_FILE)
     args = ap.parse_args(argv[1:])
-    if not os.path.isdir(args.dir):
+    if args.gather:
+        try:
+            n = gather(args.gather[0], args.gather[1], args.inputs)
+        except (GatherError, OSError) as e:
+            print("summarize.py --gather refused: %s" % e, file=sys.stderr)
+            return 2
+        print("gathered %d files into %s and wrote %s" % (n, args.gather[1], CHECKSUM_FILE))
+        return 0
+    if not args.dir or not os.path.isdir(args.dir):
         ap.error("%s is not a directory" % args.dir)
     if args.write_checksums:
         n = write_checksums(args.dir)

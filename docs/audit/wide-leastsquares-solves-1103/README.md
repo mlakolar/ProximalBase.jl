@@ -300,41 +300,41 @@ block once per Julia version, with that version's `julia` first on the `PATH` (t
 only):
 
 ```
-export PB_SOURCE_SHA=<sha of the measured source> PB_HARNESS_SHA=<sha of this folder> PB_SOURCE=<checkout of the source>
-export INPUTS=<inputs dir> OUT=<campaign output dir> SMOKE=<smoke output dir outside OUT> SUM=<summary dir> D=docs/audit/wide-leastsquares-solves-1103
-export V=$(julia -e 'print(VERSION)')
+export PB_SOURCE_SHA="<sha of the measured source>" PB_HARNESS_SHA="<sha of this folder>" PB_SOURCE="<checkout of the source>"
+export INPUTS="<inputs dir>" OUT="<campaign output dir>" SMOKE="<smoke output dir outside OUT>" SUM="<new summary dir>"
+export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)')"
 ```
 
 1. Smoke checks (seconds to minutes; they exercise the prototypes against S, the integrity checks and a subset of the
    groups, not the campaign; the SHAs may be unset with `PB_CHECK_ONLY=1`):
 
    ```
-   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs julia --threads=1 --project=. $D/generate.jl
-   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs PB_OUTPUT=$SMOKE/$V julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs PB_OUTPUTS=$SMOKE/$V/outputs-$V julia --threads=1 --project=. $D/accuracy.jl
+   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" julia --threads=1 --project=. "$D/generate.jl"
+   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" PB_OUTPUT="$SMOKE/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" PB_OUTPUTS="$SMOKE/$V/outputs-$V" julia --threads=1 --project=. "$D/accuracy.jl"
    ```
 
 2. Inputs, once, on Julia 1.13.4 (the full profile; every later command reads this directory):
 
    ```
-   PB_INPUTS=$INPUTS julia --threads=1 --project=. $D/generate.jl
+   PB_INPUTS="$INPUTS" julia --threads=1 --project=. "$D/generate.jl"
    ```
 
-3. Prox outputs and accuracy, per Julia version: the calibration of S, before the timed processes. The second command
-   prints, among its tables, the main cases where an S output exceeds `η/eps = 100`. The controls alone can be rerun with
+3. Prox outputs and accuracy, per Julia version: the calibration of S, before the timed processes. The third command
+   (`--tables-only` on the outputs directory) prints, among its tables, the main cases where an S output exceeds `η/eps = 100`. The controls alone can be rerun with
    `PB_FILTER=c1078` into a directory outside `OUT`, so that they do not replace the full index:
 
    ```
-   PB_GROUP=outputs PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_INPUTS=$INPUTS PB_OUTPUTS=$OUT/$V/outputs-$V julia --threads=1 --project=. $D/accuracy.jl
-   python3 -I $D/summarize.py $OUT/$V/outputs-$V --tables-only --manifest $INPUTS/inputs-index.tsv
+   PB_GROUP=outputs PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+   PB_INPUTS="$INPUTS" PB_OUTPUTS="$OUT/$V/outputs-$V" julia --threads=1 --project=. "$D/accuracy.jl"
+   python3 -I "$D/summarize.py" "$OUT/$V/outputs-$V" --tables-only --manifest "$INPUTS/inputs-index.tsv"
    ```
 
 4. Reference optima, once on Julia 1.13.4, and the iteration counts, per Julia version (both in `$OUT/reference`):
 
    ```
-   PB_GROUP=admm_reference PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V PB_REFERENCE=$OUT/reference julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_GROUP=admm_untimed PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V PB_REFERENCE=$OUT/reference julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_GROUP=admm_reference PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" PB_REFERENCE="$OUT/reference" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+   PB_GROUP=admm_untimed PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" PB_REFERENCE="$OUT/reference" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
    ```
 
 5. Timed processes, per Julia version, each a fresh process (the groups can be split over processes with the same
@@ -344,34 +344,30 @@ export V=$(julia -e 'print(VERSION)')
    ```
    for order in S_first C_first; do
      for proc in 1 2 3; do
-       PB_ORDER=$order PB_PROC=$proc PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V/timings-$order-$proc PB_REFERENCE=$OUT/reference \
-         julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+       PB_ORDER="$order" PB_PROC="$proc" PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V/timings-$order-$proc" PB_REFERENCE="$OUT/reference" \
+         julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
      done
    done
    ```
 
-6. Gather the campaign into `$SUM` by an explicit list of file-name patterns (the manifest, the timing files, the untimed
-   and reference files with the `z` binaries, and per version the outputs index, the failures index and the accuracy
-   file), write the checksum list, and summarize:
+6. Gather the campaign into a new directory `$SUM` and summarize. `--gather` copies, from the producer tree `$OUT`, the
+   files that verdict mode reads (by file-name pattern: the timing files into `timings/`, the untimed and reference files
+   with the `z` binaries into `reference/`, and each `outputs-<julia>` directory's outputs index, failures index and
+   accuracy file into a directory of the same name) and the manifest given by `--inputs`. It refuses a destination that
+   exists and is not empty, another manifest in the tree, two files with the same destination and a kind of file the
+   tree lacks, before copying anything; it stops at a failed copy; after every copy it writes `sha256-list.tsv` (format
+   `pb1103-checksums-1`: the path of each gathered file relative to `$SUM` and the SHA-256 of the copied bytes), to be
+   kept with the raw results:
 
    ```
-   mkdir -p $SUM/reference && cp $INPUTS/inputs-index.tsv $SUM/
-   cp $OUT/reference/reference-*.tsv $OUT/reference/reference-*-z.f64 $OUT/reference/admm-untimed-*.tsv $SUM/reference/
-   for v in 1.10.13 1.13.4; do
-     mkdir -p $SUM/$v/outputs-$v $SUM/$v/timings
-     cp $OUT/$v/outputs-$v/outputs-index.tsv $OUT/$v/outputs-$v/outputs-failures.tsv $OUT/$v/outputs-$v/accuracy-all.tsv $SUM/$v/outputs-$v/
-     cp $OUT/$v/timings-*/timings-*.tsv $SUM/$v/timings/
-   done
-   python3 -I $D/summarize.py $SUM --write-checksums
-   python3 -I $D/summarize.py $SUM --source-sha $PB_SOURCE_SHA --harness-sha $PB_HARNESS_SHA --manifest $SUM/inputs-index.tsv
+   python3 -I "$D/summarize.py" --gather "$OUT" "$SUM" --inputs "$INPUTS/inputs-index.tsv"
+   python3 -I "$D/summarize.py" "$SUM" --source-sha "$PB_SOURCE_SHA" --harness-sha "$PB_HARNESS_SHA" --manifest "$SUM/inputs-index.tsv"
    ```
 
-   `--write-checksums` writes `sha256-list.tsv` (format `pb1103-checksums-1`: the path of each gathered file relative to
-   `$SUM` and its SHA-256, with the closing line), to be kept with the raw results. The summary command writes
-   `tables.md`, `per-process-ratios.tsv` and `verdict.json` into `$SUM` when the preflight passes, and otherwise lists the
-   problems and exits with status 2. The 8-thread diagnostic and other partial data are summarized apart with
-   `python3 -I $D/summarize.py <diagnostic dir> --tables-only --manifest $INPUTS/inputs-index.tsv`, which writes
-   `tables-partial.md`.
+   The summary command writes `tables.md`, `per-process-ratios.tsv` and `verdict.json` into `$SUM` when the preflight
+   passes, and otherwise lists the problems and exits with status 2. The 8-thread diagnostic and other partial data are
+   summarized apart with `python3 -I "$D/summarize.py" "<diagnostic dir>" --tables-only --manifest "$INPUTS/inputs-index.tsv"`,
+   which writes `tables-partial.md`.
 
 Environment variables of `harness.jl`: `PB_INPUTS`, `PB_OUTPUT` (required unless `PB_CHECK_ONLY=1`), `PB_REFERENCE`
 (directory of the reference optima and the iteration counts; default `PB_OUTPUT`), `PB_ORDER`, `PB_PROC`, `PB_ROUNDS`

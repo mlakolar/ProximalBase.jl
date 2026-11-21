@@ -839,8 +839,9 @@ function load_kstar(dir::String, m::Manifest, c::Case, prim)
 end
 
 # One timed ADMM run of k iterations on the work arrays: the construction and factorization, then admm_loop! (Boyd's
-# rule evaluated after each iteration, its count consumed through SINK, not used to stop the loop). The stationarity,
-# the objective and Boyd's r, s, eps_pri and eps_dual of the last iteration are evaluated after the timed interval;
+# rule evaluated after each iteration, its count consumed through SINK, not used to stop the loop). The stationarity
+# and the objective are evaluated after the timed interval, and Boyd's r, s, eps_pri and eps_dual of the last iteration
+# (which the timed loop also computed) are recomputed there from its sums;
 # valid says whether the endpoint meets the target of the level (Boyd's rule on the last iteration, or the
 # stationarity target).
 function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, k::Int, wk::AdmmWork{T}, level::String,

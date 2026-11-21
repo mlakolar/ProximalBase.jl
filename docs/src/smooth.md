@@ -635,7 +635,8 @@ f(\beta)=\sum_{i=1}^n [e^{\eta_i}-y_i\eta_i],\qquad
 ```
 
 The constant ``\log\Gamma(y_i+1)`` of the negative log-likelihood is omitted.
-The value is a sum; for ``n>0`` and a finite sum, `(1/n) * f` gives the mean.
+The value is a sum; for ``n>0`` and a finite sum, `(1/n) * f` gives the mean
+as the computed sum scaled by `1/n` with ordinary rounding.
 Use `y::Vector{Float64}` with finite nonnegative responses, which may be
 noninteger, and `X::Matrix{Float64}`; include a column of ones to estimate an
 intercept. The constructor borrows both arrays and has no weight or offset

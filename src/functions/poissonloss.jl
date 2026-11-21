@@ -7,7 +7,8 @@ Convex, smooth Poisson regression loss with the log link and predictor
 infinite or NaN predictors and under overflow follow the
 [endpoint](@ref spec-poissonloss-endpoints) and [range](@ref spec-poissonloss-range)
 clauses. The value is a sum; for `n = length(y) > 0` and a finite sum,
-`(1/n) * f` gives the mean.
+`(1/n) * f` gives the mean as the computed sum scaled by `1/n` with ordinary
+rounding.
 
 `y::Vector{Float64}` holds finite nonnegative responses, which may be
 noninteger, and `X::Matrix{Float64}` has `length(y)` rows. The constructor

@@ -606,7 +606,8 @@ includes the first invocation and its compilation, after loading source.
 `PoissonLoss` does not exist at the base commit `a38c0a8e6a6b7e8955dc784448542e4fd294c450`,
 so this harness takes no baseline root. It loads the package from the candidate
 checkout, which must provide `PoissonLoss`. The candidate, the reference and the
-A/A control run in one single-threaded process; use a dedicated allocation.
+A/A control run in one process with one thread in Julia's default thread pool
+and one BLAS thread; use a dedicated allocation.
 
 ```sh
 julia scripts/instantiate.jl benchmark

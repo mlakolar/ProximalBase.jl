@@ -182,8 +182,8 @@ end
       step = zeros(p)
       step[j] = h
       difference = (f(β + step) - f(β - step)) / (2h)
-      # Truncation h²/6 Σ exp(ηᵢ)|X_ij|³, rounding of the two values and of the two
-      # predictors divided by h, and the error bound of the gradient. The factor two
+      # Leading-order truncation h²/6 Σ exp(ηᵢ)|X_ij|³, rounding of the two values and
+      # of the two predictors divided by h, and the error bound of the gradient. The factor two
       # covers exp(ηᵢ ± h X_ij) against exp(ηᵢ) and first-order treatment of the sums.
       tolerance = setprecision(BigFloat, 256) do
         u = big(eps(Float64)) / 2

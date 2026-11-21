@@ -23,7 +23,8 @@ omitted. Responses are finite and nonnegative; noninteger responses are
 accepted, and `-0.0` is a zero response.
 
 The value is the sum over observations. For ``n>0`` and a finite sum,
-`(1/n) * f`, that is `Scaled(f, 1/n)`, gives the mean. For ``n=0``, evaluating
+`(1/n) * f`, that is `Scaled(f, 1/n)`, gives the mean as the computed sum scaled
+by `1/n` with ordinary rounding. For ``n=0``, evaluating
 `(1/0) * f` returns `NaN`. A sum that overflows to `Inf` stays `Inf` after
 scaling by `1/n`.
 
@@ -80,8 +81,7 @@ the value. `value_from_predictor` returns the value at the supplied predictor.
 `value_and_gradient_from_predictor!` writes ``d_i=e^{\eta_i}-y_i`` to `d` and
 ``X^\top d`` to `g`, and returns the value. The predictor oracles do not form
 `X*β`; the fused oracle forms one transposed product `X'*d` when both dimensions
-of `X` are nonzero and none otherwise. When either dimension of `X` is zero, these
-calls write a zero gradient. The supplied predictor is not modified.
+of `X` are nonzero and none otherwise. The supplied predictor is not modified.
 
 ## [Ordinary-path clauses](@id spec-poissonloss-ordinary)
 
@@ -122,10 +122,10 @@ value term and the derivative are `Inf`, also when `yᵢ*ηᵢ` overflows. When
 `exp(ηᵢ)` is finite and `yᵢ*ηᵢ` overflows, the value term is `-Inf` for
 ``\eta_i>0`` and `Inf` for ``\eta_i<0``, and the derivative is finite. The loss
 does not recover a finite exact term or derivative whose computation
-overflows. The exact value term can be finite for ``\eta_i`` up to about 716.4,
-and the exact derivative for ``\eta_i`` up to about 710.48. The sum of the
-terms and the transposed product use ordinary floating-point arithmetic with
-their usual rounding and range limits.
+overflows. The exact value term can lie in the finite `Float64` range for
+``\eta_i`` up to about 716.4, and the exact derivative for ``\eta_i`` up to
+about 710.48. The sum of the terms and the transposed product use ordinary
+floating-point arithmetic with their usual rounding and range limits.
 
 **Implementation notes (not guarantees).** One loop computes the requested
 quantities from `e = exp(η)`: the value term
@@ -150,9 +150,9 @@ The constructor throws `DimensionMismatch` when `length(y) != size(X, 1)` and
 `MethodError`.
 
 An operation throws `DimensionMismatch` for an argument of the wrong length,
-`MethodError` for an argument of another element type, `ArgumentError` or
-`MethodError` for a non-one-based argument, and `ArgumentError` for an overlap
-under [Preconditions](@ref spec-poissonloss-preconditions). These checks run
+`MethodError` or `ArgumentError` for an argument of another element type or
+a non-one-based argument, and `ArgumentError` for an overlap under
+[Preconditions](@ref spec-poissonloss-preconditions). These checks run
 before the call writes, so the outputs and the scratch are unchanged after a
 refusal. An argument with several faults gets one of the corresponding
 exceptions. A `Scaled` loss runs the checks of the loss before it writes. The
@@ -213,8 +213,7 @@ checks the following cases.
 - At one point: equal values from `f(β)`, `value_and_gradient`,
   `value_and_gradient!` and the two predictor oracles; the gradients of
   `gradient`, `value_and_gradient` and the fused oracle within the bounds above;
-  reused buffers against fresh buffers; and the predictor oracles leaving the
-  scratch and the predictor unchanged.
+  and the predictor oracles leaving the scratch and the predictor unchanged.
 - Constructor refusals, and acceptance of the responses `-0.0` and `1e300`.
 - Refused calls for wrong lengths, element types and axes, and for scratch and
   output overlaps, each followed by a check that the outputs, the scratch, `y`,
@@ -226,7 +225,8 @@ checks the following cases.
 - Empty shapes `(0, 3)`, `(2, 0)` and `(0, 0)`.
 - Traits and the `lipschitz` refusal.
 - Zero warmed allocations of the five operations at one point.
-- Product counts of the five operations, and no products for empty designs.
+- Product counts of the five operations, and no products from `f(β)`,
+  `gradient!`, `value_and_gradient!` and the fused oracle for empty designs.
 
 The [Poisson regression guide](@ref Poisson-regression-loss) contains an
 executable example.
@@ -234,4 +234,6 @@ executable example.
 ## [History](@id spec-poissonloss-history)
 
 The [restoration issue #1130](https://github.com/mlakolar/ProximalBase.jl/issues/1130)
+records the objective and scope, and the
+[plan comment](https://github.com/mlakolar/ProximalBase.jl/pull/1133#issuecomment-7058634587)
 records the numerical decisions and test plan.

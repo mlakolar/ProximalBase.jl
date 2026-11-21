@@ -51,6 +51,28 @@
         }
       ],
       "reviewer": "reconcile_pr_review@75790b52c6a81865b20686a8cd39f745f15490e3"
+    },
+    {
+      "source_sha256": "595e6b2145dabea0013739f0a2b30932419685698f5c769dd7c1bff30c089927",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition",
+          "text": "Entries outside ``U`` are free in both terms and retain their values in the\nproximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term\nstill acts on that group. The constructor keeps the order of the groups and\nindices and copies the supplied groups and weights. The levels and weights\nare converted to one promoted floating type and checked for nonnegativity\nand NaN.",
+          "sha256": "f2809421db1006612a381b36181b3ac9ba9acc8d66624e09544d76e7c077bcc2"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.constructor.default-weights",
+          "text": "The default is ``w_k=\\sqrt{|G_k|}``.",
+          "sha256": "d95a55abece4d6ffaf146a6326683fe149f63ced79467d9b1b6203ef50dd50f3"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition",
+          "text": "With no groups, the value is\nzero and the proximal map is the identity.",
+          "sha256": "4a69d839bc97aada42629e1aa5716f08966ebd39af02dae2f392fc43dbcb0b3a"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@5699cf5c916bad55b8d398d60695037ea52a0e77"
     }
   ]
 }

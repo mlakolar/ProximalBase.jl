@@ -11,7 +11,7 @@ function check_api_coverage()
     # names includes qualified `public` bindings on Julia 1.11+ as well as exports.
     required = union(Set(string.(names(ProximalBase))), Set([
         "check_parameters", "entry_parameters", "check_symmetric_parameters", "samegroups",
-        "value_from_predictor", "value_and_gradient_from_predictor!", "value_from_residual", "leastsquares_data"]))
+        "value_from_predictor", "value_and_gradient_from_predictor!", "value_from_residual", "leastsquares_data", "kronquadratic_data"]))
     for name in sort!(collect(required))
         name in docs_names || error("Missing explicit grouped @docs entry: $name")
         name == "ProximalBase" || occursin(Regex("`(?:ProximalBase\\.)?" * name * "`"), coverage) ||

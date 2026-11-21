@@ -599,7 +599,8 @@ function restrict end
 
 A global gradient Lipschitz bound for retained smooth functions. ZeroFunction
 and LinearFunction return zero; SqrNormL2 returns its level. QuadraticFunction
-uses a matrix operator-norm bound; LeastSquaresLoss bounds the squared design
+uses a matrix operator-norm bound; KronQuadratic multiplies the spectral norms of
+A and B; LeastSquaresLoss bounds the squared design
 norm. Dense matrices use their full spectral norm; other matrices use a safe
 one/infinity norm bound. Scaled scales the inner bound. Unknown bounds throw.
 The separate opnorm2 estimate may miss a leading eigenspace and needs an

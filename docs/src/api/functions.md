@@ -77,6 +77,7 @@ IndNonnegative
 IndBallL0
 IndBallL1
 IndBallL2
+ProximalBase.feasibility_margin_bounds
 ```
 
 ## ℓ₂ and group ℓ₂ norms

@@ -29,7 +29,8 @@ export MCP
 
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
-  :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data))
+  :value_from_predictor, :value_and_gradient_from_predictor!, :value_from_residual, :leastsquares_data,
+  :feasibility_margin_bounds))
 
 include("compat.jl")
 include("utils.jl")

@@ -404,4 +404,108 @@ end
   end
 end
 
+function check_margin_reference(x, r)
+  f = IndBallL1(r)
+  before = copy(x)
+  exact = setprecision(BigFloat, 2304) do
+    sum(z -> abs(BigFloat(z)), x; init = BigFloat(0)) - BigFloat(r)
+  end
+  for accurate in (false, true)
+    bounds = ProximalBase.feasibility_margin_bounds(f, x; accurate)
+    @test bounds isa Tuple{Float64,Float64}
+    l, u = bounds
+    @test isfinite(l) && isfinite(u) && BigFloat(l) <= exact <= BigFloat(u)
+    @test isequal(x, before)
+  end
+end
+
+function margin_bytes(f, x, accurate)
+  ProximalBase.feasibility_margin_bounds(f, x; accurate)
+  @allocated ProximalBase.feasibility_margin_bounds(f, x; accurate)
+end
+
+@testset "signed feasibility margin ($T)" for T in (Float32, Float64)
+  bounds = ProximalBase.feasibility_margin_bounds
+  r, δ, m, M = one(T), nextfloat(zero(T)), floatmin(T), floatmax(T)
+  f = IndBallL1(r)
+  hidden = T[1, eps(T) / 4, -0.0]
+  @test iszero(f(hidden)) && isequal(prox(f, hidden), hidden)
+  @test first(bounds(f, hidden; accurate=true)) > 0
+  @test bounds(f, T[]) == (-1.0, -1.0)
+  @test bounds(f, T[1, -0.0]; accurate=true) == (0.0, 0.0)
+  @test last(bounds(f, T[prevfloat(r)]; accurate=true)) < 0
+  @test first(bounds(f, T[nextfloat(r)]; accurate=true)) > 0
+  for (x, radius) in ((hidden, r), (T[1, -0.0], r), (T[prevfloat(r)], r),
+                      (T[nextfloat(r)], r), (T[1, -0.5, 0.0], T(1.5)),
+                      (T[m, -δ], m), (T[prevfloat(m), δ], m), (T[δ, -δ], m),
+                      (T[M], M), (T[M, δ], M))
+    check_margin_reference(x, radius)
+  end
+
+  # The represented tied fixture is inward even on builds whose native sum
+  # rounds above its represented radius.
+  if T === Float64
+    x = fill(0.000999999999999999, 2048)
+    radius = 2.048
+    check_margin_reference(x, radius)
+    @test last(bounds(IndBallL1(radius), x; accurate=true)) < 0
+  else
+    check_margin_reference(T[M, -M], M)
+  end
+  rng = Xoshiro(1138)
+  for n in (4, 16, 256, 2048), scale in (T(2)^(-60), T(2)^60)
+    x = scale .* randn(rng, T, n)
+    radius = sum(abs, x) / T(3)
+    ball = IndBallL1(radius)
+    check_margin_reference(x, radius)
+    check_margin_reference(prox(ball, x), radius)
+  end
+  for accurate in (false, true)
+    @test margin_bytes(f, hidden, accurate) == 0
+    @test margin_bytes(f, ones(T, 2048), accurate) == 0
+    for x in (T[NaN], T[Inf], T[-Inf])
+      @test bounds(f, x; accurate) === nothing
+    end
+    for radius in (zero(T), δ, T(Inf))
+      @test bounds(IndBallL1(radius), T[r]; accurate) === nothing
+    end
+    if T === Float64
+      @test bounds(IndBallL1(M), T[M, -M]; accurate) === nothing
+    end
+  end
+end
+
+@testset "signed feasibility margin dispatch and arithmetic modes" begin
+  bounds = ProximalBase.feasibility_margin_bounds
+  f, x = IndBallL1(1.0), [0.5, 0.5]
+  @test !applicable(bounds, f, view(x, :))
+  @test !applicable(bounds, f, reshape(x, 1, 2))
+  @test !applicable(bounds, f, SparseIterate(x))
+  @test !applicable(bounds, f, Float32.(x))
+  @test !applicable(bounds, IndBallL1(Float16(1)), Float16[0.5])
+  U = Union{Float32,Float64}
+  union_ball, union_point = IndBallL1{U}(1f0), U[0.5f0, 0.5]
+  @test bounds(union_ball, union_point) === nothing
+  @test bounds(union_ball, union_point; accurate = true) === nothing
+
+  prior = Base.get_zero_subnormals()
+  supported, flushed = try
+    enabled = Base.set_zero_subnormals(true) && Base.get_zero_subnormals()
+    enabled, enabled ? (bounds(f, x), bounds(f, x; accurate=true)) : nothing
+  finally
+    Base.set_zero_subnormals(prior)
+  end
+  if supported
+    @test flushed === (nothing, nothing)
+  end
+  directed = Base.Rounding.setrounding_raw(Float64, Base.Rounding.to_fenv(RoundUp)) do
+    Base.rounding(Float64) === RoundUp ? (bounds(f, x), bounds(f, x; accurate=true)) : missing
+  end
+  if directed !== missing
+    @test directed === (nothing, nothing)
+  end
+  @test Base.rounding(Float64) === RoundNearest && Base.get_zero_subnormals() == prior
+  @test bounds(f, x; accurate=true) == (0.0, 0.0)
+end
+
 end

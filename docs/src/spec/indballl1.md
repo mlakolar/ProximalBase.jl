@@ -55,6 +55,32 @@ A feasible input is copied with its signed zeros. For a finite point outside
 a ball of positive finite radius, the projection soft-thresholds all
 magnitudes at a common level. Entries at or below that level become `+0`.
 
+### [Signed feasibility enclosure](@id spec-indballl1-margin)
+
+`ProximalBase.feasibility_margin_bounds(f, x; accurate=false)` is a read-only
+diagnostic for a dense `Vector{T}` and an `IndBallL1{T}` with a positive normal
+finite radius, where `T` is `Float32` or `Float64`. It returns a pair of finite
+`Float64` bounds on the exact signed margin of the stored data, or `nothing`
+when an enclosure is unavailable. A nonpositive upper endpoint certifies
+feasibility and a positive lower endpoint certifies infeasibility. If the
+interval crosses zero with positive upper endpoint, the sign is unresolved.
+The upper endpoint bounds violation after clipping at zero. The negated lower
+endpoint bounds inward deficit after clipping at zero.
+
+Both modes use one pass over the entries and constant scalar state. The
+default widens the stored entries exactly and uses a bound on the `Float64`
+summation error. The accurate mode retains the error of each addition and of
+subtracting the radius. Both round the error allowance and interval endpoints
+outward. The indicator and projection continue to use their computed
+membership comparison.
+
+The diagnostic requires IEEE round-to-nearest ties-to-even, gradual underflow
+and ordinary Julia evaluation. It returns `nothing` for a different rounding
+mode or flush-to-zero as reported by Julia, nonfinite entries, zero, subnormal
+or infinite radii, overflowing arithmetic or endpoints, or a vector longer
+than `2^51 + 1`. The method takes matching dense vector and radius types.
+See [`ProximalBase.feasibility_margin_bounds`](@ref) for the interface.
+
 ## [Range clauses](@id spec-indballl1-range)
 
 **Implementation notes (not guarantees).**

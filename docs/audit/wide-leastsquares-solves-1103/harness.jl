@@ -40,7 +40,10 @@
 #   julia --threads=1 --check-bounds=no --project=. docs/audit/wide-leastsquares-solves-1103/harness.jl
 #
 # PB_SOURCE_SHA and PB_HARNESS_SHA (7 to 40 lowercase hex digits) are required outside PB_CHECK_ONLY and are written to
-# the header of each file the harness writes. PB_CHECK_ONLY=1 first checks the prototypes against S on a small
+# the header of each file the harness writes. When PB_INPUTS is set, the harness stops before the warm-up if a file that
+# the requested groups would write exists already (the timing file of this process, the outputs index, failures index
+# and binaries, the reference file and its z binary, the untimed file); a rerun uses a new empty PB_OUTPUT (and
+# PB_REFERENCE) or removes those files first. PB_CHECK_ONLY=1 first checks the prototypes against S on a small
 # full-rank case (the stationarity residual of each in BigFloat, the warmed allocations, the finiteness error, the
 # construction path against the breakdown path), then runs the warm-up and, when PB_INPUTS is set, each group of
 # PB_GROUP (default: all) on the smallest case of each element type (a group whose filter selects no case is skipped)
@@ -608,6 +611,9 @@ function compute_outputs(role, c::Case, d)
     B, fails
 end
 
+# the binary file of the outputs of a role for a case
+output_file(c::Case, role::AbstractString) = "out-" * case_file(c.id) * "-" * replace(role, "'" => "p") * (c.T === Float64 ? ".f64" : ".f32")
+
 function run_outputs(roles, m::Manifest, cases, dir::String)
     mkpath(dir)
     prim = [r for r in roles if !r.control]
@@ -625,7 +631,7 @@ function run_outputs(roles, m::Manifest, cases, dir::String)
                     B, fails = compute_outputs(role, c, d)
                     B2, fails2 = compute_outputs(copies[role.family], c, d)
                     identical = bits_equal(B, B2) && Set((f[1], f[2]) for f in fails) == Set((f[1], f[2]) for f in fails2)
-                    file = "out-" * case_file(c.id) * "-" * replace(role.name, "'" => "p") * (c.T === Float64 ? ".f64" : ".f32")
+                    file = output_file(c, role.name)
                     open(joinpath(dir, file), "w") do f
                         write(f, B)
                     end
@@ -1049,17 +1055,47 @@ end
 # The process
 ###########################################################################################################
 
+# The files that the requested groups would write: the timing file of this process, and for the selected cases the
+# outputs index, failures index and binaries (outputs), the reference file and its z binary (admm_reference) and the
+# untimed file (admm_untimed).
+function planned_files(m::Manifest, outdir::String, refdir::String, tfile::String)
+    files = isempty(tfile) ? String[] : [tfile]
+    for g in GROUPS
+        cases = select_for(m, g)
+        if g == "outputs"
+            od = joinpath(outdir, "outputs-$(VERSION)")
+            push!(files, joinpath(od, "outputs-index.tsv"), joinpath(od, "outputs-failures.tsv"))
+            append!(files, [joinpath(od, output_file(c, r)) for c in cases for r in ("S", "C_B", "C_D", "C_W")])
+        elseif g == "admm_reference"
+            for c in cases
+                path = reference_path(refdir, c)
+                push!(files, path, replace(path, ".tsv" => "-z.f64"))
+            end
+        elseif g == "admm_untimed"
+            append!(files, [untimed_path(refdir, c) for c in cases])
+        end
+    end
+    files
+end
+
+# Stops the process when a file that it would write exists already, so that an output directory holds the files of one
+# attempt only.
+function refuse_existing(files)
+    old = filter(isfile, files)
+    isempty(old) || error("the output files exist already: " * join(old, ", ") *
+                          "; use a new empty PB_OUTPUT (and PB_REFERENCE) or remove these files")
+    nothing
+end
+
 function main()
     roles = ordered_roles(build_roles(), ORDER)
     println("julia ", VERSION, ", order ", ORDER, ", blas threads ", BLAS.get_num_threads(), ", ", BLAS.get_config())
     println("CPU ", cpu_model(), "; load average ", loadavg())
     CHECK_ONLY && check_prototypes(roles)
-    t0 = time()
-    warm_up(roles)
-    println("warm-up (compilation of the roles): ", round(time() - t0; digits = 1), " s")
     inputs = env_string("PB_INPUTS", "")
     if isempty(inputs)
         CHECK_ONLY || error("PB_INPUTS names the directory written by generate.jl")
+        warm_up(roles)
         println("no PB_INPUTS: only the prototype checks and the warm-up ran")
         return
     end
@@ -1072,11 +1108,14 @@ function main()
     end
     mkpath(outdir)
     refdir = env_string("PB_REFERENCE", outdir)
-    writer = nothing
     timed = [g for g in GROUPS if g in TIMED_GROUPS]
-    tfile = ""
+    tfile = isempty(timed) ? "" : joinpath(outdir, "timings-$(VERSION)-$(ORDER)-$(PROC)-$(join(timed, "+")).tsv")
+    refuse_existing(planned_files(m, outdir, refdir, tfile))
+    t0 = time()
+    warm_up(roles)
+    println("warm-up (compilation of the roles): ", round(time() - t0; digits = 1), " s")
+    writer = nothing
     if !isempty(timed)
-        tfile = joinpath(outdir, "timings-$(VERSION)-$(ORDER)-$(PROC)-$(join(timed, "+")).tsv")
         io = open(tfile, "w")
         write_header(io, timed, m.sha256)
         writer = Writer(io, 0)

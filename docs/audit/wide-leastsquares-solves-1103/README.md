@@ -294,15 +294,17 @@ the files consistent with each other is outside these checks.
 
 ## Rerun
 
-Run from the package root. The commands of a block that depend on each other are chained with `&&` (the loop of step 5
-stops at a failed process), so that such a block stops at its first failure. Set the pinned identity and the directories once in the shell, replacing the placeholders.
-`OUT` holds the campaign output of all Julia versions and `SMOKE` the smoke-check output, outside `OUT`. Run each Julia
-block once per Julia version, with that version's `julia` first on the `PATH` (the generator and the reference on 1.13.4
-only):
+Run from the package root. The commands of a block that depend on each other are chained with `&&`, and step 5 runs in a
+subshell that exits with the status of a failed process, so that a block stops at its first failure and reports it. Set
+the pinned identity and the directories once in the shell, replacing the placeholders. `OUT` is a new, empty directory
+per campaign that holds the campaign output of all Julia versions and nothing else (no links); `SMOKE` (the smoke-check
+output) and `SUM` (the gathered campaign) lie outside `OUT`. The harness and `accuracy.jl` refuse to write a file that
+exists already, so `OUT` holds the files of one attempt. Run each Julia block once per Julia version, with that version's
+`julia` first on the `PATH` (the generator and the reference on 1.13.4 only), and check the status of each block:
 
 ```
 export PB_SOURCE_SHA="<sha of the measured source>" PB_HARNESS_SHA="<sha of this folder>" PB_SOURCE="<checkout of the source>"
-export INPUTS="<inputs dir>" OUT="<campaign output dir>" SMOKE="<smoke output dir outside OUT>" SUM="<new summary dir>"
+export INPUTS="<inputs dir>" OUT="<new empty campaign output dir>" SMOKE="<smoke output dir outside OUT>" SUM="<new summary dir outside OUT>"
 export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)')"
 ```
 
@@ -322,8 +324,8 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    ```
 
 3. Prox outputs and accuracy, per Julia version: the calibration of S, before the timed processes. The third command
-   (`--tables-only` on the outputs directory) prints, among its tables, the main cases where an S output exceeds `η/eps = 100`. The controls alone can be rerun with
-   `PB_FILTER=c1078` into a directory outside `OUT`, so that they do not replace the full index:
+   (`--tables-only` on the outputs directory) prints, among its tables, the main cases where an S output exceeds
+   `η/eps = 100`. The controls alone can be rerun with `PB_FILTER=c1078` into a directory outside `OUT`:
 
    ```
    PB_GROUP=outputs PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" &&
@@ -331,33 +333,47 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    python3 -I "$D/summarize.py" "$OUT/$V/outputs-$V" --tables-only --manifest "$INPUTS/inputs-index.tsv"
    ```
 
-4. Reference optima, once on Julia 1.13.4 (the first command; the harness refuses it on another version), and the
-   iteration counts, per Julia version (the second command); the two are independent, and both write to `$OUT/reference`:
+4. Reference optima, once on Julia 1.13.4 (the harness refuses this group on another version), and the iteration counts,
+   per Julia version; the two blocks are independent, both write to `$OUT/reference`, and each must exit with status 0:
 
    ```
    PB_GROUP=admm_reference PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" PB_REFERENCE="$OUT/reference" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+   ```
+
+   ```
    PB_GROUP=admm_untimed PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" PB_REFERENCE="$OUT/reference" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
    ```
 
 5. Timed processes, per Julia version, each a fresh process (the groups can be split over processes with the same
    `PB_ORDER` and `PB_PROC`, for example `PB_GROUP=first_use,warm,penalty,alloc` and `PB_GROUP=admm`, as long as each
-   group runs once per process):
+   group runs once per process). The block exits with the status of the first failed process and starts no later one:
 
    ```
-   for order in S_first C_first; do
-     for proc in 1 2 3; do
-       PB_ORDER="$order" PB_PROC="$proc" PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V/timings-$order-$proc" PB_REFERENCE="$OUT/reference" \
-         julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" || break 2
+   (
+     for order in S_first C_first; do
+       for proc in 1 2 3; do
+         PB_ORDER="$order" PB_PROC="$proc" PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V/timings-$order-$proc" PB_REFERENCE="$OUT/reference" \
+           julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" || exit $?
+       done
      done
-   done
+   )
    ```
 
-6. Gather the campaign into a new directory `$SUM` and summarize. `--gather` copies, from the producer tree `$OUT`, the
+   To rerun a failed process, either remove the files its attempt left in its `PB_OUTPUT` and run it again into the same
+   directory, or move that directory out of `OUT` and run it again into a new empty `PB_OUTPUT` inside `OUT`; then rerun
+   the remaining processes of the block and gather. A file that a failed attempt leaves inside `OUT` is gathered beside
+   the retry, and verdict mode refuses the duplicate process. The same holds for the outputs, reference and untimed
+   files of steps 3 and 4.
+
+6. Run only after step 5 has exited with status 0 for both Julia versions (and steps 3 and 4 likewise). Gather the
+   campaign into a new directory `$SUM` outside `OUT` and summarize. `--gather` copies, from the producer tree `$OUT`, the
    files that verdict mode reads (by file-name pattern: the timing files into `timings/`, the untimed and reference files
    with the `z` binaries into `reference/`, and each `outputs-<julia>` directory's outputs index, failures index and
    accuracy file into a directory of the same name) and the manifest given by `--inputs`. It refuses a destination that
-   exists and is not empty, another manifest in the tree, two files with the same destination and a kind of file the
-   tree lacks, before copying anything; it stops at a failed copy; when all copies have succeeded it writes `sha256-list.tsv` (format
+   exists and is not empty or lies inside the producer tree, a symbolic link below the producer root, another manifest
+   in the tree, two files with the same destination and a kind of file the
+   tree lacks, before copying anything; it stops at a failed copy; when all copies have succeeded it writes
+   `sha256-list.tsv` (format
    `pb1103-checksums-1`: the path of each gathered file relative to `$SUM` and the SHA-256 of the copied bytes), to be
    kept with the raw results:
 

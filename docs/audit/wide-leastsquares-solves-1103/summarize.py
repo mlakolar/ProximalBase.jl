@@ -29,8 +29,9 @@ manifest gathered into the campaign directory), both Julia versions 1.10.13 and 
 order with one BLAS thread on one CPU kind (one BLAS configuration per Julia version), 21 rounds with all eight roles,
 5 ADMM repeats with the roles of the families that reached each level, one untimed file per Julia version and lasso
 instance, one converged reference per lasso instance, per Julia version one outputs index, one failures index and one
-accuracy file of the full manifest, and the checksum list. Before computing anything it runs a preflight in three
-classes: (1) the manifest, the pinned identity and the checksum list; (2) each file on its own (format, closing line,
+accuracy file of the full manifest, the checksum list, and no symbolic link below the campaign directory. Before
+computing anything it runs a preflight in three classes: (1) the manifest, the pinned identity, symbolic links and the
+checksum list; (2) each file on its own (format, closing line,
 no repeated header key, identity, conditions, parseable fields, values in their domain and consistent within the record,
 no duplicate rows, no recorded `error` row) and the files read against the checksum list (the same paths, and the
 SHA-256 of the bytes that were parsed); (3) the inventory and the consistency across files (missing or extra files and
@@ -362,6 +363,14 @@ def find_files(root, pattern):
     return sorted(out)
 
 
+def symlinks_under(root):
+    """The symbolic links (to files or directories, broken ones included) below root; root itself may be one."""
+    out = []
+    for d, dirs, files in os.walk(root):
+        out.extend(os.path.join(d, n) for n in dirs + files if os.path.islink(os.path.join(d, n)))
+    return sorted(out)
+
+
 def campaign_files(root):
     """The files under root that match ALLOWLIST, as paths relative to root with / separators."""
     out = set()
@@ -399,11 +408,18 @@ class GatherError(Exception):
 
 def gather_plan(src, dst, inputs):
     """The source -> destination mapping of a gather, built before anything is copied. It refuses a destination that
-    exists and is not empty, a manifest other than `inputs` in the producer tree (or no single manifest when `inputs` is
+    exists and is not empty or lies inside the producer tree (resolved paths), a symbolic link anywhere below the
+    producer root, a manifest other than `inputs` in the producer tree (or no single manifest when `inputs` is
     not given), two sources with the same destination, an outputs file outside a directory named outputs-<julia>, and a
     kind of file that the tree does not hold, an outputs index, failures index or accuracy file without the other two in
     its source directory, and a reference file without its z binary beside it (or the reverse). The roots are literal
     paths: the files are found by walking them and matching base names."""
+    rs, rd = os.path.realpath(src), os.path.realpath(dst)
+    if rd == rs or rd.startswith(rs + os.sep):
+        raise GatherError("the destination %s lies inside the producer tree %s; gather into a directory outside it" % (dst, src))
+    links = symlinks_under(src)
+    if links:
+        raise GatherError("the producer tree holds symbolic links (%s); the gather reads a tree without links" % ", ".join(links))
     if os.path.exists(dst) and (not os.path.isdir(dst) or os.listdir(dst)):
         raise GatherError("the destination %s exists and is not an empty directory" % dst)
     manifests = find_files(src, "inputs-index.tsv")
@@ -2157,6 +2173,8 @@ def run_verdict(args):
     man = load_manifest(args.manifest, P) if not P else None
     if man is not None:
         check_manifest_registered(man, pins, P)
+    for link in symlinks_under(root):
+        P.add(os.path.relpath(link, root), "a symbolic link in the campaign directory (gather the campaign with --gather)")
     listed = read_checksums(root, P)
     if P:
         return refuse(root, "class 1: the manifest, the pinned identity and the checksum list", P)
@@ -2252,6 +2270,10 @@ def main(argv):
     if not args.dir or not os.path.isdir(args.dir):
         ap.error("%s is not a directory" % args.dir)
     if args.write_checksums:
+        links = symlinks_under(args.dir)
+        if links:
+            print("summarize.py --write-checksums refused: symbolic links in %s: %s" % (args.dir, ", ".join(links)), file=sys.stderr)
+            return 2
         n = write_checksums(args.dir)
         print("wrote %s with %d files" % (os.path.join(args.dir, CHECKSUM_FILE), n))
         return 0

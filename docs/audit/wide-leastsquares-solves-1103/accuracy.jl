@@ -23,7 +23,8 @@
 # primary roles for each case, the element type, steps, number of inputs and shape of the manifest, the count nfail
 # against the failure rows of that (case, role), failure keys in range and not repeated, and then the size and SHA-256
 # of each output file. It stops after the header checks when one of them fails, and after the row and file checks
-# otherwise, with the list of the problems it found, before any score is written. The result is
+# otherwise, with the list of the problems it found, before any score is written. An existing accuracy-<tag>.tsv
+# stops the run before the preflight. The result is
 # accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and input
 # identities of the outputs, the Julia version that produced the outputs (julia) and the one that evaluated them
 # (evaluator_julia), the SHA-256 of the outputs index and PB_FILTER), one row per (case, role, step, input), and
@@ -288,13 +289,15 @@ end
 size_of_v(c::Case) = c.arrays["V"].shape[2]
 
 function evaluate(m::Manifest, outdir::String)
+    tag = env_string("PB_ACC_TAG", "all")
+    out = joinpath(outdir, "accuracy-$tag.tsv")
+    isfile(out) && error("$out exists already; remove it or evaluate a fresh outputs directory")
     header, rows, failures, index_sha = preflight(m, outdir)
     rx = Regex(env_string("PB_FILTER", ""))
     fwd_max = env_int("PB_FORWARD_MAX_N", 500)
-    tag = env_string("PB_ACC_TAG", "all")
     byid = Dict(c.id => c for c in m.cases)
     ids = unique([r["case"] for r in rows])
-    open(joinpath(outdir, "accuracy-$tag.tsv"), "w") do io
+    open(out, "w") do io
         for (k, v) in [("format", "pb1103-accuracy-4"), ("julia", get(header, "julia", "unknown")), ("evaluator_julia", VERSION),
                        ("outputs_order", get(header, "order", "unknown")), ("source_sha", get(header, "source_sha", "unset")),
                        ("harness_sha", get(header, "harness_sha", "unset")), ("inputs_index_sha256", m.sha256),

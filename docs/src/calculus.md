@@ -60,12 +60,13 @@ prox(h,x,0.4)
 finite positive `α` evaluate the existing score of `f` on the lazy gradient `v/α` and multiply it
 by `α`: in exact arithmetic the score of ``\alpha f`` is positively homogeneous in ``\alpha`` and `v`
 together. `f` is `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`,
-`GroupNormL2` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
+`GroupNormL2`, `GroupNormLinf` or, for the full-point form, `NormL2`, `NormLinf`, `LeastSquaresLoss`
 or `QuadraticFunction`. For one wrapper with a finite positive factor, on the
 numerical domain below with finite entries of the lazily scaled gradient `v/α`, at a zero coordinate and for arrays and
-parameters of one floating type, the signed score agrees bit for bit with the scaled three-argument
+parameters of one floating type, the signed score of a function that has a three-argument screen (`NormL1`, `NormL1Nonneg`,
+`ElasticNet`, `ZeroFunction`, `LinearFunction`, `SqrNormL2`) agrees bit for bit with the scaled three-argument
 screen, except for the endpoint cases of the [numerical contract](numerics.md) and for `SqrNormL2` with an infinite level,
-whose score takes its gradient entry from the ridge-gradient helpers.
+whose score takes its gradient entry from the ridge-gradient helpers. `GroupNormL2` and `GroupNormLinf` have no three-argument screen.
 The scores of the function are in [scoring a coordinate](@ref kkt-screens).
 
 ```@example library_scaled

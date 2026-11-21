@@ -28,6 +28,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/mcp.jl` | MCP entry values, global scalar proximal minimization and dense array-step kernels |
 | `src/functions/scad.jl` | SCAD entry values and global scalar proximal minimization |
+| `src/functions/norml0offdiag.jl` | `NormL0(λ; diagonal = false)`, the off-diagonal cardinality penalty on symmetric matrices: input checks (finiteness, not symmetry), value and proximal map reusing the scalar rule of `NormL0` |
 | `src/functions/norml1.jl` | Weighted ℓ₁ family, value and specialized proximal operations |
 | `src/functions/elasticnet.jl` | Weighted ℓ₁ plus ridge, reusing the soft-threshold and ridge kernels |
 | `src/functions/norml2.jl` | Euclidean/Frobenius norm and scalar-step proximal map |
@@ -39,7 +40,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |
 | `src/symmetric_parameters.jl` | Per-entry metadata, the explicit all-pairs symmetric-parameter check, symmetric-iterate oracle preflight (structural checks only) |
-| `src/block_prox.jl` | Allocating compact-vector wrapper; dispatches to `GroupNormL2`, `GroupNormLinf` or a custom mutating hook |
+| `src/block_prox.jl` | Allocating compact-vector wrapper; dispatches to a built-in group penalty or a custom mutating hook |
 | `src/caches.jl` | Public cache invalidation, recursing through `Scaled` |
 | `src/precompile.jl` | Small retained precompile workloads |
 
@@ -58,11 +59,13 @@ There is no automatic device registration or removed-family plugin layer.
 | `f(x)` for custom `SeparableFunction` | Parameter-extent validation (symmetric parameters are assumed, not compared) → entry values; skip inactive zeros only under declared promise |
 | `gradient!(g,LeastSquaresLoss(Y,X),β)` | Checked output → residual Xβ−Y → transpose-design product |
 | `prox!(y,QuadraticFunction(A,b),x,γ)` | Shape/type preflight → cached eigenbasis → step-domain check → diagonal inverse factors → output conversion |
-| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → `GroupNormL2`, `GroupNormLinf` or custom `prox_block!` |
+| `prox_block(f,u::AbstractVector,k,γ)` | Allocate plain floating Vector → `prox_block!` for the selected built-in or custom function |
 | `prox!(X::SymmetricSparseIterate,g,V,γ)` | Symmetric argument where needed → structural preflight (parameter symmetry is a model precondition) → the symmetric-coordinate kernel of the function, which follows the iterate activity rules |
 | `kkt_violation(g,v,block,k)`, scalar penalty | Entry score at each global member of group `k` (the screen at a zero entry) → maximum |
 | `kkt_violation(g,v,block,k)`, `GroupNormL2` | Check group count, layout of group `k` and gradient length → block score: group norm minus penalty coefficient at a zero group, the mismatch `‖v_G + c x_G/‖x_G‖‖` at a nonzero one |
 | `kkt_violation(g,v,x)`, `GroupNormL2` and `NormL2` | Checked array point (for `GroupNormL2` the group extent and, on a `BlockIterate`, the whole layout) → block scores of the groups and `abs(v[i])` of the entries in no group (all of `x` is one block for `NormL2`) → `max(0, max score)` |
+| `kkt_violation(g,v,block,k)`, `GroupNormLinf` | The checks of `GroupNormL2` → at a zero group the margin `‖v_G‖₁ - c`; at a nonzero group the distance from `-v_G` to the subdifferential of `c‖·‖∞` at `x_G`, by the full-point kernel of `NormLinf` applied to the group read through its indices |
+| `kkt_violation(g,v,x)`, `GroupNormLinf` | The checks of `GroupNormL2` → the kernel of `NormLinf` for every group, a zero group included (its distance to the ℓ₁ ball), and `abs(v[i])` of the entries in no group → `max(0, max term)` |
 | `kkt_violation(g,v,x)`, `NormLinf` | Checked array point → sums and largest magnitudes of `v` and `x`, with the rules for `NaN` and infinite entries → the level of the ℓ₁ ball (zero point) or of the face of the largest entries of `x` → the 2-norm of the residual, recomputed in units of a power of two outside the ordinary range |
 | `kkt_violation(g,v,x)`, entrywise function | Checked array point, `NormL1`, `NormL1Nonneg`, `ElasticNet`, `ZeroFunction`, `LinearFunction` or `SqrNormL2` → a pass over the entries, possibly followed by a pass that applies the rules for non-finite values by entry → `max(0, max score)` |
 

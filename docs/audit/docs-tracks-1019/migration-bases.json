@@ -30,25 +30,6 @@
       "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
     },
     {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::19",
-      "baseline_sha": "f9c5d123d34251055fcab475c7929dc6aeb8b223ab66cfd46211eb2c968216b2",
-      "upstream_sha": "c1299d0e9d43edf37d45f6ee199c5bf515dbf8ac67bfbd7b0e1948c39b08df55",
-      "source_shas": [
-        "037653c50bee4f31bcdf703b3db84ab16e176b62325c0965aad6a3eb2b79be73"
-      ],
-      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
-    },
-    {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",
-      "baseline_sha": "68aba09530acbf625c4825889f4cc925a60acbe900661abda296f67801ba9f1c",
-      "upstream_sha": "b7e3a970f73507fd12dc1002626912b32d7705557972fb1e93173e18b28bb348",
-      "source_shas": [
-        "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
-        "87f7c0dc588373aa197c8134213217fa5ea9c04969c1234439c53c5146c99d45"
-      ],
-      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
-    },
-    {
       "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::23",
       "baseline_sha": "4a353114cc26ffaca4a5568bd60e4d9452246f8686c3faec44b37fcbd07920bb",
       "upstream_sha": "cf2fffb99c12b4705c41c4f0d178f860fe0501eced3773f6bb334236be9a2c10",

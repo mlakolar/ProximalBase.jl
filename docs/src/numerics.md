@@ -251,45 +251,7 @@ The decision on `NormL1` non-finite inputs is retained with the
 
 ### [Sparse-group endpoints](@id sparse-group-l2-endpoints)
 
-The following rules apply to each covered group in the array and compact
-proximal methods, in the order shown. Uncovered entries pass through the
-array prox and are ignored by the value.
-
-| Condition | Proximal result |
-|:--|:--|
-| Negative or NaN step | `ArgumentError` before writes |
-| Infinite stored ℓ₁ level, infinite weight, or infinite stored ℓ₂ level with positive weight | Fill the group with `+0`, including at a zero step and with NaN or infinite inputs |
-| Zero step or zero penalty after the hard constraints | Identity |
-| Infinite step and positive penalty after the hard constraints | Fill the group with `+0` |
-| Finite positive step and a positive group ℓ₂ term, with a NaN input | NaN throughout the group |
-| Finite positive step and a positive group ℓ₂ term, with an infinite input and no NaN | Keep the entrywise soft-threshold result without a further group shrink |
-| Other finite positive steps | Apply the entrywise soft threshold. A zero group term leaves that result in place. A positive group term then applies the group shrink. |
-
-The entrywise threshold at a finite step propagates NaN at the corresponding
-entry when the ℓ₁ term is positive. When finite `γλ1` overflows in the
-working type, a coupled group retains genuine infinite inputs. An ℓ₁-only
-group follows the [NormL1 endpoint rule](@ref spec-norml1-endpoints)
-and returns NaN at such an entry. The group shrink distinguishes a product
-of finite factors outside the working range from a stored infinite parameter.
-The supported homogeneous precision and general range limits above apply.
-For mixed-width calls, the stored intermediate and destination conversions
-can change the result. The fused value uses the stored destination.
-
-A zero group has value zero under a hard constraint. An entry outside the
-hard domain gives an infinite value unless a penalized entry yields NaN.
-Zero penalty terms contribute zero. NaN from a penalized entry takes
-precedence over infinite contributions.
-
-For the point-aware KKT methods, NaN among the entries read by a group gives
-NaN. Otherwise an infinite entry gives `+Inf`. For finite entries, a
-hard-constrained zero group gives `-Inf` and an active group outside
-the hard domain gives `+Inf`. An active group whose finite group-level
-product rounds to infinity also gives `+Inf` in the working type. At a
-zero group the signed screen retains the finite factors for range recovery.
-The full-point maximum propagates NaN
-across groups and includes the magnitudes of the gradient entries at
-uncovered coordinates. See the [sparse group lasso guide](@ref sparse-group-l2-guide)
-for the finite-data scores.
+See the [SparseGroupNormL2 endpoint clauses](@ref spec-sparsegroupnorml2-endpoints).
 
 ### Cardinality penalty endpoints
 

@@ -106,8 +106,8 @@ updated. A call on the result is a call on the indicator:
   throws `MethodError`, because the orthant has no gradient method.
 * `IndBallL0` accepts the step `Inf`; the projection does not depend on the step. A negative
   or NaN step is refused before writing. Calls that reach the step check raise `ArgumentError`
-  with a message that begins "the step of `IndBallL0` must be nonnegative"; a wrong output
-  extent raises `DimensionMismatch` first.
+  with a message that begins "the step of `IndBallL0` must be nonnegative"; for an otherwise
+  supported input and output pairing, a wrong output extent raises `DimensionMismatch` first.
 * A negative or NaN scalar step makes `prox`, `prox!` and `value_and_prox!` of `α * IndBox(...)`,
   `α * IndBallLinf(...)` and `α * IndNonnegative()` throw `ArgumentError` before writing; another
   check (argument axes, shape or type) can raise its error first. `prox_block` of the box and of

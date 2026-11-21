@@ -72,7 +72,7 @@ remain `BigFloat`.
 @assert kkt_violation(2 * NormL1(big"0.5"), [big"1.0", big"2.0"], [big"0.0", big"3.0"], 2) isa BigFloat
 ```
 
-Nested positive finite scales retain their exponents when multiplying them
+For nested `Scaled` wrappers, positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
 into the level of `NormL1` or `NormL1Nonneg` or into both levels of `ElasticNet`, or recover a
 representable squared-norm value. When the fold takes the ridge level of an
@@ -163,7 +163,7 @@ z = 0 * NormL1Nonneg(2.0)
   forms of `NormL2` and `NormLinf` throw an `ArgumentError`, also at a zero coordinate and under a chain that does not fold.
 * **An infinite factor.** For `f` not a built-in indicator, `Scaled(f, Inf)` and `Inf * f` give one wrapper with an
   infinite factor, also when `f` is itself scaled, because the constructor merges the factors; a built-in indicator
-  `f` is returned itself. `kkt_violation(h, v, x)` and the four-argument form at a
+  `f` is returned itself. For the resulting `Scaled` wrapper, `kkt_violation(h, v, x)` and the four-argument form at a
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` or `GroupNormLinf` counts as
   nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
   these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient

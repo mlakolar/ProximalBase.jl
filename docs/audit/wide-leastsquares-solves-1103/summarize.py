@@ -964,7 +964,7 @@ def table_plans(camp):
     out = []
     for (v, case, param), ts in sorted(rows.items()):
         kind, _, rest = param.partition("|")
-        out.append([v, case, kind, rest, median(ts), len(ts)])
+        out.append([v, case, kind, rest.replace("|", ", "), median(ts), len(ts)])
     return md_table(["julia", "case", "group", "calls per batch and batches", "slowest call s (median over processes)", "processes"], out)
 
 

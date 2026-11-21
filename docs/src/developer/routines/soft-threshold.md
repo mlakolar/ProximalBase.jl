@@ -32,9 +32,11 @@ nonnegative map gives zero, and a ridge factor of ``1/2`` gives ``-1``.
 
 The common `shrink` routine adds the positive part of `v - c` to the
 negative part of `v + c`. On the ordinary `NormL1` route, some loops use
-`_shrink_nonneg`. It subtracts the projection of `v` onto `[-c, c]` with two
-conditional selects and then adds positive zero. The addition gives
-positive zero at a zero result, including negative zero at zero threshold.
+`_shrink_nonneg`. The `Base.IEEEFloat` method subtracts the projection of
+`v` onto `[-c, c]` with two conditional selects. Adding positive zero
+gives positive zero at a zero result, including when the input is
+negative zero and the threshold is zero. The general `AbstractFloat`
+method calls `shrink`.
 
 The [threshold product](@ref routine-scaled-products) determines the
 arithmetic path. `NormL1` and `NormL1Nonneg` use the weighted product

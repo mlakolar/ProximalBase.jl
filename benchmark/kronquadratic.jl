@@ -7,15 +7,15 @@
 #   PB_ROUNDS=11 julia --threads=1 --project=benchmark benchmark/kronquadratic.jl
 #
 # The trees are loaded with Base.include into their own modules, as benchmark/run.jl does, in the order archive,
-# candidate, control (PB_REVERSE=1: candidate, archive, control). An archive that does not load, or that has no
-# KronQuadratic, is reported and its cells are timed without it. Each round times the roles of every case in
-# alternating order (reversed in even rounds) and keeps per role the median and the minimum over the samples of
+# candidate, control (PB_REVERSE=1: candidate, archive, control, also the timing order of odd rounds). An archive
+# that does not load, or that has no KronQuadratic, is reported and its cells are timed without it. Each round times
+# the roles of each case in alternating order (reversed in even rounds) and keeps per role the median and the minimum over the samples of
 # its trial. A case cycles through COPIES distinct arguments, so that consecutive calls do not repeat their input;
 # the roles share the dense arguments, the data and the output, and build their own iterates from the same
 # coordinates and values. The summary gives per case the median over the rounds of the ratios candidate/archive
 # and control/candidate (A/A) of the trial minima and medians, and the warmed allocations of each role.
 # PB_QUICK=1 runs small sizes for one round; PB_FILTER selects cases by a regular expression on their ids;
-# PB_CHECK_ONLY=1 compares the outputs of the roles and exits before timing.
+# PB_CHECK_ONLY=1 compares the outputs of the roles at the first argument of each case and exits before timing.
 using BenchmarkTools, LinearAlgebra, Random, Statistics, Dates, Printf
 Threads.nthreads() == 1 || error("one Julia thread required")
 BLAS.set_num_threads(1)
@@ -27,13 +27,13 @@ module Archive end
 module Candidate end
 module CandidateControl end
 
+# The include only; the bindings it creates are read at top level, in the latest world.
 function load(m, root)
   try
     Base.include(m, joinpath(root, "src", "ProximalBase.jl"))
-    isdefined(m.ProximalBase, :KronQuadratic) || return "no KronQuadratic in $root"
     nothing
   catch err
-    sprint(showerror, err)[1:min(end, 2000)]
+    first(sprint(showerror, err), 2000)
   end
 end
 archive_error = archive_root === nothing ? "PB_ARCHIVE not set" : nothing
@@ -45,6 +45,9 @@ else
   load(Candidate, candidate_root) === nothing || error("the candidate does not load")
 end
 load(CandidateControl, candidate_root) === nothing || error("the control does not load")
+archive_error === nothing && !isdefined(Archive.ProximalBase, :KronQuadratic) &&
+  (archive_error = "no KronQuadratic in $archive_root")
+isdefined(Candidate.ProximalBase, :KronQuadratic) || error("the candidate has no KronQuadratic")
 archive_error === nothing || println("archive skipped: ", archive_error)
 const ROLES = archive_error === nothing ? (:archive, :candidate, :control) : (:candidate, :control)
 const MODULES = Dict(:archive => Archive, :candidate => Candidate, :control => CandidateControl)
@@ -103,6 +106,8 @@ function symmetric_cases(::Type{T}, rng) where {T}
       X
     end
     Xs = Dict(r => [iterate_of(r, e) for e in entries] for r in ROLES)
+    # the labels count active coordinates; a sampled value of zero would leave its coordinate inactive, which this checks
+    all(all(X -> pb(r).nactive(X) == nactive, Xs[r]) for r in ROLES) || error("an iterate has fewer than $nactive active coordinates")
     for op in (:value, :value_and_gradient!)
       calls, results = Dict{Symbol, Function}(), Dict{Symbol, Function}()
       for r in ROLES
@@ -124,7 +129,8 @@ if haskey(ENV, "PB_FILTER")
   filter!(c -> occursin(selection, c.id), cases)
 end
 
-# outputs of the roles: the control equals the candidate; the archive agrees within a working-precision tolerance
+# outputs of the roles at the first argument of each case: the control equals the candidate (isequal); the archive
+# agrees within a working-precision tolerance (isapprox, a norm-relative test for the gradient)
 close_enough(a::Number, b::Number, T) = isapprox(a, b; rtol = 1000eps(T))
 close_enough(a::Tuple, b::Tuple, T) = close_enough(a[1], b[1], T) && isapprox(a[2], b[2]; rtol = 1000eps(T))
 for c in cases

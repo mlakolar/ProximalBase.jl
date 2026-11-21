@@ -685,16 +685,20 @@ thread: the value and `value_and_gradient!` on dense `p × q` matrices with `p =
 and `200 × 100`, and on `SymmetricSparseIterate` arguments at `p = 200` with 200, 2000 and 20100
 active coordinates (20100 is every coordinate). Each case cycles through eight distinct arguments.
 The roles share the dense arguments, the data and the output; each builds its own iterates from the
-same coordinates and values. Each round times the roles of every case in alternating order and keeps
-per role the median and the minimum of its samples. The summary (`summary.tsv`, also printed) gives
-per case the candidate's times, the median over the rounds of the ratios candidate/archive and
-control/candidate of the trial minima and medians, and the warmed allocations of each role, with the
-Julia version and `BLAS.get_config()` in its header; `raw.tsv` has every trial.
+same coordinates and values, and the script checks that each iterate has the stated number of active
+coordinates. Each round times the roles of each case in alternating order and keeps per role the
+median and the minimum of its samples. The summary (printed, and written to `summary.tsv` when
+`PB_OUTPUT` is set) gives per case the candidate's times, the median over the rounds of the ratios
+candidate/archive and control/candidate of the trial minima and medians, and the warmed allocations of
+each role, with the Julia version and `BLAS.get_config()` in its header. With `PB_OUTPUT`, `raw.tsv`
+has each measured trial; the trial that warms each call before the rounds is not recorded.
 
-Before timing, the script requires the control to reproduce the candidate's outputs exactly and the
-archive to agree within `1000 eps(T)` relative. An archive that does not load, or has no
-`KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads and times the
-candidate before the archive; `PB_FILTER` selects cases by a regular expression on their ids;
+Before timing, the script compares the outputs at the first of the eight arguments of each case: the
+control must reproduce the candidate's outputs (`isequal`), and the archive must agree within
+`1000 eps(T)` relative (`isapprox`, norm-relative for the gradient). An archive that does not load, or
+has no `KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads the
+candidate before the archive and times it first in odd rounds (even rounds reverse the order);
+`PB_FILTER` selects cases by a regular expression on their ids;
 `PB_CHECK_ONLY=1` stops after the output checks; `PB_QUICK=1` runs small sizes for one round.
 
 ```sh

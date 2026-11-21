@@ -442,7 +442,8 @@ a ``q\times q`` matrix `B` and a ``p\times q`` matrix `C`, zero when omitted.
 three share one element type, `Float32` or `Float64`. The constructor copies
 them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
 ``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
-products ``AX`` and ``(AX)B``.
+products ``AX`` and ``(AX)B``, and a value-only call at a sparse symmetric
+iterate uses ``AX`` and ``BX`` without forming ``(AX)B``.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
@@ -454,13 +455,16 @@ with the Frobenius inner product:
 \nabla q(X)=\tfrac12(AXB+BXA)+C.
 ```
 
-This is the full-matrix gradient that
-[`kkt_violation`](@ref) reads at a symmetric iterate. One coordinate
+This is the full-matrix gradient `G` that the coordinate form
+[`kkt_violation(g, G, X, k)`](@ref kkt_violation) of a penalty `g` reads at a
+symmetric iterate. One coordinate
 ``(r,c)``, ``r\neq c``, moves the two entries ``X_{rc}`` and ``X_{cr}``
 together, so the derivative of ``q`` along that coordinate is
-``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. Symmetric
-iterate calls require an exactly symmetric `C` and throw `ArgumentError`
-before writes otherwise. `matrixview(X)` is a matrix argument and gets
+``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. When `C`
+is supplied, symmetric-iterate calls require it to be exactly symmetric and
+throw `ArgumentError` before writes otherwise. The two entries of each
+mirrored pair of the gradient receive the same computed value, `NaN`
+included, so `issymmetric` holds for results without `NaN`. `matrixview(X)` is a matrix argument and gets
 ``AXB+C``.
 
 ```@example library_kronquadratic
@@ -479,9 +483,10 @@ gradient(f, S)
 The value is the same formula for both arguments. `issmooth` is true;
 `isproximable`, `isseparable` and `isconvex` are false. ``q`` is convex when
 `A` and `B` are both positive semidefinite or both negative semidefinite,
-which the constructor does not check. `lipschitz(f)` returns the computed
-product ``\|A\|_2\|B\|_2`` of the spectral norms, which is the largest
-eigenvalue magnitude of ``B\otimes A``; it is not rounded up to a certified bound.
+which the constructor does not check. The exact product
+``\|A\|_2\|B\|_2`` of the spectral norms is the largest eigenvalue magnitude
+of ``B\otimes A``, a Lipschitz constant of the gradient; `lipschitz(f)` returns
+its working-precision approximation, which can round below it.
 
 **D-trace loss.** For covariance matrices ``\Sigma_x`` and ``\Sigma_y``, the
 loss ``\frac12\operatorname{tr}(\Sigma_x\Delta\Sigma_y\Delta)-\operatorname{tr}((\Sigma_y-\Sigma_x)\Delta)``
@@ -508,13 +513,16 @@ direction ``D``, which is `KronQuadratic(w * W, W, w * (S - W))` evaluated at
 the direction ``D``, not at the new point ``\Theta+D``. The same model written
 as a function of the new point ``Z=\Theta+D`` has a different linear term:
 `KronQuadratic(w * W, W, w * (S - 2W))` at ``Z``, up to a constant, when
-``W\Theta W=W``.
+``W\Theta W=W``. The constructor needs `W` and `S` exactly symmetric and of
+one supported precision: a computed `inv(Θ)` of a dense matrix can have
+unequal mirrored entries, so pass, for example, `Matrix(Symmetric(inv(Θ), :L))`.
 
 The oracles write scratch matrices that `f` owns: do not call them
 concurrently on one object (see the [ownership table](@ref numerical-usage)). Values and gradients use ordinary
-working-precision arithmetic: overflow gives `Inf` or `NaN` and results below
-the subnormal range round to zero, without the range recovery of other
-quadratic values. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
+working-precision arithmetic, without the range recovery of other quadratic
+values: each intermediate product and sum is rounded, so a result can be
+subnormal, zero or nonfinite where the exact value is not, depending on the
+route and the order of the operations. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
 
 ## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
 

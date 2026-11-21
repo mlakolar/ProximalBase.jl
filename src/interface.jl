@@ -339,9 +339,10 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = (_check_one_based(x); prox!(
 Return a newly allocated gradient. Array inputs produce a dense floating-point
 array with the same shape; see [`gradient!`](@ref) to reuse an output buffer.
 
-Supported symmetric-iterate gradients (`SqrNormL2`, `LinearFunction`,
-`KronQuadratic` and supported `Scaled` leaves) produce a dense symmetric
-matrix. `ZeroFunction`
+Supported symmetric-iterate gradients (`SqrNormL2`, `LinearFunction` and
+supported `Scaled` leaves) produce a dense symmetric matrix. `KronQuadratic`
+produces a dense matrix whose mirrored entries receive the same computed value,
+`NaN` included, so `issymmetric` holds for its results without `NaN`. `ZeroFunction`
 has no symmetric-iterate gradient method. A capability trait does not supply
 missing operand methods.
 
@@ -597,10 +598,11 @@ function restrict end
 """
     lipschitz(f)
 
-A global gradient Lipschitz bound for retained smooth functions. ZeroFunction
-and LinearFunction return zero; SqrNormL2 returns its level. QuadraticFunction
-uses a matrix operator-norm bound; KronQuadratic multiplies the spectral norms of
-A and B; LeastSquaresLoss bounds the squared design
+A global gradient Lipschitz bound for retained smooth functions, except as noted
+for KronQuadratic. ZeroFunction and LinearFunction return zero; SqrNormL2 returns its level. QuadraticFunction
+uses a matrix operator-norm bound. For KronQuadratic the exact product of the spectral
+norms of A and B is a bound; the returned value is its working-precision
+approximation, which can round below it. LeastSquaresLoss bounds the squared design
 norm. Dense matrices use their full spectral norm; other matrices use a safe
 one/infinity norm bound. Scaled scales the inner bound. Unknown bounds throw.
 The separate opnorm2 estimate may miss a leading eigenspace and needs an

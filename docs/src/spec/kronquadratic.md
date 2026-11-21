@@ -29,60 +29,73 @@ The gradient over ``p\times q`` matrices is ``AXB+C``. Over symmetric
 The function is smooth. It is not proximable or separable, and
 `isconvex` is false. The function is convex when `A` and `B` are both
 positive semidefinite or both negative semidefinite; the constructor does not
-check semidefiniteness. `lipschitz` returns the computed product
-``\|A\|_2\|B\|_2`` of the spectral norms, which is not rounded up to a
-certified bound. `size(f)` is ``(p, q)``.
+check semidefiniteness. The exact product ``\|A\|_2\|B\|_2`` of the spectral
+norms is a Lipschitz constant of the gradient; `lipschitz` returns its
+working-precision approximation, which can round below it. `size(f)` is
+``(p, q)``.
 
 ## [Supported arguments](@id spec-kronquadratic-arguments)
 
 A matrix argument is a one-based `AbstractMatrix{T}` of size ``(p, q)``:
 dense matrices, strided views, `SparseIterate`, `Symmetric` wrappers and
-`matrixview` of a symmetric iterate. A matrix argument whose columns are not
-contiguous is copied into the function's scratch before the products.
+`matrixview` of a symmetric iterate. The products read the argument directly
+when it is a `StridedMatrix` with first stride 1 and a column stride of at
+least ``\max(1, p)``; any other matrix argument, reversed columns included, is
+copied into the function's scratch first.
 
 A [`SymmetricSparseIterate`](@ref) argument has element type `T` and
 dimension ``p``, and requires ``p=q``.
 
-`gradient!` and `value_and_gradient!` write into a one-based writable
-`StridedMatrix{T}` of size ``(p, q)``, row-strided views included. The
-allocating `gradient` and `value_and_gradient` return a `Matrix{T}`. Vector
-arguments, `BlockIterate`, symmetric-iterate destinations and proximal
-operators are unsupported.
+`gradient!` and `value_and_gradient!` write into a one-based
+`StridedMatrix{T}` of size ``(p, q)`` that Base can read and write,
+row-strided views included. A destination that is not a `StridedMatrix` with
+first stride 1 and column stride of at least ``\max(1, p)`` receives a copy of
+the result from scratch. `gradient` returns a `Matrix{T}`, and
+`value_and_gradient` returns `(v, G)` with `v::T` and `G::Matrix{T}`; both
+check the argument before they allocate. Vector arguments, `BlockIterate`,
+symmetric-iterate destinations and proximal operators are unsupported.
 
 ## [Preconditions](@id spec-kronquadratic-preconditions)
 
 The matrices that [`ProximalBase.kronquadratic_data`](@ref) returns are the
-stored copies; treat them as read-only. The oracles write scratch matrices
-stored in the function: calls on one object must not run concurrently. Use
-one object per task.
+stored copies, ordinary mutable matrices; treat them as read-only. The oracles
+write scratch matrices stored in the function: calls on one object must not
+run concurrently. Use one object per task.
 
 ## [Results](@id spec-kronquadratic-results)
 
 The value has type `T`. For a matrix argument the gradient is ``AXB+C``.
-For a symmetric iterate it is ``\frac12(W+W^\top)+C`` with ``W=AXB``,
-computed once for each off-diagonal pair and written to both entries, so the
-destination is exactly symmetric. Its off-diagonal entry ``(r,c)`` is half
-the derivative of ``q`` along the coordinate ``(r,c)``, which moves both
-mirrored entries. The value is the same formula for both arguments.
+For a symmetric iterate it is ``\frac12(W+W^\top)+C`` with ``W=AXB``. Each
+off-diagonal pair is computed once and the same value, `NaN` included, is
+written to both entries, so `issymmetric` holds for results without `NaN`.
+Its off-diagonal entry ``(r,c)`` is half the derivative of ``q`` along the
+coordinate ``(r,c)``, which moves both mirrored entries. The value is the
+same formula for both arguments.
 
 ## [Ordinary-path clauses](@id spec-kronquadratic-ordinary)
 
-For a matrix argument, the oracles form ``AX`` and ``(AX)B`` with BLAS and
-the value as ``\langle X,AXB\rangle/2+\langle C,X\rangle``. At a symmetric
-iterate with ``n`` nonzero active values, ``AX`` is accumulated over the
-active coordinates when ``2n\leq p^2/8``, and formed by a dense product of a
-copy otherwise. A zero coefficient, stored or absent, contributes nothing to
-that accumulation. A value-only call on the accumulating route forms ``AX``
-and ``BX`` over the active coordinates and sums
-``\sum_{ij}(AX)_{ij}(BX)_{ji}``. Results are rounded in working precision,
-and the two routes can differ by rounding.
+For a matrix argument, the oracles form ``AX`` and ``(AX)B`` with `mul!`,
+which uses BLAS for eligible layouts and sizes, and the value as
+``\langle X,AXB\rangle/2+\langle C,X\rangle``. At a symmetric iterate with
+``n`` nonzero active values, ``AX`` is accumulated over the active coordinates
+when ``2n\leq p^2/8``, and formed by `mul!` on a dense copy otherwise. A zero
+coefficient, stored or absent, contributes nothing to that accumulation. The
+gradient then forms ``(AX)B`` with `mul!`. A value-only call on the
+accumulating route forms ``AX`` and ``BX`` over the active coordinates and
+sums ``\sum_{ij}(AX)_{ij}(BX)_{ji}`` in ``32\times32`` tiles, without
+forming ``(AX)B``. Results are rounded in working precision, and the routes
+can differ by rounding.
 
 ## [Range clauses](@id spec-kronquadratic-range)
 
 Values and gradients use ordinary working-precision arithmetic, without the
 range recovery that the [shared range guarantees](@ref numerical-value-range)
-describe for other quadratic values. A product that overflows gives `Inf` or
-`NaN`, and a value below the subnormal range rounds to zero.
+describe for other quadratic values. Each intermediate product and sum is
+rounded in `T`: a result can be subnormal, zero or nonfinite where the exact
+value is not, and the outcome depends on the route and on the order of the
+operations. For example, the accumulating symmetric routes add the two
+mirrored entries of `C` before multiplying by the coefficient, which can
+overflow where the dense route does not.
 
 ## [Endpoint clauses](@id spec-kronquadratic-endpoints)
 
@@ -103,17 +116,22 @@ size, throws `DimensionMismatch`.
 
 The oracles check, before any write, the element types of the argument and
 the destination (`ArgumentError`), one-based axes (`ArgumentError`), sizes
-(`DimensionMismatch`), a writable strided destination (`ArgumentError`), a
-destination that shares memory with the argument, `A`, `B` or `C`
-(`ArgumentError`), and at a symmetric iterate ``p=q`` (`DimensionMismatch`)
-and an exactly symmetric `C` (`ArgumentError`). `C` is not averaged.
+(`DimensionMismatch`), a strided destination that Base can read and write
+(`ArgumentError`), an argument or destination that shares memory with the
+scratch of the function (`ArgumentError`), a destination that shares memory
+with the argument, including the arrays inside structured wrappers, or with
+`A`, `B` or `C` (`ArgumentError`), and at a symmetric iterate ``p=q``
+(`DimensionMismatch`) and, when `C` is supplied, its exact symmetry
+(`ArgumentError`). `C` is not averaged.
 
 ## [Limitations and non-guarantees](@id spec-kronquadratic-limitations)
 
 There is no proximal operator, Hessian-vector product, coordinate curvature
 or `restrict`. Convexity is not certified. Overflow and underflow are not
-recovered. `Float32` and `Float64` results depend on the BLAS kernel's
-summation order.
+recovered. The summation order depends on the route: BLAS kernels where
+`mul!` uses them, the column accumulation and the tiled sum of the
+accumulating symmetric routes, and Julia's `dot` or a pass over the
+stored entries for the values.
 
 ## [Clauses owned elsewhere](@id spec-kronquadratic-elsewhere)
 

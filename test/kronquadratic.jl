@@ -27,6 +27,18 @@ end
 # s[i] s[j] ρ^|i - j|, exactly symmetric
 ar1(::Type{T}, p, ρ, s = ones(p)) where {T} = T[s[i] * s[j] * ρ^abs(i - j) for i in 1:p, j in 1:p]
 
+# padding after the first field: the Float64 (Float32) reinterpretation is writable but not readable
+struct KronPadded64
+  a::UInt8
+  b::UInt32
+end
+struct KronPadded32
+  a::UInt8
+  b::UInt16
+end
+padded(::Type{Float64}) = reinterpret(Float64, fill(KronPadded64(0x01, 0x00000000), 2, 2))
+padded(::Type{Float32}) = reinterpret(Float32, fill(KronPadded32(0x01, 0x0000), 2, 2))
+
 value_allocs(f::F, X::A) where {F, A} = (f(X); @allocated f(X))
 gradient_allocs(G::M, f::F, X::A) where {M, F, A} = (gradient!(G, f, X); @allocated gradient!(G, f, X))
 value_gradient_allocs(G::M, f::F, X::A) where {M, F, A} =
@@ -129,9 +141,9 @@ end
     C = linear ? T.(randn(rng, p, q)) : nothing
     X = T.(randn(rng, p, q))
     f = KronQuadratic(A, B, C)
-    # Float64 references of the same T data; with u = eps(T), the computed value is within
-    # (pq + p + q + 2) u of the sum of absolute terms, and each gradient entry within (p + q + 1) u
-    # of the same with absolute values
+    # Float64 references of the same T data. Tolerances for these moderate seeded cases, with u = eps(T):
+    # (pq + p + q + 2) u times the sum of absolute terms for the value, and (p + q + 1) u times the same
+    # with absolute values for each gradient entry
     A64, B64, C64, X64 = Float64.(A), Float64.(B), C === nothing ? nothing : Float64.(C), Float64.(X)
     vtol = (p * q + p + q + 2) * eps(T) * kron_scale(A64, B64, C64, X64)
     Gtol = (p + q + 1) * eps(T) .* kron_gradient_scale(A64, B64, C64, X64)
@@ -167,7 +179,7 @@ end
   # destinations with contiguous and with strided columns; rows not written stay as they were
   for (backing, out) in ((fill(T(-7), 2p, q), (b -> view(b, 1:2:2p, :))), (fill(T(-7), p, 2q), (b -> view(b, :, 2:2:2q))))
     D = out(backing)
-    @test value_and_gradient!(D, f, X) == v
+    @test value_and_gradient!(D, f, X) ≈ v atol = 4 * (p * q + p + q) * eps(T) * scale
     @test D ≈ G atol = 4 * (p + q) * eps(T) * Gscale
     @test count(==(T(-7)), backing) == length(backing) - p * q
   end
@@ -176,7 +188,7 @@ end
   g = KronQuadratic(A, random_symmetric(rng, T, p), random_symmetric(rng, T, p))
   @test gradient(g, Symmetric(S)) ≈ gradient(g, S)
   @test gradient(g, Symmetric(S)) ≉ gradient(g, SymmetricSparseIterate(S))
-  # inputs outside the domain propagate by IEEE arithmetic
+  # a NaN entry of an accepted argument propagates by IEEE arithmetic
   Y = copy(X); Y[1, 1] = T(NaN)
   @test isnan(f(Y))
   @test any(isnan, gradient(f, Y))
@@ -206,6 +218,9 @@ end
     zeros_dense = random_iterate(rng, T, p, 1:n)
     activevalues(zeros_dense)[1:3:n] .= 0
     @test nactive(zeros_dense) == n && count(iszero, activevalues(zeros_dense)) == 7
+    # the route counts nonzero values, not active coordinates (zeros_active would cross 2n > p²/8 with n = 3)
+    @test !ProximalBase._kron_dense_route(zeros_active, p) && !ProximalBase._kron_dense_route(sparse, p)
+    @test ProximalBase._kron_dense_route(dense, p) && ProximalBase._kron_dense_route(zeros_dense, p)
     for X in (empty, sparse, dense, zeros_active, zeros_dense)
       Xm = Float64.(Matrix(X))
       scale = kron_scale(A64, B64, C64, Xm)
@@ -213,7 +228,7 @@ end
       v, G = value_and_gradient(f, X)
       @test v isa T && G isa Matrix{T}
       @test issymmetric(G)
-      # the transposed sum of the value has up to p² + 2p terms
+      # tolerance: the p² terms of the transposed sum, plus 2p + 4 for the products accumulated before it
       @test abs(f(X) - kron_value(A64, B64, C64, Xm)) <= (p^2 + 2p + 4) * eps(T) * scale
       @test abs(v - kron_value(A64, B64, C64, Xm)) <= (p^2 + 2p + 4) * eps(T) * scale
       @test abs(f(X) - f(Matrix(X))) <= 2 * (p^2 + 2p + 4) * eps(T) * scale
@@ -222,7 +237,7 @@ end
       Gd = gradient(f, matrixview(X))
       @test maximum(abs.(Gd .- kron_gradient(A64, B64, C64, Xm))) <= (2p + 2) * eps(T) * Gscale
       if nactive(X) > 0 && any(!iszero, activevalues(X))
-        # with A ≠ B the derivative over symmetric matrices is not A X B + C
+        # for these data, the derivative over symmetric matrices differs from A X B + C
         @test maximum(abs.(G .- Gd)) > 1000 * (2p + 2) * eps(T) * Gscale
       end
       @test G ≈ (Gd + Gd') / 2 atol = 4 * (2p + 2) * eps(T) * Gscale
@@ -285,7 +300,7 @@ end
     @test gradient(f, X) == C
     @test lipschitz(f) == 0
   end
-  # entries near sqrt(floatmax(T)): finite where the products are, IEEE overflow otherwise
+  # scalar cases with entries near sqrt(floatmax(T)): finite results below, IEEE overflow at X = 4
   e = (exponent(floatmax(T)) - 1) ÷ 2
   s = ldexp(one(T), e)
   f = KronQuadratic(T[s;;], T[s;;])
@@ -293,7 +308,8 @@ end
   @test gradient(f, T[1;;]) == T[ldexp(one(T), 2e);;]
   @test f(T[4;;]) == T(Inf)
   @test gradient(f, T[4;;]) == T[Inf;;]
-  # entries near sqrt(floatmin(T)): values below the subnormal range round to zero (no range recovery)
+  # scalar cases with entries near sqrt(floatmin(T)): a subnormal gradient, and a value whose exact result is
+  # below half the smallest subnormal and rounds to zero (no range recovery)
   e = exponent(floatmin(T)) ÷ 2
   s = ldexp(one(T), e)
   f = KronQuadratic(T[s;;], T[s;;])
@@ -378,8 +394,8 @@ end
   scores = [kkt_violation(g, Gref, X, k) for k in 1:ncoordinates(X)]
   @test maximum(scores) <= tol
   @test count(iszero, Xm) > 0 && count(!iszero, Xm - Diagonal(Xm)) > 0
-  # the same loop on dense matrices minimizes over all matrices with the gradient A X B + C:
-  # a different problem when Σx ≠ Σy
+  # the same loop on dense matrices minimizes over all matrices with the gradient A X B + C, a different
+  # feasible set; its KKT scores are checked, and for these data and λ its solution differs
   Xd = dense_pgd(f, g, p, T, 2000)
   Gd = Float64.(Σx) * Float64.(Xd) * Float64.(Σy) + Float64.(C)
   @test maximum(kkt_violation(g, Gd, Xd, i) for i in 1:p^2) <= tol
@@ -478,6 +494,9 @@ end
   @test_throws "$T.(B)" KronQuadratic(A, other.(B), C)
   @test_throws "$T.(B)" KronQuadratic(A, other.(B))
   @test_throws "Float64.(A) and Float64.(B)" KronQuadratic([2 1; 1 3], [1;;])
+  U = Union{Float32, Float64}
+  @test_throws "Float64.(A) and Float64.(B)" KronQuadratic(U[1.0;;], U[1.0;;])
+  @test_throws ArgumentError KronQuadratic(U[1.0;;], U[1.0;;], U[1.0;;])
   for U in (Int, BigFloat, Float16, Complex{T})
     @test_throws ArgumentError KronQuadratic(U.(A), U.(B))
     @test_throws ArgumentError KronQuadratic(U.(A), U.(B), U.(C))
@@ -555,6 +574,122 @@ end
   @test_throws DimensionMismatch f(SymmetricSparseIterate(T, 2))
   @test_throws DimensionMismatch gradient(f, SymmetricSparseIterate(T, 2))
   @test all(==(-7), G)
+end
+
+@testset "structured, scratch and owner aliases ($T)" for T in (Float32, Float64)
+  f = KronQuadratic(T[2 0; 0 3], T[4 0; 0 5], T[1 2; 2 1])
+  # each case returns the error type and checks that the destination and the argument are unchanged
+  function refused(op, G, g, X)
+    Gb, Xb = copy(G), X isa SymmetricSparseIterate ? copy(X) : copy(Matrix(X))
+    try
+      op(G, g, X)
+    catch err
+      same = X isa SymmetricSparseIterate ? isequal(X, Xb) : isequal(Matrix(X), Xb)
+      return isequal(G, Gb) && same ? typeof(err) : :changed
+    end
+    :no_error
+  end
+  for g in (f, Scaled(f, T(2))), op in (gradient!, value_and_gradient!)
+    # structured inputs backed by the destination
+    G = fill(T(9), 2, 2)
+    @test refused(op, G, g, Diagonal(view(G, :, 1))) === ArgumentError
+    @test refused(op, G, g, Symmetric(view(G, :, :))) === ArgumentError
+    @test refused(op, G, g, transpose(G)) === ArgumentError
+    @test refused(op, G, g, Bidiagonal(view(G, 1:2, 1), view(G, 1:1, 2), :U)) === ArgumentError
+    @test refused(op, G, g, Tridiagonal(view(G, 1:1, 1), view(G, 1:2, 2), view(G, 2:2, 1))) === ArgumentError
+    # scratch of the function as the destination or the argument, directly or through a view
+    for buffer in (f.X, f.AX, f.W)
+      @test refused(op, buffer, g, T[1 0; 0 1]) === ArgumentError
+      @test refused(op, view(buffer, :, :), g, T[1 0; 0 1]) === ArgumentError
+      @test refused(op, zeros(T, 2, 2), g, buffer) === ArgumentError
+      @test refused(op, zeros(T, 2, 2), g, Symmetric(view(buffer, :, :))) === ArgumentError
+    end
+  end
+  @test_throws "scratch" f(f.W)
+  @test_throws "scratch" f(view(f.X, :, :))
+  # the storage of a symmetric iterate: its active values, reshaped to the 1 × 1 destination
+  h = KronQuadratic(T[2;;], T[3;;], T[1;;])
+  for g in (h, Scaled(h, T(2))), op in (gradient!, value_and_gradient!)
+    S = SymmetricSparseIterate(T, 1); S[1, 1] = 5
+    G = reshape(activevalues(S), 1, 1)
+    @test G isa StridedMatrix
+    @test refused(op, G, g, S) === ArgumentError
+    @test refused(op, G, g, matrixview(S)) === ArgumentError
+    @test refused(op, G, g, Symmetric(matrixview(S))) === ArgumentError
+    @test S[1, 1] == 5
+  end
+  # a destination that Base can write but not read is refused before writes
+  G = padded(T)
+  @test G isa StridedMatrix{T} && size(G) == (2, 2)
+  before = copy(parent(G))
+  for op in (gradient!, value_and_gradient!)
+    @test_throws "read and write" op(G, f, ones(T, 2, 2))
+    @test_throws "read and write" op(G, f, SymmetricSparseIterate(ones(T, 2, 2)))
+  end
+  @test isequal(parent(G), before)
+  @test_throws "can read" f(padded(T))
+end
+
+@testset "route predicate at the boundary 2n = p²/8 ($T)" for T in (Float32, Float64)
+  p = 8                                         # p²/8 = 8: n = 4 accumulates, n = 5 takes the dense copy
+  X = SymmetricSparseIterate(T, p)
+  for k in 1:4
+    X[k + 1, k] = T(k)
+  end
+  @test !ProximalBase._kron_dense_route(X, p)
+  X[8, 1] = 1
+  @test ProximalBase._kron_dense_route(X, p)
+  # both routes agree with the formula on each side of the boundary
+  rng = Xoshiro(17)
+  f = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, p), random_symmetric(rng, T, p))
+  d = ProximalBase.kronquadratic_data(f)
+  for n in (4, 5)
+    Y = SymmetricSparseIterate(T, p)
+    for k in 1:n
+      Y[k + 1, k] = T(k) / 4
+    end
+    Ym = Float64.(Matrix(Y))
+    Gscale = maximum(kron_gradient_scale(Float64.(d.A), Float64.(d.B), Float64.(d.C), Ym))
+    scale = kron_scale(Float64.(d.A), Float64.(d.B), Float64.(d.C), Ym)
+    @test maximum(abs.(gradient(f, Y) .- symmetric_reference(Float64.(d.A), Float64.(d.B), Float64.(d.C), Ym))) <=
+          (2p + 2) * eps(T) * Gscale
+    @test abs(f(Y) - kron_value(Float64.(d.A), Float64.(d.B), Float64.(d.C), Ym)) <= (p^2 + 2p + 4) * eps(T) * scale
+  end
+end
+
+@testset "reversed columns and allocating oracles ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(23)
+  p, q = 35, 12
+  f = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, q), T.(randn(rng, p, q)))
+  X = T.(randn(rng, p, q))
+  v, G = value_and_gradient(f, X)
+  d = ProximalBase.kronquadratic_data(f)
+  scale = kron_scale(Float64.(d.A), Float64.(d.B), Float64.(d.C), Float64.(X))
+  Gscale = maximum(kron_gradient_scale(Float64.(d.A), Float64.(d.B), Float64.(d.C), Float64.(X)))
+  M = X[:, end:-1:1]
+  Xr = view(M, :, q:-1:1)                       # the same matrix through a negative column stride
+  @test Xr == X && stride(Xr, 2) < 0
+  Gr = view(zeros(T, p, q), :, q:-1:1)
+  for (Y, D) in ((Xr, zeros(T, p, q)), (X, Gr), (Xr, Gr))
+    @test value_and_gradient!(D, f, Y) ≈ v atol = 4 * (p * q + p + q) * eps(T) * scale
+    @test D ≈ G atol = 4 * (p + q) * eps(T) * Gscale
+    @test value_allocs(f, Y) == 0
+    @test gradient_allocs(D, f, Y) == 0
+    @test value_gradient_allocs(D, f, Y) == 0
+  end
+  # allocating oracles check the argument first and return a plain Matrix{T}
+  g = KronQuadratic(T[2 1; 1 3], T[1 0; 0 2])
+  O = OffsetArray(T[1 2; 3 4], 0, 0)
+  for h in (g, Scaled(g, T(2)))
+    @test gradient(h, O) isa Matrix{T}
+    @test gradient(h, O) == gradient(h, T[1 2; 3 4])
+    w, H = value_and_gradient(h, O)
+    @test H isa Matrix{T} && w == h(T[1 2; 3 4]) && H == gradient(h, T[1 2; 3 4])
+    @test_throws ArgumentError gradient(h, fill("x", 2, 2))
+    @test_throws ArgumentError value_and_gradient(h, fill("x", 2, 2))
+    @test_throws DimensionMismatch gradient(h, zeros(T, 2, 3))
+  end
+  @test_throws "element type" gradient(g, fill("x", 2, 2))
 end
 
 @testset "allocations and inference ($T)" for T in (Float32, Float64)

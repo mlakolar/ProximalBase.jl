@@ -47,16 +47,15 @@ and its slot order. Projection zeros dropped values without deactivating
 their slots. Other overlaps, mixed owner/dense calls, and wrapper outputs
 such as `Symmetric` destinations are outside the supported interface.
 
-Projection requires finite counted entries and a finite nonnegative real
-scalar step `γ`. A zero step also projects. Shape and step errors are checked
+Projection requires finite counted entries and a nonnegative real scalar
+step `γ`. A zero or infinite step also projects. Shape and step errors are checked
 before writing. The projection copies selected entries without arithmetic and
 zeros the remaining counted nonzeros. [`value_and_prox!`](@ref) returns the
 typed zero value of that stored result. One selection buffer belongs to the
 function object. Use a separate object for each concurrent projection.
 
-A single `Scaled(f, α)` forwards `α * γ` on a positive step, which must remain
-finite. A zero step stays zero, and nested indicator scaling uses the original
-step when the factors cannot be folded into one wrapper.
+`Scaled(f, α)`, `α * f` and `f * α` return `f` itself for a nonnegative `α`,
+including `0` and `Inf`. A negative or `NaN` factor throws `ArgumentError`.
 """
 struct IndBallL0 <: AbstractFunction
   s::Int
@@ -89,7 +88,7 @@ const _L0Sparse{T} = Union{SparseIterate{T, 1}, SparseIterate{T, 2}}
   "scalar step. Got $what of type $T"))
 
 @noinline _l0_step_error(γ) = throw(ArgumentError(
-  "the step of IndBallL0 must be finite and nonnegative, got $γ"))
+  "the step of IndBallL0 must be nonnegative, got $γ"))
 @noinline _l0_nonfinite() = throw(ArgumentError("IndBallL0 requires finite counted entries for projection"))
 
 (f::IndBallL0)(X) = _l0_unsupported("the argument", typeof(X))
@@ -112,7 +111,7 @@ _l0_project!(Y, f, X, γ) = _l0_unsupported("the output or input", typeof.((Y, X
 @inline function _l0_preflight(Y, X, γ)
   _l0_check_eltype(X)
   size(Y) == size(X) || throw(DimensionMismatch("the output has size $(size(Y)) and the input $(size(X))"))
-  (isfinite(γ) && γ >= 0) || _l0_step_error(γ)
+  γ >= 0 || _l0_step_error(γ)
   nothing
 end
 

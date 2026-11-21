@@ -72,7 +72,7 @@ remain `BigFloat`.
 @assert kkt_violation(2 * NormL1(big"0.5"), [big"1.0", big"2.0"], [big"0.0", big"3.0"], 2) isa BigFloat
 ```
 
-Nested positive finite scales retain their exponents when multiplying them
+For nested `Scaled` wrappers, positive finite scales retain their exponents when multiplying them
 would overflow or underflow. Built-in recovery paths can fold the total scale
 into the level of `NormL1` or `NormL1Nonneg` or into both levels of `ElasticNet`, or recover a
 representable squared-norm value. When the fold takes the ridge level of an
@@ -111,8 +111,9 @@ identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])
 a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
-representation and throws. The indicator `IndNonnegative` does not depend on its scale:
-`Scaled(IndNonnegative(), 0)` and `0 * IndNonnegative()` return the indicator itself.
+representation and throws. The built-in indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
+(including `IndBallLinf`) and `IndNonnegative` do not depend on their scale: `Scaled(f, 0)` and
+`0 * f` return the indicator `f` itself, as any nonnegative scale does.
 Inspect the constructed object rather than assume it is always a `Scaled`.
 
 ```@example scaled_zero
@@ -160,8 +161,9 @@ z = 0 * NormL1Nonneg(2.0)
   nonzero coordinate or group (an entry in no group of a `GroupNormL2` or `GroupNormLinf` counts as nonzero when `x`
   is nonzero there, and a zero entry of a nonzero group selects that group, which is nonzero) and the full-point form throw an `ArgumentError` for such a chain, and the three-argument and four-argument
   forms of `NormL2` and `NormLinf` throw an `ArgumentError`, also at a zero coordinate and under a chain that does not fold.
-* **An infinite factor.** `Scaled(f, Inf)` and `Inf * f` give one wrapper with an infinite factor, also when `f` is
-  itself scaled, because the constructor merges the factors. `kkt_violation(h, v, x)` and the four-argument form at a
+* **An infinite factor.** For `f` not a built-in indicator, `Scaled(f, Inf)` and `Inf * f` give one wrapper with an
+  infinite factor, also when `f` is itself scaled, because the constructor merges the factors; a built-in indicator
+  `f` is returned itself. For the resulting `Scaled` wrapper, `kkt_violation(h, v, x)` and the four-argument form at a
   nonzero coordinate or group throw an `ArgumentError` for it (an entry in no group of a `GroupNormL2` or `GroupNormLinf` counts as
   nonzero when `x` is nonzero there). For a finite supplied `v`, the lazy gradient `v/α` is zero and a zero point has
   these values: `-Inf` for a penalized coordinate with a positive coefficient, and `NaN` (`Inf * 0`) where the coefficient
@@ -182,11 +184,12 @@ z = 0 * NormL1Nonneg(2.0)
   [smooth stationarity score](@ref smooth-kkt). Infinite factors and retained
   chains whose factors do not fold throw `ArgumentError`. The coordinate and
   group forms throw `ArgumentError`, including at zero.
-* **Functions without the forms.** `SqrtLeastSquaresLoss` and `IndNonnegative` have no
-  four-argument or full-point score under `Scaled`; the call throws a `MethodError` (the call
-  names the `Scaled` function). For a positive finite or infinite factor, `Scaled(f, α)` forwards the
-  supported three-argument screen of an indicator `f` with the supplied gradient and returns its result
-  unscaled. For `IndNonnegative` the result is `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
+* **Functions without the forms.** `SqrtLeastSquaresLoss` has no four-argument or full-point score
+  under `Scaled`; the call throws a `MethodError` (the call names the `Scaled` function). The built-in
+  indicators have none either; since `α * f` is the indicator, an unsupported form on it raises the
+  `MethodError` of the indicator when the other checks of the call pass. Among these indicators only
+  `IndNonnegative` has a three-argument screen; for it, `α * f` uses the screen of the indicator with the
+  supplied gradient, unscaled: `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
   throws an `ArgumentError` for its other forms, also under `Scaled`. A function defined outside the package is treated as in
   [Writing your own function](../extending.md).
 

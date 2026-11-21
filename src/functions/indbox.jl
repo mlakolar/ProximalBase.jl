@@ -15,7 +15,7 @@ give an empty interval or contain `NaN` throw `ArgumentError`.
 [`prox`](@ref) clamps each entry to its interval and preserves `NaN` entries,
 at every nonnegative step, including `0` and `Inf`. Public scalar-step
 array oracles reject negative and `NaN` steps before writing. Array-step
-entries, `prox_block` and the `Scaled` routes ignore the step.
+entries and `prox_block` ignore the step.
 [`value_and_prox!`](@ref) evaluates the value at the stored output.
 
 ```jldoctest
@@ -32,6 +32,9 @@ With a [`SymmetricSparseIterate`](@ref) input or output, each bound array
 describes a full symmetric matrix in linear order. Validate paired entries
 with [`ProximalBase.check_symmetric_parameters`](@ref). Proximal calls on
 these iterates take scalar steps.
+
+`Scaled(f, α)`, `α * f` and `f * α` return `f` itself for a nonnegative `α`,
+including `0` and `Inf`. A negative or `NaN` factor throws `ArgumentError`.
 
 [`restrict`](@ref) fixes omitted coordinates at zero and throws `ArgumentError`
 if any omitted interval excludes zero. A scalar box that excludes zero

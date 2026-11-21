@@ -24,8 +24,19 @@ Negative or NaN scales throw `ArgumentError`; infinite scaling has
 function-specific exceptional arithmetic described in
 [Array and precision conventions](numerical_usage.md).
 
+**Built-in indicators.** The indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
+(including `IndBallLinf`) and `IndNonnegative` do not depend on a nonnegative scale.
+`Scaled(f, α)`, `α * f` and `f * α` return the indicator `f` itself for any nonnegative `α`,
+including `0`, `-0.0` and `Inf`, and nested scalings of an indicator return it too. A negative,
+NaN or `-Inf` factor throws `ArgumentError`. The constructor returns the indicator, so a call
+on the result is a call on the indicator, documented with each indicator. A negative or `NaN`
+scalar step makes `prox`, `prox!` and `value_and_prox!` throw before writing; another check
+(argument axes, shape or type) can raise its error first. The box and the orthant `prox_block`
+ignore the step. `iszeropreserving(Inf * f)` is that of `f`.
+
 Smoothness, convexity, proximability and separability traits come from the
-original function. Zero preservation additionally requires a finite scale
+original function. The type traits of a wrapper query its declared field type `F`.
+Zero preservation of a `Scaled` wrapper additionally requires a finite scale
 and an original function that preserves zero. Scaling only works with
 operations already supported by the original function.
 For example, scaling does not create a gradient for a function without one.
@@ -52,6 +63,14 @@ x = [2.0,-1]
 @assert lipschitz(h) == 0.5
 @assert reset_cache!(h) === h
 prox(h,x,0.4)
+```
+
+A built-in indicator is returned as it is:
+
+```@example library_scaled
+box = IndBox(0.0, 1.0)
+@assert 2.0 * box === box && Scaled(box, Inf) === box && 0 * (Inf * box) === box
+prox(2.0 * box, [-1.0, 0.5, 3.0], 0.4)
 ```
 
 ## [Scoring optimality](@id scaled-kkt)

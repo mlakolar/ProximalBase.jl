@@ -69,8 +69,14 @@ Nonnegative multiple `h(x) = α f(x)`. The expressions `α*f` and `f*α` constru
 it too. Negative or `NaN` scales are invalid. For positive finite `α`, a proximal
 step for `h` uses the inner function's step `α*γ`.
 
+For `f` one of `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox` (including
+`IndBallLinf`) or `IndNonnegative`, a nonnegative `α` returns `f` itself, since the
+scale does not change these indicators. The explicitly parametric constructor
+`Scaled{F, T}(f, α)` does the same, with the usual constraints `f isa F` and `α isa T`.
+
 The wrapper retains `f` by reference, including its parameters, scratch and caches.
 Traits and supported oracles forward to `f`; scaling does not add missing methods.
+The type-based traits of a wrapper query its declared field type `F`.
 Call [`reset_cache!`](@ref) on the outermost function after changing cached data.
 
 # Examples
@@ -104,6 +110,7 @@ struct Scaled{F<:AbstractFunction, T<:Real} <: AbstractFunction
 
   function Scaled{F, T}(f::F, α::T) where {F<:AbstractFunction, T<:Real}
     _checknonneg("α", α)
+    _isindicator(f) && return f
     iszero(α) && return _zero_scaled(f)
     new{F, T}(f, α)
   end
@@ -124,7 +131,7 @@ function Scaled(f::Scaled, α::Real)
 end
 
 @noinline _zero_scale_error(f) = throw(ArgumentError("zero scaling of $(typeof(f)) has no supported domain-preserving representation"))
-_zero_scaled(f::AbstractFunction) = _isindicator(f) ? f : _zero_scale_error(f)
+_zero_scaled(f::AbstractFunction) = _zero_scale_error(f)
 _zero_scaled(f::ZeroFunction) = f
 _finite_parameter(::Nothing) = true
 _finite_parameter(x::Real) = isfinite(x)
@@ -464,11 +471,11 @@ _infinite_factor(α) = false
 _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scaled_nan_value(f, α, y, r) : r)
 
 # Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
-# computed value. Called only where the computed value of f is 0 (not NaN). An indicator: its value
-# is exactly 0 or Inf. The families below: their value is 0 exactly when every entry they penalize
-# is 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
-# value, whatever they hold, as in the function's own value. Any other function: false.
-_exactly_zero_at(f, x) = _isindicator(f)
+# computed value. Called only where the computed value of f is 0 (not NaN). The families below: their
+# value is 0 exactly when every entry they penalize is 0. The entries they leave free (a zero level or
+# weight, an index in no group) do not enter the value, whatever they hold, as in the function's own
+# value. Any other function: false.
+_exactly_zero_at(f, x) = false
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)
 @inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
 function _exactly_zero_at(f::NormL1, x::AbstractArray)
@@ -612,13 +619,12 @@ function _gradient_chain!(g, s, x)
 end
 prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
-# The step that Scaled passes to f. The scale of an indicator does not matter, so a zero step stays
-# zero for α = Inf instead of becoming the NaN of Inf * 0; that NaN stays for any other f.
-@inline _scaled_step(s::Scaled, γ::Real) = _isindicator(s.f) && iszero(γ) ? γ : s.α * γ
+# The step that Scaled passes to f.
+@inline _scaled_step(s::Scaled, γ::Real) = s.α * γ
 
 # A single factor takes the route of a chain (`_nested_step`) for a step that it takes out of the
 # range, so that the product α γ is not rounded before the function forms its coefficient. A zero,
-# infinite, negative or NaN step or factor keeps its meaning, and an indicator ignores its scale.
+# infinite, negative or NaN step or factor keeps its meaning.
 @inline function _step_exceptional(s::Scaled, γ::Real)
   p = s.α * γ
   p isa AbstractFloat || return false
@@ -628,12 +634,11 @@ prox!(y, s::Scaled, x, γ::Real) =
   _step_positive_finite(s, γ)
 end
 @noinline _step_positive_finite(s::Scaled, γ::Real) =
-  isfinite(s.α) && isfinite(γ) && s.α > 0 && γ > 0 && !_isindicator(s.f)
+  isfinite(s.α) && isfinite(γ) && s.α > 0 && γ > 0
 @inline _nested_route(s::Scaled, γ::Real) = _chained(s) || _step_exceptional(s, γ)
 
 # What the function inside a nested chain receives for the step γ: the function, its step, and the
 # factor still to apply to its value.
-# - An indicator ignores its scale, so it keeps γ.
 # - A step that is not a finite positive number, which the function rejects or reads as a limit,
 #   is only multiplied.
 # - The product of the factors and γ goes into the step when it is a normal number.
@@ -660,7 +665,6 @@ end
 # inlined itself.
 @inline function _nested_step(s::Scaled, γ::Real)
   f, a = _scaled_chain(s)
-  _isindicator(f) && return (f, γ, a)
   step = _apply_scale(a, γ)
   T = typeof(step)
   (T <: AbstractFloat && isfinite(γ) && γ > 0 && !(floatmin(T) <= step <= floatmax(T))) || return (f, step, a)
@@ -754,10 +758,8 @@ end
 _checkparams(s::Scaled, x) = _checkparams(s.f, x)
 _checkwrite(op::O, s::Scaled, y, x) where {O} = (_checkreal(s, y); _checkreal(s, x); (op === gradient! || op === value_and_gradient!) && _checkgradient_output(y, x); _checkwrite(op, s.f, y, x))
 iszeropreserving(s::Scaled) = isfinite(s.α) && iszeropreserving(s.f)
-_isindicator(::Type{<:Scaled{F}}) where {F} = _isindicator(F)
 kkt_violation(s::Scaled, g::AbstractArray, i::Integer) =
   (_check_one_based(g); eltype(g) <: Real || _real_error(:kkt_violation); _chained(s) ? _screen_chain(s, g, i) :
-   _isindicator(_kkt_innermost(s.f)) ? kkt_violation(s.f, g, i) :
    iszero(s.α) ? abs(g[i]) : s.α * kkt_violation(s.f, _ScaledArray(g, inv(s.α)), i))
 
 # ---- the point-aware scores of a scaled function ----
@@ -921,13 +923,13 @@ _kkt_full(h::_KktLevel, v, x::AbstractArray) = _level_point(h.f, h.λ, v, x)
 # without dividing g by a; an ElasticNet with an infinite λ2 returns -Inf there before c is formed. For the
 # other functions it is that of the function with the folded levels, and where the levels do not fold, that of the function
 # at g divided by the product (kept as an exponent), multiplied by it, which does not recover a g that is out of range after
-# the division. Other smooth functions and indicators forward their existing three-argument screen, where one is defined.
+# the division. Other smooth functions forward their existing three-argument screen, where one is defined.
 # A chain with an infinite factor takes the last two routes (_chain_screen_plain); its three-argument value is outside the
 # contract (see the scaling guide) and is computed by them, without a guarantee.
 _screen_chain(s::Scaled, g, i) = ((f, a) = _scaled_chain(s); _chain_finite(a) ? _chain_screen(f, a, g, i) : _chain_screen_plain(f, a, g, i))
 _chain_screen(f, a, g, i) = _chain_screen_plain(f, a, g, i)
 function _chain_screen_plain(f, a, g, i)
-  (issmooth(typeof(f)) || _isindicator(f)) && return kkt_violation(f, g, i)
+  issmooth(typeof(f)) && return kkt_violation(f, g, i)
   h = _fold_level(f, a)
   h === nothing ? _apply_scale(a, kkt_violation(f, _ExpScaledArray(g, _scale_inverse(a)), i)) : kkt_violation(h, g, i)
 end
@@ -1042,14 +1044,14 @@ _chain_finite(a::_ProjectionScale) = isfinite(a.m)
 _chain_finite(a::Real) = isfinite(a)
 # A chain with an infinite factor is refused at a nonzero coordinate or group, as an infinite factor of one wrapper is. Its
 # value at a zero coordinate or group is outside the contract (see the scaling guide) and is computed here without a guarantee:
-# by the screen of the function at g for a smooth function or an indicator, of the function with its folded levels, or of the
+# by the screen of the function at g for a smooth function, of the function with its folded levels, or of the
 # function at g divided by the product, multiplied by it.
 @noinline function _kkt_chain_infinite(s::Scaled, f, a, g, x, k)
   cls = _kkt_class(typeof(f))
   ge = _ExpScaledArray(g, _scale_inverse(a))
   r = if cls isa _KktCustom
     _apply_scale(a, _kkt_custom_zero(f, ge, x, k))
-  elseif issmooth(typeof(f)) || _isindicator(f)
+  elseif issmooth(typeof(f))
     _kkt_unfolded(f, g, x, k)
   else
     h = _fold_level(f, a)

@@ -57,7 +57,7 @@ including implicit zeros of a `SparseIterate`.
 
 | Case | Retained behavior |
 |:--|:--|
-| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN scalar step throws before writes, also for `α * IndBallL2(r)` with `α ≥ 0`, which is the indicator itself. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere, and multiple infinite entries or any NaN give an all-NaN projection. |
 
 ## [Failure behavior](@id spec-indballl2-failures)
 

@@ -2,6 +2,77 @@ module IndBallL1Test
 
 using Test, ProximalBase, OffsetArrays, Random
 
+# ---- Scaled returns the indicator (the same checks for each built-in indicator) -----------------------------
+const CANON_FACTORS = Any[2, 0, 1, 0.5, 2.0, 2f0, 3f0, 5e-324, 1e-300, floatmax(Float64), floatmax(Float32), nextfloat(0f0),
+                          Inf, Inf32, 0.0, -0.0, big(2.0), big(0), big(Inf)]
+const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big(-1.0), big(NaN)]
+const CANON_BIGFLOAT = big(2.0)    # built before the allocation checks
+scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
+times_allocs(f, α) = (α * f; @allocated α * f)
+
+# The listed valid factors, nested chains whose product overflows, underflows or passes through Inf, and the
+# invalid factors; construction is inferred and does not allocate.
+function check_canonical(f)
+  for α in CANON_FACTORS
+    @test Scaled(f, α) === f
+    @test α * f === f
+    @test f * α === f
+    @test Scaled{AbstractFunction, typeof(α)}(f, α) === f
+    @test Scaled{typeof(f), typeof(α)}(f, α) === f
+  end
+  @test Scaled(Scaled(f, 1e300), 1e100) === f
+  @test Scaled(Scaled(f, 1e-300), 1e-100) === f
+  @test Scaled(Scaled(f, 1f30), 1f30) === f
+  @test Scaled(Scaled(f, 5e-324), 5e-324) === f
+  @test 0 * (Inf * f) === f
+  @test Scaled(Scaled(f, Inf), 0) === f
+  @test Inf * (0 * f) === f
+  @test (2 * f) * 3 === f
+  for α in CANON_INVALID
+    @test_throws ArgumentError Scaled(f, α)
+    @test_throws ArgumentError α * f
+    @test_throws ArgumentError f * α
+    @test_throws ArgumentError Scaled{AbstractFunction, typeof(α)}(f, α)
+  end
+  @test_throws ArgumentError Scaled(Scaled(f, 2), -1)
+  @test_throws ArgumentError Scaled(Scaled(f, Inf), NaN)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, CANON_BIGFLOAT)
+    @test @inferred(Scaled(f, α)) === f
+    @test @inferred(α * f) === f
+    @test scaled_allocs(f, α) == 0
+    @test times_allocs(f, α) == 0
+  end
+  @test @inferred(Scaled(Scaled(f, 1e300), 1e100)) === f
+  @test !(Scaled(f, 2) isa Scaled) && Scaled(f, 2) isa typeof(f)
+  @test Scaled(NormL1(1.0), 2.0) isa Scaled
+end
+
+# A negative, NaN or tiny negative scalar step through a scaled indicator throws before anything is written, and
+# the other steps give the result of the indicator at the points x (the vectors of one element type).
+function check_scaled_steps(f, points)
+  for α in (2, Inf, 1e-300), x in points
+    T = eltype(x)
+    s = α * f
+    for γ in (-one(T), T(NaN), -nextfloat(zero(T)), -1)
+      y = fill(T(7), length(x))
+      @test_throws ArgumentError prox!(y, s, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError value_and_prox!(y, s, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError prox(s, x, γ)
+    end
+    for γ in (zero(T), one(T), T(0.3), T(Inf), 2, 0)
+      y1, y2 = similar(x), similar(x)
+      @test isequal(prox!(y1, s, x, γ), prox!(y2, f, x, γ)) && isequal(y1, y2)
+      @test isequal(s(x), f(x))
+      v1 = value_and_prox!(y1, s, x, γ)
+      v2 = value_and_prox!(y2, f, x, γ)
+      @test isequal(v1, v2) && isequal(y1, y2) && isequal(v1, s(y1))
+    end
+  end
+end
+
+
 # The full Float64 exponent span, plus room for the sums and divisions in
 # these cases. The threshold comes from sorted prefix sums.
 function reference_projection(x, r)
@@ -215,11 +286,28 @@ end
   end
 end
 
+@testset "Scaled returns the ball" begin
+  for f in (IndBallL1(), IndBallL1(2.5), IndBallL1(0), IndBallL1(Inf), IndBallL1(2f0), IndBallL1(floatmax(Float64)),
+            IndBallL1(big(2.0)))
+    check_canonical(f)
+  end
+  for f in (IndBallL1(2.0), IndBallL1(0.0), IndBallL1(Inf), IndBallL1(1.0))
+    check_scaled_steps(f, (Float64[3, -1], Float64[0.1, 0.2], Float64[NaN, 1], Float64[Inf, 3], Float64[], Float64[0, -0.0]))
+  end
+  for f in (IndBallL1(2f0), IndBallL1(1f0))
+    check_scaled_steps(f, (Float32[3, -1], Float32[0.1, 0.2], Float32[NaN, 1], Float32[Inf, 3]))
+  end
+  # the object, with its buffer, is the one that was scaled
+  f = IndBallL1(2.0)
+  @test (2 * f).scratch === f.scratch
+end
+
 @testset "nonfinite inputs and Scaled ($T)" for T in (Float32, Float64)
   δ = nextfloat(zero(T))
   f = IndBallL1(T(2))
   small = Scaled(Scaled(f, δ), δ)
   large = Scaled(Scaled(f, floatmax(T)), floatmax(T))
+  @test small === f && large === f && Scaled(f, T(0.5)) === f && Scaled(f, T(Inf)) === f
   for γ in (zero(T), T(0.3), T(Inf)), h in (f, Scaled(f, zero(T)),
       Scaled(f, T(0.5)), Scaled(f, T(Inf)), small, large)
     @test prox(h, T[3, -1], γ) ≈ T[2, 0]
@@ -285,9 +373,10 @@ end
   for r in (zero(T), T(3), T(Inf))
     ball = IndBallL1(r)
     inner = Scaled(ball, T(0.5))
-    # The explicit type constructor preserves a nested wrapper with a normal
-    # product, so it exercises recursive validation outside the chain path.
+    # The explicit type constructors return the ball, so `inner` and `nested`
+    # are the ball itself.
     nested = Scaled{typeof(inner), T}(inner, T(0.5))
+    @test inner === ball && nested === ball && Scaled(ball, δ) === ball
     for h in (ball, Scaled(ball, δ), Scaled(Scaled(ball, δ), δ), nested)
       for op in (prox!, value_and_prox!)
         for γ in (T(-1), -δ, T(NaN))

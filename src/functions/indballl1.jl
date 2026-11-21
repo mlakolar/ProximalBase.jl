@@ -21,6 +21,9 @@ input. At a positive finite radius a single infinite entry, with no
 `NaN`, projects to the signed radius at that entry and zeros elsewhere.
 Several infinite entries or a `NaN` entry produce an all-`NaN` projection.
 
+`Scaled(f, α)`, `α * f` and `f * α` return `f` itself for a nonnegative `α`,
+including `0` and `Inf`. A negative or `NaN` factor throws `ArgumentError`.
+
 The value reads stored entries of a `SparseIterate`. With sparse input and
 output buffers, the projection visits stored entries except when it fills
 the logical array with `NaN`. A `BlockIterate` uses its full vector.

@@ -3,7 +3,7 @@ module IndNonnegativeTest
 # otherwise), the projection max(v, 0) (-0.0 and -Inf give +0.0, NaN stays NaN), the rejection of negative and NaN scalar
 # steps by prox, prox! and value_and_prox!, the routes that do not check the step, the representations (dense arrays,
 # SparseIterate, BlockIterate, SymmetricSparseIterate), validation before writes, the fused value at the stored output,
-# Scaled, the screen of kkt_violation and the allocations.
+# the scaling of the indicator (Scaled returns it), the screen of kkt_violation and the allocations.
 #
 # The references are written here with comparisons and ifelse, not with max or the kernels of the package, and are
 # compared with isequal and the type of the result, so that signed zeros and NaN count.
@@ -200,13 +200,17 @@ end
     @test prox!(y, IND, x, steps) === y && sameall(y, ref)
     @test same(value_and_prox!(y, IND, x, steps), T(NaN)) && sameall(y, ref)
     @test sameall(prox(IND, x, fill(-one(T), length(x))), ref)
-    # prox_block, and the routes of Scaled, do not check the step, and project
+    # prox_block does not check the step, and projects
     @test same(prox_block(IND, T(-3), 1, -one(T)), zero(T))
     @test same(prox_block(IND, T(3), 1, T(NaN)), T(3))
-    for γ in (-one(T), T(NaN))
-      @test sameall(prox(Scaled(IND, 2), x, γ), ref)
-      y = similar(x)
-      @test sameall(prox!(y, Scaled(IND, 2), x, γ), ref)
+    # a scaled indicator is the indicator, so the step check applies through the scale
+    for α in (2, Inf, 1e-300, T(0.5)), γ in (-one(T), T(NaN), -floatmin(T), -1)
+      @test_throws ArgumentError prox(α * IND, x, γ)
+      y = fill(T(7), length(x))
+      @test_throws ArgumentError prox!(y, α * IND, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError value_and_prox!(y, Scaled(IND, α), x, γ)
+      @test all(==(T(7)), y)
     end
   end
 end
@@ -460,12 +464,60 @@ end
   end
 end
 
+const BIGFLOAT_FACTOR = big(2.0)    # built before the allocation checks
+# the factors of the canonicalization tests: Int, Float32, Float64 and BigFloat, zero, subnormal, huge and infinite
+scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 5e-324, 1e-300, floatmax(Float64), Inf, Inf32,
+                                         0.0, -0.0, nextfloat(zero(T)), floatmax(T), T(Inf), big(2.0), big(0), big(Inf)]
+
+@testset "Scaled returns the indicator" begin
+  for T in TYPES, α in scale_factors(T)
+    @test Scaled(IND, α) === IND
+    @test α * IND === IND
+    @test IND * α === IND
+    @test Scaled{AbstractFunction, typeof(α)}(IND, α) === IND
+    @test Scaled{IndNonnegative, typeof(α)}(IND, α) === IND
+  end
+  # nested scalings return the indicator, also when the product of the factors overflows or underflows
+  @test Scaled(Scaled(IND, 1e300), 1e100) === IND
+  @test Scaled(Scaled(IND, 1e-300), 1e-100) === IND
+  @test Scaled(Scaled(IND, 1f30), 1f30) === IND
+  @test Scaled(Scaled(IND, 1e-200), 1e-200) === IND
+  @test Scaled(Scaled(IND, 1e200), 1e200) === IND
+  @test Scaled(Scaled(IND, 5e-324), 5e-324) === IND
+  @test 0 * (Inf * IND) === IND
+  @test Scaled(Scaled(IND, Inf), 0) === IND
+  @test Inf * (0 * IND) === IND
+  @test Scaled(Scaled(IND, 0), Inf) === IND
+  @test (2 * IND) * 3 === IND
+  # invalid factors throw before the function is returned
+  for α in (-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -floatmin(Float32), big(-1.0), big(NaN))
+    @test_throws ArgumentError Scaled(IND, α)
+    @test_throws ArgumentError α * IND
+    @test_throws ArgumentError IND * α
+    @test_throws ArgumentError Scaled{AbstractFunction, typeof(α)}(IND, α)
+  end
+  @test_throws ArgumentError Scaled(Scaled(IND, 2), -1)
+  @test_throws ArgumentError Scaled(Scaled(IND, Inf), NaN)
+  # construction is inferred and does not allocate
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, BIGFLOAT_FACTOR)
+    @test @inferred(Scaled(IND, α)) === IND
+    @test @inferred(α * IND) === IND
+    @test allocs(Scaled, IND, α) == 0
+    @test allocs(*, α, IND) == 0
+  end
+  @test @inferred(Scaled(Scaled(IND, 1e300), 1e100)) === IND
+  @test PB._isindicator(Scaled(IND, 2))
+  @test !(Scaled(IND, 2) isa Scaled) && Scaled(IND, 2) isa IndNonnegative
+  # a function that is not an indicator is still wrapped
+  @test Scaled(NormL1(1.0), 2.0) isa Scaled
+  @test Scaled(Scaled(NormL1(1.0), 2.0), 3.0) isa Scaled
+end
+
 @testset "Scaled" begin
   @test Scaled(IND, 0) === IND
   @test Scaled(IND, 0.0) === IND
   @test 0 * IND === IND
   @test 0.0 * IND === IND
-  @test PB._isindicator(Scaled(IND, 2))
   for T in TYPES
     x = specials(T)
     xn = nonan(T)
@@ -511,7 +563,11 @@ end
     y = similar(xn)
     @test isequal(value_and_prox!(y, sinf, xn, zero(T)), zero(T)) && sameall(y, refproject(xn))
     @test isequal(value_and_prox!(y, sinf, xn, zeros(T, length(xn))), zero(T)) && sameall(y, refproject(xn))
-    # sparse and symmetric iterates under Scaled
+    # the scaled indicator has the traits and hooks of the indicator
+    @test iszeropreserving(sinf) && iszeropreserving(Scaled(IND, 2)) && iszeropreserving(0 * (Inf * IND))
+    @test sinf isa SeparableFunction && PB.entry_parameters(sinf) == ()
+    @test isequal(value_entry(sinf, T(-1), 1), T(Inf)) && isequal(value_entry(2 * IND, T(1), 1), zero(T))
+    # sparse and symmetric iterates through a scale
     s = Scaled(IND, 2)
     sp = SparseIterate(T, 5); fill_entries!(sp, [(2, -1.0), (4, 3.0)])
     @test isequal(s(sp), T(Inf)) && sameall(Vector(prox(s, sp, one(T))), refproject(Vector(sp)))
@@ -522,6 +578,17 @@ end
     zs = copy(S)
     @test isequal(value_and_prox!(zs, s, zs, one(T)), zero(T))
     @test PB.check_symmetric_parameters(s, S) === true
+    # a scalar step that is negative or NaN throws before writing, as for the indicator; the entries of an array step are not checked
+    for α in (2, Inf, 1e-300), γ in (-one(T), T(NaN), -nextfloat(zero(T)))
+      y = fill(T(7), length(x))
+      @test_throws ArgumentError prox!(y, α * IND, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError value_and_prox!(y, α * IND, x, γ)
+      @test all(==(T(7)), y)
+      @test_throws ArgumentError prox(α * IND, x, γ)
+    end
+    steps = fill(-one(T), length(x))
+    @test sameall(prox(2 * IND, x, steps), refproject(x))
   end
 end
 
@@ -537,9 +604,7 @@ end
     nested = Scaled(Scaled(IND, tiny), tiny)
     inner = Scaled{AbstractFunction,T}(IND, T(2))
     retained = Scaled{typeof(inner),T}(inner, T(2))
-    @test merged.f === IND && merged.α === T(6)
-    @test nested.f isa Scaled && PB._chained(nested)
-    @test retained.f === inner && !PB._chained(retained)
+    @test merged === IND && nested === IND && inner === IND && retained === IND
     v = specials(T)
     x = zeros(T, length(v))
     for s in (Scaled(IND, T(1.5)), Scaled(IND, tiny), Scaled(IND, T(Inf)), merged, nested, retained)
@@ -557,6 +622,13 @@ end
     @test_throws ArgumentError Scaled(IND, T(NaN))
   end
   @test @inferred(kkt_violation(Scaled(IND, 2.0), Float32[0.25], 1)) === -0.25f0
+  # the MethodError of an unsupported form names the indicator
+  err = try; kkt_violation(2 * IND, [1.0], [0.0], 1); catch e; e; end
+  @test err isa MethodError && err.f === kkt_violation && err.args[1] === IND
+  # an aliased fused gradient has no method for the orthant; the wrapper used to refuse the alias
+  xa = [3.0, -1.0]
+  err = try; value_and_gradient!(xa, 2 * IND, xa); catch e; e; end
+  @test err isa MethodError && any(a -> a === IND, err.args)
 end
 
 @testset "kkt_violation, restrict, traits" begin

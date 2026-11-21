@@ -391,10 +391,10 @@ new clause labels.
 
 The check compares protected token and example counts within each reviewed
 passage. A split also preserves the original words. Each replacement occupies
-its own occurrence in the contract. The pilot retains the exact family guide
-section to preserve both example bodies and their surrounding Markdown. Take
-any intentional protected change to separate review. Run the command alongside the six
-preservation checks and the removed-lines report for the clause pilot.
+its own occurrence in the contract. This spec-only pilot uses the exact
+published guide file to preserve both example bodies and their Markdown
+context. Take any intentional protected change to separate review. Run the
+command alongside the six preservation checks and the removed-lines report.
 
 After the final Phase 5 blocking acceptance, retire the six temporary migration
 checks, the removed-lines report and the migration-only source/test scope guard

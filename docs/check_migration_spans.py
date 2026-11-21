@@ -171,13 +171,15 @@ def check(reference, candidate, plan, root=m.ROOT):
     examples = reference["guide_examples"]
     guide, anchor = m.split_destination(examples["scope"])
     authored_path(guide)
-    original_guide, _, _ = authored_section(authored_blob(revision, guide, root), guide, anchor)
-    current_guide, _, _ = authored_section(authored_blob(candidate, guide, root), guide, anchor)
+    original_guide = authored_blob(revision, guide, root)
+    current_guide = authored_blob(candidate, guide, root)
+    guide_section, _, _ = authored_section(original_guide, guide, anchor)
     opener = "```@example " + examples["sandbox"]
     example_count = sum(block.kind == "code" and block.text.splitlines()[0] == opener
-                        for block in m.blocks(original_guide, guide))
+                        for block in m.blocks(guide_section, guide))
     if not example_count or example_count != examples["count"]:
         raise ValueError("reference guide example count differs from the published inventory")
+    # Markdown before the section can change whether the examples execute.
     if original_guide != current_guide:
         findings.append(f"{examples['scope']}: retained examples or their guide context changed")
     return dict(reference=revision, candidate=candidate, passages=len(sources),

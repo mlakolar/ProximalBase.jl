@@ -136,6 +136,12 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, guide)
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
+    def test_fence_before_the_guide_section_also_changes_example_context(self):
+        heading = "## [Family guide](@id family-guide)"
+        decoy = "  " + heading + "\n\n```text\nExample explanation\n````\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, decoy + heading, 1))
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path
         spec.write_bytes(spec.read_bytes().replace(b"\n", b"\r\n"))

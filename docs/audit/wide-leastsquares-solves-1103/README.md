@@ -186,7 +186,7 @@ plan comes from the other roles, and the other roles, cells and schedules contin
      went through `PB_ADMM_CAP` iterations without meeting the target; `error` with the message when the run threw),
      the iteration count `k` (the first iteration that meets the target, or the cap) and the measures at `k` (Boyd's `r`,
      `s`, `eps_pri` and `eps_dual`, the stationarity and the objective), with the
-     trajectory at checkpoints. The levels are Boyd's rule and the stationarity `1e-8 max(1, ‖X'y‖∞)`. The A/A copies
+     trajectory at checkpoints, at the reached iterations and at the cap. The levels are Boyd's rule and the stationarity `1e-8 max(1, ‖X'y‖∞)`. The A/A copies
      use the counts of their family. The stationarity check, with its two matrix-vector products, runs in this pass and
      in the reference pass at each check, and once after each timed run outside its timed interval.
    - `admm`, at the same `ρ`: timed runs of those counts, `PB_ADMM_REPEATS` repeats per process in alternating role

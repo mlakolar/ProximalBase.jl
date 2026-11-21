@@ -661,8 +661,8 @@ def status_agrees(level, status, m, target):
 def parse_untimed(path, man, pins, verdict, P):
     """An untimed file: identity and stopping parameters (the scale is max(1, lambda_max) of the manifest), one level row
     per (rho, primary role, level) whose measures agree with its status, finite nonnegative measures, and trajectory
-    rows that are the checkpoints up to the last iteration run and the reached iterations, without repeats, with each
-    level row equal to the trajectory row at its k."""
+    rows that are the checkpoints up to the last iteration run, that iteration and the reached iterations, without
+    repeats, with each level row equal to the trajectory row at its k."""
     where = os.path.basename(path)
     try:
         header, cols, rows = read_tsv(path)
@@ -756,14 +756,14 @@ def parse_untimed(path, man, pins, verdict, P):
                 P.add(where, "level records absent", "rho=%s %s" % (rho, role))
                 continue
             ran = max(x["k"] for x in lv) if all(x["status"] == "reached" for x in lv) else cap
-            want = {k for k in ADMM_CHECKPOINTS if k <= ran} | {x["k"] for x in lv if x["status"] == "reached"}
+            want = {k for k in ADMM_CHECKPOINTS if k <= ran} | {ran} | {x["k"] for x in lv if x["status"] == "reached"}
             got = traj.get((rho, role), {})
             if set(got) != want:
-                P.add(where, "trajectory rows other than the checkpoints and the reached iterations",
+                P.add(where, "trajectory rows other than the checkpoints, the last iteration and the reached iterations",
                       "rho=%s %s: %s, expected %s" % (rho, role, sorted(got), sorted(want)))
                 continue
             for l, x in zip(ADMM_LEVELS, lv):
-                if got[x["k"]] != texts[(rho, role, l)]:
+                if got.get(x["k"]) != texts[(rho, role, l)]:
                     P.add(where, "level records that differ from the trajectory row at their k", "rho=%s %s %s" % (rho, role, l))
     return u
 

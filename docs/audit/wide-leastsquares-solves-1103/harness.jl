@@ -749,7 +749,8 @@ end
 #     tolerance when capped; for tight, the stationarity at most tight_tol·scale when reached and above it when capped
 #     (each with a relative slack of UNTIMED_SLACK for the 10-digit output);
 #   - the trajectory rows of each (rho, role) are the checkpoints up to the last iteration run (the larger k when both
-#     levels are reached, the cap otherwise) and the iterations k of the reached levels, without repeats, and each
+#     levels are reached, the cap otherwise), that last iteration and the iterations k of the reached levels, without
+#     repeats, and each
 #     level row repeats the measures of the trajectory row at its k;
 #   - no run failed (an error row).
 # Otherwise it throws.
@@ -824,13 +825,14 @@ function load_kstar(dir::String, m::Manifest, c::Case, prim)
         b, t = out[(ρ, r.name, "boyd")], out[(ρ, r.name, "tight")]
         ran = b.reached && t.reached ? max(b.k, t.k) : ADMM_CAP
         want = Set(k for k in ADMM_CHECKPOINTS if k <= ran)
+        push!(want, ran)
         b.reached && push!(want, b.k)
         t.reached && push!(want, t.k)
         rows_ = get(traj, (ρ, r.name), Dict{Int,Vector{String}}())
-        Set(keys(rows_)) == want || refuse("the trajectory rows of $(r.name) at rho=$ρ are not the checkpoints and the reached iterations")
+        Set(keys(rows_)) == want || refuse("the trajectory rows of $(r.name) at rho=$ρ are not the checkpoints, the last iteration and the reached iterations")
         for lvl in ADMM_LEVELS
             lm, x = levelmeas[(ρ, r.name, lvl)], out[(ρ, r.name, lvl)]
-            rows_[x.k] == lm || refuse("the $lvl record of $(r.name) at rho=$ρ differs from its trajectory row")
+            get(rows_, x.k, nothing) == lm || refuse("the $lvl record of $(r.name) at rho=$ρ differs from its trajectory row")
         end
     end
     out, (file = name, sha256 = sha)

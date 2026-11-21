@@ -625,8 +625,8 @@ end
 # Boyd's rule and for the stationarity target tight_tol·scale, the status (:reached, or :capped when the run went
 # through all cap iterations without meeting the target), the iteration count k (the first iteration that meets the
 # target, or cap when capped) and the measures (r, s, eps_pri, eps_dual, stationarity, objective) at that iteration,
-# and the trajectory
-# at the checkpoints and at the iterations that reached a target. The run stops when both targets are reached.
+# and the trajectory at the checkpoints, at the iterations that reached a target and at the cap. The run stops when
+# both targets are reached.
 function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; tight_tol::Real, scale::Real, cap::Int,
                       εabs = 1e-4, εrel = 1e-2) where {T}
     n, p = size(X)
@@ -652,7 +652,7 @@ function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; t
             tight = (k, last)
             hit = true
         end
-        (hit || k in ADMM_CHECKPOINTS) && push!(rows, (Float64(k), last...))
+        (hit || k in ADMM_CHECKPOINTS || k == cap) && push!(rows, (Float64(k), last...))
         boyd !== nothing && tight !== nothing && break
     end
     # a target that is not met has been tried through all cap iterations here (the loop breaks only when both are met)

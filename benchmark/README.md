@@ -720,7 +720,10 @@ The default cells are the value and `value_and_gradient!` on dense `p × q` matr
 sweep instead: `p = 50, 200, 800` and the nonzero counts of `sweep_counts(p)`, from `p/2` to every
 coordinate, with counts on both sides of the candidate's cutoffs (`2n = p²/16` for value-only calls,
 `2n = p²/8` for gradient calls). The sweep builds and times one cell at a time; `PB_ROUNDS_LARGE` sets
-the rounds at `p = 800`, and the trials there take one second instead of half a second.
+the rounds at `p = 800`, and the trials there take one second instead of half a second. One round of
+the sweep (168 cases, with the warm-up trial and the output checks) took 572 s on one AMD Zen 2 node
+with Julia 1.13.4; a run of `PB_ROUNDS=5` is estimated at about 30 minutes per Julia version, so the
+sweep needs no reduction of the rounds at `p = 800`.
 
 Each case cycles through eight distinct arguments. The roles share the dense arguments, the data and
 the output; each tree builds its own iterates from the same coordinates and values (the dense role reads

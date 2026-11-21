@@ -92,53 +92,36 @@ For `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox` (including `IndBallLinf`) an
 `IndNonnegative`, `Scaled(f, α)`, `α * f` and `f * α` return `f` itself for any
 nonnegative `α`, including `0`, `-0.0` and `Inf`, and nested scalings of `f` return `f`
 ([#1080](https://github.com/mlakolar/ProximalBase.jl/issues/1080)). The explicitly parametric
-constructor `Scaled{F, T}(f, α)` does the same, including `Scaled{AbstractFunction, T}`.
-Negative, NaN and `-Inf` factors still throw `ArgumentError`, before the indicator is returned.
-A zero scale already returned `f`; a positive scale built a `Scaled` wrapper.
+constructor `Scaled{F, T}(f, α)` does the same, with the usual constraints `f isa F` and
+`α isa T`. Negative, NaN and `-Inf` factors throw `ArgumentError`. Before 0.6 these calls with a
+positive scale went through a `Scaled` wrapper whose step arithmetic, validation and errors could differ from the
+indicator's; code that relied on them, or on `isa Scaled`, `.f` or `.α` of the result, must be
+updated. A call on the result is a call on the indicator:
 
-The result is the indicator object itself, so a call on it, supported or not, behaves as the call on
-the bare indicator, including which error an unsupported call raises and in which order its
-checks run. No wrapper is built for these functions, so the wrapper's dispatch and checks do not apply to them. The
-cases below are representative; the first is the motivating one.
-
-* `prox(Inf * IndBallL0(1), [3.0, -1.0], 1.0)` threw `ArgumentError` (the product of the scale
-  and the step was not finite) and now projects to `[3.0, 0.0]`. An overflowing product and
-  chains through `Inf` threw in the same way. Nested scalings that the wrapper kept apart
-  because their product overflowed or underflowed now return `f`.
-* The wrapper multiplied the caller's step by the scale, in the step's arithmetic, so a valid
-  integer step could fail: `prox(2 * IndBallL0(1), [3.0, -1.0], typemax(Int))` threw
-  `ArgumentError` (the integer product wrapped to a negative step) and now projects to
-  `[3.0, 0.0]`; `prox(2 * IndBallL0(1), [3.0, -1.0], -typemax(Int))` projected (the product
-  wrapped to a positive step) and now throws `ArgumentError`. A tiny negative step whose
-  product with a small factor rounded to `-0.0` projected and now throws, as the bare
-  `IndBallL0` does.
-* A complex step to `prox!` on `2 * IndBallL0(1)` raised `MethodError` and now raises
-  `ArgumentError`.
+* `prox(Inf * IndBallL0(1), [3.0, -1.0], 1.0)` projects to `[3.0, 0.0]`.
+* `prox(2 * IndBallL0(1), [3.0, -1.0], typemax(Int))` projects to `[3.0, 0.0]`, and
+  `prox(2 * IndBallL0(1), [3.0, -1.0], -typemax(Int))` throws `ArgumentError`.
+* A complex step to `prox!` on `2 * IndBallL0(1)` throws `ArgumentError`.
 * `value_and_gradient!(x, 2 * IndNonnegative(), x)` with the same array as input and output
-  raised `ArgumentError` and now raises `MethodError`, because the orthant has no gradient
-  method.
+  throws `MethodError`, because the orthant has no gradient method.
 * `IndBallL0` accepts the step `Inf`; the projection does not depend on the step. A negative
-  or NaN step throws `ArgumentError` before writing, with the message "the step of
+  or NaN step throws `ArgumentError` before writing; its message begins "the step of
   `IndBallL0` must be nonnegative".
-* In the supported scalar-step array calls `prox`, `prox!` and `value_and_prox!` of the box,
-  `IndBallLinf` and the orthant, a negative or NaN step through `α * f` with `α > 0` (the
-  positive wrapped route, when the other preconditions held) projected; it now throws
-  `ArgumentError` before writing, as on the bare indicator. A shape, axes or type error
-  can precede the step check (for `IndBallL0` a wrong output extent raises `DimensionMismatch`
-  first), and `prox_block` of the box and of the orthant ignores its step. Where several errors
-  apply, the indicator's order decides, so the error type of some calls changes.
-* `iszeropreserving(Inf * f)` is the value for `f`: `true` for the orthant and for a box
-  whose every interval contains zero, `false` for a box with an interval that excludes zero.
-  It was `false` for the wrapper of an infinite scale.
-* `0 * (Inf * f)` and `Scaled(Scaled(f, Inf), 0)` return `f`; they threw `ArgumentError`.
+* A negative or NaN scalar step makes `prox`, `prox!` and `value_and_prox!` of `α * IndBox(...)`,
+  `α * IndBallLinf(...)` and `α * IndNonnegative()` throw `ArgumentError` before writing; another
+  check (argument axes, shape or type) can raise its error first. `prox_block` of the box and of
+  the orthant ignores the step.
+* `iszeropreserving(Inf * f)` is that of `f`: `true` for the orthant and for a box whose every
+  interval contains zero.
+* `0 * (Inf * f)` and `Scaled(Scaled(f, Inf), 0)` return `f`.
 * `check_parameters`, `entry_parameters`, `value_entry` and the `SeparableFunction`
   dispatch see the indicator, so `check_parameters(2 * IndBox(l, u), x)` throws
   `DimensionMismatch` for a bound array whose length does not match `x`.
-* An unsupported `kkt_violation` form raises a `MethodError` for the indicator, after the
-  checks that apply to the call (a wrong extent can raise `DimensionMismatch` first). Among these
-  indicators only `IndNonnegative` has a three-argument screen.
+* An unsupported `kkt_violation` form raises the `MethodError` of the indicator when the other
+  checks of the call pass. Among these indicators only `IndNonnegative` has a three-argument
+  screen.
 * `typeof`, `.f` and `.α`, `isa Scaled`, `==`, `hash` and `show` of the result are those of
-  the indicator. Code that unwraps `s.f` after `α * f` needs a check for the indicator.
+  the indicator.
 
 ### The four-argument `kkt_violation` reads the point (0.6, breaking)
 
@@ -254,8 +237,8 @@ What changed besides the values of the table:
   (the [scaling guide](@ref scaled-kkt)).
 * `Scaled` over a function of the package without a score (for example `SqrtLeastSquaresLoss`, in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
-  and a private array type before. For `IndNonnegative` and the other built-in indicators,
-  `α * f` is the indicator, and the `MethodError` names it
+  and a private array type before. For the built-in indicators, `α * f` is the indicator, and an
+  unsupported form raises the `MethodError` of the indicator
   ([#1080](https://github.com/mlakolar/ProximalBase.jl/issues/1080)).
 * A function defined outside the package gets its three-argument method's value at a zero
   coordinate and an `ArgumentError` at a nonzero one, on arrays, a `BlockIterate` and a
@@ -279,11 +262,11 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 |:--|:--|:--|
 | `ElasticNet(λ1, λ2, w)` ([#908](https://github.com/mlakolar/ProximalBase.jl/issues/908)) | Constructor, fields `λ1`, `λ2`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` folds and zero scaling | Built on the retained `NormL1` threshold and `SqrNormL2` ridge kernels, so ordinary results can differ in the last bits (multiplication by the rounded `1/(1 + γλ2)`). An infinite `λ1` follows the current `NormL1` rule (`+0` for positive weights, also at `γ = 0` and for `NaN`/`±Inf` inputs) where the archive returned `NaN`. An infinite `λ2` is the indicator of `{0}`. A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic |
 | `NormL1Nonneg(λ0, w)` ([#947](https://github.com/mlakolar/ProximalBase.jl/issues/947)) | Constructor, fields `λ0`, `w`, value, `prox_block`, `value_entry`, array proximal operators, KKT screen, `restrict`, `Scaled` zero scaling and level folds | The domain test is exact: `x ≥ 0` with `-0.0` feasible, where the archive accepted entries down to `-sqrt(eps)` and clamped them at zero (the value rules are in the [numerical contract](numerics.md)). An infinite level follows the current `NormL1` rule (`+0` for positive weights at every `γ ≥ 0`, `NaN` and `±Inf` inputs included). With a `Float32` level and an unweighted `Float32` entry, `value_entry` returns `Float32` rather than the archive's `Float64` ([#684](https://github.com/mlakolar/ProximalBase.jl/issues/684)). A negative or `NaN` scalar step throws `ArgumentError` before writes; the archive applied the arithmetic. New: the point-aware `kkt_violation(f,v,x,k)` and `kkt_violation(f,v,x)` |
-| `IndNonnegative()` ([#948](https://github.com/mlakolar/ProximalBase.jl/issues/948)) | The type, `isconvex`, `iszeropreserving`, `value_entry`, `prox_block`, the screen `kkt_violation(f,v,i) = -v[i]`, `restrict`, and zero scaling (`Scaled(f, 0)` is `f`) | The value is exact: `0` at a point with no negative entry, `Inf` at a negative entry of any size (the archive accepted `v >= -_tol`), and `NaN` at a `NaN` entry (the archive gave `Inf`). `value_and_prox!` returns the value at the stored output, so `NaN` where an output entry is `NaN` (the archive returned `0`). A negative or `NaN` scalar step throws `ArgumentError` before writes in `prox`, `prox!` and `value_and_prox!`; the archive did not check the step. The point-aware `kkt_violation` forms, conjugates, `Constrained` and the envelope slopes are not restored. In 0.6, `Scaled(f, α)`, `α * f` and `f * α` return `f` for any nonnegative `α` (see the 0.6 note on scaled built-in indicators above). |
+| `IndNonnegative()` ([#948](https://github.com/mlakolar/ProximalBase.jl/issues/948)) | The type, `isconvex`, `iszeropreserving`, `value_entry`, `prox_block`, the screen `kkt_violation(f,v,i) = -v[i]`, `restrict`, and zero scaling (`Scaled(f, 0)` is `f`) | The value is exact: `0` at a point with no negative entry, `Inf` at a negative entry of any size (the archive accepted `v >= -_tol`), and `NaN` at a `NaN` entry (the archive gave `Inf`). `value_and_prox!` returns the value at the stored output, so `NaN` where an output entry is `NaN` (the archive returned `0`). A negative or `NaN` scalar step throws `ArgumentError` before writes in `prox`, `prox!` and `value_and_prox!`; the archive did not check the step. The point-aware `kkt_violation` forms, conjugates, `Constrained` and the envelope slopes are not restored. 0.6: scaling returns the indicator; see above. |
 | `IndBox(l, u)` ([#949](https://github.com/mlakolar/ProximalBase.jl/issues/949)) | Scalar and per-entry bounds, value, coordinatewise projection, and restriction | Array bounds are copied, feasibility uses exact interval comparisons, and a `NaN` entry gives value `NaN` |
-| `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and zero scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps. In 0.6, `Scaled(f, α)`, `α * f` and `f * α` return `f` for any nonnegative `α` (see the 0.6 note on scaled built-in indicators above). |
+| `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps. 0.6: scaling returns the indicator; see above. |
 | `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
-| `IndBallL0(s; diagonal = true)` ([#1084](https://github.com/mlakolar/ProximalBase.jl/issues/1084)) | The indicator and projection with both diagonal modes. The budget counts full entries. Vectors and ordinary matrices select individual entries. Dense `Symmetric` and `SymmetricSparseIterate` select pairs at cost two and counted diagonals at cost one | In the initial #1057 draft a raw matrix selected symmetric pairs. Wrap the chosen triangle with `Symmetric(X, :L)` or `Symmetric(X, :U)` to request that projection. Use `diagonal = false` to keep the diagonal free. For an edge limit `k_edges`, use `s = 2*k_edges` as in [ProximalSolvers #449](https://github.com/mlakolar/ProximalSolvers.jl/issues/449). Earlier single-count pair budgets require conversion. With counted diagonals, a single rescaling cannot preserve the feasible set. The step is nonnegative, `Inf` included. In 0.6, `Scaled(f, α)`, `α * f` and `f * α` return `f` for any nonnegative `α` (see the 0.6 note on scaled built-in indicators above). |
+| `IndBallL0(s; diagonal = true)` ([#1084](https://github.com/mlakolar/ProximalBase.jl/issues/1084)) | The indicator and projection with both diagonal modes. The budget counts full entries. Vectors and ordinary matrices select individual entries. Dense `Symmetric` and `SymmetricSparseIterate` select pairs at cost two and counted diagonals at cost one | In the initial #1057 draft a raw matrix selected symmetric pairs. Wrap the chosen triangle with `Symmetric(X, :L)` or `Symmetric(X, :U)` to request that projection. Use `diagonal = false` to keep the diagonal free. For an edge limit `k_edges`, use `s = 2*k_edges` as in [ProximalSolvers #449](https://github.com/mlakolar/ProximalSolvers.jl/issues/449). Earlier single-count pair budgets require conversion. With counted diagonals, a single rescaling cannot preserve the feasible set. The step is nonnegative. 0.6: accepts `γ = Inf`; scaling returns the indicator, see above. |
 
 ## Names, coordinates and writes
 

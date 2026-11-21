@@ -101,7 +101,7 @@ four-argument methods read `x`: the three-argument value at a zero coordinate or
 is no generic full-point method. Under `Scaled` the method of such a function is not called: the
 scaled three-argument value at a zero coordinate or group, and an `ArgumentError` at a nonzero one,
 unless the methods for `Scaled{<:TheirType}` are defined. A built-in function without a method, such as `SqrtLeastSquaresLoss`,
-throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `Scaled` function. The built-in indicators are not wrapped, because `Scaled(f, α)` returns `f` for a nonnegative `α`; an unsupported form on `α * f` raises a `MethodError` for the call on `f`, after the checks that apply to the call, which can throw first (`DimensionMismatch` for a wrong extent, for example).
+throws `MethodError`; under `Scaled` the `MethodError` is for the call on the `Scaled` function. Among the built-in indicators only `IndNonnegative` has a three-argument screen; `Scaled(f, α)` returns the indicator `f` for a nonnegative `α`, and an unsupported form on `α * f` raises the `MethodError` of the indicator when the other checks of the call pass.
 `GroupNormL2` supplies a native block score instead (one block kernel, `_l2_score`), checking the
 selected ordered layout and the full gradient length; its array-point form takes an entry index,
 its full-point form checks the whole layout of a `BlockIterate`, and its three-argument form throws

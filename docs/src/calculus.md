@@ -36,7 +36,7 @@ ignore the step. `iszeropreserving(Inf * f)` is that of `f`.
 
 Smoothness, convexity, proximability and separability traits come from the
 original function. The type traits of a wrapper query its declared field type `F`.
-Zero preservation additionally requires a finite scale
+Zero preservation of a `Scaled` wrapper additionally requires a finite scale
 and an original function that preserves zero. Scaling only works with
 operations already supported by the original function.
 For example, scaling does not create a gradient for a function without one.

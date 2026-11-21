@@ -105,8 +105,9 @@ updated. A call on the result is a call on the indicator:
 * `value_and_gradient!(x, 2 * IndNonnegative(), x)` with the same array as input and output
   throws `MethodError`, because the orthant has no gradient method.
 * `IndBallL0` accepts the step `Inf`; the projection does not depend on the step. A negative
-  or NaN step throws `ArgumentError` before writing; its message begins "the step of
-  `IndBallL0` must be nonnegative".
+  or NaN step is refused before writing. Calls that reach the step check raise `ArgumentError`
+  with a message that begins "the step of `IndBallL0` must be nonnegative"; a wrong output
+  extent raises `DimensionMismatch` first.
 * A negative or NaN scalar step makes `prox`, `prox!` and `value_and_prox!` of `α * IndBox(...)`,
   `α * IndBallLinf(...)` and `α * IndNonnegative()` throw `ArgumentError` before writing; another
   check (argument axes, shape or type) can raise its error first. `prox_block` of the box and of
@@ -115,8 +116,8 @@ updated. A call on the result is a call on the indicator:
   interval contains zero.
 * `0 * (Inf * f)` and `Scaled(Scaled(f, Inf), 0)` return `f`.
 * `check_parameters`, `entry_parameters`, `value_entry` and the `SeparableFunction`
-  dispatch see the indicator, so `check_parameters(2 * IndBox(l, u), x)` throws
-  `DimensionMismatch` for a bound array whose length does not match `x`.
+  dispatch see the indicator. For example, `check_parameters(2 * IndBox([0.0, 0.0], [1.0, 1.0]), x)`
+  throws `DimensionMismatch` for a one-based `x` whose length differs from that of the bound arrays.
 * An unsupported `kkt_violation` form raises the `MethodError` of the indicator when the other
   checks of the call pass. Among these indicators only `IndNonnegative` has a three-argument
   screen.
@@ -237,9 +238,8 @@ What changed besides the values of the table:
   (the [scaling guide](@ref scaled-kkt)).
 * `Scaled` over a function of the package without a score (for example `SqrtLeastSquaresLoss`, in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
-  and a private array type before. For the built-in indicators, `α * f` is the indicator, and an
-  unsupported form raises the `MethodError` of the indicator
-  ([#1080](https://github.com/mlakolar/ProximalBase.jl/issues/1080)).
+  and a private array type before. For the built-in indicators see the note on scaled built-in
+  indicators above ([#1080](https://github.com/mlakolar/ProximalBase.jl/issues/1080)).
 * A function defined outside the package gets its three-argument method's value at a zero
   coordinate and an `ArgumentError` at a nonzero one, on arrays, a `BlockIterate` and a
   `SymmetricSparseIterate`, unless it defines the four-argument method; see

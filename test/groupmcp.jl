@@ -549,7 +549,7 @@ end
     # norms near the thresholds of the step, or at a random scale
     cut = γ < a ? big(γ) * λ * rand(rng, (big"0.5", big(1), big"1.0000001", big(2))) :
                   λ * sqrt(big(a) * big(γ)) * rand(rng, (big"0.5", big(1), big"1.0000001", big(2)))
-    r = rand(rng, Bool) ? cut : ldexp(big(1), er)
+    r = rand(rng, Bool) ? cut : ldexp(big(1.0), er)
     big(floatmax(T)) / 2 > r > 64 * big(δ) * n || continue
     u = vector_with_norm(rng, T, n, r)
     all(isfinite, u) && any(!iszero, u) || continue

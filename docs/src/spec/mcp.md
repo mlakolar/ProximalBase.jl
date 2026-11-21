@@ -4,6 +4,7 @@
 
 ```@raw html
 <span id="Identity"></span>
+<span id="Identity-1"></span>
 ```
 
 [`MCP`](@ref MCP) is the separable minimax concave penalty. The scalar
@@ -14,6 +15,7 @@ hooks and dense kernels are in
 
 ```@raw html
 <span id="Definition-and-domain"></span>
+<span id="Definition-and-domain-1"></span>
 ```
 
 `MCP(λ, a=3)` takes a nonnegative real level and a strictly positive real
@@ -31,6 +33,7 @@ a\lambda^2/2 & t>a\lambda.
 
 ```@raw html
 <span id="Traits"></span>
+<span id="Traits-1"></span>
 ```
 
 MCP is separable, proximable and zero-preserving. Its type-level convexity
@@ -41,6 +44,7 @@ because the parameters are shared across entries.
 
 ```@raw html
 <span id="Supported-arguments"></span>
+<span id="Supported-arguments-1"></span>
 ```
 
 Direct oracles use one-based real arrays and the supported
@@ -54,6 +58,7 @@ steps.
 
 ```@raw html
 <span id="Preconditions"></span>
+<span id="Preconditions-1"></span>
 ```
 
 Exact input/output identity and independent destinations follow the
@@ -65,6 +70,7 @@ passed through `Scaled`.
 
 ```@raw html
 <span id="Results"></span>
+<span id="Results-1"></span>
 ```
 
 ### [Proximal return values](@id mcp.prox.stored-output)
@@ -81,6 +87,7 @@ An off-diagonal symmetric entry contributes twice to the value.
 
 ```@raw html
 <span id="Ordinary-path-clauses"></span>
+<span id="Ordinary-path-clauses-1"></span>
 ```
 
 At a positive finite step, level and shape, the scalar proximal operator
@@ -95,6 +102,7 @@ Mathematical ties give positive zero.
 
 ```@raw html
 <span id="Range-clauses"></span>
+<span id="Range-clauses-1"></span>
 ```
 
 The hard comparison uses a fixed-width significand comparison when
@@ -110,6 +118,7 @@ give `floatmax(T)` or `Inf`.
 
 ```@raw html
 <span id="Endpoint-clauses"></span>
+<span id="Endpoint-clauses-1"></span>
 ```
 
 Apply the first matching proximal rule for a nonnegative, non-NaN step.
@@ -135,6 +144,7 @@ At a finite positive step the infinite-shape map uses soft thresholding.
 
 ```@raw html
 <span id="Failure-behavior"></span>
+<span id="Failure-behavior-1"></span>
 ```
 
 The constructor rejects negative and NaN levels and nonpositive and NaN
@@ -146,6 +156,7 @@ positions. A symmetric sparse iterate output rejects an array step.
 
 ```@raw html
 <span id="Limitations-and-non-guarantees"></span>
+<span id="Limitations-and-non-guarantees-1"></span>
 ```
 
 The homogeneous targets describe the supported precision. `Scaled` uses
@@ -158,6 +169,7 @@ range checks. Mixed blocks and unresolved comparisons use the scalar path.
 
 ```@raw html
 <span id="Clauses-owned-elsewhere"></span>
+<span id="Clauses-owned-elsewhere-1"></span>
 ```
 
 This section links to the shared owners.
@@ -170,6 +182,7 @@ This section links to the shared owners.
 
 ```@raw html
 <span id="Evidence"></span>
+<span id="Evidence-1"></span>
 ```
 
 | Clause ID | Status | Evidence |
@@ -186,6 +199,7 @@ validation and fused values in both supported types. The
 
 ```@raw html
 <span id="History"></span>
+<span id="History-1"></span>
 ```
 
 The [feature issue](https://github.com/mlakolar/ProximalBase.jl/issues/952)

@@ -272,3 +272,103 @@ end
   z = (d * lift + share) * unit
   iszero(z) ? zero(T) : copysign(z, v)
 end
+
+"""
+    ProximalBase.feasibility_margin_bounds(f::IndBallL1{T}, x::Vector{T}; accurate::Bool=false)
+
+Enclose `sum(abs, x) - f.r` for the exact real values stored in `x` and `f.r`,
+where `T` is `Float32` or `Float64` and the radius is positive, normal and
+finite. A returned pair `(l, u)` consists of two finite `Float64` endpoints.
+`u ≤ 0` certifies feasibility, `l > 0` certifies infeasibility, and
+`l ≤ 0 < u` leaves the sign unresolved. `max(0, u)` bounds violation and
+`max(0, -l)` bounds inward deficit.
+
+The default sums magnitudes in `Float64` and encloses the summation error.
+`accurate=true` retains the rounding residuals of the sum and radius
+subtraction. Each mode reads the vector once and uses scalar state.
+
+Returns `nothing` for a union element type, nonfinite data, a radius outside
+the stated domain, nonfinite intermediate arithmetic or endpoints, or a
+vector longer than `2^51 + 1`. This diagnostic requires IEEE round-to-nearest
+ties-to-even, gradual underflow and ordinary Julia floating-point evaluation.
+It returns `nothing` if Julia reports a different rounding mode or flush-to-zero.
+
+```jldoctest
+julia> ProximalBase.feasibility_margin_bounds(IndBallL1(1.0), [0.5, -0.5]; accurate=true)
+(0.0, 0.0)
+```
+
+See the [IndBallL1 numerical contract](@ref spec-indballl1).
+"""
+function feasibility_margin_bounds(f::IndBallL1{T}, x::Vector{T}; accurate::Bool=false) where {T<:Union{Float32,Float64}}
+  (T === Float32 || T === Float64) || return nothing
+  r = f.r
+  isfinite(r) && r >= floatmin(T) || return nothing
+  Base.get_zero_subnormals() && return nothing
+  Base.rounding(Float64) === RoundNearest || return nothing
+  k = max(0, length(x) - 1)
+  k <= (Int64(1) << 51) || return nothing
+  accurate ? _ball_l1_margin_compensated(x, Float64(r), k) : _ball_l1_margin_screen(x, Float64(r), k)
+end
+
+# With c = k*2^-53 <= 1/4, gamma_k/(1-gamma_k) = c/(1-2c) <= 2c.
+# This converts an error bound in terms of an exact absolute mass to one in
+# terms of its rounded nonnegative sum s. The factor 2c is exact and the
+# successor rounds the product outward, including when it underflows.
+@inline function _ball_l1_margin_error(s::Float64, k::Int)
+  (k == 0 || s == 0) ? 0.0 : nextfloat((Float64(k) * eps(Float64)) * s)
+end
+
+@inline function _ball_l1_margin_finite(l::Float64, u::Float64)
+  isfinite(l) && isfinite(u) ? (l, u) : nothing
+end
+
+# TwoSum with gradual underflow. A subnormal sum or difference of dyadic
+# Float64 operands is a multiple of the least subnormal spacing and exact.
+@inline function _ball_l1_margin_two_sum(a::Float64, b::Float64)
+  h = a + b
+  bpart = h - a
+  h, (a - (h - bpart)) + (b - bpart)
+end
+
+@inline function _ball_l1_margin_exact_pair(a::Float64, b::Float64)
+  h, e = _ball_l1_margin_two_sum(a, b)
+  isfinite(h) && isfinite(e) || return nothing
+  _ball_l1_margin_finite(e < 0 ? prevfloat(h) : h, e > 0 ? nextfloat(h) : h)
+end
+
+function _ball_l1_margin_screen(x, r::Float64, k::Int)
+  # Widening is exact. The SIMD tree adds each magnitude once, with at
+  # most n-1 rounded additions on any path and exact additions of zero.
+  s = _linf_sum(x, _AbsRead{Float64}(), Float64)
+  isfinite(s) || return nothing
+  e = _ball_l1_margin_error(s, k)
+  e == 0 && return _ball_l1_margin_exact_pair(s, -r)
+  d = s - r
+  # Enclose the radius subtraction first, then add the mass error outward.
+  _ball_l1_margin_finite(prevfloat(prevfloat(d) - e), nextfloat(nextfloat(d) + e))
+end
+
+function _ball_l1_margin_compensated(x, r::Float64, k::Int)
+  h, lo, q = 0.0, 0.0, 0.0
+  @inbounds for v in x
+    a = abs(Float64(v))
+    swap = h < a
+    big = ifelse(swap, a, h)
+    small = ifelse(swap, h, a)
+    s = h + a
+    e = small - (s - big) # FastTwoSum with the larger magnitude first.
+    h = s
+    lo += e
+    q += abs(e)
+  end
+  d, e = _ball_l1_margin_two_sum(h, -r)
+  # The first mass residual was zero. There are at most n residuals after
+  # appending the radius residual, hence both residual sums use depth k.
+  lo += e
+  q += abs(e)
+  isfinite(d) && isfinite(lo) && isfinite(q) || return nothing
+  err = _ball_l1_margin_error(q, k)
+  err == 0 && return _ball_l1_margin_exact_pair(d, lo)
+  _ball_l1_margin_finite(prevfloat(d + prevfloat(lo - err)), nextfloat(d + nextfloat(lo + err)))
+end

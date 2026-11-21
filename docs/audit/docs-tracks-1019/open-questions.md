@@ -128,6 +128,58 @@ that happens to pass.
   subtraction wording awaits the owner's decision.
   [Source](../../../src/functions/groupnormlinf.jl)
 
+- The box endpoint row says public scalar-step array oracles reject invalid
+  steps. It could describe direct box calls or also calls through Scaled.
+  The direct methods check the step, and the wrapper tests distinguish
+  the dispatch paths. The scope of the statement awaits the owner's
+  decision. [Source](../../../src/functions/indbox.jl)
+  · [Tests](../../../test/indballlinf.jl)
+
+- The IndBallL2 endpoint row says multiple infinite entries or any NaN give
+  an all-NaN projection. That sentence could inherit the positive finite
+  radius qualifier or apply to all radii. The tests check zero-radius fill,
+  infinite-radius copy, and positive finite radius separately. The qualifier
+  awaits the owner's decision. [Tests](../../../test/indballl2.jl)
+
+- The LogDetLoss endpoint paragraph says a positive finite step accepts
+  finite inputs. It could describe the input check or imply that every
+  finite matrix yields a result. The extreme-range test uses a finite
+  matrix and checks a failure before writes. The scope of “accepts”
+  awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
+  · [Tests](../../../test/logdet.jl)
+
+- The GroupNormLinf endpoint table says the rules apply in order and lists
+  identity cases before the invalid-step error. The ordering could include
+  negative and NaN steps or apply after step validation. The public array
+  and compact paths check the step before writing, and the tests exercise
+  that failure. The table's scope awaits the owner's decision.
+  [Source](../../../src/functions/groupnormlinf.jl)
+  · [Tests](../../../test/groupnormlinf.jl)
+
+- The SparseGroupNormL2 guide calls `SymmetricSparseIterate` unsupported
+  for KKT. This could refer to the point argument alone or also to the
+  supplied gradient. The point methods reject symmetric iterates, and the
+  gradient checks accept a one-based real array of matching length. The
+  tests exercise rejection for a symmetric point. The scope awaits the
+  owner's decision. [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Tests](../../../test/sparsegroupnorml2.jl)
+
+- The SparseGroupNormL2 endpoint table introduces its rules for each covered
+  group. The negative or NaN step row could be read as conditional on there
+  being a covered group or as a preflight for every call. The array oracle
+  checks the step before processing groups. The tests cover the empty-group
+  identity at a valid step and invalid-step rejection with groups. The
+  scope awaits the owner's decision. [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Tests](../../../test/sparsegroupnorml2.jl)
+
+- The SparseGroupNormL2 KKT endpoint paragraph says “For finite entries”.
+  This could refer to stored inputs or to values after conversion to the
+  working type. The score classifies converted gradient and point entries.
+  The shared group-score tests include a finite integer point that becomes
+  infinite in `Float16`. The scope awaits the owner's decision.
+  [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Shared group-score tests](../../../test/kkt_block.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

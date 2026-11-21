@@ -32,19 +32,9 @@ through [`matrixview`](@ref). Results are dense. Pass a full writable strided
 matrix or view to reuse a destination. Exact in-place prox is supported.
 Gradient destinations require independent storage.
 
-The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`
-for other domain failures, with an all-NaN gradient in both cases. A zero step
-is the identity, including outside the domain. A positive finite step accepts
-finite inputs, including asymmetric or indefinite matrices. It diagonalizes
-``(X+X^\mathsf{T})/2-\gamma wS`` and replaces each eigenvalue ``d`` with the
-positive root of ``z^2-dz-\gamma w=0``. Negative, NaN and infinite steps throw
-before writing. Non-finite entries at a positive step also throw before
-factorization and writes.
+See the [LogDetLoss endpoint clauses](@ref spec-logdet-endpoints).
 
-At extreme scales the shifted matrix, its spectrum, or the reconstruction can
-exceed the working range. The proximal point is positive definite in exact
-arithmetic. Rounding can take the stored point outside the numerical domain,
-in which case the fused value follows the standalone domain rule.
+See the [LogDetLoss limitations and non-guarantees](@ref spec-logdet-limitations).
 
 ```@example library_logdet
 using ProximalBase, LinearAlgebra
@@ -614,29 +604,9 @@ to `d` and the coefficient gradient to `g`, using one product with `X'`.
 The predictor and both outputs are one-based strided vectors of the data type.
 These operations take an unwrapped loss and leave the supplied predictor intact.
 
-The constructor borrows model arrays. Same-shape edits between calls must
-preserve the validated data domain. Reconstruct the loss for structural changes
-and refresh a caller-held predictor when its defining inputs change.
-Ordinary calls share private scratch and require synchronization across tasks.
-Predictor calls can share a loss across tasks when model data stay read-only
-and the outputs are independent. Before writes, the oracles reject nonempty
-output overlaps reported by `Base.mightalias` with the input, other output,
-model arrays (including CSC values and indices) or scratch. An input predictor or
-coefficient vector must also be independent of the scratch.
+See the [LogisticLoss preconditions](@ref spec-logisticloss-preconditions).
 
-The scalar formulas preserve the small tail for saturated responses.
-For a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a
-centered expression to retain the slope through weighting. A
-zero-weight row contributes zero to the value and observation derivative, even
-at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
-give the logistic limit: zero loss for a matching binary response, and infinity
-otherwise. Standard matrix products may still propagate nonfinite design
-entries, including through a zero derivative. For large weights the scalar
-loop retains a weighted tail when the unweighted exponential becomes subnormal
-or zero. The matrix products, final value sum and outer scaling use ordinary
-floating-point arithmetic with their usual rounding and range limits.
-The loss supplies first-order oracles. The historical generic scalar-loss,
-coordinate and second-order interfaces remain deferred.
+See the [LogisticLoss range clauses](@ref spec-logisticloss-range).
 
 ```@example logistic_regression
 using ProximalBase

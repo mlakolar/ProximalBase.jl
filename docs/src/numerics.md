@@ -122,66 +122,21 @@ which side the exact value lies, so a value that rounds to `floatmax(T)` may be
 returned as `Inf`, or the reverse: the same limit as the other recoveries above
 ([#904](https://github.com/mlakolar/ProximalBase.jl/issues/904)).
 
-For `IndBallL2`, the value and projection compare the norm with the radius in
-scaled units when the ordinary sum of squares overflows or is too small.
-The domain has no fixed feasibility tolerance. Within the rounding error of
-the norm, the comparison can fall on either side of the boundary.
-`value_and_prox!` evaluates the stored point. For dense vectors of four
-entries with matching `Float32` or `Float64` input, output and radius, the
-projection checks the rounded coefficients when the input sum of squares is
-ordinary and the finite radius is at least
-`2sqrt(4floatmin(T) / eps(T))`. If the rounded coefficients fail the
-comparison, it scales them once more toward zero. The stored point in that
-case passes the same norm comparison. Other projections can return a stored
-point outside the computed boundary, giving `Inf` in the fused call.
-A positive finite radius projects a NaN input to an all-NaN output,
-including implicit zeros of a `SparseIterate`.
+See the [IndBallL2 range clauses](@ref spec-indballl2-range).
 
 See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball
 feasibility, power-of-two scaling, and tiny-radius projection.
 
 See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
-`GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
-as `(λ0*w[k])*m` with two rounded products when `λ0*w[k]` is a normal number (and by the three-factor kernel otherwise)
-and then converted to the output type, and may recompute from the exponents of `w[k]*max|x[G_k]|` with `λ0` applied once.
+See the [GroupNormLinf range clauses](@ref spec-groupnormlinf-range).
 See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
 See the [NormLinf range clauses](@ref spec-normlinf-range).
 
 ### [GroupNormLinf clip accuracy](@id groupnormlinf-clip-accuracy)
 
-For `GroupNormLinf`, let `T` be the common type of the input, output, level, weights and step (`Float32` or `Float64`).
-For finite data and positive finite parameters in round-to-nearest arithmetic with gradual underflow, each stored entry
-is within `8 n eps(T) M + (2n + 1)δ` of the exact proximal entry for `r = γλ0w[k]`. Here `n ≥ 1` is the size of the
-group, `M` its largest magnitude and `δ = nextfloat(zero(T))`. The bound assumes `n eps(T) ≤ 1/2`, which the code does
-not check. This applies to the direct array and compact block calls. The parameter precedence for zero and infinite
-factors is given in the table below.
-
-The exact nonnegative level at radius `r` is the maximum of zero and the levels
-`(sum(abs(x[i]) for i in A) - r) / length(A)` over nonempty subsets `A` of the group. Thus it changes by at most the
-largest entry perturbation and the absolute radius perturbation. A relative perturbation of the radius by at most `η`
-changes the level by at most `η M / (1 - η)`: at the smaller radius a subset with a positive level has radius per entry
-at most `M`. The radius uses two products in the working type, or two products of significands followed by exponent
-scaling if the normal-range products cannot be used. With `u = eps(T)/2`, the two products contribute at most `4u M`
-to the level error and subnormal radius rounding at most `δ`, including the Julia 1.10 `ldexp` allowance above.
-
-If the computed radius is below the computed sum, the shared threshold contributes at most `4.5 n u M + 2nδ` before
-accounting for the radius error. If the computed radius reaches the computed sum, that sum is at least
-`(1 - (n - 1)u)` times the exact sum. The subset formula then bounds the level for the computed radius by `(n - 1)u M`.
-If the rounded radius overflows in these units, the exact radius exceeds `floatmax(T)/(1 + u)^2`. The exact sum is
-at most `2 floatmax(T)/3` when its computed value is at most `floatmax(T)/2`, so zero is then the exact result.
-
-If the first sum exceeds `F/2`, where `F = floatmax(T)`, the group is read in units of `2^-k` with
-`k = ceil(log2(n)) + 2`. Under the size hypothesis the rounded scaled sum is at most `(F/4 + nδ)/(1 - n u) < F/2`,
-so the first scaling suffices. The scaled entries incur at most `δ` of perturbation in those units. Applying the
-unscaled bound there and multiplying back gives `(4.5n + 4)u M` plus at most
-`2^k [(2n + 2) + (4.5n + 4)u]δ`. Since `2^k < 8n`, the latter term is at most `48 n^2 δ`.
-The scaling trigger requires `M > F/(3n)`, and `144 n^2 δ ≤ u F` for `Float32` and `Float64` under the size
-hypothesis, so this term is at most `n u M`. Scaling the level back is exact where finite. Capping it at `M`, including
-when it overflows, can only decrease the error. Clipping selects an entry or the signed level, both already in `T`,
-so same-type storage adds no rounding error. With a different input or output type, entries are read in the floating
-type of the destination and the clipped values are converted to its element type on write.
+See the [GroupNormLinf range clauses](@ref spec-groupnormlinf-range).
 
 These are practical numerical safeguards, not a promise of exhaustive
 range recovery or correctly rounded arbitrary reductions, gradients, or
@@ -269,18 +224,12 @@ all-NaN result or a particular exception.
 | `NormLinf` | See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints) |
 | `GroupNormL2` | See the [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints) |
 | `SparseGroupNormL2` | See the [sparse-group endpoint rules](@ref sparse-group-l2-endpoints). |
-| `GroupNormLinf`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), also at an infinite level or step; zero value |
-| `GroupNormLinf`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` and `γ = Inf` included, also for `NaN`/`±Inf` inputs, and also for an infinite weight with a zero level; value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
-| `GroupNormLinf`, zero level or zero step, finite positive weight | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also when `λ0*w[k]` overflows and at `γ = Inf` with a zero level; value `0` at a zero level (`NaN` entries included), `λ0 w[k] max abs(x_G)` at a zero step of a positive level |
-| `GroupNormLinf`, positive finite level and weight, infinite step | `+0` for every input, `NaN` and `±Inf` entries included |
-| `GroupNormLinf`, positive finite level, weight and step | A `NaN` entry makes the group `NaN` and leaves the other groups to their own rules; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite product `γ*λ0*w[k]` overflows; otherwise the clip of the group at `τ` with `Σ(abs(xᵢ) - τ)₊ = γ λ0 w[k]`, and `+0` when the computed radius reaches the computed sum of magnitudes or overflows while that sum is finite |
-| `GroupNormLinf`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!`; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
+| `GroupNormLinf` | See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints) |
 | `SqrNormL2` | See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints) |
 | `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
-| `IndBox` | Exact closed intervals, with no feasibility tolerance. A `NaN` entry gives value `NaN` and stays `NaN` under projection. An infinite entry is feasible only at an unbounded endpoint in its direction. The projection clamps each entry independently of the step and the fused value is evaluated at the stored result. Public scalar-step array oracles reject negative and `NaN` steps before writes. |
-| `IndBallLinf` | Inherits the `IndBox` contract with bounds `-r` and `r`. At zero radius, non-NaN entries project to zero with the sign inherited from clipping. At infinite radius both infinite endpoints are feasible. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. |
+| `IndBox` | See the [IndBox endpoint clauses](@ref spec-indbox-endpoints) |
 | `IndNonnegative` | See the [IndNonnegative endpoint clauses](@ref spec-indnonnegative-endpoints) |
-| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN scalar step throws before writes, also for `α * IndBallL2(r)` with `α ≥ 0`, which is the indicator itself. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere, and multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL2` | See the [IndBallL2 endpoint clauses](@ref spec-indballl2-endpoints) |
 | `IndBallL1` | See [ℓ₁-ball endpoint rules](@ref spec-indballl1-endpoints). |
 | `NormL1Nonneg` | See the [NormL1Nonneg endpoint clauses](@ref spec-norml1nonneg-endpoints) |
 | `kkt_violation` | See the [kkt_violation endpoint clauses](@ref spec-kkt_violation-endpoints) |
@@ -302,82 +251,13 @@ The decision on `NormL1` non-finite inputs is retained with the
 
 ### [Sparse-group endpoints](@id sparse-group-l2-endpoints)
 
-The following rules apply to each covered group in the array and compact
-proximal methods, in the order shown. Uncovered entries pass through the
-array prox and are ignored by the value.
-
-| Condition | Proximal result |
-|:--|:--|
-| Negative or NaN step | `ArgumentError` before writes |
-| Infinite stored ℓ₁ level, infinite weight, or infinite stored ℓ₂ level with positive weight | Fill the group with `+0`, including at a zero step and with NaN or infinite inputs |
-| Zero step or zero penalty after the hard constraints | Identity |
-| Infinite step and positive penalty after the hard constraints | Fill the group with `+0` |
-| Finite positive step and a positive group ℓ₂ term, with a NaN input | NaN throughout the group |
-| Finite positive step and a positive group ℓ₂ term, with an infinite input and no NaN | Keep the entrywise soft-threshold result without a further group shrink |
-| Other finite positive steps | Apply the entrywise soft threshold. A zero group term leaves that result in place. A positive group term then applies the group shrink. |
-
-The entrywise threshold at a finite step propagates NaN at the corresponding
-entry when the ℓ₁ term is positive. When finite `γλ1` overflows in the
-working type, a coupled group retains genuine infinite inputs. An ℓ₁-only
-group follows the [NormL1 endpoint rule](@ref spec-norml1-endpoints)
-and returns NaN at such an entry. The group shrink distinguishes a product
-of finite factors outside the working range from a stored infinite parameter.
-The supported homogeneous precision and general range limits above apply.
-For mixed-width calls, the stored intermediate and destination conversions
-can change the result. The fused value uses the stored destination.
-
-A zero group has value zero under a hard constraint. An entry outside the
-hard domain gives an infinite value unless a penalized entry yields NaN.
-Zero penalty terms contribute zero. NaN from a penalized entry takes
-precedence over infinite contributions.
-
-For the point-aware KKT methods, NaN among the entries read by a group gives
-NaN. Otherwise an infinite entry gives `+Inf`. For finite entries, a
-hard-constrained zero group gives `-Inf` and an active group outside
-the hard domain gives `+Inf`. An active group whose finite group-level
-product rounds to infinity also gives `+Inf` in the working type. At a
-zero group the signed screen retains the finite factors for range recovery.
-The full-point maximum propagates NaN
-across groups and includes the magnitudes of the gradient entries at
-uncovered coordinates. See the [sparse group lasso guide](@ref sparse-group-l2-guide)
-for the finite-data scores.
+See the [SparseGroupNormL2 endpoint clauses](@ref spec-sparsegroupnorml2-endpoints).
 
 ### Cardinality penalty endpoints
 
 See the [IndBallL0 endpoint rules](@ref spec-indballl0-endpoints).
 
-For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
-distance cost of setting a finite input `v` to zero with the penalty cost
-of keeping it. The comparison uses the exact products of the represented
-homogeneous `Float32` or `Float64` inputs. A tie gives positive zero,
-including when the candidate costs fall outside the floating-point range.
-
-| Level and valid step | Proximal entry |
-|:--|:--|
-| `λ = 0`, including at `γ = Inf` | Identity |
-| `λ = Inf`, including at `γ = 0` | Positive zero |
-| `0 < λ < Inf`, `γ = 0` | Identity |
-| `0 < λ < Inf`, `γ = Inf` | Positive zero |
-| `0 < λ < Inf`, `0 < γ < Inf` | Hard thresholding for finite inputs. NaN and signed infinities pass through |
-
-At a zero level the value is zero, including for NaN input. At a positive
-level, a NaN entry gives a NaN value ([E2, #560](https://github.com/mlakolar/ProximalBase.jl/issues/560)).
-Either infinity is a nonzero entry. With fixed positive finite level and
-step, the signed infinity output follows the limit from finite inputs
-([E3, #469](https://github.com/mlakolar/ProximalBase.jl/issues/469)).
-The constant-zero map at an infinite step is the endpoint convention.
-The value sums the entry contributions in the result precision, which
-can incur rounding.
-
-Direct array oracles reject negative and NaN steps before writing.
-Array steps are matched by linear index and checked in full, with work
-proportional to their length. A scalar step is required for a symmetric
-sparse iterate output. Value and scalar-step proximal calls between
-same-kind sparse iterates traverse stored entries, with the value
-counting each symmetric off-diagonal entry twice. A sparse iterate can
-omit a zero from storage and read it back as positive zero. Fused calls
-return the value at the stored output. Use a nonnegative, non-NaN step
-with `prox_block` and in calls through `Scaled`.
+See the [NormL0 endpoint clauses](@ref spec-norml0-endpoints).
 
 ### [Minimax concave penalty](@id spec-mcp)
 

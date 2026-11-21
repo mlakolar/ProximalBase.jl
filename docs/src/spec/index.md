@@ -25,30 +25,30 @@ apply alongside each entry.
 
 | Family or operation | Current entry point | Migration state |
 |:--|:--|:--|
-| `NormL0` | [API entry](@ref NormL0) and [cardinality endpoint rules](../numerics.md#Cardinality-penalty-endpoints); for `diagonal = false`, the authored [numerical contract](norml0offdiag.md) | Existing pages |
+| `NormL0` | [Numerical contract](norml0.md); for `diagonal = false`, the authored [numerical contract](norml0offdiag.md) | Verbatim migration |
 | `NormL1` | [Numerical contract](norml1.md) | Verbatim pilot |
 | `MCP` | [Numerical contract](mcp.md) | Authored contract |
 | `SCAD` | [Numerical contract](scad.md) | Authored contract |
 | `NormL1Nonneg` | [Numerical contract](norml1nonneg.md) | Verbatim migration |
 | `ElasticNet` | [Numerical contract](elasticnet.md) | Verbatim migration |
 | `IndNonnegative` | [Numerical contract](indnonnegative.md) | Verbatim migration |
-| `IndBox` | [API entry](@ref IndBox) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
-| `IndBallLinf` | [IndBox API entry](@ref IndBox) and its [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Thin constructor of `IndBox` |
+| `IndBox` | [Numerical contract](indbox.md) | Verbatim migration |
+| `IndBallLinf` | [IndBox endpoint clauses](@ref spec-indbox-endpoints) | Thin constructor of `IndBox` |
 | `IndBallL0` | [Numerical contract](indballl0.md) | Verbatim migration |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
-| `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndBallL2` | [Numerical contract](indballl2.md) | Verbatim migration |
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
 | `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
-| `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |
-| `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
+| `LogDetLoss` | [Numerical contract](logdet.md) | Verbatim migration |
+| `LogisticLoss` | [Numerical contract](logisticloss.md) | Verbatim migration |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
-| `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
-| `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
+| `SparseGroupNormL2` | [Numerical contract](sparsegroupnorml2.md) | Verbatim migration |
+| `GroupNormLinf` | [Numerical contract](groupnormlinf.md) | Verbatim migration |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |
 

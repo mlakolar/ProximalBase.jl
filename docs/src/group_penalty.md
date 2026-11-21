@@ -303,13 +303,7 @@ indices, set ``U=\bigcup_k G_k``. The penalty is
 f(x)=\lambda_1\sum_{i\in U}|x_i|+\lambda_2\sum_{k=1}^K w_k\lVert x_{G_k}\rVert_2.
 ```
 
-Entries outside ``U`` are free in both terms and retain their values in the
-proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term
-still acts on that group. The constructor keeps the order of the groups and
-indices and copies the supplied groups and weights. The levels and weights
-are converted to one promoted floating type and checked for nonnegativity
-and NaN. The default is ``w_k=\sqrt{|G_k|}``. With no groups, the value is
-zero and the proximal map is the identity.
+See the [SparseGroupNormL2 definition and domain](@ref spec-sparsegroupnorml2-definition).
 
 For finite levels and weights and a positive finite ``\gamma``, let ``S_a(t)=\operatorname{sign}(t)(|t|-a)_+``.
 First soft-threshold each entry in the group, then shrink the resulting vector:
@@ -342,27 +336,11 @@ v = value_and_prox!(y, f, x, 1.0)
 y
 ```
 
-`prox` allocates, `prox!` accepts exact in-place use, and
-`value_and_prox!` returns the value at the stored destination. Array
-oracles accept real one-based CPU arrays, including `SparseIterate` and
-`BlockIterate`. Groups index matrices linearly. Full-array partial
-overlap is unsupported. Full-array writes can change output iterate activity.
-When copying free or identity entries into a floating-point `SparseIterate`,
-the array oracle stores negative zeros that would otherwise be read as positive.
-Absent positive zeros stay inactive. The soft-thresholded intermediate is written in the
-destination type before the group shrink. An explicit integer buffer can
-fail conversion here even when the final exact result is integral. Allocating
-`prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)
-for zero or infinite steps, nonfinite entries and infinite parameters.
+See the [SparseGroupNormL2 supported arguments](@ref spec-sparsegroupnorml2-arguments).
 
 ### Compact groups
 
-`prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,
-returns `out` and accepts `out === u`. It checks the group, lengths,
-one-based real buffers, step and detected nonidentical overlap before
-writing. The caller supplies an output buffer independent of iterate
-storage. `prox_block(f, u, k, γ)` allocates that buffer. To store the
-result, the caller writes it into the matching block as a separate step.
+See the [SparseGroupNormL2 compact buffer requirements](@ref spec-sparsegroupnorml2-preconditions).
 
 ```@example sparse_group_penalty
 p = SparseGroupNormL2(1.0, 2.0, [[3, 1], [2]], [1.0, 0.0])
@@ -375,16 +353,7 @@ copyto!(blockview(z, 1), out)
 out
 ```
 
-`BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)`
-require the groups to partition the iterate. A `SymmetricSparseIterate`
-is unsupported for prox and KKT. The family has no scalar entry prox,
-step vectors, or `restrict`. Positive finite `Scaled` supports generic
-array value and prox with the scale applied to the step. A scaled product
-outside the working range can round before the sparse-group oracle sees it.
-For example, a tiny negative step can round to `-0.0` in the wrapper
-before the leaf validates the step.
-A zero scale throws `ArgumentError` through the generic constructor.
-`Scaled` compact-block and KKT calls are unsupported.
+See the [SparseGroupNormL2 limitations](@ref spec-sparsegroupnorml2-limitations).
 
 ### Zero-group screening and active-group mismatch
 
@@ -406,14 +375,7 @@ the Euclidean norm of the residual whose entry is
 ``S_{\lambda_1}(r_i)`` at a zero entry. This is the distance from
 ``-v_{G_k}`` to the subdifferential at the current group.
 
-On an ordinary array `k` is an entry index and selects its group.
-An uncovered index has score `abs(v[k])`. On a `BlockIterate`,
-`k` is a group number and the selected ordered layout must agree.
-The full-point `kkt_violation(f, v, x)` checks the full block layout
-and returns the maximum across zero, the block scores and the
-uncovered-entry magnitudes. The result measures the worst block
-or free-coordinate mismatch. The three-argument assumed-zero
-form with an integer index throws `ArgumentError`.
+See the [SparseGroupNormL2 scoring results](@ref spec-sparsegroupnorml2-results).
 
 ## [The group ℓ∞ norm](@id group-linf-guide)
 
@@ -448,16 +410,7 @@ For a step ``\gamma\ge0`` the proximal operator acts on each group separately. W
 
 and, for finite entries, the group becomes zero (`+0`) when the computed radius reaches the computed sum of magnitudes (see
 below; the table of exceptional parameters and values below gives the other cases). In exact arithmetic this is ``x_{G_k}`` minus its projection onto
-the ℓ₁ ball of radius ``r_k``, formed by the clip itself. The level comes from the same threshold as
-`NormLinf`, applied to the entries of one group, read through its indices without a copy. With finite data and positive
-finite parameters of the same type `Float32` or `Float64`, and input and output of that type, the absolute error in
-each stored entry is at most ``8n\varepsilon\max_{i\in G_k}\lvert x_i\rvert+(2n+1)\delta`` under the assumptions in the
-[numerical contract](numerics.md#groupnormlinf-clip-accuracy). Here ``n`` is the group size, ``\varepsilon`` is `eps(T)` and
-``\delta`` is the smallest positive subnormal of `T`. The radius is formed as
-``(\gamma\lambda_0)w_k`` in floating point and then converted to the output
-type. When ``\gamma\lambda_0`` is not a normal number, or the product leaves the normal range of the output type, it is
-formed from the significands and exponents of the three factors, so that an intermediate overflow or underflow does not
-decide it. The accuracy bound includes the case where the computed radius reaches the computed sum and the entire group becomes `+0`.
+the ℓ₁ ball of radius ``r_k``, formed by the clip itself. See the [GroupNormLinf range clauses](@ref spec-groupnormlinf-range).
 
 ```@example group_penalty
 gi = GroupNormLinf(1.0, [[1, 4, 2], [5, 3]], [1.0, 2.0])      # entry 6 is in no group
@@ -493,16 +446,7 @@ copyto!(blockview(zb, 1), out)
 out
 ```
 
-A `GroupNormLinf` object keeps a buffer for the threshold, with the length of its longest group, which the first group
-that needs one allocates. The buffer is left untouched by the parameter exits, by `NaN` and infinite groups, by a zero
-fill decided before the threshold (the computed radius reaches the computed sum of magnitudes; a threshold whose level is zero has
-already used the buffer) and, in `prox_block!`, when `out` is an `Array` with a floating-point element type, `u` is an
-`Array` or a `SubArray` of an `Array`, and `!Base.mightalias(out, u)` (so not when `out === u`): `out` is then the
-buffer. The same object must not be used from several tasks at once while its buffer may be in use (`Scaled` wrappers of
-one object share it, and so do the groups of a threaded loop of `prox_block!(u, g, u, k, γ)`), and it must not be used
-reentrantly, also within one task: a nested call on the same object, from a `getindex` of an argument while the threshold
-runs, can overwrite the candidates of the running threshold if it reaches the threshold with the shared buffer. Construct a fresh `GroupNormLinf` for each task, or synchronize
-the calls ([ownership](numerical_usage.md#Ownership-and-aliases)).
+See the [GroupNormLinf preconditions](@ref spec-groupnormlinf-preconditions).
 
 ### Optimality scores
 
@@ -607,49 +551,6 @@ kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0])
 
 ### Exceptional parameters and values
 
-The rules apply to each group in this order; ``\lambda_0``, ``w_k`` and ``\gamma`` are decided separately, before a radius is formed,
-so that the proximal operator and the value do not form a product such as ``\lambda_0w_k`` with ``\lambda_0=\infty`` and ``w_k=0``.
+See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints).
 
-| Case | Result for group ``k`` |
-|:--|:--|
-| ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included, also at an infinite level or step; value zero |
-| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` and ``\gamma=\infty`` included, for `NaN` and `±Inf` inputs too; ``w_k=\infty`` with ``\lambda_0=0`` is included. Value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
-| ``\lambda_0=0`` or ``\gamma=0``, finite positive ``w_k`` | The identity, also when ``\lambda_0w_k`` overflows and at ``\gamma=\infty`` with a zero level. Value `0` at a zero level, ``\lambda_0w_k\max\lvert x_{G_k}\rvert`` at a zero step |
-| ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
-| A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN`; the other groups are unaffected |
-| A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged, also when the finite product ``\gamma\lambda_0w_k`` overflows |
-| Finite entries, the computed radius reaches the computed sum of magnitudes | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
-| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
-
-The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in floating point as
-``(\lambda_0w_k)m`` with two rounded products when ``\lambda_0w_k`` is a normal number and by the three-factor
-kernel in power-of-two units otherwise, and then converted to the output type; the sum over the groups may be recomputed in power-of-two units, accumulated in at least `Float64`, where it may
-have lost accuracy (a sum below `K*floatmin(T)` for `K` groups, whose terms may have rounded into the subnormal range) or
-class (at or above `floatmax(T)/2`), as for `GroupNormL2` ([value range limits](@ref numerical-value-range)). A sum of
-magnitudes of one group above `floatmax(T)/2` is processed in power-of-two units. With a positive finite level and
-weight, `prox!` computes the clip of a group with finite entries whose sum overflows from the entries scaled by a power of two:
-
-```@example group_penalty
-M = floatmax(Float64)
-huge = GroupNormLinf(M, [1:2], [2.0])        # the radius γλ₀w = M/2 at γ = 0.25 is finite; λ₀w alone overflows
-yh = prox(huge, [M, M], 0.25)
-@assert yh[1] == yh[2] && isapprox(yh[1], 0.75M; rtol = 1e-14)
-tiny = GroupNormLinf(2.0^-100, [1:2], [2.0^1000])   # γλ₀ underflows, γλ₀w = 2^-100 equals ‖x‖₁
-@assert prox(tiny, [2.0^-100, 0.0], 2.0^-1000) == [0.0, 0.0]
-yh
-```
-
-`GroupNormLinf` has no `SymmetricSparseIterate`, `restrict`, per-group step or compact block method under `Scaled`.
-`Scaled(GroupNormLinf(...), α)` multiplies the value by `α` and computes the array proximal operator with the step
-`αγ`; it has no folded level for the proximal operator, so a step `αγ` that overflows reaches the function as `Inf` (the scores of
-`kkt_violation` fold the level of a chain, as above). A group that reaches the
-infinite-step exit then gives `+0`, where the exact radius ``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the
-group; a group with a zero weight or a zero level with a finite weight keeps the identity, because those exits come first.
-A zero `α` throws an `ArgumentError`.
-
-```@example group_penalty
-scaled = Scaled(GroupNormLinf(2.0^-1020, [1:2]), 2.0^1000)
-@assert prox(scaled, [2000.0, 500.0], 2.0^30) == [0.0, 0.0]           # the step 2^1030 overflows
-@assert prox(GroupNormLinf(2.0^-20, [1:2]), [2000.0, 500.0], 2.0^30) == [976.0, 500.0]   # the radius 2^10 = 1024 keeps the group
-prox(scaled, [2000.0, 500.0], 2.0^30)
-```
+See the [GroupNormLinf limitations and non-guarantees](@ref spec-groupnormlinf-limitations).

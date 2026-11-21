@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "family": "indballl2",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 29182,
+      "source_end": 29693,
+      "source_line": 339,
+      "text": "| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |",
+      "destination": "docs/src/spec/indballl2.md",
+      "anchor": "spec-indballl2-endpoints",
+      "destination_text": "| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN step throws before writes, including through scalar `Scaled`. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere. Multiple infinite entries or any NaN give an all-NaN projection. |",
+      "source_sha256": "9699854c6a3bc41bc008798af50db5bf3e96e471936a064083c6cff9c66371f1",
+      "destination_sha256": "9699854c6a3bc41bc008798af50db5bf3e96e471936a064083c6cff9c66371f1",
+      "forwarding_text": "| `IndBallL2` | See the [IndBallL2 endpoint clauses](@ref spec-indballl2-endpoints) |"
+    },
+    {
+      "source": "docs/src/numerics.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 9769,
+      "source_end": 10731,
+      "source_line": 147,
+      "text": "For `IndBallL2`, the value and projection compare the norm with the radius in\nscaled units when the ordinary sum of squares overflows or is too small.\nThe domain has no fixed feasibility tolerance. Within the rounding error of\nthe norm, the comparison can fall on either side of the boundary.\n`value_and_prox!` evaluates the stored point. For dense vectors of four\nentries with matching `Float32` or `Float64` input, output and radius, the\nprojection checks the rounded coefficients when the input sum of squares is\nordinary and the finite radius is at least\n`2sqrt(4floatmin(T) / eps(T))`. If the rounded coefficients fail the\ncomparison, it scales them once more toward zero. The stored point in that\ncase passes the same norm comparison. Other projections can return a stored\npoint outside the computed boundary, giving `Inf` in the fused call.\nA positive finite radius projects a NaN input to an all-NaN output,\nincluding implicit zeros of a `SparseIterate`.",
+      "destination": "docs/src/spec/indballl2.md",
+      "anchor": "spec-indballl2-range",
+      "destination_text": "For `IndBallL2`, the value and projection compare the norm with the radius in\nscaled units when the ordinary sum of squares overflows or is too small.\nThe domain has no fixed feasibility tolerance. Within the rounding error of\nthe norm, the comparison can fall on either side of the boundary.\n`value_and_prox!` evaluates the stored point. For dense vectors of four\nentries with matching `Float32` or `Float64` input, output and radius, the\nprojection checks the rounded coefficients when the input sum of squares is\nordinary and the finite radius is at least\n`2sqrt(4floatmin(T) / eps(T))`. If the rounded coefficients fail the\ncomparison, it scales them once more toward zero. The stored point in that\ncase passes the same norm comparison. Other projections can return a stored\npoint outside the computed boundary, giving `Inf` in the fused call.\nA positive finite radius projects a NaN input to an all-NaN output,\nincluding implicit zeros of a `SparseIterate`.",
+      "source_sha256": "0d0972bece6b367bc698863cfa336452e4b5d4e78e847b7e0a2b3df4a5a4bdfc",
+      "destination_sha256": "0d0972bece6b367bc698863cfa336452e4b5d4e78e847b7e0a2b3df4a5a4bdfc",
+      "forwarding_text": "See the [IndBallL2 range clauses](@ref spec-indballl2-range)."
+    }
+  ]
+}

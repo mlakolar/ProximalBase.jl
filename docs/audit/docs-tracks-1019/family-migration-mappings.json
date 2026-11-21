@@ -16,7 +16,14 @@
     "moves-normlinf.json",
     "moves-groupnorml2.json",
     "moves-scaled.json",
-    "moves-kkt_violation.json"
+    "moves-kkt_violation.json",
+    "moves-norml0.json",
+    "moves-indbox.json",
+    "moves-indballl2.json",
+    "moves-logdet.json",
+    "moves-logisticloss.json",
+    "moves-groupnormlinf.json",
+    "moves-sparsegroupnorml2.json"
   ],
   "changes": [
     {
@@ -2329,7 +2336,7 @@
         "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
         "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
       ],
-      "dest": "docs/src/numerics.md;docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
+      "dest": "docs/src/spec/groupnormlinf.md#spec-groupnormlinf-range;docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
       "dest_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51;086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2",
       "reviewer": "mechanical",
       "pieces": [
@@ -2337,9 +2344,10 @@
           "source_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
           "source_start": 11037,
           "source_end": 11396,
-          "child_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::76",
-          "dest": "docs/src/numerics.md",
-          "dest_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51"
+          "dest": "docs/src/spec/groupnormlinf.md#spec-groupnormlinf-range",
+          "dest_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
+          "manifest": "moves-groupnormlinf.json",
+          "manifest_index": 6
         },
         {
           "source_sha": "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2",

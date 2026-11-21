@@ -36,7 +36,7 @@ apply alongside each entry.
 | `IndBallLinf` | [IndBox endpoint clauses](@ref spec-indbox-endpoints) | Thin constructor of `IndBox` |
 | `IndBallL0` | [Numerical contract](indballl0.md) | Verbatim migration |
 | `IndBallL1` | [Numerical contract](indballl1.md) | Authored contract |
-| `IndBallL2` | [API entry](@ref IndBallL2), [range guarantees](../numerics.md#numerical-value-range) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `IndBallL2` | [Numerical contract](indballl2.md) | Verbatim migration |
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
 | `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
 | `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |

@@ -135,6 +135,12 @@ that happens to pass.
   decision. [Source](../../../src/functions/indbox.jl)
   · [Tests](../../../test/indballlinf.jl)
 
+- The IndBallL2 endpoint row says multiple infinite entries or any NaN give
+  an all-NaN projection. That sentence could inherit the positive finite
+  radius qualifier or apply to all radii. The tests check zero-radius fill,
+  infinite-radius copy, and positive finite radius separately. The qualifier
+  awaits the owner's decision. [Tests](../../../test/indballl2.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

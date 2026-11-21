@@ -108,7 +108,7 @@ blocking correctness check and do not justify dropping a precondition.
 Describe the calculation and its current implementation in a
 [numerical routine](@ref numerical-routines). Pin the source and test revision
 used to verify the description. Link supported arguments and numerical claims
-to the section that owns them in the [family contracts](../spec/index.md).
+to their owning family or shared [contract section](../spec/index.md).
 
 Give readers enough information to predict the result, then use a Documenter
 example to check it against the derivation or a reference calculation. Use

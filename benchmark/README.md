@@ -786,16 +786,18 @@ and both runs.
 On the dense route both calls run within 1.012 of the dense role at `p ≥ 200` and within 1.039 at
 `p = 50`, where the A/A ratio reaches 1.041.
 
-The acceptance rule for a specialized path asks for at least a 1.2× gain (C/D ≤ 0.833) at `p ≥ 200` on
+The acceptance rule for a specialized path asks for at least a 1.2× gain (C/D ≤ 1/1.2 ≈ 0.833) at `p ≥ 200` on
 both Julia versions. It is applied per route, not per cell. Each accumulating route is kept: it is at
 least 1.2× faster over most of its regime, up to about 22× for value-only calls (C/D 0.045) and about 1.96×
 for gradient calls (C/D 0.511). The shared cutoff lies near the measured crossover, so the last cells before
 it gain less, a tradeoff: at `p = 800` the gradient at `n = 16020` (about `p²/40`, C/D 0.819–0.840) and
 `n = 18000` (about `p²/36`, C/D 0.855–0.881), and the `Float32` value-only call at `n = 18000`
-(C/D 0.819–0.835), gain about 1.1–1.2×. Taking the dense route there would make those calls slower. At
+(C/D 0.819–0.835), gain about 1.1–1.2×. The dense role measured slower than the candidate in those cells, so
+the inference is that switching them to the dense route would make those calls slower; the sweep did not force
+the candidate down its own dense branch at those counts. At
 `p = 200` the slowest accumulating gradient cell is `n = 1125` (C/D 0.737–0.781).
 
-The default cells at 2bbe102 (`PB_ROUNDS=5`, same nodes) gave C/A 0.195–0.991 (every cell at or below 1
+The default cells at 2bbe102 (`PB_ROUNDS=11`, separate exclusive nodes of the same CPU model) gave C/A 0.195–0.991 (every cell at or below 1
 against the archived implementation), C/D 0.206–1.019 and A/A 0.986–1.007, with 0 bytes allocated.
 
 **Stage-1 head 523d11f** (history): value-only accumulated when `32n ≤ p²`, the gradient when
@@ -819,11 +821,13 @@ against the archived implementation), C/D 0.206–1.019 and A/A 0.986–1.007, w
 | 800 | gradient | accumulate | 22000–36000 | 0.969–1.278 | 1.014–1.295 |
 | 800 | gradient | dense | 44000–320400 | 1.008–1.045 | 1.092–1.104 |
 
-From these numbers the gradient crossover, interpolated between the measured accumulating and dense
-ratios, lay near `n ≈ p²/30` (p = 800) and `p²/21` (p = 200). The sweep timed value-only calls on the
+From these numbers, using per-precision medians over the two Julia versions and both order settings, the
+gradient crossover, where the C/D of two neighbouring accumulating counts crosses 1 (the dense role supplying
+the denominator), lay near `n ≈ p²/30` (p = 800) and `p²/21` (p = 200). The sweep timed value-only calls on the
 accumulating route only up to `32n = p²`, so their crossover is an estimate: a linear extrapolation of the
-ratios at the two densest accumulating counts gives `n ≈ p²/27` to `p²/29` (p = 800) and `p²/24` to
-`p²/25` (p = 200). The cost of the old store was estimated from whole calls in one cell (forward run,
+median ratios at the two densest accumulating counts gives `n ≈ p²/27` to `p²/29` (p = 800) and `p²/24` to
+`p²/25` (p = 200); extrapolating each run separately widens this, for example to `p²/22.7`–`p²/26.2` at
+p = 200. The cost of the old store was estimated from whole calls in one cell (forward run,
 Julia 1.10.13, `Float64`, `p = 800`, every coordinate): the fused call took 54.30 ms and the value call
 47.51 ms, a difference of about 6.8 ms, against a difference of about 2 ms for the dense role. These led to
 the single cutoff and the column-order store of the current routes.

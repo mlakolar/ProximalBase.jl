@@ -18,8 +18,8 @@
 # gradient (W + Wᵀ)/2 + C; for a matrix argument it forms A X and (A X) B. Each round times the roles of each case in
 # the order archive, candidate, control, dense (PB_REVERSE=1 exchanges the first two), reversed in even rounds, so
 # that the dense role is timed last in odd rounds and first in even rounds in both settings, and keeps per role the
-# median and the minimum over the samples of its trial (a BenchmarkTools time limit of 0.5 s, 1 s at p ≥ 800, and at
-# most 200 samples). A case cycles through COPIES separately sampled argument objects, so that consecutive calls take different
+# median and the minimum over the samples of its trial (a BenchmarkTools time limit of 0.5 s, 1 s for the sweep cells at p ≥ 800, and at most 200 samples; the
+# default cells use 0.5 s at every size, and PB_QUICK=1 uses 0.05 s and at most 20 samples). A case cycles through COPIES separately sampled argument objects, so that consecutive calls take different
 # objects; the roles receive the same dense arguments, the same coefficient values (each constructor may copy them)
 # and the same output, and build their own iterates from the same coordinates and values (the dense role reads the
 # candidate's). The summary gives per case the route of the candidate (matrix,

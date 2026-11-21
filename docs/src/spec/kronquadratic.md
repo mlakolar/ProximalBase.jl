@@ -100,8 +100,8 @@ nothing to that accumulation. On the dense route ``AX`` is formed by `mul!` on a
 dense copy. A gradient call then forms ``(AX)B`` with `mul!` and writes
 ``W/2+W^\top/2+C`` with ``W=(AX)B`` in column order; on the accumulating route
 its value is a pass over the stored entries. The cutoff is a measured
-tradeoff near the crossover: in exclusive sweeps on one x86-64 CPU with Julia
-1.10.13 and 1.13.4, for ``p\geq200`` and below the cutoff, the accumulating
+tradeoff near the crossover: in exclusive sweeps on separate nodes of a
+single x86-64 processor model with Julia 1.10.13 and 1.13.4, for ``p\geq200`` and below the cutoff, the accumulating
 routes ran at 0.045–0.835 (value-only calls) and 0.511–0.881 (gradient calls)
 of the time of a straightforward dense implementation, at least 1.2× faster
 except in the last cells before the cutoff at ``p=800``, and the dense routes

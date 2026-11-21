@@ -379,7 +379,7 @@ object with bit-identical values and proximal outputs on vectors, dense and spar
 `kronquadratic` checks `KronQuadratic` in Float32 and Float64: the constructor and its refusals (element
 types with the conversion hint, axes, shapes, finiteness, exact symmetry), traits, `lipschitz` and
 `kronquadratic_data`; hand-computed and `kron(B, A)` references for values and gradients on matrix arguments,
-views, row-strided, reversed-column and `SparseIterate` arguments and destinations; the symmetric-iterate
+views, row-strided and reversed-column arguments and destinations, and `SparseIterate` arguments; the symmetric-iterate
 gradient `(A X B + B X A)/2 + C` against an independent formula, on empty, sparse, dense and explicit-zero
 iterates, with central differences along coordinate directions; the route predicate on both sides of
 `32n = p²` and the route each public oracle takes, observed through a sentinel in the dense-copy scratch;

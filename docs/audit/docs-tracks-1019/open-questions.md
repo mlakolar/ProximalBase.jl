@@ -236,41 +236,34 @@ valid retirements use the same data record and validations, without a Python
 whitelist change. Phase 5 removes the temporary writing-guide instruction to
 record these in the migration audit, retaining the durable forwarding rule.
 
-Before partial-paragraph moves from `smooth.md`, `group_penalty.md` or
-`calculus.md`, refine their units with original-block provenance. This does not
-block the whole numerical subsections of `NormL1Nonneg` and `ElasticNet`.
-Replacing the three uncited runtime admonition hashes with exact
-page/category/title comparisons remains separate preparation. Keep original
-explicit heading IDs and forwarding paragraphs for authored link/citation targets.
-The next pages must label pointer-only
-sections and use specific shared-rule anchors; verbatim duplicates stay until
-their separately reviewed clause conversion.
+[#1085](https://github.com/mlakolar/ProximalBase.jl/pull/1085) recorded
+the sentence refinements for `smooth.md`, `group_penalty.md` and
+`calculus.md` and the content identities for the three runtime-generated
+admonitions. It also extended token and example accounting to ledgered
+`reword` and `split` rows with exact reviewed allowances.
+[#1122](https://github.com/mlakolar/ProximalBase.jl/pull/1122) added the
+standalone preservation check for the published SparseGroupNormL2 passages.
 
-Clause conversion is held until token and example checks also protect
-`reword` and `split` rows, with exact recorded allowances for intentional
-token changes and regression fixtures for missing numbers and assertions.
-The migration ledger and six temporary checks are retired after the final
-Phase 5 blocking acceptance; the frozen audit and ordinary documentation gates
-remain. The preparation work is tracked in #1019.
+Pointer-only sections identify their owning sections. Duplicate numerical
+statements use a reviewed deduplication record when conversion consolidates
+them. Phase 5 retires the temporary checks after final blocking acceptance
+and retains the frozen audit and ordinary documentation gates.
 
 New function families must place their numerical rules directly in
 `docs/src/spec/<family>.md` using the fourteen-section schema and stable section
 IDs. Algorithm steps and path-selection thresholds belong in a paragraph
 labelled implementation notes, not guarantees. Thin constructors such as
 `IndBallLinf` have a family-map row linking to their underlying owner, without a
-separate contract page. The map now also includes the later `LogDetLoss`,
-`LogisticLoss` and `GroupNormLinf` restores at their current guide owners.
-It has 17 existing-page family/operation entries after the `NormL1Nonneg` and
-`ElasticNet` moves. `IndNonnegative` is next in the approved order. Named
-inventory blocks retain upstream receipts:
-the API coverage check verifies presence, not their descriptive claims.
-Batch several external changes when practical, before the next migration starts.
+separate contract page. The [family map](../../src/spec/index.md) has no entries in the
+“Existing pages” state. [#1121](https://github.com/mlakolar/ProximalBase.jl/pull/1121)
+completed the verbatim family moves with SparseGroupNormL2. Keep exact
+receipts for the named inventory blocks and reconcile upstream edits
+before the next preservation run.
 
 The later `IndBallL1` and `SCAD` restores already have fourteen-section contract
 pages and family-map/navigation entries. They add no existing-page migration
 backlog. Existing explicit endpoint IDs remain unchanged when the other section
 IDs are added.
 
-Clause conversion, the remaining families, numerical routine pages, lessons,
-figures, the agent entry file and the final blocking-mode switch remain tracked
+Clause conversion, the remaining owner decisions and final acceptance are tracked
 in [#1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019).

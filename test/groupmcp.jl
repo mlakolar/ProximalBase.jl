@@ -82,8 +82,9 @@ function check_group(y::AbstractVector{T}, u, λ0, w, a, γ) where {T}
 end
 
 # A value against its reference, for K groups of at most n entries, with ρ = (n + K + 8) eps: NaN only for a NaN
-# reference; beyond floatmax(T) (1 + ρ) the infinity of the sign of the reference; within ρ of floatmax(T) that infinity
-# or a finite value within ρ; below, a finite value within ρ of the reference and 4K subnormal spacings.
+# reference; beyond floatmax(T) (1 + ρ) the infinity of the sign of the reference; above floatmax(T) (1 - ρ) and up to
+# floatmax(T) (1 + ρ) that infinity or a finite value within ρ; below, a finite value within ρ of the reference and 4K
+# subnormal spacings.
 function close_value(v::T, ref, n, K) where {T}
   isnan(ref) && return isnan(v)
   isnan(v) && return false
@@ -276,7 +277,7 @@ end
   end
   # extremes
   E = exponent(floatmax(T))
-  for (λ, v, γ, a) in ((T(2)^(E - 23), T(2)^-30, T(2)^(-E - 36), T(3)),       # a subnormal step: firm
+  for (λ, v, γ, a) in ((T(2)^(E - 23), T(2)^-30, T(2)^(-E - 36), T(3)),       # Float64: a subnormal step, firm; Float32: the step rounds to 0, identity
                        (T(2)^(-E + 30), T(2)^30, T(1.5) * T(2)^E, T(1.5) * T(2)^E),   # hard: zero
                        (M / 4, M / 2, T(0.5), T(3)), (T(4)δ, T(8)δ, T(1), T(3)), (one(T), M, T(3), T(3)))
     s = prox_block(MCP(λ, a), v, 1, γ)
@@ -375,8 +376,9 @@ end
 end
 
 @testset "scaling by powers of two ($T)" for T in (Float32, Float64)
-  # prox(GroupMCP(2^j λ0), 2^j u, γ) = 2^j prox(GroupMCP(λ0), u, γ) across the ordinary and scaled paths; the sums
-  # of squares of these groups are exact
+  # prox(GroupMCP(2^j λ0), 2^j u, γ) = 2^j prox(GroupMCP(λ0), u, γ) across the ordinary and scaled paths; the unit-scale
+  # sums of squares of these groups are exact (those of the scaled inputs can leave the range); bitwise in Float64, and
+  # in Float32 bitwise for zero and kept groups, within two ulps for firm points
   E = exponent(floatmax(T))
   for (u, γ, a) in ((T[3, 4], T(1), T(3)), (T[1.5, 2], T(1), T(3)), (T[1, 2, 2], T(3), T(3)), (T[1, 2, 2], T(4), T(2)),
                     (T[0.75, 1], T(1), T(2)), (T[3, 4], T(10), T(1)), (T[3, 4], T(30), T(1)), (T[6, 8], T(12), T(3)))
@@ -601,7 +603,7 @@ end
   end
   @test prox(f, [3.0, 4.0, 3.0, 4.0], 0.0)[3:4] == [3.0, 4.0]
   @test f([0.0, -0.0, 3.0, 4.0]) == 1.5 && f([1.0, 0.0, 3.0, 4.0]) === Inf
-  # norms beyond the input type (#534): the group norm is formed in the recovery type, not in the input type
+  # norms beyond the range of the input type's sum of squares (#534): the scaled norm extends the range
   x32 = Float32[2f38, 3f38]                                                          # r ≈ 3.6e38
   @test prox!(zeros(Float64, 2), GroupMCP(1.0, [1:2]), x32, 1.0) == Float64.(x32)      # kept
   y = prox!(zeros(Float64, 2), GroupMCP(1.5e38, [1:2], [1.0]), x32, 1.0)              # firm: t* ≈ 3.2e38
@@ -679,7 +681,7 @@ end
   end
   @test_throws ArgumentError Scaled(f, zero(T))
   # an effective step that leaves the normal range is rounded: here αγ rounds to Inf and the group is +0, whereas the
-  # exact step 2^1200 keeps it (r² = 1 > aγλ² = 3 2^-200)
+  # exact step 2^1200 keeps it (the computed r² = 1 > aγλ² = 3 2^-200)
   if T === Float64
     g = GroupMCP(2.0^-700, [1:2], [1.0])
     u = [0.6, 0.8]
@@ -748,7 +750,8 @@ end
       @test kkt_violation(f, v[1:5], b, k) === kkt_violation(f, v, x, groups[k][1])
     end
   end
-  # -0 counts as zero; NaN in the gradient gives NaN; an infinite weight gives -Inf; a zero weight gives ‖v_G‖₂
+  # -0 counts as zero; NaN in the gradient gives NaN; an infinite weight gives -Inf at finite gradient entries; a zero
+  # weight gives ‖v_G‖₂
   @test kkt_violation(f, T[3, 0, 4, 0, 0, 0, 0], T[-0.0, 0, 0, 0, 0, 0, 0], 1) == T(5) - T(0.75)
   @test isnan(kkt_violation(f, T[NaN, 0, 4, 0, 0, 0, 0], zeros(T, 7), 3))
   @test kkt_violation(GroupMCP(one(T), [1:2], T[Inf]), T[3, 4], zeros(T, 2), 1) === -T(Inf)

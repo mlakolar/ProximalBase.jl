@@ -14,8 +14,10 @@ the effective coefficient of group `k` defined by the endpoint table of the
 `a` is not rescaled by the weights. Default weights are `wₖ = √|Gₖ|`. Groups
 are nonempty, disjoint lists or ranges of positive linear indices; entries in
 no group are unpenalized. The level and weights are nonnegative and not `NaN`,
-and `a > 0`. The constructors above copy `groups` and `w`. The type trait
-`isconvex` is false.
+and `a > 0`. The constructors above copy `w`, the list of groups and each
+group that is not a range; a range group can be kept as given (when every group
+is a range of one concrete type) and must not be mutated afterwards. The type
+trait `isconvex` is false.
 
 [`prox`](@ref) takes a nonnegative **scalar** step `γ`. For finite positive
 `λₖ`, `a` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces
@@ -72,8 +74,8 @@ struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abst
   group_of::Vector{Int}   # group_of[i] = k for i ∈ Gₖ, 0 for an index in no group
   free::Vector{Int}       # the indices up to the largest in a group that are in none
 
-  # The typed constructor stores groups and w as given (the outer constructors pass their own copies); the caller must
-  # not mutate them afterwards.
+  # The typed constructor stores groups and w as given (the outer constructors pass copied weights, a copied list and
+  # copies of the groups that are not ranges); the caller must not mutate them afterwards.
   function GroupMCP{T, G}(λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
     _check_one_based_groups(groups)
     length(w) == length(groups) ||
@@ -121,7 +123,7 @@ BlockIterate(x::AbstractVector, f::GroupMCP) = BlockIterate(x, f.groups)
 
 @inline _check_group_extent(f::GroupMCP, x) = (length(x) >= length(f.group_of) || _group_extent_error(f, x); nothing)
 _checkparams(f::GroupMCP, x) = (_check_group_extent(f, x); true)
-# a symmetric iterate is rejected by the oracles themselves, with their own message
+# a symmetric iterate is rejected by the scalar-step proximal oracles themselves, with their own message
 _checkparams(::GroupMCP, ::SymmetricSparseIterate) = true
 
 @noinline _gmcp_float_error(op, S) = throw(ArgumentError(
@@ -203,7 +205,7 @@ end
 # finite parameters at a nonzero group counts, also when it rounds to Inf; zero groups, unpenalized groups, a zero level,
 # hard groups (an infinite weight or level) and NaN groups do not.
 # Ordinary path: homogeneous Float32 or Float64 parameters, a normal level λ = λ0 w and kink aλ, and a sum of squares
-# that _squares_normal accepts. The plateau applies when the computed norm is at least the rounded kink.
+# that is finite and that _squares_normal accepts. The plateau applies when the computed norm is at least the rounded kink.
 @inline function _gmcp_term(λ0, w, a, x, G, ::Type{T}) where {T}
   iszero(w) && return (zero(T), false)
   if T === typeof(λ0) && T <: Union{Float32, Float64}
@@ -304,13 +306,13 @@ end
 ####################################
 
 # y[G] = the proximal point of γ p(‖⋅‖₂; λ0 w, a) at x[G], possibly in place (y === x), for a finite a. Returns, in T,
-# _L2_ZERO when the term of the stored group is zero (a zero group, or an unpenalized one), _L2_RECOMPUTE when it is to
-# be recomputed from the stored group, and otherwise the term of a group kept or scaled on the ordinary path: the
+# _L2_ZERO when it certifies that the term of the stored group is zero (a group set to zero, or an unpenalized one),
+# _L2_RECOMPUTE when the term is to be recomputed from the stored group (a copied group, whose term can be zero, included), and otherwise the term of a group kept or scaled on the ordinary path: the
 # plateau of a kept group, and, with V (the fused value), for a scaled group the term at the norm of its stored entries,
 # whose squares are summed as they are written.
 # Ordinary path (O = true: Float32 or Float64 throughout, the step converted exactly): a normal level λ = λ0 w (rounded
 # once) and kink aλ, a firm threshold γλ of at least _mcp_firm_product_min for γ < a or a finite step for γ ≥ a, and a
-# sum of squares that _squares_normal accepts. The decisions are the scalar MCP comparisons at the computed norm r and
+# finite sum of squares that _squares_normal accepts. The decisions are the scalar MCP comparisons at the computed norm r and
 # the rounded level λ: zero when r ≤ γλ (the sign of the fused residual r - γλ), kept when r ≥ aλ, both exact; for
 # γ ≥ a kept when r² > aγλ² (_mcp_keeps). A firm group is scaled by min(1, (r - γλ) (a/(a - γ))/r).
 @inline function _gmcp_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false)) where {O, V}

@@ -109,7 +109,7 @@ does not imply a global minimizer.
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Other arrays, `SparseGroupNormL2` | Entry `k` selects its group. An uncovered entry gives `abs(v[k])`. Check gradient length and group extent |
 | Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of zero, of `abs(v[i])` over the entries in no group and of the distances of the groups, and the three-argument form throws `ArgumentError` |
-| Other arrays, `GroupMCP` | Entry index selects its group, with the checks of `GroupNormL2`. At a zero group the screen of the row above, `abs(v[k])` for an entry in no group; `ArgumentError` at a nonzero group and in the full-point form |
+| Other arrays, `GroupMCP` | Entry index selects its group, with the checks of `GroupNormL2`. At a zero group the screen of the `BlockIterate`, `GroupMCP` row, `abs(v[k])` for an entry in no group; `ArgumentError` at a nonzero group and in the full-point form |
 | Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument

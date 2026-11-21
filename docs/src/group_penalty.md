@@ -574,13 +574,13 @@ weights. The constructors follow those of [`GroupNormL2`](@ref group-l2-guide), 
 |:--|:--|
 | `GroupMCP(λ0, groups)` | Default weights and shape |
 | `GroupMCP(λ0, groups, w; a)` | One nonnegative weight per group |
-| `GroupMCP(λ0, groups, w; a = Inf)` | The penalty and proximal map of `GroupNormL2(λ0, groups, w)` |
+| `GroupMCP(λ0, groups, w; a = Inf)` | The rules of `GroupNormL2` applied to the stored factors and precision of the `GroupMCP` |
 
 ### Proximal operator: radial MCP thresholding
 
 For finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a finite nonzero norm
 ``r=\lVert x_{G_k}\rVert_2``, the proximal operator replaces the norm of the group by a minimizer of
-``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0`` and keeps its direction. For ``\gamma<a`` the group becomes `+0`
+``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0`` and, for a nonzero result, keeps its direction. For ``\gamma<a`` the group becomes `+0`
 when ``r\le\gamma\lambda_k``, is kept when ``r\ge a\lambda_k``, and is otherwise scaled by
 ``(r-\gamma\lambda_k)a/((a-\gamma)r)``. For ``\gamma\ge a`` the group is kept when ``r^2>a\gamma\lambda_k^2`` and becomes
 `+0` otherwise, also at a tie. At `a = Inf` the group map is that of `GroupNormL2`. Entries in no group are unchanged;

@@ -31,8 +31,9 @@ this page.
 `GroupMCP(λ0, groups, w; a = 3)` converts `λ0`, `w` and `a` to
 `T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))`. `GroupMCP(λ0, groups; a = 3)` uses `T = float(promote_type(typeof(λ0), typeof(a)))` and the weights
 ``w_k=\sqrt{\lvert G_k\rvert}``, computed in `promote_type(T, Float64)` and converted to `T`. The level and the weights
-are nonnegative and not `NaN`; `a` is positive and not `NaN`. These two constructors copy the groups and the weights
-and keep their order. With no groups the value is zero and the proximal map is the identity.
+are nonnegative and not `NaN`; `a` is positive and not `NaN`. These two constructors copy the weights, the list of
+groups and each group that is not a range, and keep their order; a range group can be kept as given (when every group
+is a range of one concrete type) and must not be mutated afterwards. With no groups the value is zero and the proximal map is the identity.
 
 ## [Traits](@id spec-groupmcp-traits)
 
@@ -45,11 +46,11 @@ The value, `prox`, `prox!` and `value_and_prox!` take one-based real arrays: `Ar
 the groups), `SparseIterate` and `BlockIterate`, read and written by indexing their entries. The destination of `prox!`
 and `value_and_prox!` has a floating-point element type; `prox` allocates one. The step is a nonnegative real scalar.
 `prox_block!(out, f, u, k, γ)` and the allocating `prox_block(f, u, k, γ)` take compact vectors in the order of
-`groups[k]` and do not change an iterate. `BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)` copy
-the groups of `f`, which must then partition the entries.
+`groups[k]` and do not change an iterate. `BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)` take
+the groups of `f`, which must then partition the entries, with the copying rule of the constructors above.
 
-The numerical target is homogeneous CPU `Float32` and `Float64` input, destination, parameters and step. Other type
-combinations are supported without a further precision guarantee.
+The numerical target is homogeneous CPU `Float32` and `Float64` input, destination, parameters and step. Some other type
+combinations dispatch, without a precision guarantee.
 
 ## [Preconditions](@id spec-groupmcp-preconditions)
 
@@ -92,8 +93,8 @@ group shrinkage and the value ``\lambda_k\lVert x_{G_k}\rVert_2``.
 
 For positive finite stored `λ0` and `w_k`, the decisions above do not require the products ``\lambda_0w_k``,
 ``\gamma\lambda_k``, ``a\lambda_k`` or ``a\gamma\lambda_k^2`` to be representable: an overflowing finite product is not
-treated as a stored infinity, and an underflowing one is not treated as a stored zero. A group whose sum of squares
-overflows or underflows the input type is handled with a scaled norm. The stored result is limited by the range of the
+treated as a stored infinity, and an underflowing one is not treated as a stored zero. A scaled norm is the recovery
+route, when needed, for a group whose sum of squares overflows or underflows the input type. The stored result is limited by the range of the
 destination type. Three `Float64` examples, each with its own parameters:
 
 ```@example group_mcp
@@ -167,7 +168,8 @@ g = GroupMCP(2.0^-700, [1:2], [1.0])
 @assert prox_block(g, [0.6, 0.8], 1, 2.0^1023) == [0.6, 0.8]            # a large finite step keeps the group
 ```
 
-There is no `restrict` and no array (per-entry or per-group) step: these calls throw a `MethodError`, except where a
+There is no `restrict` and no array (per-entry or per-group) step: calls that pass the shared argument checks throw a
+`MethodError`, except where a
 route shared with other functions rejects a `SymmetricSparseIterate` destination, or the allocating
 `prox(f, S, steps)`, with an `ArgumentError`. The scalar-step refusal of a `SymmetricSparseIterate` is under Failure
 behavior. A `SparseIterate` destination is written entry by entry, as for `GroupNormL2`.

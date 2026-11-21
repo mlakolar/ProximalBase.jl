@@ -36,7 +36,7 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/indballl1.jl` | ℓ₁-ball feasibility and projection using the shared threshold selector |
 | `src/functions/groupnormlinf.jl` | Disjoint-group ℓ∞ norm: the group clipping step on the helpers of `NormLinf`, compact block proximal maps and the margin at a zero group; included before `groupnorml2.jl`, whose shared checks and checked value serve both group types |
 | `src/functions/groupnorml2.jl` | Disjoint-group norm, compact block proximal maps and group KKT scores |
-| `src/functions/groupmcp.jl` | Disjoint-group minimax concave penalty: the radial reduction to the scalar MCP proximal point at the group norm (ordinary and scaled paths, the latter on the parts of the level, shape, step and norm), values with recomputation in power-of-two units, compact block proximal maps and the zero-group screen; included after `groupnorml2.jl`, whose checks and ℓ₂ kernels it calls |
+| `src/functions/groupmcp.jl` | Disjoint-group minimax concave penalty: for a finite shape, the radial reduction to the scalar MCP proximal point at the group norm (ordinary and scaled paths, the latter on the parts of the level, shape, step and norm), and for `a = Inf` the ℓ₂ kernels of `GroupNormL2`; values with recomputation in power-of-two units, compact block proximal maps and the zero-group screen; included after `groupnorml2.jl`, whose checks and ℓ₂ kernels it calls |
 | `src/functions/scaled.jl` | Nonnegative scaling and exceptional exponent retention |
 | `src/array_steps.jl` | Diagonal steps for supported separable/zero array methods |
 | `src/functions/scaled_array.jl` | Diagonal array-step methods and scaling recovery for `Scaled` functions |

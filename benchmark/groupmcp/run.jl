@@ -22,7 +22,7 @@
 # with 4096-entry groups the single group is zeroed) and noshrink (every group kept). The target norm of a zeroed group
 # is half the zero threshold of its step, that of a kept group twice the largest threshold, and that of a scaled group
 # the midpoint of the firm interval (aλ/32 from either end for γ = 15a/16); the inputs are these targets along random
-# directions, converted to T, so that implementations that decide on the computed norm agree. Each case has PB_INPUTS
+# directions, converted to T, so that implementations that decide on the computed norm take the same branches. Each case has PB_INPUTS
 # (default 8) inputs with the same target norms and independently drawn directions; the setup of each timed sample selects
 # the next input of the pool (outside the timing), and the three roles read the same arrays.
 #
@@ -34,8 +34,8 @@
 # Before timing, each case is run once per role on its first input. XC must equal X (isequal); X must match the closed form
 # of the radial map at the group norm computed in 256-bit BigFloat, entrywise within 16 (m + 8) κ eps(T) max|u|
 # (κ = a/(a - γ) for γ < a, else 1), and its value within 16 (m + K) eps(T) of the BigFloat value (for the fused value,
-# relative to the larger of that value and floatmin(T)); a mismatch stops the script, or, with PB_STRICT=0 (for the legacy
-# tree), is recorded as fail in verification.csv. The outputs of X on the first input are written to outputs/ for
+# relative to the larger of that value and floatmin(T)). An X/XC mismatch stops the script; a mismatch of X against the
+# closed form stops it too, or, with PB_STRICT=0 (for the legacy tree), is recorded as fail in verification.csv. The outputs of X on the first input are written to outputs/ for
 # summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
 #
 # Output files: provenance.txt, verification.csv, raw.csv (per round and role, the median and minimum time of the trial,

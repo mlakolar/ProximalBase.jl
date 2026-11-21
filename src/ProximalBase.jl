@@ -25,7 +25,7 @@ export AbstractFunction, SeparableFunction,
   ncoordinates, coordinates, nactive, activecoordinates, activevalues, matrixview, isactive,
   activate!, blockview, blockindices, nnz, dropzeros!, shrink, norm_diff, tril_index, tril_cartesian
 
-export MCP
+export MCP, GroupMCP
 
 VERSION >= v"1.11" && Core.eval(@__MODULE__, Expr(:public,
   :check_parameters, :entry_parameters, :check_symmetric_parameters, :samegroups,
@@ -60,6 +60,7 @@ include("functions/norml2.jl")
 include("functions/normlinf.jl")
 include("functions/groupnormlinf.jl")   # before groupnorml2.jl: its shared methods dispatch on both group types
 include("functions/groupnorml2.jl")
+include("functions/groupmcp.jl")
 include("functions/sparsegroupnorml2.jl")
 include("functions/scaled.jl")
 include("functions/indballl1.jl")

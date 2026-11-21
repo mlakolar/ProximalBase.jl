@@ -148,6 +148,14 @@ that happens to pass.
   awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
   · [Tests](../../../test/logdet.jl)
 
+- The GroupNormLinf endpoint table says the rules apply in order and lists
+  identity cases before the invalid-step error. The ordering could include
+  negative and NaN steps or apply after step validation. The public array
+  and compact paths check the step before writing, and the tests exercise
+  that failure. The table's scope awaits the owner's decision.
+  [Source](../../../src/functions/groupnormlinf.jl)
+  · [Tests](../../../test/groupnormlinf.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

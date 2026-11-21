@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`IndBallL2`](@ref).
 
 Source: [`src/functions/indballl2.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/indballl2.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-indballl2-definition)
 
@@ -18,11 +18,11 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Traits](@id spec-indballl2-traits)
 
-**Links only until clause conversion.** Trait declarations are described by [`IndBallL2`](@ref) and [`IndBallL2`](@ref).
+**Links only until clause conversion.** Trait declarations are described by [`IndBallL2`](@ref).
 
 ## [Supported arguments](@id spec-indballl2-arguments)
 
-**Links only until clause conversion.** Operation signatures and representations are described by [`IndBallL2`](@ref) and [`IndBallL2`](@ref).
+**Links only until clause conversion.** Operation signatures and representations are described by [`IndBallL2`](@ref).
 
 ## [Preconditions](@id spec-indballl2-preconditions)
 

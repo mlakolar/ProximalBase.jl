@@ -355,7 +355,7 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    with the `z` binaries into `reference/`, and each `outputs-<julia>` directory's outputs index, failures index and
    accuracy file into a directory of the same name) and the manifest given by `--inputs`. It refuses a destination that
    exists and is not empty, another manifest in the tree, two files with the same destination and a kind of file the
-   tree lacks, before copying anything; it stops at a failed copy; after every copy it writes `sha256-list.tsv` (format
+   tree lacks, before copying anything; it stops at a failed copy; when all copies have succeeded it writes `sha256-list.tsv` (format
    `pb1103-checksums-1`: the path of each gathered file relative to `$SUM` and the SHA-256 of the copied bytes), to be
    kept with the raw results:
 

@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`GroupNormL2`](@ref).
 
 Source: [`src/functions/groupnorml2.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/groupnorml2.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-groupnorml2-definition)
 
@@ -38,6 +38,8 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Range clauses](@id spec-groupnorml2-range)
 
+The [shared range guarantees](@ref numerical-value-range) describe the checks referenced here.
+
 `GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
 and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
 
@@ -45,8 +47,6 @@ The proximal operators of `GroupNormL2` recompute, for finite inputs, a group no
 squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range, in
 power-of-two units; the ordinary path needs a normal threshold and a normal sum of
 squares, and is otherwise unchanged.
-
-The “same check” and “above” in the retained text refer to the shared [range guarantees](@ref numerical-value-range).
 
 ## [Endpoint clauses](@id spec-groupnorml2-endpoints)
 

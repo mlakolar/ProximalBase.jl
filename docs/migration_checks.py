@@ -285,9 +285,13 @@ def write_tsv(path, fields, rows, baseline=BASELINE):
         writer.writerows(rows)
 
 
+def parse_tsv(lines):
+    return list(csv.DictReader((line for line in lines if not line.startswith("# baseline\t")), delimiter="\t"))
+
+
 def read_tsv(path):
     with path.open(encoding="utf-8", newline="") as stream:
-        return list(csv.DictReader((line for line in stream if not line.startswith("# baseline\t")), delimiter="\t"))
+        return parse_tsv(stream)
 
 
 class ContentAnchors(HTMLParser):
@@ -816,11 +820,28 @@ def sequence_starts(values, sequence):
             if values[i:i + len(sequence)] == sequence]
 
 
+def validate_upstream_prior_move(old, destination, first_event, root):
+    """Require the frozen block's exact move in the first upstream event's parent."""
+    before = first_event.get("before_commit") if isinstance(first_event, dict) else None
+    if not isinstance(before, str) or not re.fullmatch(r"[0-9a-f]{40}", before):
+        raise ValueError("upstream requires an exact Git object ID: before_commit")
+    message = "upstream outside the original file requires a matching move in the first event's parent ledger"
+    path = "docs/audit/docs-tracks-1019/ledger.tsv"
+    if not git("ls-tree", "--full-tree", before, "--", path, root=root).strip():
+        raise ValueError(message)
+    ledger = git("show", f"{before}:{path}", root=root)
+    rows = [row for row in parse_tsv(ledger.splitlines(keepends=True)) if row.get("block_id") == old.id]
+    expected = dict(sha=old.sha, kind=old.kind, action="move", dest=destination, dest_sha=old.sha)
+    if len(rows) != 1 or any(rows[0].get(key) != value for key, value in expected.items()):
+        raise ValueError(message)
+
+
 def validate_upstream(old, row, record, root=ROOT, *, current=True):
     """Bind one original block to an exact sequence of reviewed upstream diffs.
 
-    Each event replaces a contiguous span in its original file. Hashes must join
-    exactly; unrelated intervening commits or file edits need not be adjacent.
+    Each event replaces a contiguous span in one file. The tracked parent ledger
+    can establish a prior exact move to that file for a current upstream action.
+    Hashes must join exactly across events.
     The final hash remains bound to the ledger's current destination.
     """
     if record is None:
@@ -833,18 +854,26 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     if not destinations or len(destinations) != len(hashes) or len(set(destinations)) != 1:
         raise ValueError("upstream requires one repeated destination scope for its ordered span")
     path, anchor = split_destination(destinations[0])
-    if path != old.path or hashes == [old.sha]:
-        raise ValueError("upstream requires a changed block in its original file")
+    if hashes == [old.sha]:
+        raise ValueError("upstream requires a changed block")
     reviewer, _, revision = row["reviewer"].partition("@")
     if not reviewer or reviewer == "mechanical" or not revision:
         raise ValueError("upstream requires independent review identity@revision")
     events = record.get("events")
     if not isinstance(events, list) or not events:
         raise ValueError("upstream requires a nonempty events sequence")
+    scope = None
+    if path != old.path:
+        if not current:
+            raise ValueError("migration bases require upstream edits in the original file")
+        if row.get("action") != "upstream":
+            raise ValueError("post-move receipts require an upstream ledger action")
+        validate_upstream_prior_move(old, destinations[0], events[0], root)
+        scope = (path, anchor)
     source = [old]
     for index, event in enumerate(events, 1):
         try:
-            source = validate_upstream_event(source, event, root)
+            source = validate_upstream_event(source, event, root, scope=scope)
         except (ValueError, subprocess.CalledProcessError) as error:
             raise ValueError(f"upstream event {index}: {error}") from error
     if [block.sha for block in source] != hashes:
@@ -860,7 +889,7 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     return current[starts[0]:starts[0] + len(hashes)]
 
 
-def validate_upstream_event(old, record, root=ROOT):
+def validate_upstream_event(old, record, root=ROOT, *, scope=None):
     """Verify one complete ordered transition using actual Git line changes."""
     if not isinstance(record, dict):
         raise ValueError("upstream event must be an object")
@@ -890,7 +919,7 @@ def validate_upstream_event(old, record, root=ROOT):
     parents = re.findall(r"^parent ([0-9a-f]{40})$", header, re.M)
     if not parents or parents[0] != before:
         raise ValueError("upstream before_commit is not after_commit's first parent")
-    path = old[0].path
+    path, anchor = scope if scope is not None else (old[0].path, "")
     texts = []
     for commit, key in ((before, "before_blob"), (after, "after_blob")):
         actual = git("rev-parse", "--verify", f"{commit}:{path}", root=root).strip()
@@ -904,6 +933,11 @@ def validate_upstream_event(old, record, root=ROOT):
     old_starts, new_starts = sequence_starts(before_hashes, source_hashes), sequence_starts(after_hashes, replacement_hashes)
     if len(old_starts) != 1 or len(new_starts) != 1:
         raise ValueError("upstream diff must contain unique original and replacement blocks")
+    if anchor:
+        for text, hashes in zip(texts, (source_hashes, replacement_hashes)):
+            scoped_hashes = [block.sha for block in blocks(section_text(text, anchor), path)]
+            if len(sequence_starts(scoped_hashes, hashes)) != 1:
+                raise ValueError("post-move upstream span must stay inside its recorded heading")
     originals = before_blocks[old_starts[0]:old_starts[0] + len(source_hashes)]
     replacements = after_blocks[new_starts[0]:new_starts[0] + len(replacement_hashes)]
     if [block.kind for block in originals] != [block.kind for block in old]:

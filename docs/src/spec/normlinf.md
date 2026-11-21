@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`NormLinf`](@ref).
 
 Source: [`src/functions/normlinf.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/normlinf.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-normlinf-definition)
 
@@ -37,6 +37,8 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 **Links only until clause conversion.** The ordinary mathematical formulas and examples remain in [the function guide](../group_penalty.md#The-NormLinf-norm).
 
 ## [Range clauses](@id spec-normlinf-range)
+
+The [ElasticNet range clauses](@ref spec-elasticnet-range) explain the Julia 1.10 subnormal-scaling allowance cited here.
 
 The clip level `τ` of `NormLinf` has an **absolute** error. On the ordinary finite path, for `n ≥ 1` entries in the
 floating type `T` of the output with `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and `2^51` in `Float64`), a
@@ -80,6 +82,8 @@ contract](../numerics.md#numerical-value-range) states the hypotheses and the sc
 | `NormLinf`, finite level, zero level or zero step | After the rows above: the identity (`-0`, `NaN` and `±Inf` entries unchanged), also at `γ = Inf` with a zero level; value `0` at a zero level, `λ maxᵢ abs(xᵢ)` at a zero step of a positive level |
 | `NormLinf`, positive finite level, infinite step | `+0` for every input (decided before the entries are classified), `NaN` and `±Inf` entries included |
 | `NormLinf`, positive finite level and positive finite step | A `NaN` entry makes every output `NaN`; a `±Inf` entry (no `NaN`) leaves the argument unchanged, also when the finite product `γλ` overflows; otherwise the clip at `τ` with `Σ(abs(xᵢ) - τ)₊ = γλ`, and `+0` when `γλ` is at least `‖x‖₁` or overflows while `‖x‖₁` is finite; a sum of magnitudes above `floatmax(T)/2` is processed in power-of-two units |
+
+This passage concerns [full-point optimality scores](../group_penalty.md#norm-linf-kkt).
 
 For finite entries, a zero level gives ``\lVert v\rVert_2``, and an infinite level gives `0` at the zero point and
 `Inf` at another point. A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;

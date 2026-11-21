@@ -203,10 +203,19 @@ an ordered span uses `source_shas` or `replacement_shas`. Each side has exactly
 one of those forms. Use the actual first parent of the landed commit, which
 can differ from the PR API's recorded base. The checker recomputes each event's
 Git provenance and requires its source and replacement to share a changed diff
-hunk. The first source is the frozen original; each later source is the complete
-preceding replacement span. The final ordered hashes and reviewer match the
-ledger. Multiple destinations repeat one exact same-file scope, paired in order
-with their hashes. Current pieces must remain consecutive in that scope.
+hunk. The first source has the frozen original's hash. Each later source is the
+complete preceding replacement span. The final ordered hashes and reviewer
+match the ledger. Multiple destinations repeat one exact same-file scope,
+paired in order with their hashes. Current pieces must remain consecutive in
+that scope.
+
+For a block moved verbatim to another file, the first event's actual first
+parent must contain a unique tracked `move` row with the frozen ID, hash and kind.
+The row's destination must match the receipt's exact path and heading scope, and
+its destination hash must equal the frozen hash. The first event verifies the
+original block at that scope in the moved file's before blob. Each event
+verifies both blobs at the moved path and keeps its span within the recorded
+scope. The current ledger uses the `upstream` action for this case.
 
 The checker derives the complete replacement span from the source-owned changed
 line regions. An unchanged neighboring block is excluded only when positional
@@ -215,9 +224,9 @@ in the old file does not exempt a newly introduced copy from the receipt.
 
 Events need not be adjacent commits or have identical whole-file blobs between
 them: unrelated upstream work may edit other sections. Exact block-hash
-continuity is mandatory. The action supports exact contiguous replacement spans
-in the same file, without a general move, rename or deletion exemption. Each PR's
-merged status is independently verified and recorded in `review.md`; an offline
+continuity is mandatory. Each chain verifies exact contiguous replacement spans
+within one file. Each PR's merged status is independently verified and recorded
+in `review.md`; an offline
 checker cannot authenticate it. CI fetches the exact before/after revisions for
 every recorded event at depth one, deduplicating revisions shared by events.
 

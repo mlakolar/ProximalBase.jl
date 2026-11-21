@@ -2,50 +2,13 @@
   "schema": 1,
   "bases": [
     {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::18",
-      "baseline_sha": "a79a0501c145f2dfbf4a21f6686825639e54e00e49af2ede7b317e9688d8d2de",
-      "upstream_sha": "a2bc582d5d140ef74909a8b3a413e15c1045b932f459d61e34676a11c65cf45e",
-      "source_shas": [
-        "f5bf1b8d361ac13ed1728fe5a808d932a43b94f0c35cd69a6b55d3ba8fd0c8e4"
-      ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
-    },
-    {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::19",
-      "baseline_sha": "f9c5d123d34251055fcab475c7929dc6aeb8b223ab66cfd46211eb2c968216b2",
-      "upstream_sha": "fb5415b3d907571aa4ee1f934c087987e454067603093e579679c182c8fd5489",
-      "source_shas": [
-        "5276e45483277498e234604548626da6634f2ac1d571e724890fc2e0b3900314"
-      ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
-    },
-    {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",
-      "baseline_sha": "68aba09530acbf625c4825889f4cc925a60acbe900661abda296f67801ba9f1c",
-      "upstream_sha": "5fe93e1f23b5bafdbfafa5dbc9511d1139a3ba35f40e77b506c70f5925f03185",
-      "source_shas": [
-        "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
-        "6fe85f7af1f4d9550dc563b32d5c83aff9fe867bed2b2b30aac1ae538efe5ce9"
-      ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
-    },
-    {
-      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::23",
-      "baseline_sha": "4a353114cc26ffaca4a5568bd60e4d9452246f8686c3faec44b37fcbd07920bb",
-      "upstream_sha": "cf2fffb99c12b4705c41c4f0d178f860fe0501eced3773f6bb334236be9a2c10",
-      "source_shas": [
-        "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24"
-      ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
-    },
-    {
       "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / The NormLinf norm::8",
       "baseline_sha": "b19fe988364e8762b0b7cc65979cc9edc7791ad6b5ce3255c08dd5df40d97c8e",
       "upstream_sha": "5deb683d0ce1c8ee70249ba50c11adc6d4522f6d2f9a8bac30ceb72fa848f847",
       "source_shas": [
         "bacb3c38208aa1a8177292c45a86ecbacff32c8a931a21ef7c2e592dd4b889ae"
       ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+      "evidence": "sparsegroup_receipt_review@39486aad79a3d8184945a249543b31185ff90d86 verified the retained Git receipt and its complete terminal span against the reviewed move."
     },
     {
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::75",
@@ -55,7 +18,44 @@
         "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
         "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
       ],
-      "evidence": "Historical upstream chain retained unchanged. The lead independently checked complete raw moved spans against e03c6d9 at family head 5cf01e4; final rendered review is recorded separately."
+      "evidence": "reconcile_pr_review@b3bd8992cd6d4a0ca939d402a1d488886ae8a0dc verified the retained Git receipt and its complete terminal span against the reviewed move."
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::18",
+      "baseline_sha": "a79a0501c145f2dfbf4a21f6686825639e54e00e49af2ede7b317e9688d8d2de",
+      "upstream_sha": "bdcf7bacbbdeaaceaab8b25b69276217f2da95ab0011b0642cb139140aac45f7",
+      "source_shas": [
+        "b74b1ed6fc2895c086529c6b5e91cb9c91fa25306bd3346ad9aae113f1f9ef26"
+      ],
+      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::19",
+      "baseline_sha": "f9c5d123d34251055fcab475c7929dc6aeb8b223ab66cfd46211eb2c968216b2",
+      "upstream_sha": "c1299d0e9d43edf37d45f6ee199c5bf515dbf8ac67bfbd7b0e1948c39b08df55",
+      "source_shas": [
+        "037653c50bee4f31bcdf703b3db84ab16e176b62325c0965aad6a3eb2b79be73"
+      ],
+      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",
+      "baseline_sha": "68aba09530acbf625c4825889f4cc925a60acbe900661abda296f67801ba9f1c",
+      "upstream_sha": "b7e3a970f73507fd12dc1002626912b32d7705557972fb1e93173e18b28bb348",
+      "source_shas": [
+        "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2",
+        "87f7c0dc588373aa197c8134213217fa5ea9c04969c1234439c53c5146c99d45"
+      ],
+      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
+    },
+    {
+      "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::23",
+      "baseline_sha": "4a353114cc26ffaca4a5568bd60e4d9452246f8686c3faec44b37fcbd07920bb",
+      "upstream_sha": "cf2fffb99c12b4705c41c4f0d178f860fe0501eced3773f6bb334236be9a2c10",
+      "source_shas": [
+        "45b1bfa73e5678f4eb98415647bc63143a948fddae3f825bffeb5fb243f32e24"
+      ],
+      "evidence": "reconcile_pr_review@a4fa70bbad26a7b032efcac970f6de362575becf verified the retained Git receipt and its complete terminal span against the reviewed move."
     }
   ]
 }

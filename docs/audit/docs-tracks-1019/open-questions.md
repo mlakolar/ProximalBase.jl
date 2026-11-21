@@ -12,6 +12,115 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
+- `docs/src/migration.md`, “Retained and removed scope”, can be read as a
+  history of the #850 reduction or as an inventory of what is unavailable
+  today. #1062 adds `IndBallL1` and `IndBallL0` to the indicator inventory.
+  The current exports and [function library](../../src/function_library.md)
+  include `NormL0`, `MCP` and `SCAD`. The scope of the statement about removals
+  awaits the owner's decision.
+
+- The `IndBallL0` sentence in the same section ends with “with `Float32` or
+  `Float64`”. The phrase could qualify the whole list of input representations
+  or `SymmetricSparseIterate` alone. The implementation uses those element types
+  across the listed representations, and the tests exercise unsupported and
+  mixed-type calls. The wording awaits the owner's decision.
+  [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
+
+- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
+  project”. This could refer to calls on a concrete `Scaled` wrapper or to
+  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
+  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
+  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
+  oracles check the step. The moved row retains the original wording pending
+  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+  · [Scaling source](../../../src/functions/scaled.jl)
+  · [Tests](../../../test/indnonnegative.jl)
+
+- The `GroupNormLinf` optimality section says a zero group's signed margin
+  and full-point distance are “equal where `v_G` has one nonzero entry”.
+  This could include negative margins or apply only to nonnegative margins.
+  The same paragraph gives zero distance for a negative margin. The scoring
+  branches and tests distinguish the two values. The scope of equality
+  awaits the owner's decision.
+  [Guide](../../src/group_penalty.md#Optimality-scores-2)
+  · [Source](../../../src/functions/groupnormlinf.jl)
+  · [Tests](../../../test/groupnormlinf.jl)
+
+- The `SqrNormL2` endpoint text says “`NaN` at a zero residual, `Inf`
+  elsewhere” at infinite level with finite `v` and `x`. “Elsewhere” could
+  refer to a nonzero residual that is not `NaN` or include a `NaN` center.
+  The constructor accepts a `NaN` center and the score helpers propagate its
+  `NaN`. The tests exercise `NaN` centers and infinite levels separately.
+  The wording awaits the owner's decision.
+  [Source](../../../src/functions/sqrnorml2.jl) · [Tests](../../../test/kkt_point.jl)
+
+- The `LeastSquaresLoss` range text says “For strided `Float32` and `Float64`
+  vectors”. This could describe the caller's coefficients `β` or the operands
+  of the squared-residual kernel, including the predictor or residual. The
+  coefficient methods use an internal work vector, and the fast value kernel
+  dispatches on strided operands of a common type. The scope of the phrase
+  awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
+  · [Tests](../../../test/leastsquares_predictor.jl)
+
+- The matrix predictor sentence added by #1115 says both oracles reuse “the same
+  squared-residual recovery”. This could refer to both oracles retrying an
+  overflowing subtraction or to their use of the same range kernel on different
+  operands. The value-only oracle can retry with the original predictor and
+  response. The fused oracle uses the stored residual, and the overflow test
+  gives a finite value for the former and `Inf` for the latter. The scope of
+  “same” awaits the owner's decision.
+  [Source](../../../src/functions/leastsquares_predictor.jl)
+  · [Tests](../../../test/leastsquares_predictor.jl)
+
+- The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
+  could mean the loss from unrounded `Xβ` or the exact norm at the stored or
+  supplied predictor or residual. The same paragraph leaves open whether
+  the precision and layout conditions apply to the caller's coefficients and
+  design or to the operands of the sum. Its length-and-epsilon condition can
+  also be read to cover precisions beyond `Float32` and `Float64`, which the
+  kernel proof names. The scope of the bound awaits the owner's decision.
+  [Source](../../../src/functions/sqrt_leastsquares.jl)
+  · [Tests](../../../test/sqrt_leastsquares.jl)
+
+- The `LinearFunction` range paragraph gives the bound
+  `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)` without defining `n`. It could count
+  nonzero products or all entries in the argument or its storage. The recovery
+  tests count nonzero products. The intended scope awaits the owner's decision.
+  [Source](../../../src/functions/linear.jl)
+  · [Tests](../../../test/linear_value_recovery.jl)
+
+- The `NormL2` range text says the sums visit “each off-diagonal symmetric
+  coordinate twice”. This could count contributions to the squared norm or
+  visits to the stored entry. The ordinary sum doubles a stored off-diagonal
+  square, and recovery uses a multiplicity. The wording awaits the owner's
+  decision. [Source](../../../src/functions/sqrnorml2.jl)
+  · [Tests](../../../test/norml2.jl)
+
+- The NormLinf range paragraph calls τ* the root of the level equation
+  at the rounded radius. If the radius rounds to zero, every level at or above
+  the largest magnitude solves the equation. The statement could refer to the
+  smallest root or apply only when the rounded radius stays positive. The
+  implementation uses the largest entry as the zero-radius reference in its
+  exceptional-path derivation. The range interpretation awaits the owner's
+  decision. [Source](../../../src/functions/normlinf.jl)
+  · [Tests](../../../test/normlinf.jl)
+
+- The GroupNormL2 endpoint row for positive finite parameters and step also
+  says `γ = Inf` fixes the group at zero. It could describe a separate
+  infinite-step branch or fall under the row's finite-step qualifier. The
+  guide table and infinite-step tests exercise the branches separately.
+  The qualifier awaits the owner's decision.
+  [Guide](../../src/group_penalty.md#group-l2-endpoints)
+  · [Tests](../../../test/groupnorml2.jl)
+
+- The Scaled endpoint paragraph says finite-data built-in losses simplify
+  to ZeroFunction at zero scale. It could refer to all current built-in
+  losses or only those with a domain-preserving zero-scale representation.
+  The source has separate zero-scale methods for LeastSquaresLoss and
+  SqrtLeastSquaresLoss. The LogisticLoss and LogDetLoss types use the
+  default error path. The family scope awaits the owner's decision.
+  [Source](../../../src/functions/scaled.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at
@@ -22,12 +131,18 @@ its verification limits, the five requested corrections and the inspected
 source revision are recorded in `review.md`.
 
 Unrelated merged PR changes use the bounded `upstream` action with exact Git
-provenance and independent review. The current reconciliation through `c54241b`
-has 59 receipts covering 93 transitions, retaining every earlier event and all
+provenance and independent review. The reconciliation through `8364532f`
+has 66 receipts covering 132 transitions, retaining every earlier event and all
 2,162 original block identities. Reconcile pending external changes to an
 all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
+
+The #1063 test inventory says the historical snapshot at `879e067` “added a
+provisional 40-second weight”. This could refer to the measured checkout or
+to the later weight based on its timing. The measured checkout used a weight
+of 35 seconds and #1063 landed with 40 seconds. The wording awaits the owner's
+decision. [Test inventory](../../../test/TESTING.md#ci-sharding)
 
 Heading compatibility retains explicit IDs and authored link/citation targets.
 The uncited original API heading's two automatic fragments remain the only

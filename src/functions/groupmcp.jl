@@ -162,7 +162,8 @@ end
 # The plateau term of the ordinary paths, and the term at a norm r; the value and the fused value form them with these
 # expressions.
 @inline _gmcp_plateau(λ, kink) = λ * (kink / 2)
-@inline _gmcp_ordinary_term(r, λ, a, kink) = r < kink ? r * (λ - (r / a) / 2) : _gmcp_plateau(λ, kink)
+# (inv(a)/2 does not depend on the group, so a loop over the groups can form it once)
+@inline _gmcp_ordinary_term(r, λ, a, kink) = r < kink ? r * (λ - r * (inv(a) / 2)) : _gmcp_plateau(λ, kink)
 
 # y[G] = q x[G] stored, possibly in place, and the sum of the squares of the stored entries
 @inline function _gmcp_scale!(y, x, G, q::T) where {T}
@@ -290,7 +291,7 @@ end
 # once) and kink aλ, a firm threshold γλ of at least _mcp_firm_product_min for γ < a or a finite step for γ ≥ a, and a
 # sum of squares that _squares_normal accepts. The decisions are the scalar MCP comparisons at the computed norm r and
 # the rounded level λ: zero when r ≤ γλ (the sign of the fused residual r - γλ), kept when r ≥ aλ, both exact; for
-# γ ≥ a kept when r² > aγλ² (_mcp_keeps). A firm group is scaled by min(1, (r - γλ) a/((a - γ) r)).
+# γ ≥ a kept when r² > aγλ² (_mcp_keeps). A firm group is scaled by min(1, (r - γλ) (a/(a - γ))/r).
 @inline function _gmcp_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false)) where {O, V}
   T = float(eltype(y))
   if O
@@ -306,7 +307,7 @@ end
             res = fma(-γ, λ, r)
             res > 0 || return T(_l2_zero!(y, G))
             if r < kink || (r == kink && !_mcp_at_or_above_kink(r, a, λ))
-              q = min(one(T), (res / ((a - γ) / a)) / r)
+              q = min(one(T), (res * (a / (a - γ))) / r)
               V || (_l2_scale!(y, x, G, q); return T(_L2_RECOMPUTE))
               sy = _gmcp_scale!(y, x, G, q)
               (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
@@ -343,7 +344,7 @@ end
 # those of the ordinary path on the parts of r, λ0 w (its significands' product rounded once in R), a and γ, so that
 # neither the level nor its products with a and γ are formed as one number: the signs of r - γλ and r - aλ in units of r
 # (_mcp_scaled_residual), and for γ ≥ a the comparison of r² with aγλ² (_mcp_keeps_parts). A firm group is scaled by
-# min(1, (m/d)/mt), with m the residual r - γλ in the units 2^et of r = mt 2^et and d = (a - γ)/a.
+# min(1, m (a/(a - γ))/mt), with m the residual r - γλ in the units 2^et of r = mt 2^et.
 @noinline function _gmcp_shrink_values!(y, x, G, λ0, w, a, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ0, w), float(eltype(x)))
@@ -361,7 +362,7 @@ end
     m > 0 || return _l2_zero!(y, G)
     u, _ = _mcp_scaled_residual(mt, et, ma, ea, ml, el)
     if u < 0
-      q = min(one(R), (m / ((ra - rg) / ra)) / mt)
+      q = min(one(R), (m * (ra / (ra - rg))) / mt)
       S = eltype(y)
       @inbounds for i in G
         y[i] = convert(S, q * convert(R, x[i]))

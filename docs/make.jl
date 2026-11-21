@@ -128,6 +128,7 @@ makedocs(;
             "IndBox and IndBallLinf" => "spec/indbox.md",
             "IndBallL2" => "spec/indballl2.md",
             "LogDetLoss" => "spec/logdet.md",
+            "LogisticLoss" => "spec/logisticloss.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",
             "SymmetricSparseIterate contract" => "developer/contracts/symmetric-sparse-iterate-0.6.md",

@@ -20,7 +20,8 @@
     "moves-norml0.json",
     "moves-indbox.json",
     "moves-indballl2.json",
-    "moves-logdet.json"
+    "moves-logdet.json",
+    "moves-logisticloss.json"
   ],
   "changes": [
     {

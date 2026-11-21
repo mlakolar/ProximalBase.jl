@@ -40,7 +40,7 @@ apply alongside each entry.
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
 | `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
 | `LogDetLoss` | [Numerical contract](logdet.md) | Verbatim migration |
-| `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
+| `LogisticLoss` | [Numerical contract](logisticloss.md) | Verbatim migration |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |

@@ -664,7 +664,8 @@ end
 
 # One pinned reference per instance: S-ADMM at ρ = 1 to the stationarity 1e-12·max(1, ‖X'y‖∞), at most
 # PB_REFERENCE_CAP iterations, generated on the pinned Julia version. The file records the provenance, the digests
-# of X and y, whether the run converged and the objective; summarize.py uses it only when it converged.
+# of X and y, whether the run converged and the objective; summarize.py refuses a campaign whose reference did not
+# converge.
 function run_admm_reference(m::Manifest, cases, roles, dir::String)
     CHECK_ONLY || VERSION == REFERENCE_JULIA || error("reference optima are generated on Julia $REFERENCE_JULIA (this is $VERSION)")
     mkpath(dir)

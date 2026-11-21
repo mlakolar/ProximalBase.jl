@@ -110,7 +110,8 @@ accuracy controls (small designs, among them a square and a tall one).
   outputs and the SHA-256 of the outputs index it evaluated. Binary outputs have their SHA-256 in the outputs index.
 - `PB_SOURCE_SHA` and `PB_HARNESS_SHA` are labels that the caller passes (7 to 40 lowercase hex digits, required outside
   `PB_CHECK_ONLY`). The scripts do not compare them with a checkout, also when one with `.git` is present; the campaign
-  pins them, and the summarizer compares every file with the pinned values.
+  pins them, and the summarizer compares the identity of each file it reads with the pinned values (the failures index
+  through the outputs index it belongs to).
 - The ADMM stage accepts the untimed counts of an instance only from the untimed file with the format, Julia version,
   source, harness, manifest digest, `X` and `y` digests, case (header and each row), cap and tight target of its own
   process, with every (ρ, primary role, level) present once, the status `reached` (`1 ≤ k ≤ cap`) or `capped` (`k = cap`)
@@ -118,8 +119,8 @@ accuracy controls (small designs, among them a square and a tall one).
 - `accuracy.jl` runs a preflight before scoring: the outputs index and the failures index together (formats, columns,
   identities against each other, the manifest and `PB_SOURCE_SHA`/`PB_HARNESS_SHA`, one row per case and primary role
   with the element type, steps, inputs and shape of the manifest, `nfail` against the failure rows, failure keys in
-  range and not repeated), then the size and SHA-256 of every output file. It lists every problem and writes no score
-  when one is found.
+  range and not repeated), then the size and SHA-256 of each output file. It stops after the header checks when one of
+  them fails, and after the row and file checks otherwise, lists the problems it found and writes no score.
 
 ## Measurements
 
@@ -246,8 +247,9 @@ Pre-registered in the plan. `summarize.py` applies them only to the registered c
   (format, closing line, identity, conditions, parseable fields, values in their domain, no duplicate row, no `error`
   row); the inventory and the consistency across files (missing or extra files and rows, the role order of each round
   against the process order, the ADMM counts and status against the untimed file recorded in the timing header, a valid
-  end point for every timed role and repeat, the accuracy rows against the outputs and failures). At the first class
-  with a problem it lists every problem of that class, exits with status 2 and writes no verdict. A small-profile,
+  end point for each timed role and repeat, the accuracy rows against the outputs and failures). At the first class
+  with a problem it lists the problems it found in that class (a file with another format or other columns is not
+  checked further), exits with status 2 and writes no verdict. A small-profile,
   filtered or partial campaign is refused; `--tables-only` prints the tables that its files allow, labelled partial,
   with no criteria and no recommendation, leaving out the files with a problem and listing the gaps.
 - Per cell (case, measurement, parameter) and variant `V ∈ {C_B, C_D, C_W}`, each of the six processes of a version gives

@@ -22,7 +22,8 @@
 # PB_CHECK_ONLY both are required), one row per (case, role) with a case of the manifest, a primary role and the four
 # primary roles for each case, the element type, steps, number of inputs and shape of the manifest, the count nfail
 # against the failure rows of that (case, role), failure keys in range and not repeated, and then the size and SHA-256
-# of every output file. It lists every problem it finds and stops before any score is written. The result is
+# of each output file. It stops after the header checks when one of them fails, and after the row and file checks
+# otherwise, with the list of the problems it found, before any score is written. The result is
 # accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and input
 # identities of the outputs, the SHA-256 of the outputs index and PB_FILTER), one row per (case, role, step, input), and
 # the closing line `# complete: yes`.
@@ -199,7 +200,8 @@ const OUTPUT_COLUMNS = ["case", "role", "file", "eltype", "shape", "sha256", "nf
 const FAILURE_COLUMNS = ["case", "role", "gamma_index", "vindex", "message"]
 
 # The preflight of the outputs directory (see the header). It returns the header and rows of the index, the failures
-# keyed by (case, role, step index, input index) and the SHA-256 of the index; it throws with the list of every problem.
+# keyed by (case, role, step index, input index) and the SHA-256 of the index; it throws with the list of the problems
+# of the first stage (header, then rows and files) that has one.
 function preflight(m::Manifest, outdir::String)
     problems = String[]
     bad(msg) = push!(problems, msg)

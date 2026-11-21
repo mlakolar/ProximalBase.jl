@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarizer of the wide least-squares study (#1103); Python standard library only.
 
-Verdict mode (the default) judges exactly one registered campaign under one pinned identity:
+Verdict mode (the default) judges one registered campaign under one pinned identity:
 
     python3 -I summarize.py <campaign dir> --source-sha <sha> --harness-sha <sha> --manifest <inputs-index.tsv>
 
@@ -21,7 +21,8 @@ runs a preflight in three classes: (1) the manifest and the pinned identity, (2)
 line, identity, conditions, parseable fields, values in their domain, no duplicate rows, no recorded `error` row),
 (3) the inventory and the consistency across files (missing or extra files and rows, the role order of each round
 against the file's order, the ADMM counts against the untimed records, the ADMM end points, the accuracy coverage
-against the outputs and failures). At the first class with a problem it prints every problem of that class, exits with
+against the outputs and failures). At the first class with a problem it prints the problems it found in that class (a
+file with another format or other columns is not checked further), exits with
 status 2 and writes no verdict (it removes a verdict.json, tables.md and per-process-ratios.tsv left in the directory
 by an earlier run). When the preflight passes, it applies the criteria of the plan as Boolean logic and writes
 tables.md, per-process-ratios.tsv and verdict.json into the campaign directory.

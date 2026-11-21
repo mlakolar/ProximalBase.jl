@@ -359,13 +359,19 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    )
    ```
 
-   To rerun a failed process, either remove the files its attempt left in its `PB_OUTPUT` and run it again into the same
-   directory, or move that directory out of `OUT` and run it again into a new empty `PB_OUTPUT` inside `OUT`; then rerun
-   the remaining processes of the block and gather. A file that a failed attempt leaves inside `OUT` is gathered beside
-   the retry, and verdict mode refuses the duplicate process. The same holds for the outputs, reference and untimed
-   files of steps 3 and 4.
+   **Retries.** A retry first removes the files of the failed attempt; the harness and `accuracy.jl` refuse to start
+   while a file they would write exists. Per writer:
+   - step 3, a failed evaluation: remove that version's `accuracy-*.tsv` from `PB_OUTPUTS`, keep the indices and
+     binaries, and rerun `accuracy.jl`; a failed outputs run: remove that version's `outputs-<julia>` directory and rerun
+     the block;
+   - step 4, a failed reference or untimed run: remove from `PB_REFERENCE` only the files that run writes (the
+     `reference-*.tsv` files and their `-z.f64` binaries; that version's `admm-untimed-<julia>-*.tsv`), keeping the
+     files of the other group and version, and rerun that block;
+   - step 5, a failed process: remove that slot's timing file from its `PB_OUTPUT`, rerun that slot, then the slots
+     after it.
 
-6. Run only after step 5 has exited with status 0 for both Julia versions (and steps 3 and 4 likewise). Gather the
+6. Run only after every block of steps 3 to 5 has succeeded for both Julia versions, slots rerun separately included.
+   A file left over from a failed attempt makes the gather or verdict mode refuse the campaign. Gather the
    campaign into a new directory `$SUM` outside `OUT` and summarize. `--gather` copies, from the producer tree `$OUT`, the
    files that verdict mode reads (by file-name pattern: the timing files into `timings/`, the untimed and reference files
    with the `z` binaries into `reference/`, and each `outputs-<julia>` directory's outputs index, failures index and

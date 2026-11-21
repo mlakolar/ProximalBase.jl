@@ -611,15 +611,19 @@ function compute_outputs(role, c::Case, d)
     B, fails
 end
 
-# the binary file of the outputs of a role for a case
+# The paths that the outputs group writes (also used by planned_files): its directory under PB_OUTPUT, the two indices
+# and the binary file of the outputs of a role for a case
+outputs_dir(outdir::AbstractString) = joinpath(outdir, "outputs-$(VERSION)")
+outputs_index_path(dir::AbstractString) = joinpath(dir, "outputs-index.tsv")
+outputs_failures_path(dir::AbstractString) = joinpath(dir, "outputs-failures.tsv")
 output_file(c::Case, role::AbstractString) = "out-" * case_file(c.id) * "-" * replace(role, "'" => "p") * (c.T === Float64 ? ".f64" : ".f32")
 
 function run_outputs(roles, m::Manifest, cases, dir::String)
     mkpath(dir)
     prim = [r for r in roles if !r.control]
     copies = Dict(r.family => r for r in roles if r.control)
-    open(joinpath(dir, "outputs-index.tsv"), "w") do io
-        open(joinpath(dir, "outputs-failures.tsv"), "w") do fio
+    open(outputs_index_path(dir), "w") do io
+        open(outputs_failures_path(dir), "w") do fio
             provenance_header(io, "pb1103-outputs-2", m.sha256)
             provenance_header(fio, "pb1103-outputs-failures-1", m.sha256)
             println(io, join(["case", "role", "file", "eltype", "shape", "sha256", "nfail", "copy_identical", "acc_gammas", "nv"], '\t'))
@@ -661,6 +665,13 @@ function reference_path(dir, c::Case)
     joinpath(dir, "reference-" * case_file(c.id) * "-" * x[1:12] * "-" * y[1:12] * ".tsv")
 end
 
+# the z binary of a reference file: its base name with the suffix .tsv replaced by -z.f64, in the same directory
+function reference_z_path(tsv_path::AbstractString)
+    name = basename(tsv_path)
+    endswith(name, ".tsv") || error("$tsv_path is not a .tsv file")
+    joinpath(dirname(tsv_path), name[1:end-4] * "-z.f64")
+end
+
 function write_kv(path, pairs)
     open(path, "w") do io
         for (k, v) in pairs
@@ -685,14 +696,15 @@ function run_admm_reference(m::Manifest, cases, roles, dir::String)
         t0 = time()
         r = admm_reference(S, d.X, d.y, λ, 1.0; tol = REFERENCE_TOL, scale = scale, cap = REFERENCE_CAP)
         path = reference_path(dir, c)
-        zfile = replace(basename(path), ".tsv" => "-z.f64")
-        write(joinpath(dir, zfile), Float64.(r.z))
+        zpath = reference_z_path(path)
+        zfile = basename(zpath)
+        write(zpath, Float64.(r.z))
         write_kv(path, [("format", "pb1103-reference-1"), ("case", c.id), ("julia", VERSION), ("source_sha", SOURCE_SHA),
                         ("harness_sha", HARNESS_SHA), ("inputs_index_sha256", m.sha256), ("x_sha256", c.arrays["X"].sha256),
                         ("y_sha256", c.arrays["y"].sha256), ("rho", 1.0), ("tol", REFERENCE_TOL), ("scale", scale),
                         ("cap", REFERENCE_CAP), ("iterations", r.iterations), ("converged", r.converged),
                         ("stationarity", r.stationarity), ("objective", repr(r.objective)), ("lambda", Float64(λ)),
-                        ("lambda_max", c.lambda_max), ("z_file", zfile), ("z_sha256", file_sha256(joinpath(dir, zfile)))])
+                        ("lambda_max", c.lambda_max), ("z_file", zfile), ("z_sha256", file_sha256(zpath))])
         println("reference for ", c.id, ": ", r.iterations, " iterations, converged ", r.converged, ", stationarity ",
                 r.stationarity, ", objective ", r.objective, " (", round(time() - t0; digits = 1), " s)")
     end
@@ -1055,21 +1067,24 @@ end
 # The process
 ###########################################################################################################
 
-# The files that the requested groups would write: the timing file of this process, and for the selected cases the
-# outputs index, failures index and binaries (outputs), the reference file and its z binary (admm_reference) and the
-# untimed file (admm_untimed).
-function planned_files(m::Manifest, outdir::String, refdir::String, tfile::String)
+# The files that the requested groups would write, from the writers' own path functions: the timing file of this
+# process, and for the groups that main runs (those with a selected case) the outputs index, failures index and the
+# binaries of the primary roles (outputs), the reference file and its z binary (admm_reference) and the untimed file
+# (admm_untimed).
+function planned_files(m::Manifest, outdir::String, refdir::String, tfile::String, roles; groups = GROUPS)
     files = isempty(tfile) ? String[] : [tfile]
-    for g in GROUPS
+    prim = [r.name for r in roles if !r.control]
+    for g in groups
         cases = select_for(m, g)
+        isempty(cases) && continue
         if g == "outputs"
-            od = joinpath(outdir, "outputs-$(VERSION)")
-            push!(files, joinpath(od, "outputs-index.tsv"), joinpath(od, "outputs-failures.tsv"))
-            append!(files, [joinpath(od, output_file(c, r)) for c in cases for r in ("S", "C_B", "C_D", "C_W")])
+            od = outputs_dir(outdir)
+            push!(files, outputs_index_path(od), outputs_failures_path(od))
+            append!(files, [joinpath(od, output_file(c, r)) for c in cases for r in prim])
         elseif g == "admm_reference"
             for c in cases
                 path = reference_path(refdir, c)
-                push!(files, path, replace(path, ".tsv" => "-z.f64"))
+                push!(files, path, reference_z_path(path))
             end
         elseif g == "admm_untimed"
             append!(files, [untimed_path(refdir, c) for c in cases])
@@ -1078,8 +1093,9 @@ function planned_files(m::Manifest, outdir::String, refdir::String, tfile::Strin
     files
 end
 
-# Stops the process when a file that it would write exists already, so that each file the harness writes comes from
-# one attempt (other processes can still write other files into the same directory).
+# Stops the process when a file that it would write exists already. For launches that run one after the other, each
+# file the harness writes then comes from one attempt (other processes can still write other files into the same
+# directory); two launches of the same slot at the same time can both pass this check.
 function refuse_existing(files)
     old = filter(isfile, files)
     isempty(old) || error("the output files exist already: " * join(old, ", ") *
@@ -1110,7 +1126,7 @@ function main()
     refdir = env_string("PB_REFERENCE", outdir)
     timed = [g for g in GROUPS if g in TIMED_GROUPS]
     tfile = isempty(timed) ? "" : joinpath(outdir, "timings-$(VERSION)-$(ORDER)-$(PROC)-$(join(timed, "+")).tsv")
-    refuse_existing(planned_files(m, outdir, refdir, tfile))
+    refuse_existing(planned_files(m, outdir, refdir, tfile, roles))
     t0 = time()
     warm_up(roles)
     println("warm-up (compilation of the roles): ", round(time() - t0; digits = 1), " s")
@@ -1127,7 +1143,7 @@ function main()
         isempty(cases) && (println("group ", g, ": no case selected"); continue)
         g0, r0 = time(), writer === nothing ? 0 : writer.rows
         if g == "outputs"
-            run_outputs(roles, m, cases, joinpath(outdir, "outputs-$(VERSION)"))
+            run_outputs(roles, m, cases, outputs_dir(outdir))
         elseif g == "admm_reference"
             run_admm_reference(m, cases, roles, refdir)
         elseif g == "admm_untimed"

@@ -291,11 +291,11 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 
 # The products M X with the matrix that a symmetric iterate X represents take one of two routes. Column by
 # column over the active coordinates (_kron_left!), they cost at most 4pn flops for n nonzero active values,
-# in axpy loops. After a dense copy, a matrix product costs about 2p³ flops. The heuristic takes the dense route
-# when 2n > p²/8 (k = 16 below): up to that point the column route does at most about an eighth of the flops of the
-# product it replaces, which leaves room for a potentially lower throughput per flop of an axpy loop, depending on
-# the sizes and kernels. A value-only call accumulates two products, A X and B X, where the gradient accumulates
-# one, so it uses half that cutoff, 2n > p²/16 (k = 32). Counting the nonzero values needs no coordinate conversion.
+# in axpy loops. After a dense copy, a matrix product costs about 2p³ flops. For a gradient call the heuristic takes
+# the dense route when 2n > p²/8 (k = 16 below): up to that point the column route does at most about an eighth of
+# the flops of the product it replaces, which leaves room for a potentially lower throughput per flop of an axpy
+# loop, depending on the sizes and kernels. On its accumulating route a value-only call accumulates two products,
+# A X and B X, where the gradient accumulates one, so it uses half that cutoff, 2n > p²/16 (k = 32). Counting the nonzero values needs no coordinate conversion.
 function _kron_dense_route(X::SymmetricSparseIterate, p::Int, k::Int = 16)
   vals = activevalues(X)
   n = 0

@@ -99,10 +99,10 @@ same formula for both arguments.
 
 For a matrix argument, the oracles form ``AX`` and ``(AX)B`` with `mul!`,
 which uses BLAS for eligible layouts and sizes, and the value as
-``\langle X,AXB\rangle/2+\langle C,X\rangle``. At a symmetric iterate with
-``n`` nonzero active values, ``AX`` is accumulated over the active coordinates
-when ``2n\leq p^2/8`` (the accumulating route), and formed by `mul!` on a
-dense copy otherwise. A zero coefficient, stored or absent, contributes
+``\langle X,AXB\rangle/2+\langle C,X\rangle``. For a gradient call at a
+symmetric iterate with ``n`` nonzero active values, ``AX`` is accumulated over
+the active coordinates when ``2n\leq p^2/8`` (the accumulating route), and
+formed by `mul!` on a dense copy otherwise. A zero coefficient, stored or absent, contributes
 nothing to that accumulation. The gradient then forms ``(AX)B`` with `mul!`;
 on the accumulating route its value is a pass over the stored entries. A
 value-only call takes the accumulating route when ``2n\leq p^2/16`` (it

@@ -231,20 +231,20 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 #  Symmetric iterates: the gradient (A X B + B X A)/2 + C
 ####################################
 
-# The products M X with the matrix that a symmetric iterate X represents take one of two routes. Column by
-# column over the active coordinates (_kron_left!), they cost at most 4pn flops for n nonzero active values,
-# in axpy loops. After a dense copy, a matrix product costs about 2p³ flops. For a gradient call the heuristic takes
-# the dense route when 2n > p²/8 (k = 16 below): up to that point the column route does at most about an eighth of
-# the flops of the product it replaces, which leaves room for a potentially lower throughput per flop of an axpy
-# loop, depending on the sizes and kernels. On its accumulating route a value-only call accumulates two products,
-# A X and B X, where the gradient accumulates one, so it uses half that cutoff, 2n > p²/16 (k = 32). Counting the nonzero values needs no coordinate conversion.
-function _kron_dense_route(X::SymmetricSparseIterate, p::Int, k::Int = 16)
+# The products M X with the matrix that a symmetric iterate X represents take one of two routes: column by column
+# over the active coordinates (_kron_left!), or a matrix product on a dense copy. Value-only and gradient calls take
+# the dense route when 32n > p² for n nonzero active values. In exclusive sweeps on an Intel Xeon E5-2640 v4 with
+# Julia 1.10.13 and 1.13.4, the accumulating route of a value-only call ran at 0.04–0.82 of a straightforward dense
+# implementation below this cutoff, with the crossover near n ≈ p²/28 (p = 800) and p²/23 (p = 200); that of a
+# gradient call crossed near p²/30 (p = 800) and p²/21 (p = 200). See benchmark/README.md, "Measured performance".
+# Counting the nonzero values needs no coordinate conversion.
+function _kron_dense_route(X::SymmetricSparseIterate, p::Int)
   vals = activevalues(X)
   n = 0
   @inbounds @simd for a in eachindex(vals)
     n += !iszero(vals[a])
   end
-  k * n > p * p
+  32n > p * p
 end
 
 # axpy y[:, j] += v M[:, i]
@@ -335,7 +335,7 @@ end
 # ⟨X, A X B⟩ = tr(A X B X) = Σᵢⱼ (A X)[i, j] (B X)[j, i].
 function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
-  if _kron_dense_route(X, p, 32)
+  if _kron_dense_route(X, p)
     D = _kron_densify!(f.X, X)
     mul!(f.AX, f.A, D)
     mul!(f.W, f.AX, f.B)
@@ -346,8 +346,9 @@ function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}
   f.C === nothing ? v : v + dot(f.C, X)
 end
 
-# The value, and the gradient (W + Wᵀ)/2 + C for W = A X B written into G. The two entries of an off-diagonal
-# pair are written from one computed number; C, when present, is exactly symmetric here (_kron_check_input).
+# The value, and the gradient W/2 + Wᵀ/2 + C for W = A X B written into G, in column order over all entries. The two
+# entries of a mirrored pair add the same two halves, and C, when present, is exactly symmetric here
+# (_kron_check_input), so they receive the same value; halving first keeps the loop free of branches.
 function _kron_symmetric!(G::StridedMatrix{T}, f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
   AX, W, C = f.AX, f.W, f.C
@@ -361,12 +362,10 @@ function _kron_symmetric!(G::StridedMatrix{T}, f::KronQuadratic{T}, X::Symmetric
     mul!(W, AX, f.B)
     v = _kron_stored_value(W, C, X)
   end
-  @inbounds for jb in 1:32:p, ib in jb:32:p
-    for j in jb:min(jb + 31, p), i in max(ib, j):min(ib + 31, p)
-      g = i == j ? W[i, i] : _symmetric_mean(W[i, j], W[j, i])
-      C === nothing || (g += C[i, j])
-      G[i, j] = g
-      G[j, i] = g
+  @inbounds for j in 1:p
+    for i in 1:p
+      g = W[i, j] / 2 + W[j, i] / 2
+      G[i, j] = C === nothing ? g : g + C[i, j]
     end
   end
   v

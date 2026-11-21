@@ -718,8 +718,8 @@ The default cells are the value and `value_and_gradient!` on dense `p × q` matr
 `p = q = 50, 200, 800` and `200 × 100`, and on `SymmetricSparseIterate` arguments at `p = 200` with
 200, 2000 and 20100 active coordinates (20100 is every coordinate). `PB_SWEEP=1` runs the symmetric
 sweep instead: `p = 50, 200, 800` and the nonzero counts of `sweep_counts(p)`, from `p/2` to every
-coordinate, with counts on both sides of the candidate's cutoffs (`2n = p²/16` for value-only calls,
-`2n = p²/8` for gradient calls). The sweep builds and times one cell at a time; `PB_ROUNDS_LARGE` sets
+coordinate, with counts on both sides of `32n = p²` (the cutoff of the current head) and of `16n = p²`
+(the gradient cutoff of the stage-1 head). The sweep builds and times one cell at a time; `PB_ROUNDS_LARGE` sets
 the rounds at `p = 800`, and the trials there take one second instead of half a second. One round of
 the sweep (168 cases, with the warm-up trial and the output checks) took 572 s on one AMD Zen 2 node
 with Julia 1.13.4; a run of `PB_ROUNDS=5` is estimated at about 30 minutes per Julia version, so the
@@ -731,7 +731,7 @@ the candidate's), and the script checks that each iterate has the stated number 
 coordinates. Each round times the roles of each case in alternating order and keeps per role the
 median and the minimum of its samples. The summary (printed, and written to `summary.tsv` when
 `PB_OUTPUT` is set) gives per case the route the candidate takes (`matrix`, or `accumulate` or `dense`
-at a symmetric iterate, from `ProximalBase._kron_dense_route` with the cutoff of the call), the
+at a symmetric iterate, from `ProximalBase._kron_dense_route`), the
 candidate's times, the median over the rounds of the ratios candidate/dense, candidate/archive and
 control/candidate of the trial minima and medians, and the warmed allocations of each role, with the
 Julia version, the CPU and `BLAS.get_config()` in its header. With `PB_OUTPUT`, `raw.tsv` has each
@@ -752,3 +752,54 @@ PB_ARCHIVE=/tmp/pb1059-archive PB_CANDIDATE="$PWD" PB_ROUNDS=11 PB_OUTPUT=/tmp/p
 PB_ARCHIVE=/tmp/pb1059-archive PB_CANDIDATE="$PWD" PB_SWEEP=1 PB_ROUNDS=5 PB_OUTPUT=/tmp/pb1059-sweep \
   julia --threads=1 --project=benchmark benchmark/kronquadratic.jl
 ```
+
+### Measured performance
+
+Exclusive nodes with an Intel Xeon E5-2640 v4 (Broadwell), one BLAS thread (OpenBLAS), Julia 1.10.13 and
+1.13.4, `PB_SWEEP=1`, `PB_ROUNDS=5`, run in both orders (`PB_REVERSE=0` and `1`). Every role allocated
+0 bytes in every cell; the A/A ratio was 0.97–1.02 (one cell 1.06). The table gives, at the stage-1 head
+523d11f, the range of the candidate/dense ratio of the trial medians over both Julia versions and both
+orders, by the route the candidate took (value-only: accumulate when `32n ≤ p²`; gradient: accumulate when
+`16n ≤ p²`). Below 1 the candidate is faster than the dense role.
+
+| p | call | route at 523d11f | n | C/D `Float32` | C/D `Float64` |
+|--:|:--|:--|:--|:--|:--|
+| 50 | value-only | accumulate | 25–70 | 0.46–0.80 | 0.31–0.51 |
+| 50 | value-only | dense | 86–1275 | 0.99–1.02 | 1.00–1.02 |
+| 50 | gradient | accumulate | 25–70 | 0.70–0.93 | 0.61–0.76 |
+| 50 | gradient | accumulate | 86–141 | 0.90–1.11 | 0.74–0.90 |
+| 50 | gradient | dense | 172–1275 | 1.04–1.18 | 1.04–1.09 |
+| 200 | value-only | accumulate | 100–1125 | 0.22–0.78 | 0.15–0.72 |
+| 200 | value-only | dense | 1375–20100 | 1.00–1.01 | 1.00–1.01 |
+| 200 | gradient | accumulate | 100–1125 | 0.59–0.85 | 0.59–0.83 |
+| 200 | gradient | accumulate | 1375–2250 | 0.85–1.06 | 0.88–1.08 |
+| 200 | gradient | dense | 2750–20100 | 1.03–1.11 | 1.04–1.06 |
+| 800 | value-only | accumulate | 400–18000 | 0.07–0.82 | 0.04–0.77 |
+| 800 | value-only | dense | 22000–320400 | 1.00–1.00 | 1.00–1.00 |
+| 800 | gradient | accumulate | 400–18000 | 0.53–0.91 | 0.57–0.94 |
+| 800 | gradient | accumulate | 22000–36000 | 0.97–1.28 | 1.01–1.29 |
+| 800 | gradient | dense | 44000–320400 | 1.01–1.04 | 1.09–1.10 |
+
+From these numbers the value-only crossover lies near `n ≈ p²/28` (p = 800) and `p²/23` (p = 200), and
+the gradient crossover near `p²/30` (p = 800) and `p²/21` (p = 200). The current head therefore uses one
+cutoff for both calls, the dense route when `32n > p²`, and writes the gradient at a symmetric iterate
+with the column-order loop `G[i, j] = W[i, j]/2 + W[j, i]/2 + C[i, j]` in place of the tiled triangle
+(at 523d11f the dense-route gradient spent about 6.8 ms of 54.3 ms in that store at `Float64`,
+`p = 800`, against about 2 ms in the dense role). Both changes are re-measured at the current head:
+
+<!-- NEW-HEAD -->
+| p | call | route | n | C/D `Float32` | C/D `Float64` |
+|--:|:--|:--|:--|:--|:--|
+| 50 | value-only | accumulate | – | – | – |
+| 50 | value-only | dense | – | – | – |
+| 50 | gradient | accumulate | – | – | – |
+| 50 | gradient | dense | – | – | – |
+| 200 | value-only | accumulate | – | – | – |
+| 200 | value-only | dense | – | – | – |
+| 200 | gradient | accumulate | – | – | – |
+| 200 | gradient | dense | – | – | – |
+| 800 | value-only | accumulate | – | – | – |
+| 800 | value-only | dense | – | – | – |
+| 800 | gradient | accumulate | – | – | – |
+| 800 | gradient | dense | – | – | – |
+<!-- /NEW-HEAD -->

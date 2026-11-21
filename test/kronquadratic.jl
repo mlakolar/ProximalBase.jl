@@ -184,16 +184,16 @@ end
 
 @testset "symmetric iterates ($T)" for T in (Float32, Float64)
   rng = Xoshiro(21)
-  p = 6
+  p = 8
   n = p * (p + 1) ÷ 2
   A, B = random_symmetric(rng, T, p), random_symmetric(rng, T, p)
   for linear in (false, true)
     C = linear ? random_symmetric(rng, T, p) : nothing
     f = KronQuadratic(A, B, C)
     A64, B64, C64 = Float64.(A), Float64.(B), C === nothing ? nothing : Float64.(C)
-    # empty; an off-diagonal and a diagonal coordinate (2n = 4 for n = 2 nonzero values, at most p²/8 = 4.5,
-    # the accumulating route); every coordinate (2n = 42, the dense route); and active coordinates holding
-    # explicit zeros (n = 1 and n = 14)
+    # empty; an off-diagonal and a diagonal coordinate (32n = 64 for n = 2 nonzero values, not above p² = 64:
+    # the accumulating route); every coordinate (n = 36, the dense route); and active coordinates holding
+    # explicit zeros (n = 1 and n = 24)
     empty = SymmetricSparseIterate(T, p)
     sparse = random_iterate(rng, T, p, [tril_index(p, 4, 2), tril_index(p, 3, 3)])
     dense = random_iterate(rng, T, p, 1:n)
@@ -205,8 +205,8 @@ end
     @test nactive(zeros_active) == 3 && count(iszero, activevalues(zeros_active)) == 2
     zeros_dense = random_iterate(rng, T, p, 1:n)
     activevalues(zeros_dense)[1:3:n] .= 0
-    @test nactive(zeros_dense) == n && count(iszero, activevalues(zeros_dense)) == 7
-    # the route counts nonzero values, not active coordinates (zeros_active would cross 2n > p²/8 with n = 3)
+    @test nactive(zeros_dense) == n && count(iszero, activevalues(zeros_dense)) == 12
+    # the route counts nonzero values, not active coordinates (zeros_active would cross 32n > p² with n = 3)
     @test !ProximalBase._kron_dense_route(zeros_active, p) && !ProximalBase._kron_dense_route(sparse, p)
     @test ProximalBase._kron_dense_route(dense, p) && ProximalBase._kron_dense_route(zeros_dense, p)
     for X in (empty, sparse, dense, zeros_active, zeros_dense)
@@ -327,10 +327,10 @@ end
   # SPD Σx ≠ Σy: residual of the gradient at D* rounded from a BigFloat solution, both arguments.
   # Tolerance for these two moderate cases: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and
   # u = eps(T), not a uniform accuracy bound for arbitrary SPD inputs and scales. A dense D* (5 × 5) takes the
-  # dense route of the symmetric iterate; a diagonal D* (16 × 16, 2n = 32 ≤ p²/8) the accumulating route.
+  # dense route of the symmetric iterate; a diagonal D* (32 × 32, 32n = 1024, not above p²) the accumulating route.
   scales = [1, 1.2, 0.9, 1.1, 1.3]
   for (Σx, Σy) in ((ar1(T, 5, 0.4), ar1(T, 5, 0.2, scales)),
-                   (Matrix(Diagonal(T.(1:16))), Matrix(Diagonal(T.(mod.(7 .* (1:16), 17))))))
+                   (Matrix(Diagonal(T.(1:32))), Matrix(Diagonal(T.(mod.(7 .* (1:32), 37))))))
     p = size(Σx, 1)
     @test Σx != Σy
     f = KronQuadratic(Σx, Σy, Σx - Σy)
@@ -605,26 +605,23 @@ end
   end
 end
 
-@testset "route predicates at the boundaries 2n = p²/8 and, for the value, 2n = p²/16 ($T)" for T in (Float32, Float64)
-  p = 8                                         # p²/8 = 8: n = 4 accumulates, n = 5 takes the dense copy
+@testset "route predicate at the boundary 32n = p² ($T)" for T in (Float32, Float64)
+  p = 8                                         # p² = 64: n = 2 accumulates, n = 3 takes the dense copy, for both calls
   X = SymmetricSparseIterate(T, p)
-  for k in 1:4
-    X[k + 1, k] = T(k)
-  end
+  @test !ProximalBase._kron_dense_route(X, p)   # the empty iterate
+  X[2, 1] = 1; X[3, 3] = 2
   @test !ProximalBase._kron_dense_route(X, p)
-  X[8, 1] = 1
+  X[5, 4] = 3
   @test ProximalBase._kron_dense_route(X, p)
-  # the value-only cutoff 2n = p²/16 = 4: n = 2 accumulates, n = 3 takes the dense copy
-  Yv = SymmetricSparseIterate(T, p)
-  Yv[2, 1] = 1; Yv[3, 3] = 2
-  @test !ProximalBase._kron_dense_route(Yv, p, 32)
-  Yv[5, 4] = 3
-  @test ProximalBase._kron_dense_route(Yv, p, 32)
-  # both routes agree with the formula on each side of both boundaries (n = 2, 3 for the value; n = 4, 5 for the gradient)
+  X1 = SymmetricSparseIterate(T, 1)
+  @test !ProximalBase._kron_dense_route(X1, 1)
+  X1[1, 1] = 1
+  @test ProximalBase._kron_dense_route(X1, 1)   # 32 > 1
+  # both routes agree with the formula on each side of the boundary
   rng = Xoshiro(17)
   f = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, p), random_symmetric(rng, T, p))
   d = ProximalBase.kronquadratic_data(f)
-  for n in (2, 3, 4, 5)
+  for n in (2, 3)
     Y = SymmetricSparseIterate(T, p)
     for k in 1:n
       Y[k + 1, k] = T(k) / 4
@@ -692,7 +689,7 @@ end
     g = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, p), C)
     G = zeros(T, p, p)
     Gr = view(zeros(T, 2p, p), 1:2:2p, :)
-    for X in (random_iterate(rng, T, p, [2, 9]), random_iterate(rng, T, p, 1:n)), D in (G, Gr)
+    for X in (random_iterate(rng, T, p, [2]), random_iterate(rng, T, p, 1:n)), D in (G, Gr)
       @test value_allocs(g, X) == 0
       @test gradient_allocs(D, g, X) == 0
       @test value_gradient_allocs(D, g, X) == 0

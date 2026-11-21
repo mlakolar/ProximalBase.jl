@@ -203,8 +203,8 @@ function symmetric_pair(::Type{T}, rng, p, n, A, B, C, label) where {T}
     end
     calls[:dense] = dense_symmetric_call(op, d, Xs[:dense], G, acc)
     results[:dense] = dense_symmetric_result(op, d, Xs[:dense], G, acc)
-    # the route the candidate takes for this call (the cutoff of value-only calls is k = 32, of gradient calls 16)
-    route = P._kron_dense_route(Xs[:candidate][1], p, op === :value ? 32 : 16) ? "dense" : "accumulate"
+    # the route the candidate takes for this call (one cutoff, 32n > p², for both calls)
+    route = P._kron_dense_route(Xs[:candidate][1], p) ? "dense" : "accumulate"
     push!(pair, Case("$T/symmetric/$(op)/p$(p)/$label", route, calls, results))
   end
   pair
@@ -216,8 +216,8 @@ function symmetric_cases(::Type{T}, rng) where {T}
   reduce(vcat, [symmetric_pair(T, rng, p, n, A, B, C, "nactive$n") for n in SYMMETRIC_N])
 end
 
-# the nonzero counts of the sweep at p: from p/2 to every coordinate, with counts on both sides of the cutoffs of the
-# candidate (2n = p²/16 for value-only calls and 2n = p²/8 for gradient calls)
+# the nonzero counts of the sweep at p: from p/2 to every coordinate, with counts on both sides of 32n = p² (the cutoff
+# of the candidate) and of 16n = p² (the gradient cutoff of an earlier head)
 function sweep_counts(p)
   q = p * (p + 1) ÷ 2
   base = (p / 2, p, 2p, 5p, 10p, 0.02q, 0.05q, 0.1q, 0.25q, q, 0.9p^2 / 32, 1.1p^2 / 32, 0.9p^2 / 16, 1.1p^2 / 16)

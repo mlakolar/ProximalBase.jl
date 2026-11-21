@@ -442,11 +442,13 @@ a ``q\times q`` matrix `B` and a ``p\times q`` matrix `C`, zero when omitted.
 three share one element type, `Float32` or `Float64`. The constructor copies
 them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
 ``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
-products ``AX`` and ``(AX)B``. A value-only call at a symmetric iterate with
-``n`` nonzero active values and ``2n\leq p^2/16`` (its accumulating route) uses
-``AX`` and ``BX`` without forming ``(AX)B``; above that cutoff it forms ``AX``
-from a dense copy and then ``(AX)B``. The gradient accumulates ``AX`` when
-``2n\leq p^2/8``.
+products ``AX`` and ``(AX)B``. At a symmetric iterate with ``n`` nonzero
+active values, both calls take an accumulating route when ``32n\leq p^2``: the
+gradient accumulates ``AX`` over the active coordinates, and a value-only call
+accumulates ``AX`` and ``BX`` without forming ``(AX)B``. Above that cutoff they
+form ``AX`` from a dense copy and then ``(AX)B``. In the measured sweeps the
+accumulating routes ran faster than a straightforward dense implementation
+below the cutoff; see the measured performance in `benchmark/README.md`.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient

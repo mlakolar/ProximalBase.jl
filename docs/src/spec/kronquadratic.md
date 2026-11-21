@@ -72,9 +72,12 @@ behavior lists the overlaps that the oracles detect.
 ## [Results](@id spec-kronquadratic-results)
 
 The value has type `T`. For a matrix argument the gradient is ``AXB+C``.
-For a symmetric iterate it is ``\frac12(W+W^\top)+C`` with ``W=AXB``. Each
-off-diagonal pair is computed once and the same value, `NaN` included, is
-written to both entries, so `issymmetric` holds for results without `NaN`.
+For a symmetric iterate it is ``\frac12(W+W^\top)+C`` with ``W=AXB``, computed
+as ``W/2+W^\top/2+C``. The two entries of a mirrored pair add the same two
+halves and the same entry of `C`, so they receive the same computed value,
+`NaN` included, and `issymmetric` holds for results without `NaN`. Halving
+before the sum gives the rounded ``(W+W^\top)/2`` except where a half or the
+sum of the halves is subnormal, or where ``W_{ij}+W_{ji}`` overflows.
 Its off-diagonal entry ``(r,c)`` is half the derivative of ``q`` along the
 coordinate ``(r,c)``, which moves both mirrored entries. The value is the
 same formula for both arguments.
@@ -83,16 +86,20 @@ same formula for both arguments.
 
 For a matrix argument, the oracles form ``AX`` and ``(AX)B`` with `mul!`,
 which uses BLAS for eligible layouts and sizes, and the value as
-``\langle X,AXB\rangle/2+\langle C,X\rangle``. For a gradient call at a
-symmetric iterate with ``n`` nonzero active values, ``AX`` is accumulated over
-the active coordinates when ``2n\leq p^2/8`` (the accumulating route), and
-formed by `mul!` on a dense copy otherwise. A zero coefficient, stored or absent, contributes
-nothing to that accumulation. The gradient then forms ``(AX)B`` with `mul!`;
-on the accumulating route its value is a pass over the stored entries. A
-value-only call takes the accumulating route when ``2n\leq p^2/16`` (it
-accumulates two products); there it forms ``AX`` and ``BX`` over the
-active coordinates and sums ``\sum_{ij}(AX)_{ij}(BX)_{ji}`` in tiles of up to
-``32\times32`` entries, without forming ``(AX)B``. Results are rounded in
+``\langle X,AXB\rangle/2+\langle C,X\rangle``. At a symmetric iterate with
+``n`` nonzero active values, gradient and value-only calls take the
+accumulating route when ``32n\leq p^2`` and the dense route otherwise. On the
+accumulating route, a gradient call accumulates ``AX`` over the active
+coordinates, and a value-only call accumulates ``AX`` and ``BX`` and sums
+``\sum_{ij}(AX)_{ij}(BX)_{ji}`` in tiles of up to ``32\times32`` entries,
+without forming ``(AX)B``. A zero coefficient, stored or absent, contributes
+nothing to that accumulation. On the dense route ``AX`` is formed by `mul!` on a
+dense copy. A gradient call then forms ``(AX)B`` with `mul!` and writes
+``W/2+W^\top/2+C`` with ``W=(AX)B`` in column order; on the accumulating route
+its value is a pass over the stored entries. In exclusive sweeps on one
+x86-64 CPU with Julia 1.10.13 and 1.13.4 the accumulating routes ran faster than a
+straightforward dense implementation below the cutoff; the numbers are in
+the measured performance section of `benchmark/README.md`. Results are rounded in
 working precision, and the routes can differ by rounding.
 
 ## [Range clauses](@id spec-kronquadratic-range)

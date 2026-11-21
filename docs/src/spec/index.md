@@ -50,7 +50,7 @@ apply alongside each entry.
 | `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
-| `kkt_violation` | [Checking optimality with KKT conditions](../operations.md#Checking-optimality-with-KKT-conditions) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |
 
 ## Status vocabulary
 

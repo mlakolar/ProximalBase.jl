@@ -15,7 +15,8 @@
     "moves-norml2.json",
     "moves-normlinf.json",
     "moves-groupnorml2.json",
-    "moves-scaled.json"
+    "moves-scaled.json",
+    "moves-kkt_violation.json"
   ],
   "changes": [
     {
@@ -3290,6 +3291,167 @@
           "dest_sha": "8b9f66ba81638d2c69b4c8e387cf1df6a6fcdfedb8842dcfbb06b29f671027e5",
           "manifest": "moves-scaled.json",
           "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::144",
+      "baseline_sha": "376d44e5e379e9d60ae045847e03bcc6169dc9791edd9b9ddabc29ecf4a54ffd",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "376d44e5e379e9d60ae045847e03bcc6169dc9791edd9b9ddabc29ecf4a54ffd"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "376d44e5e379e9d60ae045847e03bcc6169dc9791edd9b9ddabc29ecf4a54ffd",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "376d44e5e379e9d60ae045847e03bcc6169dc9791edd9b9ddabc29ecf4a54ffd",
+          "source_start": 29868,
+          "source_end": 30876,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "376d44e5e379e9d60ae045847e03bcc6169dc9791edd9b9ddabc29ecf4a54ffd",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::145",
+      "baseline_sha": "b5b01de342da3ab5928a6399dc07596dce0c11e2bf0182bb71168cc3a240b539",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "b5b01de342da3ab5928a6399dc07596dce0c11e2bf0182bb71168cc3a240b539"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "b5b01de342da3ab5928a6399dc07596dce0c11e2bf0182bb71168cc3a240b539",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "b5b01de342da3ab5928a6399dc07596dce0c11e2bf0182bb71168cc3a240b539",
+          "source_start": 30877,
+          "source_end": 32284,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "b5b01de342da3ab5928a6399dc07596dce0c11e2bf0182bb71168cc3a240b539",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::146",
+      "baseline_sha": "1fd2491dfa8d034c52a61b49295dd56d22c8be4f895a398c81e7bbb737de8c46",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4",
+          "source_start": 32285,
+          "source_end": 35444,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::147",
+      "baseline_sha": "ddadfbc02dd3849c7858ea6f425ce8fc9a66868bf3c0c4fd7376dfae12477568",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "ddadfbc02dd3849c7858ea6f425ce8fc9a66868bf3c0c4fd7376dfae12477568"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "ddadfbc02dd3849c7858ea6f425ce8fc9a66868bf3c0c4fd7376dfae12477568",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "ddadfbc02dd3849c7858ea6f425ce8fc9a66868bf3c0c4fd7376dfae12477568",
+          "source_start": 35445,
+          "source_end": 36711,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "ddadfbc02dd3849c7858ea6f425ce8fc9a66868bf3c0c4fd7376dfae12477568",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 3
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::148",
+      "baseline_sha": "f35891a83b9bfc2ae8fdff580087db6c110e02eebb2372bc0493328e2e44126c",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "f35891a83b9bfc2ae8fdff580087db6c110e02eebb2372bc0493328e2e44126c"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "f35891a83b9bfc2ae8fdff580087db6c110e02eebb2372bc0493328e2e44126c",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "f35891a83b9bfc2ae8fdff580087db6c110e02eebb2372bc0493328e2e44126c",
+          "source_start": 36712,
+          "source_end": 37921,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "f35891a83b9bfc2ae8fdff580087db6c110e02eebb2372bc0493328e2e44126c",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::149",
+      "baseline_sha": "69a12c82e5d9c9f5b8e025476f536b65ee62d8e46d7a5f06654ef01f02203af2",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "69a12c82e5d9c9f5b8e025476f536b65ee62d8e46d7a5f06654ef01f02203af2"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "69a12c82e5d9c9f5b8e025476f536b65ee62d8e46d7a5f06654ef01f02203af2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "69a12c82e5d9c9f5b8e025476f536b65ee62d8e46d7a5f06654ef01f02203af2",
+          "source_start": 38782,
+          "source_end": 40536,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "69a12c82e5d9c9f5b8e025476f536b65ee62d8e46d7a5f06654ef01f02203af2",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::150",
+      "baseline_sha": "c5441cc883457d3c20fd51f5547ecc394b015a97eff5d43c1521e2e9db35da71",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "c5441cc883457d3c20fd51f5547ecc394b015a97eff5d43c1521e2e9db35da71"
+      ],
+      "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+      "dest_sha": "c5441cc883457d3c20fd51f5547ecc394b015a97eff5d43c1521e2e9db35da71",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "c5441cc883457d3c20fd51f5547ecc394b015a97eff5d43c1521e2e9db35da71",
+          "source_start": 46996,
+          "source_end": 48032,
+          "dest": "docs/src/spec/kkt_violation.md#spec-kkt_violation-endpoints",
+          "dest_sha": "c5441cc883457d3c20fd51f5547ecc394b015a97eff5d43c1521e2e9db35da71",
+          "manifest": "moves-kkt_violation.json",
+          "manifest_index": 11
         }
       ]
     }

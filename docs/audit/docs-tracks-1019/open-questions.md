@@ -121,6 +121,13 @@ that happens to pass.
   default error path. The family scope awaits the owner's decision.
   [Source](../../../src/functions/scaled.jl)
 
+- The GroupNormLinf accuracy row describes the margin as a computed sum
+  minus the coefficient. It could refer only to ordinary subtraction or also
+  to overflow. The non-finite row and source give positive infinity when
+  the sum overflows, including at an infinite coefficient. The scope of the
+  subtraction wording awaits the owner's decision.
+  [Source](../../../src/functions/groupnormlinf.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

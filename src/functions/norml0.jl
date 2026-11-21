@@ -1,5 +1,5 @@
 """
-    NormL0(λ = 1)
+    NormL0(λ = 1; diagonal = true)
 
 The nonconvex cardinality penalty `f(x) = λ ⋅ #{i : xᵢ ≠ 0}`, with
 nonnegative level `λ`. For positive finite `λ` and `γ`, the proximal
@@ -20,13 +20,25 @@ entries of an array of steps. For `prox_block` and steps passed through
 `Scaled`, use nonnegative, non-NaN steps. A symmetric sparse iterate output
 requires a scalar step. Its off-diagonal entries count twice in the value.
 See the [numerical contract](@ref numerics) for storage and endpoint details.
+
+`diagonal = true`, the default, gives this function. `NormL0(λ; diagonal = false)`
+gives a different penalty, which charges nothing for the diagonal of a square
+matrix. It requires a finite level, and its oracles accept strided square
+`Float32` and `Float64` matrices with finite entries and a finite positive
+step, under the storage preconditions of its entry (Base can read and write
+them, and distinct entries occupy distinct memory). They refuse the vectors, sparse arrays, iterates and array steps that
+`NormL0(λ)` accepts. See the
+[`NormL0(λ; diagonal = false)` entry](@ref api-norml0-diagonal-free) and its
+[numerical contract](@ref spec-norml0offdiag).
 """
 struct NormL0{T<:Real} <: SeparableFunction
   λ::T
 
   NormL0{T}(λ::T) where {T<:Real} = (_checknonneg("λ", λ); new{T}(λ))
 end
-NormL0(λ::Real = 1) = NormL0{typeof(λ)}(λ)
+# Without constant propagation, Julia 1.10 infers NormL0(λ) as a union of NormL0 and the diagonal-free type.
+Base.@constprop :aggressive NormL0(λ::Real = 1; diagonal::Bool = true) =
+  diagonal ? NormL0{typeof(λ)}(λ) : _NormL0OffDiag{typeof(λ)}(λ)
 
 iszeropreserving(::NormL0) = true
 restrict(f::NormL0, ::AbstractVector{<:Integer}) = f

@@ -11,21 +11,41 @@ API. This development reduction is not a release announcement.
 ## Retained and removed scope
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2` and `GroupNormLinf`, nonconvex penalties,
+other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, nonconvex penalties,
 Poisson and robust-loss families, constraints and indicators other than
-`IndNonnegative`, `IndBox`, `IndBallLinf` and `IndBallL2`,
+`IndNonnegative`, `IndBox`, `IndBallLinf`, `IndBallL1`, `IndBallL2` and `IndBallL0`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
 implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
 penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
 the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restored indicators are
-`IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954) and
-`IndBallL2` (#950).
+`IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954), `IndBallL1` (#955)
+and `IndBallL2` (#950). `IndBallL0(s; diagonal = true)` (#1084) is restored for
+dense vectors and matrices, `SparseIterate`, dense `Symmetric`, and
+`SymmetricSparseIterate` with `Float32` or `Float64`.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate
 curvatures and residual/working-set policies are algorithm responsibilities.
 ProximalSolvers migration is separate; this documentation does not change it.
+
+### Sparse group lasso
+
+[SparseGroupNormL2](@ref sparse-group-l2-guide) is available with the 0.6 array
+and compact-block interfaces. Both penalty terms still apply to the union of
+the groups. Convert a per-group update to
+`prox_block!(out, f, u, k, γ)` with an independent compact buffer and one
+scalar step. With a matching `BlockIterate`, commit the result separately
+using `copyto!(blockview(x, k), out)`. For full-array calls, pass a single
+scalar step. The former hierarchy, per-group step arrays,
+`prox_coordinate!` and `restrict` are absent.
+
+Call `kkt_violation(f, v, x, k)` with the actual point. It gives a signed
+screen at a zero group and measures the block subgradient distance at an
+active group. A full-point call reduces these scores together with the
+uncovered entries. A stored infinite constraint projects onto its domain
+at zero step, and negative or NaN steps fail before writing. See the
+[numerical endpoints](@ref sparse-group-l2-endpoints).
 
 ### Logistic regression
 
@@ -171,11 +191,14 @@ What changed besides the values of the table:
   nests an infinite factor with another `Scaled` wrapper is built by a direct call of the parameterized constructor
   `Scaled{F,T}(f, α)` (`Scaled(f, α)` and `α * f` merge the factors): its three-argument and zero-coordinate values are unspecified and can differ from
   0.5, and the nonzero and full-point forms throw an `ArgumentError`.
-* `GroupNormLinf` has the margin `‖v_G‖₁ - λ0 w` of its dual norm at a zero group, and the call throws an `ArgumentError` at a
-  nonzero group, in the full-point form and in the three-argument form. Before 0.6 (the legacy implementation) it returned that
-  screen for a group of a `BlockIterate`, also where the group was nonzero, and `abs(v[i])` at an entry of a nonzero group of an
-  array point, neither of which is a score of the nonzero group; the Euclidean screen of `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)).
-* `Scaled` over a function of the package without a score (the losses and `GroupNormLinf` in the four-argument and full-point forms) throws a
+* `GroupNormLinf` has the margin `‖v_G‖₁ - λ0 w` of its dual norm at a zero group and, at a nonzero group, the Euclidean distance from `-v_G`
+  to the subdifferential of `λ0 w ‖·‖∞` at `x_G`; its full-point form is the maximum of zero, of `abs(v[i])` for the entries in no group and of the
+  distance of every group, where a zero group has its distance to the ℓ₁ ball of radius `λ0 w` and not its margin. The three-argument form throws an
+  `ArgumentError`. Before 0.6 (the legacy implementation) it returned the margin for a group of a `BlockIterate`, also where the group was nonzero, and
+  `abs(v[i])` at an entry of a nonzero group of an array point, neither of which is a score of the nonzero group; the Euclidean screen of
+  `GroupNormL2` is not used for it ([#634](https://github.com/mlakolar/ProximalBase.jl/issues/634)). `Scaled` over it has the routes of `GroupNormL2`
+  (the [scaling guide](@ref scaled-kkt)).
+* `Scaled` over a function of the package without a score (for example `SqrtLeastSquaresLoss` and `IndNonnegative`, in the four-argument and full-point forms) throws a
   `MethodError` for the call on the `Scaled` function; the `MethodError` named the inner function
   and a private array type before.
 * A function defined outside the package gets its three-argument method's value at a zero
@@ -204,6 +227,7 @@ If code relied on the old value at a nonzero coordinate, call the three-argument
 | `IndBox(l, u)` ([#949](https://github.com/mlakolar/ProximalBase.jl/issues/949)) | Scalar and per-entry bounds, value, coordinatewise projection, and restriction | Array bounds are copied, feasibility uses exact interval comparisons, and a `NaN` entry gives value `NaN` |
 | `IndBallLinf(r)` ([#954](https://github.com/mlakolar/ProximalBase.jl/issues/954)) | The required-radius constructor, returning the scalar `IndBox(-r, r)` with its value, projection, restriction and scaling | The restored box uses exact bounds and propagates `NaN` entries. Negative, `NaN` and positive unsigned radii throw `ArgumentError`. Packed symmetric projection takes scalar steps |
 | `IndBallL2(r)` ([#950](https://github.com/mlakolar/ProximalBase.jl/issues/950)) | Constructor, convex indicator, value and scalar-step Euclidean projection | The domain uses the computed norm without the archived feasibility slack. NaNs propagate in the value, and the fused oracle evaluates the stored point. Packed symmetric iterates are outside the restored interface. |
+| `IndBallL0(s; diagonal = true)` ([#1084](https://github.com/mlakolar/ProximalBase.jl/issues/1084)) | The indicator and projection with both diagonal modes. The budget counts full entries. Vectors and ordinary matrices select individual entries. Dense `Symmetric` and `SymmetricSparseIterate` select pairs at cost two and counted diagonals at cost one | In the initial #1057 draft a raw matrix selected symmetric pairs. Wrap the chosen triangle with `Symmetric(X, :L)` or `Symmetric(X, :U)` to request that projection. Use `diagonal = false` to keep the diagonal free. For an edge limit `k_edges`, use `s = 2*k_edges` as in [ProximalSolvers #449](https://github.com/mlakolar/ProximalSolvers.jl/issues/449). Earlier single-count pair budgets require conversion. With counted diagonals, a single rescaling cannot preserve the feasible set. The step is finite and nonnegative |
 
 ## Names, coordinates and writes
 

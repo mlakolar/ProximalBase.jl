@@ -1,44 +1,47 @@
 # [IndNonnegative numerical contract](@id spec-indnonnegative)
 
-This page gathers the existing numerical rules for `IndNonnegative`.
-The text is preserved from the earlier manual. Clause conversion and status
-assignments are a separate review step; unstated status remains unclassified.
+This page carries the existing endpoint rules for `IndNonnegative` verbatim.
 Read [How to read the numerical contracts](index.md) for authority and ownership.
 
 ## [Identity](@id spec-indnonnegative-identity)
 
-**Links only until clause conversion.** Constructors and API help: [`IndNonnegative`](@ref).
+**Links only.** See the [`IndNonnegative`](@ref) constructor and API help.
 
-Source: [`src/functions/indnonnegative.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/indnonnegative.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [source file](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/indnonnegative.jl)
+and [API coverage matrix](../api/coverage.md#API-coverage-matrix) record the interface.
 
 ## [Definition and domain](@id spec-indnonnegative-definition)
 
-**Links only until clause conversion.** The mathematical definition and ordinary examples are in [`IndNonnegative`](@ref).
+**Links only.** The mathematical definition and ordinary examples are in [`IndNonnegative`](@ref).
 
 ## [Traits](@id spec-indnonnegative-traits)
 
-**Links only until clause conversion.** Trait declarations are described by [`IndNonnegative`](@ref) and [`IndNonnegative`](@ref).
+**Links only.** See the [`IndNonnegative`](@ref) API entry and the
+[built-in trait table](../function_objects.md#Properties-of-the-built-in-functions).
 
 ## [Supported arguments](@id spec-indnonnegative-arguments)
 
-**Links only until clause conversion.** Operation signatures and representations are described by [`IndNonnegative`](@ref) and [`IndNonnegative`](@ref).
+**Links only.** See the [`IndNonnegative`](@ref) API entry for supported representations and the
+[operation signatures](../operations.md#Available-operations-at-a-glance).
 
 ## [Preconditions](@id spec-indnonnegative-preconditions)
 
-**Links only until clause conversion.** Use the [shape and mutation rules](../numerical_usage.md#Shapes-and-destination-first-mutation) and [supported precision](../numerics.md#Supported-precision-and-oracle-agreement), together with the family conditions linked in [Supported arguments](@ref spec-indnonnegative-arguments).
+**Links only.** Use the [shape and mutation rules](../numerical_usage.md#Shapes-and-destination-first-mutation)
+and [supported precision](../numerics.md#Supported-precision-and-oracle-agreement), together with
+the family conditions linked in [Supported arguments](@ref spec-indnonnegative-arguments).
 
 ## [Results](@id spec-indnonnegative-results)
 
-**Links only until clause conversion.** Return values are described by [`IndNonnegative`](@ref). Shared output and aliasing rules are in [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases).
+**Links only.** Return values are described by [`IndNonnegative`](@ref). Shared output and aliasing
+rules are in [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases).
 
 ## [Ordinary-path clauses](@id spec-indnonnegative-ordinary)
 
-**Links only until clause conversion.** The ordinary mathematical formulas and examples remain in [`IndNonnegative`](@ref).
+**Links only.** The ordinary mathematical formulas and examples remain in [`IndNonnegative`](@ref).
 
 ## [Range clauses](@id spec-indnonnegative-range)
 
-**Links only until clause conversion.** Shared range and accuracy qualifications remain in [Range guarantees](@ref numerical-value-range).
+**Links only.** Shared range and accuracy qualifications remain in [Range guarantees](@ref numerical-value-range).
 
 ## [Endpoint clauses](@id spec-indnonnegative-endpoints)
 
@@ -48,15 +51,17 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Failure behavior](@id spec-indnonnegative-failures)
 
-**Links only until clause conversion.** Read [Supported arguments](@ref spec-indnonnegative-arguments), [Preconditions](@ref spec-indnonnegative-preconditions) and [Endpoint clauses](@ref spec-indnonnegative-endpoints), together with the failure behavior in [`IndNonnegative`](@ref).
+**Links only.** See [Endpoint clauses](@ref spec-indnonnegative-endpoints), the [`IndNonnegative`](@ref)
+API entry and [Predictable failures and partial writes](../numerical_usage.md#Predictable-failures-and-partial-writes).
 
 ## [Limitations and non-guarantees](@id spec-indnonnegative-limitations)
 
-**Links only until clause conversion.** Shared limits on range recovery and arithmetic-order agreement remain in [Range guarantees](@ref numerical-value-range).
+**Links only.** See [Range guarantees](@ref numerical-value-range) for shared limits and
+the [`IndNonnegative`](@ref) API entry for the available optimality screen.
 
 ## [Clauses owned elsewhere](@id spec-indnonnegative-elsewhere)
 
-**Links only until clause conversion.** The following rules retain their shared owners.
+**Links only.**
 
 | Subject | Owning section |
 |:--|:--|
@@ -65,13 +70,15 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 | Shapes and destination writes | [Shapes and destination-first mutation](../numerical_usage.md#Shapes-and-destination-first-mutation) |
 | Ownership and aliasing | [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases) |
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
+| Zero scaling | [A zero scale can change the returned type](../calculus.md#A-zero-scale-can-change-the-returned-type) |
 
 ## [Evidence](@id spec-indnonnegative-evidence)
 
-These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
-
-- [`test/indnonnegative.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indnonnegative.jl)
+The tests cover endpoint values and projections, step checks, destination storage,
+scaling and the optimality screen. [`test/indnonnegative.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indnonnegative.jl)
 
 ## [History](@id spec-indnonnegative-history)
 
-The [documentation migration](https://github.com/mlakolar/ProximalBase.jl/issues/1019) records the preserved source text and its review. Numerical decisions remain with their linked source, tests and issue records.
+The [restored functions table](../migration.md#Restored-functions) describes differences from the archive.
+See the [restoration issue #948](https://github.com/mlakolar/ProximalBase.jl/issues/948) and the
+[documentation migration #1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019).

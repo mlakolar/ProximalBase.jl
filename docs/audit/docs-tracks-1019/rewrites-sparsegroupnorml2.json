@@ -107,6 +107,23 @@
         }
       ],
       "reviewer": "reconcile_pr_review@a1361ea3c2b197879770c2edfd05433035113cf9"
+    },
+    {
+      "source_sha256": "05c64c174b446d6c2750de33d0c623dee93431e411b20d329a5f4218b4f8e52e",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.value-and-prox.stored-output",
+          "text": "`prox` allocates, `prox!` accepts exact in-place use, and\n`value_and_prox!` returns the value at the stored destination.",
+          "sha256": "1ad2658c6e04a449afe3aa47af89a964edd3090b13477cc109b2c8e9f1d33a9b"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-arguments",
+          "text": "Array oracles accept real one-based CPU arrays, including `SparseIterate` and\n`BlockIterate`. Groups index matrices linearly. Full-array partial\noverlap is unsupported. Full-array writes can change output iterate activity.\nWhen copying free or identity entries into a floating-point `SparseIterate`,\nthe array oracle stores negative zeros that would otherwise be read as positive.\nAbsent positive zeros stay inactive. The soft-thresholded intermediate is written in the\ndestination type before the group shrink. An explicit integer buffer can\nfail conversion here even when the final exact result is integral. Allocating\n`prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)\nfor zero or infinite steps, nonfinite entries and infinite parameters.",
+          "sha256": "74405585ac550a356545ee4c923b9e5d5e77e7fd130382654b2cf5ae0483fd96"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@01fd655a11dd806c93920b61f083ce812bbefe7c"
     }
   ]
 }

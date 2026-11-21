@@ -61,7 +61,11 @@ to `NaN`.
 At a feasible point the value is the value of `NormL1` with the same level and weights, with its
 recovery of terms below `floatmin` (see the [numerical contract](../numerics.md)): bit for bit on a
 `SparseIterate`, a `BlockIterate` and a `SymmetricSparseIterate`, and within the error bound of the sum on a
-dense array. `value_and_prox!` returns the value at the stored output.
+dense array.
+
+### [Value at the stored output](@id norm-l1-nonneg.value-and-prox.stored-output)
+
+`value_and_prox!` returns the value at the stored output.
 
 ## [Traits](@id spec-norml1nonneg-traits)
 
@@ -265,6 +269,10 @@ These files identify tested domains and reference methods, not new guarantees.
 | [`test/norml1nonneg_extremes.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/norml1nonneg_extremes.jl) | Endpoint truth tables, values against BigFloat sums, point-aware KKT scores, full-point measures and `Scaled` routes |
 
 The moved examples on this page execute during the strict documentation build.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l1-nonneg.value-and-prox.stored-output` | `guaranteed` | [Scalar fused dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/norml1nonneg.jl#L124-L125), [stored-output evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/separable.jl#L210-L212), and [dense and sparse stored-output tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/norml1nonneg.jl#L421-L446) |
 
 ## [History](@id spec-norml1nonneg-history)
 

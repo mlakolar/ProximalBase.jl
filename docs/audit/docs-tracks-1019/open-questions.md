@@ -156,6 +156,22 @@ that happens to pass.
   [Source](../../../src/functions/groupnormlinf.jl)
   · [Tests](../../../test/groupnormlinf.jl)
 
+- The SparseGroupNormL2 guide calls `SymmetricSparseIterate` unsupported
+  for KKT. This could refer to the point argument alone or also to the
+  supplied gradient. The point methods reject symmetric iterates, and the
+  gradient checks accept a one-based real array of matching length. The
+  tests exercise rejection for a symmetric point. The scope awaits the
+  owner's decision. [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Tests](../../../test/sparsegroupnorml2.jl)
+
+- The SparseGroupNormL2 endpoint table introduces its rules for each covered
+  group. The negative or NaN step row could be read as conditional on there
+  being a covered group or as a preflight for every call. The array oracle
+  checks the step before processing groups. The tests cover the empty-group
+  identity at a valid step and invalid-step rejection with groups. The
+  scope awaits the owner's decision. [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Tests](../../../test/sparsegroupnorml2.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

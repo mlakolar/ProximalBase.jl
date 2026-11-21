@@ -303,13 +303,7 @@ indices, set ``U=\bigcup_k G_k``. The penalty is
 f(x)=\lambda_1\sum_{i\in U}|x_i|+\lambda_2\sum_{k=1}^K w_k\lVert x_{G_k}\rVert_2.
 ```
 
-Entries outside ``U`` are free in both terms and retain their values in the
-proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term
-still acts on that group. The constructor keeps the order of the groups and
-indices and copies the supplied groups and weights. The levels and weights
-are converted to one promoted floating type and checked for nonnegativity
-and NaN. The default is ``w_k=\sqrt{|G_k|}``. With no groups, the value is
-zero and the proximal map is the identity.
+See the [SparseGroupNormL2 definition and domain](@ref spec-sparsegroupnorml2-definition).
 
 For finite levels and weights and a positive finite ``\gamma``, let ``S_a(t)=\operatorname{sign}(t)(|t|-a)_+``.
 First soft-threshold each entry in the group, then shrink the resulting vector:
@@ -342,27 +336,11 @@ v = value_and_prox!(y, f, x, 1.0)
 y
 ```
 
-`prox` allocates, `prox!` accepts exact in-place use, and
-`value_and_prox!` returns the value at the stored destination. Array
-oracles accept real one-based CPU arrays, including `SparseIterate` and
-`BlockIterate`. Groups index matrices linearly. Full-array partial
-overlap is unsupported. Full-array writes can change output iterate activity.
-When copying free or identity entries into a floating-point `SparseIterate`,
-the array oracle stores negative zeros that would otherwise be read as positive.
-Absent positive zeros stay inactive. The soft-thresholded intermediate is written in the
-destination type before the group shrink. An explicit integer buffer can
-fail conversion here even when the final exact result is integral. Allocating
-`prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)
-for zero or infinite steps, nonfinite entries and infinite parameters.
+See the [SparseGroupNormL2 supported arguments](@ref spec-sparsegroupnorml2-arguments).
 
 ### Compact groups
 
-`prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,
-returns `out` and accepts `out === u`. It checks the group, lengths,
-one-based real buffers, step and detected nonidentical overlap before
-writing. The caller supplies an output buffer independent of iterate
-storage. `prox_block(f, u, k, γ)` allocates that buffer. To store the
-result, the caller writes it into the matching block as a separate step.
+See the [SparseGroupNormL2 compact buffer requirements](@ref spec-sparsegroupnorml2-preconditions).
 
 ```@example sparse_group_penalty
 p = SparseGroupNormL2(1.0, 2.0, [[3, 1], [2]], [1.0, 0.0])
@@ -375,16 +353,7 @@ copyto!(blockview(z, 1), out)
 out
 ```
 
-`BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)`
-require the groups to partition the iterate. A `SymmetricSparseIterate`
-is unsupported for prox and KKT. The family has no scalar entry prox,
-step vectors, or `restrict`. Positive finite `Scaled` supports generic
-array value and prox with the scale applied to the step. A scaled product
-outside the working range can round before the sparse-group oracle sees it.
-For example, a tiny negative step can round to `-0.0` in the wrapper
-before the leaf validates the step.
-A zero scale throws `ArgumentError` through the generic constructor.
-`Scaled` compact-block and KKT calls are unsupported.
+See the [SparseGroupNormL2 limitations](@ref spec-sparsegroupnorml2-limitations).
 
 ### Zero-group screening and active-group mismatch
 
@@ -406,14 +375,7 @@ the Euclidean norm of the residual whose entry is
 ``S_{\lambda_1}(r_i)`` at a zero entry. This is the distance from
 ``-v_{G_k}`` to the subdifferential at the current group.
 
-On an ordinary array `k` is an entry index and selects its group.
-An uncovered index has score `abs(v[k])`. On a `BlockIterate`,
-`k` is a group number and the selected ordered layout must agree.
-The full-point `kkt_violation(f, v, x)` checks the full block layout
-and returns the maximum across zero, the block scores and the
-uncovered-entry magnitudes. The result measures the worst block
-or free-coordinate mismatch. The three-argument assumed-zero
-form with an integer index throws `ArgumentError`.
+See the [SparseGroupNormL2 scoring results](@ref spec-sparsegroupnorml2-results).
 
 ## [The group ℓ∞ norm](@id group-linf-guide)
 

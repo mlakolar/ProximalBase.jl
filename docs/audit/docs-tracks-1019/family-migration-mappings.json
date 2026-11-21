@@ -22,7 +22,8 @@
     "moves-indballl2.json",
     "moves-logdet.json",
     "moves-logisticloss.json",
-    "moves-groupnormlinf.json"
+    "moves-groupnormlinf.json",
+    "moves-sparsegroupnorml2.json"
   ],
   "changes": [
     {

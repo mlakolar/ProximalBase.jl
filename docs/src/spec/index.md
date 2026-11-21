@@ -47,7 +47,7 @@ apply alongside each entry.
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
-| `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
+| `SparseGroupNormL2` | [Numerical contract](sparsegroupnorml2.md) | Verbatim migration |
 | `GroupNormLinf` | [Numerical contract](groupnormlinf.md) | Verbatim migration |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |

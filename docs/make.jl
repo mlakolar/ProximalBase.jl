@@ -104,6 +104,10 @@ makedocs(;
             "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
+            "Numerical routines" => "developer/routines/index.md",
+            "Scaled products" => "developer/routines/scaled-products.md",
+            "Squared residuals in power-of-two units" => "developer/routines/squared-residuals.md",
+            "The shared ℓ₁-ball level" => "developer/routines/l1-ball-level.md",
         ],
         "Numerical contracts" => [
             "How to read the contracts" => "spec/index.md",

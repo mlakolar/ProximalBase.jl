@@ -71,7 +71,11 @@ An uncovered index has score `abs(v[k])`. On a `BlockIterate`,
 The full-point `kkt_violation(f, v, x)` checks the full block layout
 and returns the maximum across zero, the block scores and the
 uncovered-entry magnitudes. The result measures the worst block
-or free-coordinate mismatch. The three-argument assumed-zero
+or free-coordinate mismatch.
+
+### [Assumed-zero score rejection](@id sparse-group-norm-l2.kkt.assumed-zero)
+
+The three-argument assumed-zero
 form with an integer index throws `ArgumentError`.
 
 ## [Ordinary-path clauses](@id spec-sparsegroupnorml2-ordinary)
@@ -192,6 +196,7 @@ ranges, layouts, and point-aware scores.
 | `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
 | `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |
+| `sparse-group-norm-l2.kkt.assumed-zero` | `guaranteed` | [Three-argument dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/src/functions/sparsegroupnorml2.jl#L230-L231) and [rejection test](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/test/sparsegroupnorml2.jl#L386) |
 
 The [trait tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L111-L116) check convexity and proximability.
 

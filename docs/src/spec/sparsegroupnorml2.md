@@ -158,7 +158,7 @@ A zero scale throws `ArgumentError` through the generic constructor.
 ### [Symmetric iterate arguments](@id sparse-group-norm-l2.oracles.symmetric-arguments)
 
 `SymmetricSparseIterate` is unsupported as a proximal input or destination,
-or as the point argument to point-aware KKT methods.
+or as a directly supplied gradient or point in a point-aware KKT call.
 
 ## [Clauses owned elsewhere](@id spec-sparsegroupnorml2-elsewhere)
 
@@ -181,7 +181,7 @@ ranges, layouts, and point-aware scores.
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
-| `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT argument tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) |
+| `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |
 
 The [trait tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L111-L116) check convexity and proximability.
@@ -209,16 +209,21 @@ end # hide
 nothing # hide
 ```
 
-### [Working-type regression](@id spec-sparsegroupnorml2-score-regression)
+### [Point-aware KKT regressions](@id spec-sparsegroupnorml2-score-regression)
 
-The check characterizes a call with a `Float16` gradient and a finite integer
-point whose entry converts to infinity. The
+The dispatch check uses a symmetric iterate directly as the gradient. The
+working-type check characterizes a call with a `Float16` gradient and a
+finite integer point whose entry converts to infinity. The
 [supported precision policy](../numerics.md#Supported-precision-and-oracle-agreement)
 sets the supported configurations.
 
 ```@example sparse_group_score_working_type_regression
 using ProximalBase, Test # hide
 f = SparseGroupNormL2(1.0, 1.0, [[1]]) # hide
+gradient = SymmetricSparseIterate([1.0 0.0; 0.0 1.0]) # hide
+point = zeros(2, 2) # hide
+@test !applicable(kkt_violation, f, gradient, point, 1) # hide
+@test !applicable(kkt_violation, f, gradient, point) # hide
 @test kkt_violation(f, Float16[0], [1000000], 1) === Float16(Inf) # hide
 nothing # hide
 ```

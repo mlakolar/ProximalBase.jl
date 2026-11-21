@@ -20,7 +20,15 @@ proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ te
 still acts on that group. The constructor keeps the order of the groups and
 indices and copies the supplied groups and weights. The levels and weights
 are converted to one promoted floating type and checked for nonnegativity
-and NaN. The default is ``w_k=\sqrt{|G_k|}``. With no groups, the value is
+and NaN.
+
+### [Default group weights](@id sparse-group-norm-l2.constructor.default-weights)
+
+The default is ``w_k=\sqrt{|G_k|}``.
+
+### Empty group collection
+
+With no groups, the value is
 zero and the proximal map is the identity.
 
 ## [Traits](@id spec-sparsegroupnorml2-traits)
@@ -180,6 +188,7 @@ ranges, layouts, and point-aware scores.
 
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
+| `sparse-group-norm-l2.constructor.default-weights` | `guaranteed` | [Default-weight constructor](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/src/functions/sparsegroupnorml2.jl#L55-L60) and [Float32 and Float64 tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L109-L116) |
 | `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
 | `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |

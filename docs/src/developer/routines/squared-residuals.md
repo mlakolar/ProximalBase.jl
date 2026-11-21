@@ -32,12 +32,17 @@ compensated reduction. If ``s`` is this scaled sum, the value is
 reassembled as ``\lambda s\,2^{2k-1}`` using the
 [exponent-scaled product](@ref routine-scaled-products).
 
-For an absent second operand, the kernel uses the entries themselves.
-For sparse storage it reads stored values. In a symmetric iterate an
-off-diagonal stored square contributes twice, once for each matrix
-position it represents. An exactly zero residual sum is represented as
-zero with exponent zero. Non-finite operands give no scaled sum and the
-value helper keeps the ordinary result. See the
+When the second operand is absent, the kernel uses the entries themselves.
+In that case sparse storage supplies its stored values, and each stored
+off-diagonal square of a symmetric iterate contributes once for each
+matrix position it represents. With two operands, the kernel visits
+their paired indices. An implicit zero can then have a nonzero residual
+against the other operand.
+
+An exactly zero residual sum is represented as zero with exponent zero.
+If the operands supplied to this kernel contain non-finite entries, the
+scaled helper returns no sum and its value wrapper keeps the ordinary
+result. See the
 [shared range rules](../../numerics.md#numerical-value-range) for
 uncertainty near the overflow boundary.
 

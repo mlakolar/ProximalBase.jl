@@ -1,7 +1,7 @@
 # [Scaled products](@id routine-scaled-products)
 
 Proximal thresholds and weighted values combine factors such as a step,
-a penalty level, and a weight. The shared product routines can keep a
+a penalty level, and a weight. For nonnegative coefficients, the shared product routines can keep a
 representable result from being lost when the first multiplication leaves
 the normal range. The [shared range rules](../../numerics.md#numerical-value-range),
 [NormL1 range rules](../../spec/norml1.md#spec-norml1-range), and
@@ -10,13 +10,14 @@ behavior of the public calls.
 
 ## Ordinary path
 
-`_positive_product` keeps `(a * b) * c` when the first product is normal. A
+`_positive_product` keeps `(a * b) * c` when the first product is positive and normal. A
 range change in the final multiplication has no later factor to bring it
 back into range. For proximal thresholds, `_threshold_product` forms
 `(γ * λ) * w` in its working type, converts it to the requested threshold
-type, and reports whether `γ * λ` was normal in the working type. A false
-flag sends the `NormL1` threshold calculation to its exceptional path. The flag describes the first
-product, so a true flag can coexist with an infinite final threshold.
+type, and reports whether `γ * λ` was positive and normal in the working
+type. A false flag sends the `NormL1` threshold calculation to its
+exceptional path. The flag describes the first product, so a true flag can
+coexist with an infinite final threshold.
 
 ## Exponent scaling
 

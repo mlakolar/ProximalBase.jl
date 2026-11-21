@@ -191,10 +191,11 @@ end
     C = linear ? random_symmetric(rng, T, p) : nothing
     f = KronQuadratic(A, B, C)
     A64, B64, C64 = Float64.(A), Float64.(B), C === nothing ? nothing : Float64.(C)
-    # empty; two coordinates and a diagonal one (4 nonzero matrix entries, at most p²/4 = 9);
-    # every coordinate (36 nonzero entries); and active coordinates holding explicit zeros
+    # empty; an off-diagonal and a diagonal coordinate (2n = 4 for n = 2 nonzero values, at most p²/8 = 4.5,
+    # the accumulating route); every coordinate (2n = 42, the dense route); and active coordinates holding
+    # explicit zeros (n = 1 and n = 14)
     empty = SymmetricSparseIterate(T, p)
-    sparse = random_iterate(rng, T, p, [tril_index(p, 4, 2), tril_index(p, 6, 1), tril_index(p, 3, 3)])
+    sparse = random_iterate(rng, T, p, [tril_index(p, 4, 2), tril_index(p, 3, 3)])
     dense = random_iterate(rng, T, p, 1:n)
     zeros_active = random_iterate(rng, T, p, [tril_index(p, 5, 2), tril_index(p, 2, 2), tril_index(p, 6, 6)])
     ids, vals = activecoordinates(zeros_active), activevalues(zeros_active)
@@ -318,13 +319,13 @@ end
     @test f(SymmetricSparseIterate(fill(T(-1 / 3), 2, 2) + E)) > f(D)
   end
 
-  # seeded SPD Σx ≠ Σy: residual of the gradient at D* rounded from a BigFloat solution, both arguments.
-  # Bound: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and u = eps(T)
-  p = 5
+  # SPD Σx ≠ Σy: residual of the gradient at D* rounded from a BigFloat solution, both arguments.
+  # Bound: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and u = eps(T). A dense D* (5 × 5) takes the
+  # dense route of the symmetric iterate; a diagonal D* (16 × 16, 2n = 32 ≤ p²/8) the accumulating route.
   scales = [1, 1.2, 0.9, 1.1, 1.3]
-  for (Σx, Σy) in ((ar1(T, p, 0.4), ar1(T, p, 0.2, scales)),
-                   (Matrix(Diagonal(T[1, 2, 3, 4, 5])), Matrix(Diagonal(T[2, 1, 2, 5, 3]))))
-    Σx, Σy = T.(Σx), T.(Σy)
+  for (Σx, Σy) in ((ar1(T, 5, 0.4), ar1(T, 5, 0.2, scales)),
+                   (Matrix(Diagonal(T.(1:16))), Matrix(Diagonal(T.(mod.(7 .* (1:16), 17))))))
+    p = size(Σx, 1)
     @test Σx != Σy
     f = KronQuadratic(Σx, Σy, Σx - Σy)
     Dbig = inv(big.(Σx)) - inv(big.(Σy))

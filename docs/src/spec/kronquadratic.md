@@ -69,11 +69,11 @@ mirrored entries. The value is the same formula for both arguments.
 
 For a matrix argument, the oracles form ``AX`` and ``(AX)B`` with BLAS and
 the value as ``\langle X,AXB\rangle/2+\langle C,X\rangle``. At a symmetric
-iterate, ``AX`` is accumulated over the active coordinates when the matrix
-that the iterate represents has at most ``p^2/4`` nonzero entries, and by a
-dense product otherwise. A zero coefficient, stored or absent, contributes
-nothing to that accumulation. A value-only call at a symmetric iterate below
-that density forms ``AX`` and ``BX`` over the active coordinates and sums
+iterate with ``n`` nonzero active values, ``AX`` is accumulated over the
+active coordinates when ``2n\leq p^2/8``, and formed by a dense product of a
+copy otherwise. A zero coefficient, stored or absent, contributes nothing to
+that accumulation. A value-only call on the accumulating route forms ``AX``
+and ``BX`` over the active coordinates and sums
 ``\sum_{ij}(AX)_{ij}(BX)_{ji}``. Results are rounded in working precision,
 and the two routes can differ by rounding.
 
@@ -87,7 +87,7 @@ describe for other quadratic values. A product that overflows gives `Inf` or
 ## [Endpoint clauses](@id spec-kronquadratic-endpoints)
 
 `NaN` and infinite entries of a matrix argument propagate by IEEE
-arithmetic. At a symmetric iterate below the density threshold, zero
+arithmetic. At a symmetric iterate on the accumulating route, zero
 coefficients are skipped; the subsequent products follow IEEE arithmetic.
 An empty symmetric iterate has value zero and gradient `C` (zero when `C` is
 omitted).

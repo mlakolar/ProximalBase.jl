@@ -220,39 +220,43 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 ####################################
 
 # The products M X with the matrix that a symmetric iterate X represents take one of two routes. Column by
-# column over the active coordinates (_kron_left!), they cost 2pm flops for the m nonzero entries of that
-# matrix (an off-diagonal coordinate counts twice), at the speed of an axpy. After a dense copy, a GEMM
-# costs 2p³ flops at a few times that speed. The dense route is taken when m > p²/4, where the two costs
-# are about equal for a GEMM four times as fast per flop as an axpy.
-function _kron_use_gemm(X::SymmetricSparseIterate, p::Int)
-  ids, vals = activecoordinates(X), activevalues(X)
-  m = 0
-  @inbounds for a in eachindex(vals)
-    iszero(vals[a]) && continue
-    r, c = tril_cartesian(p, ids[a])
-    m += r == c ? 1 : 2
+# column over the active coordinates (_kron_left!), they cost at most 4pn flops for n nonzero active values,
+# at the speed of an axpy. After a dense copy, a GEMM costs 2p³ flops at several times that speed per flop.
+# The dense route is taken when 2n > p²/8: up to that point the column route does at most an eighth of the
+# flops of the GEMM it replaces. Counting the nonzero values needs no coordinate conversion.
+function _kron_dense_route(X::SymmetricSparseIterate, p::Int)
+  vals = activevalues(X)
+  n = 0
+  @inbounds @simd for a in eachindex(vals)
+    n += !iszero(vals[a])
   end
-  4m > p * p
+  16n > p * p
+end
+
+# axpy y[:, j] += v M[:, i]
+@inline function _kron_axpy!(Y, v, M, i, j, p)
+  @inbounds @simd for k in 1:p
+    Y[k, j] = muladd(v, M[k, i], Y[k, j])
+  end
 end
 
 # Y = M X for a p × p matrix M, column by column over the active coordinates: a nonzero value v at (r, c)
-# adds v M[:, r] to column c of Y and, off the diagonal, v M[:, c] to column r. A zero coefficient, stored or
-# absent, contributes nothing.
-function _kron_left!(Y::Matrix{T}, M::Matrix{T}, X::SymmetricSparseIterate{T}) where {T}
+# adds v M[:, r] to column c of Y and, off the diagonal, v M[:, c] to column r. With a second pair (Z, N)
+# the same for Z = N X. A zero coefficient, stored or absent, contributes nothing.
+function _kron_left!(Y::Matrix{T}, M::Matrix{T}, Z, N, X::SymmetricSparseIterate{T}) where {T}
   fill!(Y, zero(T))
+  Z === nothing || fill!(Z, zero(T))
   p = size(M, 1)
   ids, vals = activecoordinates(X), activevalues(X)
   @inbounds for a in eachindex(vals)
     v = vals[a]
     iszero(v) && continue
     r, c = tril_cartesian(p, ids[a])
-    @simd for i in 1:p
-      Y[i, c] = muladd(v, M[i, r], Y[i, c])
-    end
+    _kron_axpy!(Y, v, M, r, c, p)
+    Z === nothing || _kron_axpy!(Z, v, N, r, c, p)
     if r != c
-      @simd for i in 1:p
-        Y[i, r] = muladd(v, M[i, c], Y[i, r])
-      end
+      _kron_axpy!(Y, v, M, c, r, p)
+      Z === nothing || _kron_axpy!(Z, v, N, c, r, p)
     end
   end
   Y
@@ -272,6 +276,27 @@ function _kron_densify!(D::Matrix{T}, X::SymmetricSparseIterate{T}) where {T}
   D
 end
 
+# ⟨W, X⟩/2 + ⟨C, X⟩ over the stored entries of X in one pass: an off-diagonal coordinate counts at both of its
+# positions, and a zero coefficient contributes nothing.
+function _kron_stored_value(W::Matrix{T}, C, X::SymmetricSparseIterate{T}) where {T}
+  p = size(W, 1)
+  ids, vals = activecoordinates(X), activevalues(X)
+  s, t = zero(T), zero(T)
+  @inbounds for a in eachindex(vals)
+    v = vals[a]
+    iszero(v) && continue
+    r, c = tril_cartesian(p, ids[a])
+    if r == c
+      s = muladd(W[r, r], v, s)
+      C === nothing || (t = muladd(C[r, r], v, t))
+    else
+      s = muladd(W[r, c] + W[c, r], v, s)
+      C === nothing || (t = muladd(C[r, c] + C[c, r], v, t))
+    end
+  end
+  s / 2 + t
+end
+
 # Σᵢⱼ P[i, j] Q[j, i] = ⟨P, Qᵀ⟩ of two p × p matrices, in 32 × 32 tiles, each summed on its own before it
 # is added to the total.
 function _kron_transposed_dot(P::Matrix{T}, Q::Matrix{T}) where {T}
@@ -287,20 +312,22 @@ function _kron_transposed_dot(P::Matrix{T}, Q::Matrix{T}) where {T}
   s
 end
 
-# The value ⟨X, A X B⟩/2 + ⟨C, X⟩ without a GEMM on the sparse route: with X, A and B symmetric,
+# ⟨D, W⟩/2 + ⟨C, D⟩ for the dense copy D of the argument
+@inline _kron_dense_copy_value(f::KronQuadratic, D, W) =
+  (v = dot(D, W) / 2; f.C === nothing ? v : v + dot(f.C, D))
+
+# The value ⟨X, A X B⟩/2 + ⟨C, X⟩. Without a GEMM on the sparse route: with X, A and B symmetric,
 # ⟨X, A X B⟩ = tr(A X B X) = Σᵢⱼ (A X)[i, j] (B X)[j, i].
 function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
-  if _kron_use_gemm(X, p)
+  if _kron_dense_route(X, p)
     D = _kron_densify!(f.X, X)
     mul!(f.AX, f.A, D)
     mul!(f.W, f.AX, f.B)
-    v = dot(f.W, X) / 2
-  else
-    _kron_left!(f.AX, f.A, X)
-    _kron_left!(f.W, f.B, X)
-    v = _kron_transposed_dot(f.AX, f.W) / 2
+    return _kron_dense_copy_value(f, D, f.W)
   end
+  _kron_left!(f.AX, f.A, f.W, f.B, X)
+  v = _kron_transposed_dot(f.AX, f.W) / 2
   f.C === nothing ? v : v + dot(f.C, X)
 end
 
@@ -309,14 +336,16 @@ end
 function _kron_symmetric!(G::StridedMatrix{T}, f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
   AX, W, C = f.AX, f.W, f.C
-  if _kron_use_gemm(X, p)
-    mul!(AX, f.A, _kron_densify!(f.X, X))
+  if _kron_dense_route(X, p)
+    D = _kron_densify!(f.X, X)
+    mul!(AX, f.A, D)
+    mul!(W, AX, f.B)
+    v = _kron_dense_copy_value(f, D, W)
   else
-    _kron_left!(AX, f.A, X)
+    _kron_left!(AX, f.A, nothing, nothing, X)
+    mul!(W, AX, f.B)
+    v = _kron_stored_value(W, C, X)
   end
-  mul!(W, AX, f.B)
-  v = dot(W, X) / 2
-  C === nothing || (v += dot(C, X))
   @inbounds for jb in 1:32:p, ib in jb:32:p
     for j in jb:min(jb + 31, p), i in max(ib, j):min(ib + 31, p)
       g = i == j ? W[i, i] : _symmetric_mean(W[i, j], W[j, i])

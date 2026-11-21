@@ -368,9 +368,38 @@ supplements the six checks and independent review, not a claim of semantic
 equivalence. CI retains this report beside the preservation log for every change,
 including changes that do not touch the ledger.
 
+## Checking the SparseGroupNormL2 clause pilot
+
+The standalone passage check covers the eight published moves and the two
+retained guide examples from [#1121](https://github.com/mlakolar/ProximalBase.jl/pull/1121).
+It reads the move manifest at the pinned merge commit and verifies the original
+spans against that commit's first parent. Both Git revisions must be available
+locally. The check reads the authored UTF-8 Git blobs with LF line endings.
+
+```sh
+python3 -B docs/check_migration_spans.py HEAD
+```
+
+For a reviewed candidate that rewrites or splits a passage, pass `--rewrites`
+with the path of its JSON mapping in the candidate commit. The mapping uses
+schema 1 and a `changes` list. Each entry names the original
+`source_sha256`, an `action` of `reword` or `split`, the independent
+`reviewer@revision` in `reviewer`, and ordered `destinations`. Each
+destination gives the `scope` as a contract path and heading fragment, the
+exact `text`, and its `sha256`. Select replacement bodies separately from
+new clause labels.
+
+The check compares protected token and example counts within each reviewed
+passage. A split also preserves the original words. Each replacement occupies
+its own occurrence in the contract. This spec-only pilot uses the exact
+published guide file to preserve both example bodies and their Markdown
+context. Take any intentional protected change to separate review. Run the
+command alongside the six preservation checks and the removed-lines report.
+
 After the final Phase 5 blocking acceptance, retire the six temporary migration
 checks, the removed-lines report and the migration-only source/test scope guard
-from routine CI. Remove the temporary retirement-record/frozen-inventory sentence
+from routine CI. End the standalone passage check at the same checkpoint.
+Remove the temporary retirement-record/frozen-inventory sentence
 from `developer/writing_documentation.md`, retaining its forwarding and new-family
 routing rules. Retain this frozen audit and its final acceptance evidence.
 Ordinary strict builds, links, API coverage and executable-example checks

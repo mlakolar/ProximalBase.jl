@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "commit": "849fc958fa45388e38cf33d5188b6c7c4a3452d5",
+  "move_manifest": "moves-sparsegroupnorml2.json",
+  "guide_examples": {
+    "scope": "docs/src/group_penalty.md#sparse-group-l2-guide",
+    "sandbox": "sparse_group_penalty",
+    "count": 2
+  }
+}

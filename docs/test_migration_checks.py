@@ -11,7 +11,150 @@ import unittest
 
 from check_contract_schema import family_map_errors
 import check_migration_lines as line_report
+import check_migration_spans as span_check
 import migration_checks as m
+
+
+class PostBaselineSpanTests(unittest.TestCase):
+    guide_path = "docs/src/group_penalty.md"
+    spec_path = "docs/src/spec/family.md"
+    scope = spec_path + "#rules"
+    manifest_path = "docs/audit/docs-tracks-1019/moves-family.json"
+    first = "The direct route returns `+0` for a covered group.\nThe stored result is zero."
+    second = "The compact route returns `+0` for a covered group."
+    array_example = "```@example family\nusing ProximalBase\n@assert array == expected\n```"
+    compact_example = "```@example family\n@assert compact == expected\n```"
+
+    def setUp(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        m.git("init", "-q", root=self.root)
+        m.git("config", "user.name", "Migration fixture", root=self.root)
+        m.git("config", "user.email", "fixture@example.invalid", root=self.root)
+        m.git("config", "core.autocrlf", "false", root=self.root)
+        self.guide = self.guide_text(self.array_example, self.compact_example)
+        original = self.guide + "\n## Former rules\n\n" + self.first + "\n\n" + self.second + "\n"
+        self.write(self.guide_path, original)
+        parent = self.commit("Publish guide and rules")
+        moves = []
+        for passage in (self.first, self.second):
+            start = original.index(passage)
+            moves.append(dict(source=self.guide_path, source_revision=parent,
+                              source_start=start, source_end=start + len(passage),
+                              source_line=original.count("\n", 0, start) + 1, text=passage,
+                              source_sha256=m.digest(passage), destination=self.spec_path,
+                              anchor="rules", destination_text=passage, destination_sha256=m.digest(passage)))
+        self.manifest = dict(schema=1, source_revision=parent, moves=moves)
+        self.write(self.manifest_path, json.dumps(self.manifest))
+        self.write(self.guide_path, self.guide)
+        self.write_spec(self.first, self.second)
+        self.published = self.commit("Record verbatim move")
+        self.reference = dict(schema=1, commit=self.published, move_manifest="moves-family.json",
+                              guide_examples=dict(scope=self.guide_path + "#family-guide",
+                                                  sandbox="family", count=2))
+
+    def write(self, path, content):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    def write_spec(self, *paragraphs):
+        self.write(self.spec_path, "# Contract\n\n## [Rules](@id rules)\n\n" + "\n\n".join(paragraphs) + "\n")
+
+    def guide_text(self, array_example, compact_example):
+        return "# Penalties\n\n## [Family guide](@id family-guide)\n\n" + array_example + (
+            "\n\n### Compact groups\n\n" + compact_example + "\n")
+
+    def commit(self, message, *, amend=False):
+        m.git("add", "--", "docs", root=self.root)
+        command = ["commit", "-qm", message]
+        if amend:
+            command.append("--amend")
+        m.git(*command, root=self.root)
+        return m.git("rev-parse", "HEAD", root=self.root).strip()
+
+    def mapping(self, action, *pieces):
+        return dict(source_sha256=m.digest(self.first), action=action, reviewer="reviewer@fixture",
+                    destinations=[dict(scope=self.scope, sha256=m.digest(piece), text=piece) for piece in pieces])
+
+    def check(self, *changes, candidate=None):
+        candidate = candidate or self.commit("Prepare candidate")
+        return span_check.check(self.reference, candidate, dict(schema=1, changes=list(changes)), self.root)
+
+    def test_published_version_accounts_for_each_passage_and_fence(self):
+        result = self.check(candidate=self.published)
+        self.assertEqual(result["findings"], [])
+        self.assertEqual((result["passages"], result["guide_examples"]), (2, 2))
+
+    def test_reviewed_prose_reword_retains_protected_tokens(self):
+        wording = "A covered group receives `+0` on the direct route."
+        self.write_spec(wording, self.second)
+        self.assertEqual(self.check(self.mapping("reword", wording))["findings"], [])
+
+    def test_reviewed_split_preserves_words_and_destination_order(self):
+        first, second = self.first.splitlines()
+        self.write_spec(first, second, self.second)
+        candidate = self.commit("Split the paragraph")
+        self.assertEqual(self.check(self.mapping("split", first, second), candidate=candidate)["findings"], [])
+        reversed_result = self.check(self.mapping("split", second, first), candidate=candidate)
+        self.assertTrue(any("out of order" in line for line in reversed_result["findings"]))
+
+    def test_changed_literal_fails_with_a_current_destination_hash(self):
+        wording = self.first.replace("`+0`", "`-0`")
+        self.write_spec(wording, self.second)
+        findings = self.check(self.mapping("reword", wording))["findings"]
+        self.assertTrue(any("changed protected tokens" in line for line in findings))
+
+    def test_other_passage_cannot_supply_tokens_even_with_a_verified_hash(self):
+        result = self.check(self.mapping("reword", self.second), candidate=self.published)
+        self.assertTrue(any("overlap" in line for line in result["findings"]))
+
+    def test_fenced_section_copy_cannot_hide_reuse_of_a_live_passage(self):
+        replacement = "A covered group has a result of `+0`."
+        section = "### [Child](@id child)\n\n" + replacement
+        self.write(self.spec_path, "# Contract\n\n````markdown\n" + section
+                   + "\n````\n\n## [Rules](@id rules)\n\n" + section + "\n")
+        parent = self.mapping("reword", replacement)
+        child = self.mapping("reword", replacement)
+        child["source_sha256"] = m.digest(self.second)
+        child["destinations"][0]["scope"] = self.spec_path + "#child"
+        findings = self.check(parent, child)["findings"]
+        self.assertTrue(any("overlap" in line for line in findings))
+
+    def test_retained_examples_require_original_assertions_and_order(self):
+        changed = self.array_example.replace("@assert array == expected\n", "")
+        for first, second in ((changed, self.compact_example), (self.compact_example, self.array_example)):
+            with self.subTest(first=first, second=second):
+                self.write(self.guide_path, self.guide_text(first, second))
+                self.assertTrue(any("retained examples or their guide context changed" in line
+                                    for line in self.check()["findings"]))
+
+    def test_guide_fence_context_cannot_hide_an_example(self):
+        decoy = "```text\nExample explanation\n````\n"
+        guide = self.guide.replace(self.compact_example, decoy + self.compact_example)
+        self.write(self.guide_path, guide)
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_fence_before_the_guide_section_also_changes_example_context(self):
+        heading = "## [Family guide](@id family-guide)"
+        decoy = "  " + heading + "\n\n```text\nExample explanation\n````\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, decoy + heading, 1))
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_committed_raw_line_endings_are_checked(self):
+        spec = self.root / self.spec_path
+        spec.write_bytes(spec.read_bytes().replace(b"\n", b"\r\n"))
+        with self.assertRaisesRegex(ValueError, "expected LF line endings"):
+            self.check()
+
+    def test_manifest_requires_exact_parent_span(self):
+        self.manifest["moves"][0]["source_start"] += 1
+        self.write(self.manifest_path, json.dumps(self.manifest))
+        invalid = self.commit("Record an invalid source range", amend=True)
+        self.reference["commit"] = invalid
+        with self.assertRaisesRegex(ValueError, "invalid historical passage"):
+            self.check(candidate=invalid)
 
 
 class FamilyMapTests(unittest.TestCase):

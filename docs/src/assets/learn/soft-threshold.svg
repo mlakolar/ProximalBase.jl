@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" role="img" aria-labelledby="title description">
+  <title id="title">Soft threshold at one</title>
+  <desc id="description">Slope one outside the interval from minus one to one. Zero on that interval.</desc>
+  <rect width="480" height="240" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="15" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="24" y="28" fill="#192438" text-anchor="start">Soft threshold at one</text>
+    <polyline points="54.00,132.00 424.00,132.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="240.00,55.00 240.00,207.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="75.00,198.00 185.00,132.00 295.00,132.00 405.00,66.00" fill="none" stroke="#1e55b3" stroke-width="3.5" />
+    <polyline points="75.00,135.00 75.00,140.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="75" y="160" fill="#586577" text-anchor="middle">-3</text>
+    <polyline points="185.00,135.00 185.00,140.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="185" y="160" fill="#586577" text-anchor="middle">-1</text>
+    <polyline points="295.00,135.00 295.00,140.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="295" y="160" fill="#586577" text-anchor="middle">1</text>
+    <polyline points="405.00,135.00 405.00,140.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="405" y="160" fill="#586577" text-anchor="middle">3</text>
+    <text x="430" y="137" fill="#192438" text-anchor="start">t</text>
+    <text x="250" y="61" fill="#192438" text-anchor="start">z</text>
+  </g>
+</svg>

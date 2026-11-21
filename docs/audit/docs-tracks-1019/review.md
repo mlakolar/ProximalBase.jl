@@ -797,3 +797,20 @@ The landed Git blobs add one timing paragraph to the existing CI sharding
 receipt in `test/TESTING.md`, extending the ordered span from eight blocks
 to nine. The later GroupNormLinf wording commit at `8364532f` edits text added
 after the frozen inventory. The audit holds 66 receipts and 132 transitions.
+
+## Reconciliation after built-in indicator scaling (#1118)
+
+`reconcile_pr_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450`
+verified that [#1118](https://github.com/mlakolar/ProximalBase.jl/pull/1118)
+merged with actual first parent `1e3033d69742bbd170c8eebe116c7474b772bc82`.
+The review traced ten affected baseline blocks through their before and after
+blobs. The new events cover the IndNonnegative benchmark and endpoint row,
+five scaling passages, the developer KKT notes, and two migration entries.
+
+Before the #1118 edit, the Scaled unsupported-cases roots `::19` and `::22`
+had separate upstream histories in `calculus.md` followed by exact moves to
+`spec/scaled.md#spec-scaled-limitations`. Their prior receipts, basis records
+and move rows are tracked in the first parent. For `::22`, the replacement
+keeps the first of two list items and changes the second. The other eight
+roots use the existing same-file or exact frozen-move receipt rules. The
+audit holds 72 receipts and 142 events across the same 2,162 frozen roots.

@@ -705,13 +705,19 @@ class CheckedMappings(dict):
         self.refinements = {}
 
 
-def receipt_records(root, filename, key):
-    path = root / "docs/audit/docs-tracks-1019" / filename
-    if not path.exists():
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("schema") != 1 or not isinstance(data.get(key), list):
-        raise ValueError(f"{filename} requires schema 1 and a {key} list")
+def receipt_records(root, filename, key, *, schema=1, commit=None):
+    path = AUDIT.relative_to(ROOT) / filename
+    if commit is None:
+        if not (root / path).exists():
+            return {}
+        text = (root / path).read_text(encoding="utf-8")
+    else:
+        if not git("ls-tree", "--full-tree", commit, "--", str(path), root=root).strip():
+            return {}
+        text = git("show", f"{commit}:{path}", root=root)
+    data = json.loads(text)
+    if not isinstance(data, dict) or data.get("schema") != schema or not isinstance(data.get(key), list):
+        raise ValueError(f"{filename} requires schema {schema} and a {key} list")
     result = {}
     for record in data[key]:
         if not isinstance(record, dict) or not isinstance(record.get("block_id"), str):
@@ -725,6 +731,15 @@ def receipt_records(root, filename, key):
 
 def receipt_digest(record):
     return digest(json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+
+
+def validate_migration_basis(old, record, receipt, source):
+    expected = dict(block_id=old.id, baseline_sha=old.sha,
+                    upstream_sha=receipt_digest(receipt), source_shas=[block.sha for block in source])
+    if any(record.get(key) != value for key, value in expected.items()):
+        raise ValueError("migration basis does not match the exact reviewed upstream terminal span")
+    if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
+        raise ValueError("migration basis requires the historical review evidence")
 
 
 def token_delta(before, after):
@@ -820,8 +835,8 @@ def sequence_starts(values, sequence):
             if values[i:i + len(sequence)] == sequence]
 
 
-def validate_upstream_prior_move(old, destination, first_event, root):
-    """Require the frozen block's exact move in the first upstream event's parent."""
+def validate_upstream_prior_move(old, destination, first_event, root, source_hashes):
+    """Find the exact tracked move of the source span in the event's parent."""
     before = first_event.get("before_commit") if isinstance(first_event, dict) else None
     if not isinstance(before, str) or not re.fullmatch(r"[0-9a-f]{40}", before):
         raise ValueError("upstream requires an exact Git object ID: before_commit")
@@ -831,9 +846,32 @@ def validate_upstream_prior_move(old, destination, first_event, root):
         raise ValueError(message)
     ledger = git("show", f"{before}:{path}", root=root)
     rows = [row for row in parse_tsv(ledger.splitlines(keepends=True)) if row.get("block_id") == old.id]
-    expected = dict(sha=old.sha, kind=old.kind, action="move", dest=destination, dest_sha=old.sha)
+    expected = dict(sha=old.sha, kind=old.kind, action="move",
+                    dest=";".join([destination] * len(source_hashes)), dest_sha=";".join(source_hashes))
     if len(rows) != 1 or any(rows[0].get(key) != value for key, value in expected.items()):
         raise ValueError(message)
+    return before
+
+
+def validate_upstream_moved_basis(old, destination, prefix, first_event, root):
+    """Verify the prior original-file events and the reviewed span they supplied to a move."""
+    if not isinstance(first_event, dict):
+        raise ValueError("upstream event must be an object")
+    source_hashes = upstream_hashes(first_event, "source")
+    before = validate_upstream_prior_move(old, destination, first_event, root, source_hashes)
+    receipt = receipt_records(root, "upstream.json", "changes", schema=2, commit=before).get(old.id)
+    basis = receipt_records(root, "migration-bases.json", "bases", commit=before).get(old.id)
+    if receipt is None or basis is None:
+        raise ValueError("post-move upstream requires a historical receipt and migration basis in the parent")
+    if receipt_digest(receipt.get("events")) != receipt_digest(prefix):
+        raise ValueError("post-move upstream prefix differs from the historical receipt in the parent")
+    if any(not isinstance(receipt.get(key), str) for key in ("dest", "dest_sha", "reviewer")):
+        raise ValueError("historical upstream receipt requires a destination, hashes and reviewer")
+    source = validate_upstream(old, receipt, receipt, root, current=False)
+    validate_migration_basis(old, basis, receipt, source)
+    if [block.sha for block in source] != source_hashes:
+        raise ValueError("post-move upstream source must match the historical terminal span")
+    return source
 
 
 def validate_upstream(old, row, record, root=ROOT, *, current=True):
@@ -862,16 +900,24 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     events = record.get("events")
     if not isinstance(events, list) or not events:
         raise ValueError("upstream requires a nonempty events sequence")
+    move_after = record.get("move_after_event", 0)
+    if "move_after_event" in record and (type(move_after) is not int or not 0 < move_after < len(events)
+                                         or not current or path == old.path or not anchor):
+        raise ValueError("move_after_event requires original-file events followed by a move to a named section")
+    source = [old]
     scope = None
     if path != old.path:
         if not current:
             raise ValueError("migration bases require upstream edits in the original file")
         if row.get("action") != "upstream":
             raise ValueError("post-move receipts require an upstream ledger action")
-        validate_upstream_prior_move(old, destinations[0], events[0], root)
+        if move_after:
+            source = validate_upstream_moved_basis(old, destinations[0], events[:move_after],
+                                                   events[move_after], root)
+        else:
+            validate_upstream_prior_move(old, destinations[0], events[0], root, [old.sha])
         scope = (path, anchor)
-    source = [old]
-    for index, event in enumerate(events, 1):
+    for index, event in enumerate(events[move_after:], move_after + 1):
         try:
             source = validate_upstream_event(source, event, root, scope=scope)
         except (ValueError, subprocess.CalledProcessError) as error:
@@ -1092,13 +1138,7 @@ def coverage(base_blocks, rows, root=ROOT):
                 if receipt is None:
                     raise ValueError("migration basis has no historical upstream receipt")
                 basis = validate_upstream(old, receipt, receipt, root, current=False)
-                expected = dict(block_id=old.id, baseline_sha=old.sha,
-                                upstream_sha=receipt_digest(receipt),
-                                source_shas=[block.sha for block in basis])
-                if any(record.get(key) != value for key, value in expected.items()):
-                    raise ValueError("migration basis does not match the exact reviewed upstream terminal span")
-                if not isinstance(record.get("evidence"), str) or not record["evidence"].strip():
-                    raise ValueError("migration basis requires the historical review evidence")
+                validate_migration_basis(old, record, receipt, basis)
                 used_bases.add(old.id)
             if action in {"stay", "move", "archive"} and hashes != [block.sha for block in basis]:
                 raise ValueError(f"{action} must preserve the original normalized hash sequence")

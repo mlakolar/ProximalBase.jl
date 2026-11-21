@@ -15,8 +15,9 @@ that buffer with the residual, multiplies the residual by ``X^\mathsf{T}``,
 and passes the residual to the value reduction.
 [Ordinary value and fused paths](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/leastsquares.jl#L87-L114).
 
-With a strided vector response, the caller can supply a predictor or
-a residual for a value evaluation. The fused predictor call writes
+For the same-type strided vector-response route in `Float32` or
+`Float64`, the caller can supply a predictor or a residual for a value
+evaluation. The design, response and supplied buffers all use that type. The fused predictor call writes
 ``d=z-Y`` in the caller's buffer and uses one product ``X^\mathsf{T}d``
 for the gradient. The matrix-response specialization has a same-type
 dense design and response and supports the two predictor calls with
@@ -37,8 +38,9 @@ it stores ``V``, the squared singular values, and
 ``b=\operatorname{diag}(s)U^\mathsf{T}Y``. The solve projects the trial
 ``v`` to ``q=V^\mathsf{T}v``. With a square ``V``, the result is
 ``V`` times the componentwise quotient ``(b+\rho q)/(s^2+\rho)``,
-where ``\rho=1/\gamma``. For steps at most one, the implementation
-uses the equivalent quotient ``(\gamma b+q)/(\gamma s^2+1)``.
+where ``\rho=1/\gamma``. In the square-``V`` branch, if the step
+converted to the computation type is at most one, the solve uses
+``(\gamma b+q)/(\gamma s^2+1)`` instead.
 With a rectangular ``V``, it adds ``V((b-s^2q)/(s^2+\rho))`` to
 the trial. The [least-squares guide](../../smooth.md#Least-squares-loss)
 describes when to reset this cache.

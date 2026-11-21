@@ -15,12 +15,14 @@ lies in the direction of ``x`` by Cauchy–Schwarz. The proximal problem
 for a nonnegative finite coefficient ``c`` thus minimizes
 ``\tfrac12(q-\lVert x\rVert_2)^2+cq`` over ``q\ge0``. The resulting norm
 is ``\max(\lVert x\rVert_2-c,0)``. With ``n=\lVert x\rVert_2>c``, the
-map stores ``(1-c/n)x``. When ``n\le c`` it gives zero. For a group
+exact proximal point is ``(1-c/n)x``. When ``n\le c`` it gives zero. For a group
 ``G_k``, the same formula uses ``x[G_k]`` and ``c=\gamma\lambda_0w_k``.
 
 For projection onto a ball of positive finite radius ``r``, the scalar
-problem chooses ``q=\min(\lVert x\rVert_2,r)``. The projection copies
-a point on or inside the ball and stores ``(r/n)x`` when ``n>r``. For example,
+problem chooses ``q=\min(\lVert x\rVert_2,r)``. The exact projection
+keeps a point on or inside the ball and gives ``(r/n)x`` when ``n>r``.
+Some computed paths check the rounded coefficients and rescale them
+toward zero, as described in the IndBallL2 range rules. For example,
 ``x=(3,-4)`` has norm ``5``. Shrinkage at ``c=1`` gives
 ``(12/5,-16/5)``, and projection at ``r=5/2`` gives ``(3/2,-2)``.
 

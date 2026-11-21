@@ -10,20 +10,21 @@ own the contract for each supported route.
 ## Selecting the coordinate or group
 
 The three-argument coordinate call `kkt_violation(f, v, i)` evaluates an
-assumed-zero screen where the family provides it. For `NormL1`, this
-is the signed margin ``|v_i|-c_i`` for the working coefficient
-``c_i``. The four-argument call `kkt_violation(f, v, x, i)` reads
-the supplied point. The ordinary formula for this family uses the
-signed margin in the point-aware working type at a zero entry and
-``|v_i+c_i\operatorname{sign}(x_i)|`` at a nonzero entry.
+assumed-zero screen where the family provides it. For an entry on the
+`NormL1` coordinate route, this is the signed margin ``|v_i|-c_i`` for
+the working coefficient ``c_i``. The four-argument coordinate call
+`kkt_violation(f, v, x, i)` reads the supplied point. In the ordinary
+case it uses the signed margin in the point-aware working type at a
+zero entry and ``|v_i+c_i\operatorname{sign}(x_i)|`` at a nonzero entry.
+The `BlockIterate` route uses a group number and reduces entry scores.
 [NormL1 coordinate formulas](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/norml1.jl#L170-L189).
 
 For `GroupNormLinf`, an array index selects its group if it belongs
 to one. An uncovered entry uses the gradient magnitude. A
 `BlockIterate` index selects a group by its number, with the ordered
 indices of the selected block checked against the function's group.
-A zero group takes the signed screen ``\lVert v_{G_k}\rVert_1-c_k``
-with group coefficient ``c_k``.
+In ordinary finite arithmetic, a zero group takes the signed screen
+``\lVert v_{G_k}\rVert_1-c_k`` with group coefficient ``c_k``.
 A nonzero group uses the Euclidean distance from the negative
 gradient to the group's subdifferential. Both `GroupNormLinf` and
 `SparseGroupNormL2` reject the assumed-zero call. The sparse group

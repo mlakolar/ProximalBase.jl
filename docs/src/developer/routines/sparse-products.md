@@ -1,14 +1,14 @@
 # [Sparse products](@id routine-sparse-products)
 
-The specialized kernels compute products directly from stored
-coordinates. The [sparse product semantics](../../numerics.md#Sparse-product-semantics)
+The `SparseIterate` and `SymmetricSparseIterate` product kernels
+described below compute using stored coordinates. The [sparse product semantics](../../numerics.md#Sparse-product-semantics)
 section owns the zero and scaling behavior, and
 [supported products](../../iterates.md#Supported-products) lists the
 operand combinations.
 
 ## Sparse coefficients
 
-For a strided design matrix times a sparse vector, five-argument
+For a strided design matrix times a vector `SparseIterate`, five-argument
 `mul!` first clears the output when ``\beta=0`` or scales it by
 ``\beta`` otherwise. It returns after this step when ``\alpha=0``.
 The accumulation visits the stored entries, skips a zero coefficient
@@ -23,13 +23,13 @@ and [transpose path](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324c
 
 ## Symmetric coefficients
 
-A stored pair ``(r,c)`` in a `SymmetricSparseIterate` represents the
-matrix positions ``(r,c)`` and ``(c,r)``. In a product with the
-symmetric iterate on the left, a diagonal slot adds one term to
-the output row. An off-diagonal slot adds a term to each of rows
-``r`` and ``c``, using the corresponding entries or rows of the right
-operand. The same paired indexing lets the dot product with a dense
-matrix read both represented positions. See
+A stored off-diagonal pair ``(r,c)`` represents both matrix positions
+``(r,c)`` and ``(c,r)``. In the multiplication routes below with a
+`SymmetricSparseIterate` on the left, a nonzero diagonal slot adds one
+term to the output row. A nonzero off-diagonal slot adds a term to each
+of rows ``r`` and ``c`` using the corresponding entries or rows of the
+right operand. Zero slots are skipped. The paired indexing lets the dot
+product with a dense matrix read both represented positions. See
 [off-diagonal multiplicity](../../symmetric_sparse_iterate.md#The-multiplicity-of-an-off-diagonal-variable).
 [Symmetric multiplication](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/symmetric_sparse_iterate.jl#L769-L821)
 and [symmetric dot products](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/symmetric_sparse_iterate.jl#L689-L715).

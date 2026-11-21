@@ -73,6 +73,23 @@
         }
       ],
       "reviewer": "reconcile_pr_review@5699cf5c916bad55b8d398d60695037ea52a0e77"
+    },
+    {
+      "source_sha256": "35386937e8a3e0139e90021bbf449804f079d46b972205e223b54ccc90e3dc39",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-results",
+          "text": "On an ordinary array `k` is an entry index and selects its group.\nAn uncovered index has score `abs(v[k])`. On a `BlockIterate`,\n`k` is a group number and the selected ordered layout must agree.\nThe full-point `kkt_violation(f, v, x)` checks the full block layout\nand returns the maximum across zero, the block scores and the\nuncovered-entry magnitudes. The result measures the worst block\nor free-coordinate mismatch.",
+          "sha256": "ef2efef29f4a955990c89b1543cdecc90c4296174b89398674d8d8f15bca177a"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.kkt.assumed-zero",
+          "text": "The three-argument assumed-zero\nform with an integer index throws `ArgumentError`.",
+          "sha256": "989301219f8a1e6578a9f20e90e0665ce26f57324032f3ebd5843a64e7bb3833"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@a12427c5514982c689a98b3c26c572929abf4198"
     }
   ]
 }

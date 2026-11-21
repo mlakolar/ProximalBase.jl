@@ -337,7 +337,8 @@ end
   end
 
   # SPD Σx ≠ Σy: residual of the gradient at D* rounded from a BigFloat solution, both arguments.
-  # Bound: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and u = eps(T). A dense D* (5 × 5) takes the
+  # Tolerance for these two moderate seeded residual checks: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and
+  # u = eps(T), not a uniform accuracy bound for arbitrary SPD inputs and scales. A dense D* (5 × 5) takes the
   # dense route of the symmetric iterate; a diagonal D* (16 × 16, 2n = 32 ≤ p²/8) the accumulating route.
   scales = [1, 1.2, 0.9, 1.1, 1.3]
   for (Σx, Σy) in ((ar1(T, 5, 0.4), ar1(T, 5, 0.2, scales)),
@@ -504,7 +505,7 @@ end
     @test_throws ArgumentError KronQuadratic(U.(A), U.(B), U.(C))
   end
 
-  # oracles: each failure leaves the destination and the data unchanged
+  # oracles: each preflight failure below leaves the destination and the data unchanged
   f = KronQuadratic(A, B, C)
   d = ProximalBase.kronquadratic_data(f)
   X = T[1 0 2; -1 1 0]
@@ -680,6 +681,20 @@ end
     @test_throws Base.PaddingError f(Y)
     @test all(==(7), D) && isequal(parent(parent(Y)), Yp)
     @test value_and_gradient!(D, f, T[1 2; 3 4]) == v && D == H
+  end
+end
+
+@testset "undetected overlap on the copy route ($T)" for T in (Float32, Float64)
+  # a view of a Diagonal whose diagonal is backed by G is not detected (overlapping views are unsupported); on the
+  # copy route the result is the one for the argument as it was at the call
+  f = KronQuadratic(T[2 0; 0 3], T[1 0; 0 2], T[1 2; 2 1])
+  for g in (f, Scaled(f, T(2)))
+    G = fill(T(9), 2, 2)
+    X = view(Diagonal(view(G, :, 1)), :, :)
+    Xcopy = Matrix(X)
+    vref, Gref = value_and_gradient(g, Xcopy)
+    @test value_and_gradient!(G, g, X) == vref
+    @test G == Gref
   end
 end
 

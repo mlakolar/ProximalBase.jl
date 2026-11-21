@@ -30,9 +30,11 @@ The function is smooth. It is not proximable or separable, and
 `isconvex` is false. The function is convex when `A` and `B` are both
 positive semidefinite or both negative semidefinite; the constructor does not
 check semidefiniteness. The exact product ``\|A\|_2\|B\|_2`` of the spectral
-norms is a Lipschitz constant of the gradient; `lipschitz` returns its
-working-precision approximation, which can round below it. `size(f)` is
-``(p, q)``.
+norms is a Lipschitz constant of the gradient; `lipschitz` returns the
+product of the two computed norms in working precision, which can round below
+the exact product and is subject to the ordinary range limits: it can
+overflow to `Inf`, or be `NaN` when one norm overflows and the other is zero.
+`size(f)` is ``(p, q)``.
 
 ## [Supported arguments](@id spec-kronquadratic-arguments)
 
@@ -59,12 +61,26 @@ iterate, the destination is written entry by entry. `gradient` returns a
 arguments, `BlockIterate`, symmetric-iterate destinations and proximal
 operators are unsupported.
 
+The destination must not share memory with the argument. As for every
+built-in gradient ([`gradient!`](@ref)), `G === X` throws `ArgumentError` and
+other overlapping views are unsupported. The checks listed under the failure
+behavior detect some overlaps and are not exhaustive; for example, a view of
+a `Diagonal` whose diagonal is backed by the destination is not detected. For
+a matrix argument on the copy route above, and for a symmetric iterate, the
+argument is read completely, into scratch or into the products, before the
+destination is written, so the result is computed from the argument as it was
+at the call; an undetected overlap then changes the caller's argument through
+the write to the destination. On the direct route of a strided argument the
+argument is read again after the destination is written, and no such
+statement holds.
+
 ## [Preconditions](@id spec-kronquadratic-preconditions)
 
 The matrices that [`ProximalBase.kronquadratic_data`](@ref) returns are the
 stored copies, ordinary mutable matrices; treat them as read-only. The oracles
 write scratch matrices stored in the function: calls on one object must not
-run concurrently. Use one object per task.
+run concurrently. Use one object per task. The destination must not share
+memory with the argument (see the supported arguments).
 
 ## [Results](@id spec-kronquadratic-results)
 
@@ -115,8 +131,9 @@ omitted).
 ## [Failure behavior](@id spec-kronquadratic-failures)
 
 The constructor throws `ArgumentError` for element types other than one
-common `Float32` or `Float64`, with a suggested conversion such as
-`Float64.(C)`; for empty `A` or `B`; for non-finite entries; for offset axes;
+common `Float32` or `Float64`, with a suggested conversion of each
+mismatching argument to one of the two precisions, such as `Float64.(C)` when
+`A` and `B` are `Float64` matrices; for empty `A` or `B`; for non-finite entries; for offset axes;
 and for an `A` or `B` that is not exactly symmetric, with the message of
 the shared symmetry check. A nonsquare `A` or `B`, or a `C` of the wrong
 size, throws `DimensionMismatch`.
@@ -126,28 +143,35 @@ the destination (`ArgumentError`), one-based axes (`ArgumentError`), sizes
 (`DimensionMismatch`), a strided destination (`ArgumentError`), a
 reinterpretation passed as the destination that Base cannot read and write,
 or passed as the argument that Base cannot read, directly or through views and
-reshapes (`ArgumentError`), an argument or destination that shares memory
-with the scratch of the function (`ArgumentError`), a destination that
-shares memory with the argument as `Base.mightalias` reports it, also through
-`Symmetric`, `Hermitian`, triangular, `Transpose` and `Adjoint` wrappers and
-the backing vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and
-`Tridiagonal` arguments, or with `A`, `B` or `C` (`ArgumentError`), and at a
+reshapes (`ArgumentError`), and, as far as the overlap checks detect it, an
+argument or destination that shares memory with the scratch of the function
+or a destination that shares memory with the argument or with `A`, `B` or `C`
+(`ArgumentError`), and at a
 symmetric iterate ``p=q`` (`DimensionMismatch`) and, when `C` is supplied,
 its exact symmetry (`ArgumentError`). `C` is not averaged.
 
-These checks cover the arrays the caller passes: the destination, the
-argument, `A`, `B` and `C`. Storage inside other wrappers is not checked for
-readability. If a read of it fails during the call, for example a padded
-reinterpretation inside `Symmetric` or `transpose`, the call throws that
-error with the destination and the argument unchanged; the scratch of the
-function may be partly written, and the next call overwrites it.
+The overlap checks are `G === X`, `Base.mightalias` (which accepts views that
+Base can establish as disjoint), overlap with `A`, `B`, `C` and the scratch,
+and the backing vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and
+`Tridiagonal` arguments, also inside `Symmetric`, `Hermitian`, triangular,
+`Transpose` and `Adjoint` wrappers. They are not exhaustive (see the
+supported arguments).
+
+Readability is checked for a reinterpretation passed as the destination or
+the argument, directly or through views and reshapes; storage inside other
+wrappers is not checked for readability. If a read of it fails during the
+call, for example a padded reinterpretation inside `Symmetric` or
+`transpose`, the call throws that error with the destination and the argument
+unchanged; the scratch of the function may be partly written, and subsequent
+valid calls initialize the scratch they use before reading it.
 
 ## [Limitations and non-guarantees](@id spec-kronquadratic-limitations)
 
 There is no proximal operator, Hessian-vector product, coordinate curvature
 or `restrict`. Convexity is not certified. Overflow and underflow are not
-recovered. Readability of storage inside wrappers is not checked before the
-call (see the failure behavior). The summation order depends on the route:
+recovered. Readability of storage inside wrappers other than views and
+reshapes of a reinterpretation is not checked before the call, and the
+overlap checks are not exhaustive (see the failure behavior). The summation order depends on the route:
 BLAS kernels where `mul!` uses them; the column accumulation of the
 accumulating route; the tiled sum of its value-only call; and Julia's `dot`
 or a pass over the stored entries for the other values.

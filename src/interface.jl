@@ -339,11 +339,11 @@ prox(f::AbstractFunction, x::Tuple, γ::Real = 1) = (_check_one_based(x); prox!(
 Return a newly allocated gradient. Array inputs produce a dense floating-point
 array with the same shape; see [`gradient!`](@ref) to reuse an output buffer.
 
-Supported symmetric-iterate gradients of `SqrNormL2`, `LinearFunction` and
-supported `Scaled` wrappers of them produce a dense symmetric matrix.
-`KronQuadratic`, and a supported `Scaled` wrapper of it, produce a dense matrix
-whose mirrored entries receive the same computed value, `NaN` included, so
-`issymmetric` holds for results without `NaN`. `ZeroFunction`
+Supported symmetric-iterate gradients of `SqrNormL2`, `LinearFunction`,
+`KronQuadratic` and supported `Scaled` wrappers of them produce a dense matrix,
+the derivative over symmetric matrices. For `KronQuadratic` and its supported
+`Scaled` wrappers, mirrored entries receive the same computed value, `NaN`
+included, so `issymmetric` holds for results without `NaN`. `ZeroFunction`
 has no symmetric-iterate gradient method. A capability trait does not supply
 missing operand methods.
 
@@ -602,8 +602,9 @@ function restrict end
 A global gradient Lipschitz bound for retained smooth functions, except as noted
 for KronQuadratic and Scaled wrappers of it. ZeroFunction and LinearFunction return zero; SqrNormL2 returns its level. QuadraticFunction
 uses a matrix operator-norm bound. For KronQuadratic the exact product of the spectral
-norms of A and B is a bound; the returned value is its working-precision
-approximation, which can round below it, and Scaled multiplies that approximation.
+norms of A and B is a bound; the returned value is the product of the two computed
+norms in working precision, which can round below it and can overflow to Inf (or be
+NaN when one norm overflows and the other is zero), and Scaled multiplies that value.
 LeastSquaresLoss bounds the squared design
 norm. Dense matrices use their full spectral norm; other matrices use a safe
 one/infinity norm bound. Scaled scales the inner bound. Unknown bounds throw.

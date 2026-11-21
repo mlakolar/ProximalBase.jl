@@ -30,27 +30,41 @@ wrapper and `matrixview(X)` are `AbstractMatrix` arguments and get `A X B + C`.
 The argument and a gradient destination have the element type `T` of the data.
 `gradient` returns a `Matrix{T}` and `value_and_gradient` returns `(v, G)` with
 `v::T` and `G::Matrix{T}`. `gradient!` and `value_and_gradient!` write into a
-strided `p × q` matrix, row-strided views included, that shares no memory with the
-argument (including the backing vectors of `Diagonal`, `Bidiagonal`,
-`SymTridiagonal` and `Tridiagonal` arguments), `A`, `B`, `C` or the scratch of `f`.
-There is no proximal operator.
+strided `p × q` matrix `G`, row-strided views included, that must not share memory
+with the argument, `A`, `B`, `C` or the scratch of `f`. As for every built-in
+gradient, `G === X` throws `ArgumentError` and other overlapping views are
+unsupported. The checks before writes also refuse overlaps that `Base.mightalias`
+reports, overlaps with `A`, `B`, `C` and the scratch, and overlaps with the backing
+vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and `Tridiagonal` arguments,
+also inside `Symmetric`, `Hermitian`, triangular, `Transpose` and `Adjoint`
+wrappers; they do not detect every overlap (a view of such a structured matrix, for
+example). For an argument that is not a strided matrix with unit first stride and a
+column stride of at least `max(1, p)`, and for a symmetric iterate, the argument is
+read completely, into scratch or into the products, before `G` is written: the
+result is computed from the argument as it was at the call, and an undetected
+overlap then changes the caller's argument through the write to `G`. On the direct
+route of a strided argument the argument is read again after `G` is written, and no
+such statement holds. There is no proximal operator.
 
 `f` is convex when `A` and `B` are both positive semidefinite or both negative
 semidefinite. [`isconvex`](@ref) returns `false` because the constructor does
 not check semidefiniteness. The exact product `‖A‖₂ ‖B‖₂` of the spectral
-norms is a Lipschitz constant of the gradient; [`lipschitz`](@ref) returns its
-working-precision approximation, which can round below it.
+norms is a Lipschitz constant of the gradient; [`lipschitz`](@ref) returns the
+product of the two computed norms in working precision, which can round below the
+exact product and is subject to the ordinary range limits (it can overflow to
+`Inf`, or be `NaN` when one norm overflows and the other is zero).
 
 The oracles use scratch matrices stored in `f`: do not call them concurrently on one
-object. An argument that shares memory with that scratch throws `ArgumentError`.
+object. An argument that the checks above detect to share memory with that scratch
+throws `ArgumentError`.
 
-The checks before writes cover the arrays the caller passes: `G`, the argument,
-`A`, `B` and `C`. A reinterpretation passed as `G`, directly or through views and
-reshapes, must be one Base can read and write; one passed as the argument must be
-one Base can read. Storage inside other wrappers is not checked: if a read of it
-fails during the call, for example a padded reinterpretation inside `Symmetric` or
+A reinterpretation passed as `G`, directly or through views and reshapes, must be
+one Base can read and write; one passed as the argument must be one Base can read.
+Readability of storage inside other wrappers is not checked: if a read of it fails
+during the call, for example a padded reinterpretation inside `Symmetric` or
 `transpose`, the call throws that error with `G` and the argument unchanged, and
-the scratch of `f` may be partly written (the next call overwrites it).
+the scratch of `f` may be partly written; subsequent valid calls initialize the
+scratch they use before reading it.
 
 # Examples
 ```jldoctest
@@ -167,9 +181,11 @@ function _kron_accessible(A::Base.ReinterpretArray, write)
   _kron_accessible(parent(A), write)
 end
 
-# Whether a may share memory with the array buf. Base.mightalias sees the storage of arrays and views, and keeps
-# the disjointness of distinct views of one parent. Structured matrices whose backing vectors it does not report
-# are checked through those vectors, also inside Symmetric, Hermitian, triangular, Transpose and Adjoint wrappers.
+# Whether a may share memory with the array buf, as far as these checks detect it. Base.mightalias reports the
+# storage of arrays and views and accepts the views that Base can establish as disjoint (for example distinct slabs
+# of one array). Structured matrices whose backing vectors it does not report are checked through those vectors,
+# also inside Symmetric, Hermitian, triangular, Transpose and Adjoint wrappers; other wrappers of them (a view, for
+# example) are not looked through.
 _kron_overlap(buf, a) = Base.mightalias(buf, a) || _kron_backing_overlap(buf, a)
 _kron_overlap(buf, a::SymmetricSparseIterate) = Base.mightalias(buf, a)
 _kron_backing_overlap(buf, a) = false
@@ -369,7 +385,8 @@ end
 @inline _kron_dense_copy_value(f::KronQuadratic, D, W) =
   (v = dot(D, W) / 2; f.C === nothing ? v : v + dot(f.C, D))
 
-# The value ⟨X, A X B⟩/2 + ⟨C, X⟩. Without a matrix product on the accumulating route: with X, A and B symmetric,
+# The value ⟨X, A X B⟩/2 + ⟨C, X⟩. The accumulating route forms A X and B X by accumulation and avoids the further
+# product (A X) B and any call of mul!: with X, A and B symmetric,
 # ⟨X, A X B⟩ = tr(A X B X) = Σᵢⱼ (A X)[i, j] (B X)[j, i].
 function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
@@ -431,8 +448,9 @@ for S in (AbstractMatrix, SymmetricSparseIterate)
     v, G
   end
 end
-# The methods below do the same for a matrix argument of Scaled(f) and of Scaled(Scaled(f)), with the checks of f;
-# the gradient is then written by Scaled. Other wrappers and symmetric iterates use the generic allocating oracles.
+# The methods below do the same for a matrix argument of Scaled(f, α) and of Scaled(Scaled(f, α), β), with the checks
+# of f; the gradient is then written by Scaled. Other Scaled wrappers, and Scaled wrappers at symmetric iterates, use
+# the generic allocating oracles.
 const _ScaledKron = Union{Scaled{<:KronQuadratic}, Scaled{<:Scaled{<:KronQuadratic}}}
 _kron_leaf(f::KronQuadratic) = f
 _kron_leaf(s::Scaled) = _kron_leaf(s.f)

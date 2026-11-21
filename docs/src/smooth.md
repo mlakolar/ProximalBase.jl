@@ -444,8 +444,8 @@ them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
 ``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
 products ``AX`` and ``(AX)B``. A value-only call at a symmetric iterate with
 ``n`` nonzero active values and ``2n\leq p^2/8`` (the accumulating route) uses
-``AX`` and ``BX`` without forming ``(AX)B``; above that cutoff it forms
-``(AX)B`` as well.
+``AX`` and ``BX`` without forming ``(AX)B``; above that cutoff it forms ``AX``
+from a dense copy and then ``(AX)B``.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
@@ -488,14 +488,17 @@ The value is the same formula for both arguments. `issmooth` is true;
 which the constructor does not check. The exact product
 ``\|A\|_2\|B\|_2`` of the spectral norms is the largest eigenvalue magnitude
 of ``B\otimes A``, a Lipschitz constant of the gradient; `lipschitz(f)` returns
-its working-precision approximation, which can round below it.
+the product of the two computed norms in working precision, which can round
+below the exact product and can overflow to `Inf` (or be `NaN` when one norm
+overflows and the other is zero) at extreme finite inputs.
 
 **D-trace loss.** For covariance matrices ``\Sigma_x`` and ``\Sigma_y``, the
 loss ``\frac12\operatorname{tr}(\Sigma_x\Delta\Sigma_y\Delta)-\operatorname{tr}((\Sigma_y-\Sigma_x)\Delta)``
 of a symmetric ``\Delta`` is `KronQuadratic(Σx, Σy, Σx - Σy)` at a
 `SymmetricSparseIterate`. For positive-definite ``\Sigma_x`` and ``\Sigma_y``
-its gradient vanishes at ``\Delta^\star=\Sigma_x^{-1}-\Sigma_y^{-1}``, the
-difference of the precision matrices:
+its gradient vanishes, in exact arithmetic, at
+``\Delta^\star=\Sigma_x^{-1}-\Sigma_y^{-1}``, the difference of the precision
+matrices; the example checks a floating-point tolerance:
 
 ```@example library_kronquadratic
 Σx = [2.0 1; 1 2]
@@ -516,13 +519,19 @@ the direction ``D``, not at the new point ``\Theta+D``. The same model written
 as a function of the new point ``Z=\Theta+D`` has a different linear term:
 `KronQuadratic(w * W, W, w * (S - 2W))` at ``Z``, up to a constant, when
 ``W\Theta W=W``. The constructor checks the matrices passed to it, the
-weighted products included: they must be finite, exactly symmetric and of one
-supported precision, so use a weight `w` of the precision of `W` and `S`. A
-computed `inv(Θ)` of a dense matrix can have unequal mirrored entries; pass,
-for example, `Matrix(Symmetric(inv(Θ), :L))`.
+weighted products included: the first two arguments must be exactly symmetric,
+and all three must have finite entries and one supported precision, so use a
+weight `w` of the precision of `W` and `S`. A symmetric-iterate call also needs
+the third argument, when supplied, to be exactly symmetric; a matrix argument
+does not. A computed `inv(Θ)` of a dense matrix can have unequal mirrored
+entries; pass, for example, `Matrix(Symmetric(inv(Θ), :L))`.
 
 The oracles write scratch matrices that `f` owns: do not call them
-concurrently on one object (see the [ownership table](@ref numerical-usage)). Values and gradients use ordinary
+concurrently on one object (see the [ownership table](@ref numerical-usage)).
+A gradient destination must not share memory with the argument: as for every
+built-in gradient, `G === X` throws and other overlapping views are
+unsupported; the oracles detect some further overlaps, not all of them (see
+the [numerical contract](@ref spec-kronquadratic-arguments)). Values and gradients use ordinary
 working-precision arithmetic, without the range recovery of other quadratic
 values: the selected kernel rounds its operations in the working precision
 (fused multiply-adds round once), so a result can be subnormal, zero or

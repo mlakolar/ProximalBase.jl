@@ -121,15 +121,12 @@ with the loss element type and response axes. The call returns the logistic
 objective and reads neither design entries nor private workspace entries. See
 [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
 
-For a [`PoissonLoss`](@ref), supply a predictor `η` as a one-based `StridedVector{Float64}`
-of length `length(y)` that does not overlap the scratch of the loss; `X*β` and
-`X*β + offset` are examples. A nonfinite entry alone is not refused. The call returns the
-Poisson objective `sum(exp(ηᵢ) - yᵢ*ηᵢ)` with the
-[endpoint rules](@ref spec-poissonloss-endpoints) at an infinite predictor or an
-overflowing term; a literal floating-point evaluation of the formula gives NaN at
-`yᵢ = 0`, `ηᵢ = Inf`, where the call returns `Inf`. It reads the current responses and no
-design entries. It inspects the scratch for overlap and reads none of its entries. See
-[Poisson regression](@ref Poisson-regression-loss) and the
+For a [`PoissonLoss`](@ref), supply a one-based `StridedVector{Float64}` predictor
+`η` of length `length(y)` that does not overlap the scratch of the loss; `X*β` and
+`X*β + offset` are examples. Nonfinite entries are not refused. The call returns the
+Poisson objective, mathematically `sum(exp(ηᵢ) - yᵢ*ηᵢ)`, with computed terms as in the
+[endpoint](@ref spec-poissonloss-endpoints) and [range](@ref spec-poissonloss-range)
+clauses. See [Poisson regression](@ref Poisson-regression-loss) and the
 [preconditions](@ref spec-poissonloss-preconditions).
 
 See [predictor domains, accuracy and ownership](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
@@ -181,13 +178,12 @@ the logistic objective, writes `d[i] = w[i] * (σ(η[i]) - y[i])` and forms
 well. See [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
 
 For a [`PoissonLoss`](@ref), supply a predictor `η` as for
-[`ProximalBase.value_from_predictor`](@ref); `X*β` and `X*β + offset` are examples. The
-operation returns the Poisson objective with the
-[endpoint rules](@ref spec-poissonloss-endpoints), writes `d[i] = exp(η[i]) - y[i]` and forms
-`g = X' * d`. It forms one product with `X'` for a design with both dimensions nonzero,
-and none otherwise (`g` is then zero). `g` and `d` are one-based `StridedVector{Float64}`
-buffers that must be independent of each other, of `η`, of the response `y`, of the design
-and of the scratch. See [Poisson regression](@ref Poisson-regression-loss) and the
+[`ProximalBase.value_from_predictor`](@ref). The call returns the Poisson objective,
+writes `d[i] = exp(η[i]) - y[i]` and `g = X' * d`, with computed entries as in the
+[endpoint](@ref spec-poissonloss-endpoints) and [range](@ref spec-poissonloss-range)
+clauses. `g` and `d` are one-based `StridedVector{Float64}` buffers of lengths
+`size(X, 2)` and `length(y)` that must not overlap each other, `η`, `y`, `X` or the
+scratch of the loss. See [Poisson regression](@ref Poisson-regression-loss) and the
 [preconditions](@ref spec-poissonloss-preconditions).
 
 See [predictor accuracy, failure and concurrency rules](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).

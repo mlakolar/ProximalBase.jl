@@ -625,9 +625,8 @@ v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)
 
 ## [Poisson regression](@id Poisson-regression-loss)
 
-Construct `f = PoissonLoss(y, X)` for the unnormalized Poisson regression
-objective with the log link. For an ``n\times p`` design and a length-``p``
-coefficient vector,
+Construct `f = PoissonLoss(y, X)` for the Poisson regression objective with the
+log link. For an ``n\times p`` design and a length-``p`` coefficient vector,
 
 ```math
 \eta = X\beta,\qquad
@@ -635,43 +634,29 @@ f(\beta)=\sum_{i=1}^n [e^{\eta_i}-y_i\eta_i],\qquad
 \nabla f(\beta)=X^\top d,\quad d_i=e^{\eta_i}-y_i.
 ```
 
-The sum omits the constant ``\log\Gamma(y_i+1)`` of the negative
-log-likelihood, which does not depend on ``\beta``. It is a sum, not a mean:
-for ``n>0`` observations and a finite unscaled sum, `(1/n) * f` (that is,
-`Scaled(f, 1/n)`) gives the mean, and there is no `f / n`. A sum that overflows is
-not recovered by the scaling, and ``n=0`` gives `NaN`. Use `y::Vector{Float64}` and
-`X::Matrix{Float64}`. Responses are finite and nonnegative; noninteger
-responses are accepted. Other element types, views and sparse designs throw
-`MethodError`. Include a column of ones to estimate an intercept. The
-constructor has no weight or offset argument.
+The constant ``\log\Gamma(y_i+1)`` of the negative log-likelihood is omitted.
+The value is a sum; for ``n>0`` and a finite sum, `(1/n) * f` gives the mean.
+Use `y::Vector{Float64}` with finite nonnegative responses, which may be
+noninteger, and `X::Matrix{Float64}`; include a column of ones to estimate an
+intercept. The constructor borrows both arrays and has no weight or offset
+argument.
 
-The loss is convex and smooth. Its traits `isproximable` and `isseparable`
-return false. The API supplies no gradient bound for any instance, so
-`lipschitz(f)` throws `ArgumentError`. For a design with a nonzero row the curvature
-in ``\beta`` is unbounded, because ``\eta_i`` can be arbitrarily large; a zero or
-empty design has zero curvature and still gets no bound. Use `f(β)`, `gradient(f, β)` or
-`value_and_gradient(f, β)`. The mutating counterparts take a caller-owned
-one-based strided `Float64` output of length ``p``. `gradient!(g, f, β)`
-returns `g`, and `value_and_gradient!(g, f, β)` returns the scalar value.
+The loss is convex and smooth and has no proximal operator. The API supplies no
+gradient Lipschitz bound: `lipschitz(f)` throws `ArgumentError`. Use `f(β)`,
+`gradient(f, β)`, `value_and_gradient(f, β)`, or the mutating
+`gradient!(g, f, β)`, which returns `g`, and `value_and_gradient!(g, f, β)`,
+which returns the value.
 
-If the caller already holds a predictor ``\eta``, pass it to
-`ProximalBase.value_from_predictor(f, η)` or
-`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. The predictor,
-`g` and `d` are one-based strided `Float64` vectors; a `Float32` vector is
-refused, as is a nonempty vector that overlaps the scratch of the loss (see the
-[preconditions](@ref spec-poissonloss-preconditions)). A nonfinite entry alone is not
-refused. The predictor can be ``X\beta`` or, for a caller who wants an offset (for
-example an exposure ``t_i`` with offset ``\log t_i``),
-``\eta = X\beta + \mathrm{offset}``. The fused call writes
-``d_i=e^{\eta_i}-y_i`` to `d` and the coefficient gradient ``X^\top d`` to `g`,
-using one product with `X'` when both dimensions of the design are nonzero and none
-otherwise. These operations take an unwrapped loss and leave the supplied
-predictor intact. Observation weights have no route in this loss.
+A caller who holds a predictor ``\eta``, such as ``X\beta`` or
+``X\beta + \mathrm{offset}`` with the offset ``\log t_i`` for an exposure
+``t_i``, can pass it to `ProximalBase.value_from_predictor(f, η)` or
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. The fused call
+writes ``d_i=e^{\eta_i}-y_i`` to `d` and ``X^\top d`` to `g`. Both calls take an
+unwrapped loss.
 
-A term whose `exp(ηᵢ)` or `yᵢ*ηᵢ` overflows is computed as `±Inf`, even where
-the exact term is finite. See the
-[PoissonLoss preconditions](@ref spec-poissonloss-preconditions) and the
-[PoissonLoss range clauses](@ref spec-poissonloss-range).
+The [PoissonLoss numerical contract](@ref spec-poissonloss) states the argument
+types, the overlap and concurrency preconditions, the empty case, the accuracy
+bounds, and the endpoint and overflow rules.
 
 ```@example poisson_regression
 using ProximalBase

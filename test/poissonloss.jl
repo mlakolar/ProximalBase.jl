@@ -13,8 +13,8 @@ poisson_design(n, p) = [sin(1.3i + 0.7j * i + j) for i in 1:n, j in 1:p]
 # Ratios of the computed results to the bounds of the accuracy statement, relative
 # to the predictor η that the loop read. The reference is a 2048-bit BigFloat
 # evaluation at that predictor: a high-precision rounded value, not an exact one.
-# A ratio of at most one means the bound holds. All intermediates of the cases are
-# finite, as the statement requires.
+# A computed ratio of at most one passes the comparison; the reference and the
+# ratio are rounded. The cases have finite intermediates, as the statement requires.
 #   term:    |Δvᵢ| ≤ 4 eps (exp(ηᵢ) + |yᵢηᵢ|) + 2^-1074
 #   deriv:   |Δdᵢ| ≤ 4 eps (exp(ηᵢ) + yᵢ) + 2^-1074
 #   value:   the term bounds plus recursive summation, γ_{n-1} (Σᵢ|reference vᵢ| +
@@ -45,12 +45,12 @@ end
 # The computed value terms, one observation at a time.
 poisson_terms(y, η) = [poisson_value(PoissonLoss([y[i]], ones(1, 1)), [η[i]]) for i in eachindex(y)]
 
-# A refused call throws E and leaves every array of the state, the outputs and the
-# scratch included, unchanged.
-function poisson_refuses(E, call, state)
-  before = deepcopy(state)
-  @test_throws E call()
-  @test isequal(state, before)
+# op(args...) throws E and leaves each array of state and each array argument unchanged.
+function poisson_refuses(E, state, op, args...)
+  arrays = Any[a for a in args if a isa AbstractArray]
+  before = deepcopy((state, arrays))
+  @test_throws E op(args...)
+  @test isequal((state, arrays), before)
 end
 
 function poisson_check(X, η, y)
@@ -219,6 +219,7 @@ end
         (-2.0, floatmax(Float64), Inf, exp(-2.0) - floatmax(Float64)),
         # Both exp(η) and y*η overflow: the exponential takes precedence.
         (800.0, floatmax(Float64), Inf, Inf),
+        # exp(η) overflows and y*η is finite.
         (800.0, 1e300, Inf, Inf))
       f = PoissonLoss([y], M)
       g, dd = [NaN], [NaN]
@@ -240,7 +241,13 @@ end
     g, d = [0.0, 0.0], [0.0]
     poisson_fused!(g, d, f, [800.0])
     @test d == [Inf] && g[1] == Inf && isnan(g[2])
-    # The exact sum of these terms is 1e308, but the partial sum overflows.
+    # Infinite derivatives meet design entries of both signs in one column.
+    f = PoissonLoss([1.0, 1.0], reshape([1.0, -1.0], 2, 1))
+    g, d = [0.0], zeros(2)
+    @test poisson_fused!(g, d, f, [800.0, 800.0]) == Inf
+    @test d == [Inf, Inf] && isnan(g[1])
+    # The exact sum of these terms is about 1e308, but the first partial sum of two
+    # terms overflows.
     f = PoissonLoss([1e308, 1e308, 1e308], ones(3, 1))
     @test poisson_value(f, [-1.0, -1.0, 1.0]) == Inf
     # The transposed product: finite derivatives and a zero exact gradient, but each
@@ -290,49 +297,50 @@ end
     g, d, scratch = fill(2.0, 2), fill(3.0, 4), fill(7.0, 4)
     copyto!(f.tmp, scratch)
     s = 2.0 * f
-    # Every refusal leaves the outputs, the scratch, y, X, β and η unchanged.
+    # Each refusal leaves the outputs, the scratch, y, X, β, η and the array
+    # arguments of the call unchanged. Each argument is built before the call.
     state = (g, d, f.tmp, y, X, β, η)
-    refuse(E, call) = poisson_refuses(E, call, state)
-    refuse(DimensionMismatch, () -> f([1.0]))
-    refuse(DimensionMismatch, () -> s([1.0]))
-    refuse(ArgumentError, () -> s(view(f.tmp, 1:2)))
-    refuse(ArgumentError, () -> f(view(f.tmp, 1:2)))
-    refuse(DimensionMismatch, () -> gradient!(g, f, [1.0]))
-    refuse(DimensionMismatch, () -> gradient!(d, f, β))
-    refuse(DimensionMismatch, () -> value_and_gradient!(d, f, β))
-    refuse(MethodError, () -> value_and_gradient!([1, 2], f, β))
-    refuse(MethodError, () -> f(Float32.(β)))
-    refuse(MethodError, () -> poisson_value(f, Float32.(η)))
-    refuse(ArgumentError, () -> poisson_value(f, view(f.tmp, 1:4)))
-    refuse(DimensionMismatch, () -> poisson_value(f, β))
-    refuse(DimensionMismatch, () -> poisson_fused!(d, d, f, η))
-    refuse(DimensionMismatch, () -> poisson_fused!(g, g, f, η))
-    refuse(MethodError, () -> poisson_fused!(g, d, f, [1, 2, 3, 4]))
-    refuse(MethodError, () -> poisson_fused!([1, 2], d, f, η))
-    refuse(ArgumentError, () -> poisson_value(f, f.tmp))
-    refuse(ArgumentError, () -> poisson_fused!(g, d, f, f.tmp))
-    refuse(ArgumentError, () -> poisson_fused!(g, η, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(view(d, 2:3), d, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(view(η, 1:2), d, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(g, view(X, :, 1), f, η))
-    refuse(ArgumentError, () -> poisson_fused!(view(X, 1:2), d, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(g, f.tmp, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(view(f.tmp, 1:2), d, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(g, y, f, η))
-    refuse(ArgumentError, () -> poisson_fused!(view(y, 1:2), d, f, η))
-    refuse(ArgumentError, () -> gradient!(β, f, β))
-    refuse(ArgumentError, () -> gradient!(view(y, 1:2), f, β))
-    refuse(ArgumentError, () -> gradient!(view(X, 1:2), f, β))
-    refuse(ArgumentError, () -> gradient!(view(f.tmp, 1:2), f, β))
-    refuse(ArgumentError, () -> value_and_gradient!(g, f, view(f.tmp, 1:2)))
-    refuse(ArgumentError, () -> value_and_gradient!(view(y, 1:2), s, β))
-    refuse(ArgumentError, () -> gradient!(view(y, 1:2), s, β))
-    refuse(ArgumentError, () -> value_and_gradient!(view(f.tmp, 1:2), s, β))
-    refuse(Union{ArgumentError,MethodError}, () -> f(OffsetArray([0.75, -0.25], 0:1)))
-    refuse(Union{ArgumentError,MethodError}, () -> gradient!(OffsetArray(zeros(2), 0:1), f, β))
-    refuse(Union{ArgumentError,MethodError}, () -> poisson_value(f, OffsetArray(η, 0:3)))
-    refuse(Union{ArgumentError,MethodError}, () -> poisson_fused!(OffsetArray(zeros(2), 0:1), d, f, η))
-    refuse(Union{ArgumentError,MethodError}, () -> poisson_fused!(g, OffsetArray(zeros(4), 0:3), f, η))
+    refuse(E, op, args...) = poisson_refuses(E, state, op, args...)
+    refuse(DimensionMismatch, f, [1.0])
+    refuse(DimensionMismatch, s, [1.0])
+    refuse(ArgumentError, s, view(f.tmp, 1:2))
+    refuse(ArgumentError, f, view(f.tmp, 1:2))
+    refuse(DimensionMismatch, gradient!, g, f, [1.0])
+    refuse(DimensionMismatch, gradient!, d, f, β)
+    refuse(DimensionMismatch, value_and_gradient!, d, f, β)
+    refuse(MethodError, value_and_gradient!, [1, 2], f, β)
+    refuse(MethodError, f, Float32.(β))
+    refuse(MethodError, poisson_value, f, Float32.(η))
+    refuse(ArgumentError, poisson_value, f, view(f.tmp, 1:4))
+    refuse(DimensionMismatch, poisson_value, f, β)
+    refuse(DimensionMismatch, poisson_fused!, d, d, f, η)
+    refuse(DimensionMismatch, poisson_fused!, g, g, f, η)
+    refuse(MethodError, poisson_fused!, g, d, f, [1, 2, 3, 4])
+    refuse(MethodError, poisson_fused!, [1, 2], d, f, η)
+    refuse(ArgumentError, poisson_value, f, f.tmp)
+    refuse(ArgumentError, poisson_fused!, g, d, f, f.tmp)
+    refuse(ArgumentError, poisson_fused!, g, η, f, η)
+    refuse(ArgumentError, poisson_fused!, view(d, 2:3), d, f, η)
+    refuse(ArgumentError, poisson_fused!, view(η, 1:2), d, f, η)
+    refuse(ArgumentError, poisson_fused!, g, view(X, :, 1), f, η)
+    refuse(ArgumentError, poisson_fused!, view(X, 1:2), d, f, η)
+    refuse(ArgumentError, poisson_fused!, g, f.tmp, f, η)
+    refuse(ArgumentError, poisson_fused!, view(f.tmp, 1:2), d, f, η)
+    refuse(ArgumentError, poisson_fused!, g, y, f, η)
+    refuse(ArgumentError, poisson_fused!, view(y, 1:2), d, f, η)
+    refuse(ArgumentError, gradient!, β, f, β)
+    refuse(ArgumentError, gradient!, view(y, 1:2), f, β)
+    refuse(ArgumentError, gradient!, view(X, 1:2), f, β)
+    refuse(ArgumentError, gradient!, view(f.tmp, 1:2), f, β)
+    refuse(ArgumentError, value_and_gradient!, g, f, view(f.tmp, 1:2))
+    refuse(ArgumentError, value_and_gradient!, view(y, 1:2), s, β)
+    refuse(ArgumentError, gradient!, view(y, 1:2), s, β)
+    refuse(ArgumentError, value_and_gradient!, view(f.tmp, 1:2), s, β)
+    refuse(Union{ArgumentError,MethodError}, f, OffsetArray([0.75, -0.25], 0:1))
+    refuse(Union{ArgumentError,MethodError}, gradient!, OffsetArray(zeros(2), 0:1), f, β)
+    refuse(Union{ArgumentError,MethodError}, poisson_value, f, OffsetArray(η, 0:3))
+    refuse(Union{ArgumentError,MethodError}, poisson_fused!, OffsetArray(zeros(2), 0:1), d, f, η)
+    refuse(Union{ArgumentError,MethodError}, poisson_fused!, g, OffsetArray(zeros(4), 0:3), f, η)
     @test g == fill(2.0, 2) && d == fill(3.0, 4) && f.tmp == scratch
     @test y == [0.0, 1.0, 2.5, 3.0] && X == poisson_design(4, 2)
     @test η == X * β && β == [0.75, -0.25]
@@ -367,7 +375,7 @@ end
     r = poisson_ratios(X, η, y, poisson_terms(y, η), v, d, g)
     @test r.term <= 1 && r.deriv <= 1 && r.value <= 1 && r.gradient <= 1
     @test f(β) ≈ v rtol=8eps()
-    # y must stay in the domain across edits; an edit keeps the entries nonnegative.
+    # The edits above keep y finite and nonnegative, as the loss requires.
     ηview = view(repeat(η; inner=2), 1:2:10)
     βview = view(repeat(β; inner=2), 1:2:4)
     gview = view(fill(NaN, 4), 1:2:4)

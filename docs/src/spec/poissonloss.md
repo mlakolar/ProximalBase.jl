@@ -10,211 +10,167 @@ The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supp
 ## [Definition and domain](@id spec-poissonloss-definition)
 
 `PoissonLoss(y, X)` takes a response vector `y` of length ``n`` and a design
-``X`` with ``n`` rows. With ``\eta = X\beta`` the value and gradient are
+``X`` with ``n`` rows. With ``\eta = X\beta``, the mathematical value and
+gradient are
 
 ```math
 f(\beta)=\sum_{i=1}^n \bigl(e^{\eta_i}-y_i\eta_i\bigr),\qquad
 \nabla f(\beta)=X^\top d,\quad d_i=e^{\eta_i}-y_i.
 ```
 
-The constant ``\log\Gamma(y_i+1)`` of the negative Poisson log-likelihood does
-not depend on ``\beta`` and is omitted; in the log-likelihood the term has the
-opposite sign. Responses are finite and nonnegative, including
-noninteger values. A response of `-0.0` is a zero response.
+The constant ``\log\Gamma(y_i+1)`` of the negative Poisson log-likelihood is
+omitted. Responses are finite and nonnegative; noninteger responses are
+accepted, and `-0.0` is a zero response.
 
-The value is the sum over observations, not the mean. For ``n>0`` observations
-and a finite unscaled sum, the factor `(1/n) * f`, that is `Scaled(f, 1/n)`,
-gives the mean with ordinary floating-point scaling; there is no `f / n`. For
-``n=0`` the factor `1/0` gives `NaN`. A sum that overflows to `Inf` stays `Inf`
-under `Scaled` even when the mean is finite, because the loss has no
-value-recovery path.
+The value is the sum over observations. For ``n>0`` and a finite sum,
+`(1/n) * f`, that is `Scaled(f, 1/n)`, gives the mean. For ``n=0``, evaluating
+`(1/0) * f` returns `NaN`. A sum that overflows to `Inf` stays `Inf` after
+scaling.
 
-The constructor has no weight argument and no offset argument. The predictor
-oracles take any predictor that meets the buffer requirements under
+The constructor has no weight or offset argument. The predictor oracles
+evaluate the loss at a supplied predictor that meets the requirements under
 [Supported arguments](@ref spec-poissonloss-arguments) and
-[Preconditions](@ref spec-poissonloss-preconditions). The predictor can be
-``X\beta`` or, for a caller who forms ``\eta = X\beta + \mathrm{offset}``, that model: the value is
-``\sum_i (e^{\eta_i}-y_i\eta_i)``, the observation derivative is
-``d_i=e^{\eta_i}-y_i`` and the coefficient gradient is ``X^\top d``. An exposure
-``t_i`` enters as the offset ``\log t_i``. Observation weights have no route in
-this loss.
+[Preconditions](@ref spec-poissonloss-preconditions). At a supplied
+``\eta = X\beta + \mathrm{offset}`` they give the value
+``\sum_i (e^{\eta_i}-y_i\eta_i)``, the derivative ``d_i=e^{\eta_i}-y_i`` and the
+gradient ``X^\top d`` of the model with that offset. An exposure ``t_i`` enters
+as the offset ``\log t_i``.
 
 ## [Traits](@id spec-poissonloss-traits)
 
-The function is convex and smooth. It is neither proximable nor separable.
-The API supplies no global gradient bound for any instance: `lipschitz(f)`
-throws `ArgumentError`. For a design with a nonzero row, the curvature
-``e^{\eta_i}`` of the objective in ``\beta`` is unbounded, because ``\eta_i``
-can be arbitrarily large. A zero or empty design makes the objective constant
-in ``\beta``, with zero curvature, and `lipschitz(f)` still throws. The loss has
-no second-order interface.
+`isconvex` and `issmooth` return true; `isproximable` and `isseparable` return
+false. The API supplies no gradient Lipschitz bound: `lipschitz(f)` throws
+`ArgumentError`.
 
 ## [Supported arguments](@id spec-poissonloss-arguments)
 
-The constructor takes `y::Vector{Float64}` and `X::Matrix{Float64}`. Other
-element types, views and sparse designs throw `MethodError`. Coefficients,
-gradient outputs, predictors and observation-derivative outputs are one-based
-`StridedVector{Float64}`. A predictor of another element type, such as
-`Vector{Float32}`, throws `MethodError`, and a nonempty coefficient vector or
-predictor that overlaps the scratch of the loss is refused, so length alone does
-not make a vector acceptable. The loss supports `f(β)`, `gradient!`,
-`value_and_gradient!`, `ProximalBase.value_from_predictor(f, η)` and
-`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`, together with
-the allocating `gradient` and `value_and_gradient`. One `Scaled` wrapper is
-supported by `f(β)`, `gradient!` and `value_and_gradient!`, and not by the two
-predictor oracles.
+The constructor takes `y::Vector{Float64}` and `X::Matrix{Float64}`.
+Coefficients, gradient outputs, predictors and derivative outputs are one-based
+`StridedVector{Float64}`. The operations are `f(β)`, `gradient!(g, f, β)`,
+`value_and_gradient!(g, f, β)`, `ProximalBase.value_from_predictor(f, η)`,
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)` and the allocating
+`gradient` and `value_and_gradient`. A loss wrapped in `Scaled` supports `f(β)`,
+`gradient!` and `value_and_gradient!`; the two predictor oracles take an
+unwrapped loss.
 
 ## [Preconditions](@id spec-poissonloss-preconditions)
 
-The constructor borrows `y` and `X`. Each call reads the current entries of the
-arrays it uses: an edit of `y` is seen by every operation, and an edit of `X` is
-seen by the operations that read the design, `f(β)`, `gradient!`,
-`value_and_gradient!` and the fused predictor call (through the transposed
-product). `value_from_predictor` at a fixed predictor reads `y` and no design
-entries, so an edit of `X` does not change its value. A same-shape edit must keep the responses finite and nonnegative;
-this is not checked after construction. Reconstruct the loss for a structural
-change, and refresh a caller-held predictor when its defining inputs change.
+The constructor borrows `y` and `X`. Each call reads the current entries of `y`,
+and each call that uses the design reads the current entries of `X`. An in-place
+edit must keep the responses finite and nonnegative; this is not checked after
+construction. A change of length needs a new loss.
 
-The ordinary calls write a private scratch vector and need synchronization
-across tasks. The predictor calls write no field of the loss, so one loss can
-serve several tasks provided that `y`, `X` and every shared read buffer stay
-unchanged during the calls and that each concurrently written output is disjoint
-from every other concurrent call's inputs and outputs. Disjointness within one
-call does not suffice: one task's output can be another task's predictor.
-Before any write, the oracles reject a nonempty overlap, as
-reported by `Base.mightalias`, of an output with the input, the other output,
-`y`, `X` or the scratch. A coefficient vector or predictor that overlaps the
-scratch is also rejected. Sharing that `Base.mightalias` does not report
-remains the caller's responsibility.
+The calls `f(β)`, `gradient!` and `value_and_gradient!` write a private scratch
+vector and need synchronization across tasks. The predictor oracles write no
+field of the loss. Concurrent predictor calls on one loss need `y`, `X` and
+every shared read buffer to stay unchanged during the calls, and each written
+output to be disjoint from the inputs and outputs of every other concurrent call.
+
+Before any write, a call with otherwise valid arguments throws `ArgumentError`
+when `Base.mightalias` reports an overlap of two nonempty arrays: an output and
+the input, the other output, `y`, `X` or the scratch, or a coefficient vector or
+predictor and the scratch. Sharing that `Base.mightalias` does not report is the caller's
+responsibility.
 
 ## [Results](@id spec-poissonloss-results)
 
-`f(β)` returns the value at ``\eta = X\beta``. `gradient!` writes
-``X^\top d`` to its output and returns it. `value_and_gradient!` writes the
-gradient and returns the value. `value_from_predictor` returns the value at
-the supplied predictor and reads `y`, no entry of `X` and no entry of the scratch;
-it inspects the scratch only for overlap.
-`value_and_gradient_from_predictor!` writes ``d_i=e^{\eta_i}-y_i`` to its `d`
-output and ``X^\top d`` to its `g` output, and returns the value. It forms one
-product with `X'` and none with `X` when both dimensions of the design are
-nonzero, and no product when either dimension is zero, in which case the
-gradient output is zero. The supplied predictor is not modified.
+`f(β)` returns the value at ``\eta = X\beta``. `gradient!` writes ``X^\top d`` to
+`g` and returns `g`. `value_and_gradient!` writes ``X^\top d`` to `g` and returns
+the value. `value_from_predictor` returns the value at the supplied predictor.
+`value_and_gradient_from_predictor!` writes ``d_i=e^{\eta_i}-y_i`` to `d` and
+``X^\top d`` to `g`, and returns the value. The predictor oracles do not form
+`X*β`; the fused oracle forms one transposed product `X'*d` when both dimensions
+of `X` are nonzero and none otherwise. When either dimension of `X` is zero, these
+calls write a zero gradient. The supplied predictor is not modified.
 
 ## [Ordinary-path clauses](@id spec-poissonloss-ordinary)
 
-The accuracy statement is relative to the predictor that the scalar loop
-reads: the computed `X*β` for `f(β)`, `gradient!` and `value_and_gradient!`, and
-the supplied predictor for the predictor oracles. Rounding in the matrix
-product that forms `X*β` is not included. The statements assume
-round-to-nearest arithmetic with gradual underflow. Let `eps = eps(Float64)`,
-and let ``e_i = e^{\eta_i}`` be finite with ``y_i\eta_i`` finite.
+The bounds below are relative to the predictor that the loop reads: the
+computed `X*β` for `f(β)`, `gradient!` and `value_and_gradient!`, and the
+supplied predictor for the predictor oracles. They do not include the rounding
+of `X*β`. They assume round-to-nearest arithmetic with gradual underflow. Let
+`eps = eps(Float64)` and let ``e_i = e^{\eta_i}`` be the exact exponential. The
+term and derivative bounds hold for an observation whose computed `Float64`
+values `exp(ηᵢ)` and `yᵢ*ηᵢ` are both finite.
 
 - Each computed value term differs from ``e_i-y_i\eta_i`` by at most
-  ``4\,\mathrm{eps}\,(e_i+\lvert y_i\eta_i\rvert)+2^{-1074}``. The last
-  summand covers a subnormal or zero computed exponential.
-- Each computed derivative differs from ``e_i-y_i`` by at most
+  ``4\,\mathrm{eps}\,(e_i+\lvert y_i\eta_i\rvert)+2^{-1074}``.
+- Each computed derivative ``\hat d_i`` differs from ``d_i=e_i-y_i`` by at most
   ``4\,\mathrm{eps}\,(e_i+y_i)+2^{-1074}``.
-- When every computed term and every partial sum of the loop is finite, the
-  value adds the error of plain recursive summation of the computed terms
-  ``\hat v_i``, at most ``\gamma_{n-1}\sum_i\lvert\hat v_i\rvert`` with
-  ``\gamma_k=(k\,\mathrm{eps}/2)/(1-k\,\mathrm{eps}/2)``. An empty sum is zero
-  with no error. There is no relative-accuracy statement for a value that
-  cancels, which happens within an observation near
-  ``e^{\eta_i}\approx y_i\eta_i`` and across observations.
-- When every computed derivative, every product ``X_{ij}\hat d_i`` and every
-  partial sum of the transposed product in entry ``j`` is finite, the gradient
-  output ``g`` differs from ``X^\top d`` of the exact derivative by at most
-  ``\sum_i\lvert X_{ij}\rvert\,\lvert\Delta d_i\rvert+\gamma_n\sum_i\lvert X_{ij}\rvert\,\lvert\hat d_i\rvert``
-  in entry ``j``, for any summation order of the transposed product, where
-  ``\lvert\Delta d_i\rvert`` is bounded by the derivative statement above and
-  ``\hat d_i`` is the computed derivative. A nonzero exact product
-  ``X_{ij}\hat d_i`` whose computed value is subnormal or zero adds an absolute
-  error of at most ``2^{-1075}`` for that product. Derivative cancellation,
-  where the derivative bound is large relative to ``d_i``, happens near
-  ``\eta_i\approx\log y_i``.
+- When every computed term ``\hat v_i`` and every partial sum of the value is
+  finite, the computed value differs from ``\sum_i\hat v_i`` by at most
+  ``\gamma_{n-1}\sum_i\lvert\hat v_i\rvert``, with
+  ``\gamma_k=(k\,\mathrm{eps}/2)/(1-k\,\mathrm{eps}/2)``. An empty sum is zero.
+- When every ``\hat d_i``, every product ``X_{ij}\hat d_i`` and every partial sum
+  of entry ``j`` of the transposed product is finite, entry ``j`` of the gradient
+  output differs from ``(X^\top d)_j`` by at most
+  ``\sum_i\lvert X_{ij}\rvert\,\lvert\hat d_i-d_i\rvert+\gamma_n\sum_i\lvert X_{ij}\rvert\,\lvert\hat d_i\rvert``
+  plus ``2^{-1075}`` for each nonzero exact product ``X_{ij}\hat d_i`` whose
+  computed value is subnormal or zero, for any summation order of the
+  transposed product.
 
-Julia documents no ulp bound for `exp`; the constant four leaves a margin for
-the exponential, the product, and the subtraction. The five operations agree
-within these statements at the same predictor.
+The bounds are absolute. There is no relative-accuracy statement for a value
+term or derivative whose two parts nearly cancel, or for a value whose terms
+cancel across observations. Julia documents no ulp bound for `exp`; the
+constant four includes a margin for it.
 
 ## [Range clauses](@id spec-poissonloss-range)
 
-A term is computed as `±Inf` when an intermediate overflows. The exponential
-`exp(ηᵢ)` overflows for a finite predictor above
-``\log(\texttt{floatmax(Float64)})\approx 709.7827``; then the value term and the
-derivative are `Inf`, also when `yᵢ*ηᵢ` overflows in the same term, because the
-exponential takes precedence. When `exp(ηᵢ)` is finite and the product `yᵢ*ηᵢ`
-overflows, the sign of the infinite product decides. A `+Inf` product (`ηᵢ > 0`)
-gives the value term `-Inf`, and a `-Inf` product (`ηᵢ < 0`) gives `+Inf`. The
-derivative `exp(ηᵢ) - yᵢ` stays finite in both cases. Examples: with `y = 2.6e305`
-and `η = 709.0` the exact term is about ``-1.02\times10^{308}`` and the computed
-term is `-Inf`; with `y = floatmax(Float64)` and `η = -2.0` the computed term is
-`+Inf` and the derivative is `-y`. The loss attempts no recovery of finite terms
-beyond these boundaries. The exact value term can be finite for ``\eta`` up to
-about 716.4, and the exact derivative for ``\eta`` up to about 710.48.
-
-At ``\eta=\log(\texttt{floatmax(Float64)})`` itself the exponential and the
-derivative are finite, and so is the value term when `y*η` is finite. The sum of
-the terms, the transposed product and the outer scaling use ordinary
-floating-point arithmetic with their usual rounding and range limits.
+`exp(ηᵢ)` is finite at ``\eta_i=\log(\texttt{floatmax(Float64)})\approx 709.7827``
+and overflows for a finite predictor above it. When `exp(ηᵢ)` overflows, the
+value term and the derivative are `Inf`, also when `yᵢ*ηᵢ` overflows. When
+`exp(ηᵢ)` is finite and `yᵢ*ηᵢ` overflows, the value term is `-Inf` for
+``\eta_i>0`` and `Inf` for ``\eta_i<0``, and the derivative is finite. The loss
+does not recover a finite exact term or derivative whose computation
+overflows. The exact value term can be finite for ``\eta_i`` up to about 716.4,
+and the exact derivative for ``\eta_i`` up to about 710.48. The sum of the
+terms, the transposed product and the outer scaling use ordinary floating-point
+arithmetic with their usual rounding and range limits.
 
 **Implementation notes (not guarantees).** One loop computes the requested
-quantities, the value term, the derivative or both, from `e = exp(η)`. The value
-term is `v = ifelse(iszero(y) | (e == Inf), e, e - y*η)` and the derivative is
-`d = e - y`. The loop uses plain accumulation with no `@simd`, `muladd` or `fma`.
-The `ifelse` selects `e` for a zero response and for an infinite exponential.
-Both arms are evaluated, and the selection keeps the NaN of an unselected `0*Inf`
-or `Inf - Inf` out of the returned value. The loop reads the predictor in index
-order, and the calls that return a value sum the same terms in that order.
+quantities from `e = exp(η)`: the value term
+`v = ifelse(iszero(y) | (e == Inf), e, e - y*η)` and the derivative
+`d = e - y`, with plain accumulation and no `@simd`, `muladd` or `fma`.
 
 ## [Endpoint clauses](@id spec-poissonloss-endpoints)
 
-For a finite response ``y\geq0``, the computed value term and derivative at an
-infinite or NaN predictor are as follows. At `η = -Inf`, a zero response gives
-value term `0` and derivative `0`, and a positive response gives value term `Inf`
-and derivative `-y`. At `η = +Inf`, the value term and the derivative are `Inf`
-for every `y`, including a zero response. A NaN predictor gives a NaN value term
-and a NaN derivative. A finite predictor whose exponential overflows gives value
-term `Inf` and derivative `Inf`, and the exponential takes precedence over an
-overflowing product `y*η`.
-
-For finite `y` and finite `η`, no term is NaN. A response of `-0.0` follows the
-`y = 0` cases. A call at a nonfinite predictor entry does not throw: the type,
-axes, length and overlap checks still apply, and a nonfinite entry alone is not
-refused.
+At `η = -Inf`, a zero response gives value term `0` and derivative `0`, and a
+positive response gives value term `Inf` and derivative `-y`. At `η = Inf`, the
+value term and the derivative are `Inf`. A NaN predictor gives a NaN value term
+and a NaN derivative. A response of `-0.0` follows the zero-response cases. At
+a finite predictor, no value term or derivative is NaN. Nonfinite entries of a
+coefficient vector or predictor are not refused.
 
 ## [Failure behavior](@id spec-poissonloss-failures)
 
 The constructor throws `DimensionMismatch` when `length(y) != size(X, 1)` and
 `ArgumentError` for a negative, NaN or infinite response. A `weights` or
-`offset` keyword, other element types, views and sparse arrays throw
-`MethodError`. A non-one-based `y` or `X` throws `ArgumentError` or
+`offset` keyword, other array or element types, views and sparse designs throw
+`MethodError`; a non-one-based `y` or `X` throws `ArgumentError` or
 `MethodError`.
 
-A coefficient vector, predictor or output of the wrong length throws
-`DimensionMismatch`. A non-one-based argument throws `ArgumentError` or
-`MethodError`, and a reported overlap throws `ArgumentError`. These checks
-run before the call writes anything, so the outputs and the scratch are
-unchanged after a refusal. A `Scaled` loss reaches the same checks.
+An operation throws `DimensionMismatch` for an argument of the wrong length,
+`MethodError` for an argument of another element type, `ArgumentError` or
+`MethodError` for a non-one-based argument, and `ArgumentError` for an overlap
+under [Preconditions](@ref spec-poissonloss-preconditions). These checks run
+before the call writes, so the outputs and the scratch are unchanged after a
+refusal. An argument with several faults gets one of the corresponding
+exceptions. A `Scaled` loss runs the checks of the loss before it writes. The
+predictor oracles throw `MethodError` for a `Scaled` loss.
 
 ## [Limitations and non-guarantees](@id spec-poissonloss-limitations)
 
-The loss does not recover a finite term that overflows, as described under
-range clauses. Aggregates of finite inputs can be nonfinite. The value is NaN
-when one term is `+Inf` and another is `-Inf`. The transposed product gives
-NaN where an infinite ``d_i`` meets ``X_{ij}=0``, or where infinite
-contributions of both signs meet. `f(β)` with finite `X` and `β` can form an
-infinite predictor in the matrix product. A partial sum that overflows is not
-recovered: the terms `1e308`, `1e308` and `-1e308` sum to `Inf` although the
-exact sum is `1e308`. The transposed product behaves the same way: with
-`X = [3.0; -3.0]` and `y = [8e307, 8e307]` at `η = [0.0, 0.0]` each derivative
-is finite and the exact gradient is zero, but each product with an entry of `X`
-overflows and the computed gradient entry is not finite.
+The loss does not recover a finite exact term or derivative whose computation
+overflows (see [Range clauses](@ref spec-poissonloss-range)). Aggregates of
+finite inputs can be nonfinite: the value is NaN when one term is `Inf` and
+another `-Inf`; an entry of the transposed product can be NaN where an infinite
+``d_i`` meets ``X_{ij}=0`` or where infinite contributions of both signs meet;
+`f(β)` with finite `X` and `β` can form an infinite predictor; and a partial sum
+of the value or of the transposed product that overflows is not recovered,
+also when the exact result is finite.
 
-The accuracy statement excludes the rounding of `X*β`, and it gives no
-relative accuracy for a value that cancels. The loss has no weights, offset
-field or second-order interface, and the API supplies no gradient bound for any
-instance.
+The loss has no observation weights, no offset field and no second-order
+interface, and the API supplies no gradient Lipschitz bound.
 
 ## [Clauses owned elsewhere](@id spec-poissonloss-elsewhere)
 
@@ -228,16 +184,52 @@ This section links to the shared owners.
 ## [Evidence](@id spec-poissonloss-evidence)
 
 [`test/poissonloss.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/poissonloss.jl)
-compares the terms, the derivative, the value and the gradient with a 2048-bit
-BigFloat reference at the `Float64` predictor, using the bounds above on cases with
-finite intermediates, including a zero response at `-745.0` and a dot product whose
-exact product rounds to zero. It covers the endpoint cases, the exponential boundary,
-`y*η` overflow of both signs and the precedence of exponential overflow, and pins the
-nonfinite aggregates listed under the limitations. It also checks finite differences,
-that each refused call leaves its outputs, the scratch and the inputs unchanged,
-`Scaled`, borrowed and edited inputs, empty shapes, warmed allocations and product
-counts. Listing a test does not establish a broader guarantee. The [Poisson regression guide](@ref Poisson-regression-loss) contains
-an executable example.
+checks the following cases.
+
+- Value terms, derivatives, value and gradient against a 2048-bit BigFloat
+  evaluation at the `Float64` predictor, within the bounds above: six sets with
+  predictors from `-1000.0` to `700.0` and responses from `0.0` to `1e12`,
+  including zero responses at `-745.0` and `-745.2`; the predictor
+  ``\log(\texttt{floatmax(Float64)})`` with response `1.0`; a caller-formed
+  exposure offset; data edited after construction; and a design entry
+  `nextfloat(0.0)` with derivative `0.5`, whose product rounds to zero.
+- The subnormal derivative of a zero response at `-745.0`, written to the
+  gradient.
+- Value terms and derivatives at `η = -Inf` and `Inf` with responses `0.0`,
+  `-0.0` and `2.0`; at a NaN predictor with responses `0.0` and `2.0`; at
+  `nextfloat(log(floatmax(Float64)))` and `800.0` with response `1.0`; and at
+  `(η, y)` equal to `(709.0, 2.6e305)`, `(-2.0, floatmax(Float64))`,
+  `(800.0, floatmax(Float64))` and `(800.0, 1e300)`. Each case runs through
+  `value_from_predictor`, the fused oracle, `f(β)`, `value_and_gradient` and
+  `gradient`.
+- A finite value and gradient at ``\log(\texttt{floatmax(Float64)})``.
+- Aggregates of finite inputs: a NaN value from terms `Inf` and `-Inf`; a NaN
+  gradient entry from an infinite derivative and a zero design entry; a NaN
+  gradient entry from infinite derivatives meeting design entries `1.0` and
+  `-1.0` in one column; an `Inf` value from an overflowing partial sum; a
+  nonfinite gradient entry from overflowing products with a zero exact
+  gradient; and an `Inf` value from an overflowing matrix product.
+- Central finite differences of `f(β)` against the gradient at one point.
+- At one point: equal values from `f(β)`, `value_and_gradient`,
+  `value_and_gradient!` and the two predictor oracles; the gradients of
+  `gradient`, `value_and_gradient` and the fused oracle within the bounds above;
+  reused buffers against fresh buffers; and the predictor oracles leaving the
+  scratch and the predictor unchanged.
+- Constructor refusals, and acceptance of the responses `-0.0` and `1e300`.
+- Refused calls for wrong lengths, element types and axes, and for scratch and
+  output overlaps, each followed by a check that the outputs, the scratch, `y`,
+  `X`, `β`, `η` and each array argument of the call are unchanged.
+- `Scaled` with factors `1.75` and `1/5`, and `MethodError` from the predictor
+  oracles for a `Scaled` loss.
+- In-place edits of `y` and `X` seen by the next call, and strided views for
+  `β`, `g`, `η` and `d`.
+- Empty shapes `(0, 3)`, `(2, 0)` and `(0, 0)`.
+- Traits and the `lipschitz` refusal.
+- Zero warmed allocations of the five operations at one point.
+- Product counts of the five operations, and no products for empty designs.
+
+The [Poisson regression guide](@ref Poisson-regression-loss) contains an
+executable example.
 
 ## [History](@id spec-poissonloss-history)
 

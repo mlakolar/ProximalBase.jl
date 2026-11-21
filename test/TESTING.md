@@ -348,24 +348,12 @@ references check the value and both gradient spaces, including weighted tails.
 
 ## Poisson regression coverage
 
-`poissonloss` checks dense `Float64` Poisson regression against a 2048-bit BigFloat
-reference (a high-precision rounded value) fed the `Float64` predictor, with
-tolerances taken from the accuracy statement of the contract for cases whose
-intermediates are finite. It covers zero, integer and noninteger counts, predictors
-up to `log(floatmax(Float64))`, strongly negative predictors (a zero response at
-`-745.0` sends a subnormal derivative through the gradient), a dot product whose
-exact product `2^-1075` rounds to zero, a caller-formed offset through the
-predictor oracles, and the endpoint and overflow branches of the scalar term:
-infinite and NaN predictors, `-0.0`, the `exp(η)` boundary, `y*η` overflowing in
-both signs, and the precedence of exponential overflow when both overflow. It also
-pins characterized nonfinite aggregates (value NaN, a transposed product with
-overflowing products or an infinite derivative times a zero entry, an overflowing
-partial sum, an infinite matrix product). Further checks are finite differences;
-constructor validation; call refusals (lengths, types, axes, scratch, input and
-output aliases), where each refusal is followed by a check that the outputs, the
-scratch, `y`, `X`, `β` and `η` are unchanged; `Scaled` including a mean factor;
-borrowed and mutated inputs; empty shapes; traits; warmed allocations; and product
-counts.
+`poissonloss` has the testsets "Agreement with the BigFloat reference" (2048-bit
+BigFloat evaluation at the `Float64` predictor, with tolerances from the accuracy
+bounds of the contract), "Ordinary path", "Finite differences", "Endpoint and
+overflow cases", "Empty shapes", "Validation before writes", "Scaled", "Borrowed
+data and strided arguments" and "Poisson predictor product counts". The Evidence
+section of `docs/src/spec/poissonloss.md` lists the cases.
 
 ## SCAD coverage
 

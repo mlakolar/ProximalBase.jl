@@ -53,8 +53,14 @@ for zero or infinite steps, nonfinite entries and infinite parameters.
 
 ## [Preconditions](@id spec-sparsegroupnorml2-preconditions)
 
+### [Compact buffers and exact in-place use](@id sparse-group-norm-l2.prox-block.compact-buffers)
+
 `prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,
-returns `out` and accepts `out === u`. It checks the group, lengths,
+returns `out` and accepts `out === u`.
+
+### Buffer validation and storage
+
+It checks the group, lengths,
 one-based real buffers, step and detected nonidentical overlap before
 writing. The caller supplies an output buffer independent of iterate
 storage. `prox_block(f, u, k, γ)` allocates that buffer. To store the
@@ -197,6 +203,7 @@ ranges, layouts, and point-aware scores.
 | `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |
 | `sparse-group-norm-l2.kkt.assumed-zero` | `guaranteed` | [Three-argument dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/src/functions/sparsegroupnorml2.jl#L230-L231) and [rejection test](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/test/sparsegroupnorml2.jl#L386) |
+| `sparse-group-norm-l2.prox-block.compact-buffers` | `guaranteed` | [Compact proximal implementation](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/src/functions/sparsegroupnorml2.jl#L223-L228), [buffer order and identity assertions](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/test/sparsegroupnorml2.jl#L79-L91), and [ordered groups in both supported precisions](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/test/sparsegroupnorml2.jl#L139-L148) |
 
 The [trait tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L111-L116) check convexity and proximability.
 

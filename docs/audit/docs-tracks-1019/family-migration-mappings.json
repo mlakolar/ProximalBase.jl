@@ -16,7 +16,8 @@
     "moves-normlinf.json",
     "moves-groupnorml2.json",
     "moves-scaled.json",
-    "moves-kkt_violation.json"
+    "moves-kkt_violation.json",
+    "moves-norml0.json"
   ],
   "changes": [
     {

@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "changes": [
+    {
+      "source_sha256": "835b7a0ed0eb0d85e4d0e1977b18b115621c1152011c3ba3e185764f184889ea",
+      "action": "reword",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-endpoints",
+          "text": "The following rules apply to each covered group in the array and compact\nproximal methods, in the order shown. Uncovered entries pass through the\narray prox and are ignored by the value.\n\n| Condition | Proximal result |\n|:--|:--|\n| Infinite stored ℓ₁ level, infinite weight, or infinite stored ℓ₂ level with positive weight | Fill the group with `+0`, including at a zero step and with NaN or infinite inputs |\n| Zero step or zero penalty after the hard constraints | Identity |\n| Infinite step and positive penalty after the hard constraints | Fill the group with `+0` |\n| Finite positive step and a positive group ℓ₂ term, with a NaN input | NaN throughout the group |\n| Finite positive step and a positive group ℓ₂ term, with an infinite input and no NaN | Keep the entrywise soft-threshold result without a further group shrink |\n| Other finite positive steps | Apply the entrywise soft threshold. A zero group term leaves that result in place. A positive group term then applies the group shrink. |",
+          "sha256": "06be82b37e8d3f04d02defda8d8b4032c1fa32476e4ac64204a713a338146654"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.prox.invalid-step",
+          "text": "For direct public array and compact proximal calls with otherwise valid\narguments, a negative or NaN step throws `ArgumentError` before writes.\nArray calls check the step even with an empty group collection.",
+          "sha256": "4f2741c80f3172a0fd6941d8bc1a76f2a3b234b22b2d3c1edcb11dd1fed08e24"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@75790b52c6a81865b20686a8cd39f745f15490e3"
+    },
+    {
+      "source_sha256": "553193c23047de1762e05151c00205ced7299475ece842ed1c5b8ad24f9f6d48",
+      "action": "reword",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-endpoints",
+          "text": "A zero group has value zero under a hard constraint. An entry outside the\nhard domain gives an infinite value unless a penalized entry yields NaN.\nZero penalty terms contribute zero. NaN from a penalized entry takes\nprecedence over infinite contributions.",
+          "sha256": "70bb8788389d2809b21e4122f190aacbecb4c838756d4cd2395f9437990f20e0"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.kkt.entry-classification",
+          "text": "The point-aware KKT methods classify the gradient and point entries read by\na group after conversion to the working type. NaN among those entries gives\nNaN. Otherwise an infinite entry gives `+Inf`. For finite converted entries, a\nhard-constrained zero group gives `-Inf` and an active group outside\nthe hard domain gives `+Inf`. An active group whose finite group-level\nproduct rounds to infinity also gives `+Inf` in the working type. At a\nzero group the signed screen retains the finite factors for range recovery.\nThe full-point maximum propagates NaN\nacross groups and includes the magnitudes of the gradient entries at\nuncovered coordinates. See the [sparse group lasso guide](@ref sparse-group-l2-guide)\nfor the finite-data scores.",
+          "sha256": "601de2649152270084749dc4dbb3e5c79573023b2d34ae6402907b54e684ab08"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@75790b52c6a81865b20686a8cd39f745f15490e3"
+    },
+    {
+      "source_sha256": "f3537055f534cc1d68717ea01adf286dfbed9122d22b1baba114ebcc65742595",
+      "action": "reword",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-limitations",
+          "text": "`BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)`\nrequire the groups to partition the iterate.\n\nThe family has no scalar entry prox,\nstep vectors, or `restrict`. Positive finite `Scaled` supports generic\narray value and prox with the scale applied to the step. A scaled product\noutside the working range can round before the sparse-group oracle sees it.\nFor example, a tiny negative step can round to `-0.0` in the wrapper\nbefore the leaf validates the step.\nA zero scale throws `ArgumentError` through the generic constructor.\n`Scaled` compact-block and KKT calls are unsupported.",
+          "sha256": "095f24f7a3e2ee7d495a4c537d9c1ab4435adde6efc2b1f4834424663e4bcf1d"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.oracles.symmetric-arguments",
+          "text": "`SymmetricSparseIterate` is unsupported as a proximal input or destination,\nor as a directly supplied gradient or point in a point-aware KKT call.",
+          "sha256": "9f073da7821889de460d67a4cdbe0e354f05903e2976e14e460ad52493230956"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@75790b52c6a81865b20686a8cd39f745f15490e3"
+    }
+  ]
+}

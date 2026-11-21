@@ -5,7 +5,8 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 
 ## [Identity](@id spec-sparsegroupnorml2-identity)
 
-**Links only until clause conversion.** See the [SparseGroupNormL2 API](@ref SparseGroupNormL2),
+`SparseGroupNormL2` combines an ℓ₁ penalty on the covered entries with
+weighted ℓ₂ penalties on the groups. See the [SparseGroupNormL2 API](@ref SparseGroupNormL2),
 [implementation](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/sparsegroupnorml2.jl)
 and [API coverage matrix](../api/coverage.md#API-coverage-matrix).
 
@@ -24,7 +25,8 @@ zero and the proximal map is the identity.
 
 ## [Traits](@id spec-sparsegroupnorml2-traits)
 
-**Links only until clause conversion.** See the [SparseGroupNormL2 API](@ref SparseGroupNormL2).
+`SparseGroupNormL2` is convex and proximable. See the
+[SparseGroupNormL2 API](@ref SparseGroupNormL2) for traits and signatures.
 
 ## [Supported arguments](@id spec-sparsegroupnorml2-arguments)
 
@@ -66,8 +68,14 @@ form with an integer index throws `ArgumentError`.
 
 ## [Ordinary-path clauses](@id spec-sparsegroupnorml2-ordinary)
 
-**Links only until clause conversion.** See the [proximal formula and example](../group_penalty.md#sparse-group-l2-guide)
-and the [compact group example](../group_penalty.md#Compact-groups).
+For ordinary calls with finite levels and weights and a positive finite step,
+the proximal map soft-thresholds the entries of each group and shrinks the
+result. The ordinary point-aware group score is a signed margin at a zero
+group and a residual norm at a nonzero group.
+
+See the [proximal formula and example](../group_penalty.md#sparse-group-l2-guide),
+[compact group example](../group_penalty.md#Compact-groups), and
+[scoring derivation](../group_penalty.md#Zero-group-screening-and-active-group-mismatch).
 
 ## [Range clauses](@id spec-sparsegroupnorml2-range)
 
@@ -88,13 +96,14 @@ can change the result. The fused value uses the stored destination.
 
 ## [Endpoint clauses](@id spec-sparsegroupnorml2-endpoints)
 
+[Invalid-step validation](@ref sparse-group-norm-l2.prox.invalid-step) precedes the group rules below.
+
 The following rules apply to each covered group in the array and compact
 proximal methods, in the order shown. Uncovered entries pass through the
 array prox and are ignored by the value.
 
 | Condition | Proximal result |
 |:--|:--|
-| Negative or NaN step | `ArgumentError` before writes |
 | Infinite stored ℓ₁ level, infinite weight, or infinite stored ℓ₂ level with positive weight | Fill the group with `+0`, including at a zero step and with NaN or infinite inputs |
 | Zero step or zero penalty after the hard constraints | Identity |
 | Infinite step and positive penalty after the hard constraints | Fill the group with `+0` |
@@ -107,8 +116,11 @@ hard domain gives an infinite value unless a penalized entry yields NaN.
 Zero penalty terms contribute zero. NaN from a penalized entry takes
 precedence over infinite contributions.
 
-For the point-aware KKT methods, NaN among the entries read by a group gives
-NaN. Otherwise an infinite entry gives `+Inf`. For finite entries, a
+### [Point-aware score classification](@id sparse-group-norm-l2.kkt.entry-classification)
+
+The point-aware KKT methods classify the gradient and point entries read by
+a group after conversion to the working type. NaN among those entries gives
+NaN. Otherwise an infinite entry gives `+Inf`. For finite converted entries, a
 hard-constrained zero group gives `-Inf` and an active group outside
 the hard domain gives `+Inf`. An active group whose finite group-level
 product rounds to infinity also gives `+Inf` in the working type. At a
@@ -120,15 +132,21 @@ for the finite-data scores.
 
 ## [Failure behavior](@id spec-sparsegroupnorml2-failures)
 
-**Links only until clause conversion.** See [preconditions](@ref spec-sparsegroupnorml2-preconditions),
-[endpoint clauses](@ref spec-sparsegroupnorml2-endpoints), and
+See [preconditions](@ref spec-sparsegroupnorml2-preconditions) and
 [predictable failures and partial writes](../numerical_usage.md#Predictable-failures-and-partial-writes).
+
+### [Invalid proximal steps](@id sparse-group-norm-l2.prox.invalid-step)
+
+For direct public array and compact proximal calls with otherwise valid
+arguments, a negative or NaN step throws `ArgumentError` before writes.
+Array calls check the step even with an empty group collection.
 
 ## [Limitations and non-guarantees](@id spec-sparsegroupnorml2-limitations)
 
 `BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)`
-require the groups to partition the iterate. A `SymmetricSparseIterate`
-is unsupported for prox and KKT. The family has no scalar entry prox,
+require the groups to partition the iterate.
+
+The family has no scalar entry prox,
 step vectors, or `restrict`. Positive finite `Scaled` supports generic
 array value and prox with the scale applied to the step. A scaled product
 outside the working range can round before the sparse-group oracle sees it.
@@ -136,6 +154,11 @@ For example, a tiny negative step can round to `-0.0` in the wrapper
 before the leaf validates the step.
 A zero scale throws `ArgumentError` through the generic constructor.
 `Scaled` compact-block and KKT calls are unsupported.
+
+### [Symmetric iterate arguments](@id sparse-group-norm-l2.oracles.symmetric-arguments)
+
+`SymmetricSparseIterate` is unsupported as a proximal input or destination,
+or as a directly supplied gradient or point in a point-aware KKT call.
 
 ## [Clauses owned elsewhere](@id spec-sparsegroupnorml2-elsewhere)
 
@@ -154,6 +177,56 @@ A zero scale throws `ArgumentError` through the generic constructor.
 The [SparseGroupNormL2 tests](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/sparsegroupnorml2.jl)
 cover construction, array and compact proximal calls, endpoint ordering, extreme
 ranges, layouts, and point-aware scores.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
+| `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
+| `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |
+
+The [trait tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L111-L116) check convexity and proximability.
+
+### [Empty-group regression](@id spec-sparsegroupnorml2-empty-step-regression)
+
+The executable check uses a nonempty input and verifies the destination
+after each rejected mutating call in `Float32` and `Float64`.
+
+```@example sparse_group_empty_step_regression
+using ProximalBase, Test # hide
+for T in (Float32, Float64) # hide
+    f = SparseGroupNormL2(T(0.5), one(T), Vector{Int}[]) # hide
+    x = T[3, -10, 2] # hide
+    sentinel = fill(T(7), length(x)) # hide
+    for step in (-one(T), T(NaN)) # hide
+        @test_throws ArgumentError prox(f, x, step) # hide
+        for oracle in (prox!, value_and_prox!) # hide
+            y = copy(sentinel) # hide
+            @test_throws ArgumentError oracle(y, f, x, step) # hide
+            @test isequal(y, sentinel) # hide
+        end # hide
+    end # hide
+end # hide
+nothing # hide
+```
+
+### [Point-aware KKT regressions](@id spec-sparsegroupnorml2-score-regression)
+
+The dispatch check uses a symmetric iterate directly as the gradient. The
+working-type check characterizes a call with a `Float16` gradient and a
+finite integer point whose entry converts to infinity. The
+[supported precision policy](../numerics.md#Supported-precision-and-oracle-agreement)
+sets the supported configurations.
+
+```@example sparse_group_score_working_type_regression
+using ProximalBase, Test # hide
+f = SparseGroupNormL2(1.0, 1.0, [[1]]) # hide
+symmetric_gradient = SymmetricSparseIterate([1.0 0.0; 0.0 1.0]) # hide
+array_point = zeros(2, 2) # hide
+@test !applicable(kkt_violation, f, symmetric_gradient, array_point, 1) # hide
+@test !applicable(kkt_violation, f, symmetric_gradient, array_point) # hide
+@test kkt_violation(f, Float16[0], [1000000], 1) === Float16(Inf) # hide
+nothing # hide
+```
 
 ## [History](@id spec-sparsegroupnorml2-history)
 

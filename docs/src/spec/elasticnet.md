@@ -135,8 +135,14 @@ h = ElasticNet(0.5, 2.0, [1.0, 0.0, 2.0])
 x = [2.0, -3.0, 0.25]
 ```
 
+### [Invalid proximal scalar steps](@id elastic-net.prox.invalid-scalar-step)
+
 `prox`, `prox!` and `value_and_prox!` throw an `ArgumentError` for a
-negative or `NaN` scalar step before anything is written. The entries of
+negative or `NaN` scalar step before anything is written.
+
+### Other endpoint rules and examples
+
+The entries of
 an array of steps are not checked: they must be nonnegative, a documented
 precondition. `prox_block` does not check its step, and `Scaled` keeps its own step rule.
 
@@ -262,6 +268,10 @@ Their existing reference-method summary remains in
 
 The retained [endpoint examples](@ref spec-elasticnet-endpoints) are executable
 documentation blocks. No numerical example or assertion body is changed by the move.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `elastic-net.prox.invalid-scalar-step` | `guaranteed` | [Allocating array dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L139-L143), [Scalar-step checks](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/elasticnet.jl#L384-L390) and [Invalid-step and unchanged-destination tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/elasticnet.jl#L489-L517) |
 
 ## [History](@id spec-elasticnet-history)
 

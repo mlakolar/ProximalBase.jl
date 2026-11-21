@@ -119,3 +119,6 @@ Examples and API reference are shared by all three tracks.
 | Learn | Why does the method work, and how do I calculate an example? | [A first lasso problem](getting_started.md) |
 | Developer guide | How are the package and its routines organized? | [Overview and package structure](developer/index.md) |
 | Numerical contracts | Which numerical conditions and results must I preserve? | [How to read the contracts](spec/index.md) |
+
+After the first lasso problem, try [Proximal operations by hand](@ref learn-proximal-exercises)
+and the [floating-point range exercise](@ref learn-floating-point).

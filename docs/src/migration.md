@@ -12,7 +12,7 @@ API. This development reduction is not a release announcement.
 
 The [function library](function_library.md) is exhaustive. Norms and group penalties
 other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, nonconvex penalties,
-Poisson and robust-loss families, constraints and indicators other than
+robust-loss families, Poisson families other than `PoissonLoss`, constraints and indicators other than
 `IndNonnegative`, `IndBox`, `IndBallLinf`, `IndBallL1`, `IndBallL2` and `IndBallL0`,
 spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
 frameworks and GPU extensions were removed. They have no replacement capability
@@ -54,6 +54,16 @@ It requires finite responses in `[0, 1]`, including on zero-weight rows. The
 archived logistic constructor did not validate the response domain. The current
 constructor uses homogeneous strided `Float32` or `Float64` vectors and
 accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-regression-loss).
+
+### Poisson regression
+
+`PoissonLoss(y, X)` is available as a standalone smooth loss for dense `Float64`
+data. It takes the sum over observations of `exp(ηᵢ) - yᵢηᵢ` at `η = X*β`, requires
+finite nonnegative responses, and has no weight or offset argument. A caller who
+forms `η = X*β + offset` evaluates the offset model through the predictor oracles.
+It does not restore the archived scalar `ProximalBase.Poisson()` loss or the
+archived `GLMLoss` wrapper, and it has no second-order interface. See
+[Poisson regression](smooth.md#Poisson-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)
 

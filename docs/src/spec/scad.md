@@ -56,9 +56,15 @@ steps passed through `Scaled`.
 
 ## [Results](@id spec-scad-results)
 
+### [Proximal return values](@id scad.prox.stored-output)
+
 `prox` allocates the result and `prox!` returns its destination.
 `value_and_prox!` evaluates the value at the stored result, including
-destination rounding. Sparse value and same-kind sparse proximal
+destination rounding.
+
+### Storage traversal
+
+Sparse value and same-kind sparse proximal
 routes visit stored entries. The symmetric value counts each
 off-diagonal entry twice. Block proximal calls visit the full array.
 
@@ -136,6 +142,10 @@ This section links to the shared owners.
 - [Scaling a function](@ref scaling-guide)
 
 ## [Evidence](@id spec-scad-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `scad.prox.stored-output` | `guaranteed` | [Allocating interface](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L139-L143), [destination writes](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L140-L155), [stored-point implementation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L210-L212), and [array routes and destination rounding](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/scad.jl#L304-L328) |
 
 [`test/scad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/scad.jl)
 checks both supported types against a BigFloat objective and a bounded

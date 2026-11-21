@@ -16,6 +16,9 @@ and [iterates](../iterates.md) for ordinary usage.
 | Contribution/validation | [Change process](change_process.md) | Current CI.yml and test/tiers.toml |
 | Writing API documentation | [Writing useful documentation](writing_documentation.md) | Docstrings, examples, link checks and contract preservation |
 
+[Explore the numerical routines](@ref numerical-routines) for the implementation
+paths behind the range rules and projections.
+
 ## Current versus historical contracts
 
 The three `docs/design` contracts linked above are updated for the post-#850

@@ -1,12 +1,22 @@
 # [MCP numerical contract](@id mcp-contract)
 
-## Identity
+## [Identity](@id spec-mcp-identity)
+
+```@raw html
+<span id="Identity"></span>
+<span id="Identity-1"></span>
+```
 
 [`MCP`](@ref MCP) is the separable minimax concave penalty. The scalar
 hooks and dense kernels are in
 [`src/functions/mcp.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/mcp.jl).
 
-## Definition and domain
+## [Definition and domain](@id spec-mcp-definition)
+
+```@raw html
+<span id="Definition-and-domain"></span>
+<span id="Definition-and-domain-1"></span>
+```
 
 `MCP(λ, a=3)` takes a nonnegative real level and a strictly positive real
 shape. Both admit positive infinity. For positive finite parameters the
@@ -19,13 +29,23 @@ a\lambda^2/2 & t>a\lambda.
 \end{cases}
 ```
 
-## Traits
+## [Traits](@id spec-mcp-traits)
+
+```@raw html
+<span id="Traits"></span>
+<span id="Traits-1"></span>
+```
 
 MCP is separable, proximable and zero-preserving. Its type-level convexity
 and smoothness traits are false. Restriction returns the same function
 because the parameters are shared across entries.
 
-## Supported arguments
+## [Supported arguments](@id spec-mcp-arguments)
+
+```@raw html
+<span id="Supported-arguments"></span>
+<span id="Supported-arguments-1"></span>
+```
 
 Direct oracles use one-based real arrays and the supported
 [`SeparableFunction`](@ref SeparableFunction) iterate routes. The
@@ -34,21 +54,41 @@ Array steps are matched by linear index on dense arrays, sparse iterates
 and block iterates. Symmetric sparse iterate proximal oracles use scalar
 steps.
 
-## Preconditions
+## [Preconditions](@id spec-mcp-preconditions)
+
+```@raw html
+<span id="Preconditions"></span>
+<span id="Preconditions-1"></span>
+```
 
 Exact input/output identity and independent destinations follow the
 [array and precision conventions](@ref numerical-usage). Use a
 nonnegative, non-NaN step with `prox_block` and as the effective step
 passed through `Scaled`.
 
-## Results
+## [Results](@id spec-mcp-results)
+
+```@raw html
+<span id="Results"></span>
+<span id="Results-1"></span>
+```
+
+### [Proximal return values](@id mcp.prox.stored-output)
 
 `prox` allocates the result, `prox!` returns the destination, and
 `value_and_prox!` evaluates the value at the stored proximal point.
+
+### Storage traversal
+
 Same-kind sparse value and scalar-step prox paths visit stored entries.
 An off-diagonal symmetric entry contributes twice to the value.
 
-## Ordinary-path clauses
+## [Ordinary-path clauses](@id spec-mcp-ordinary)
+
+```@raw html
+<span id="Ordinary-path-clauses"></span>
+<span id="Ordinary-path-clauses-1"></span>
+```
 
 At a positive finite step, level and shape, the scalar proximal operator
 minimizes ``p(u)+(u-|v|)^2/(2\gamma)`` over ``u\geq0``. It gives the
@@ -58,7 +98,12 @@ when its squared magnitude exceeds ``a\gamma\lambda^2``. The
 comparison uses the exact products of the represented homogeneous inputs.
 Mathematical ties give positive zero.
 
-## Range clauses
+## [Range clauses](@id spec-mcp-range)
+
+```@raw html
+<span id="Range-clauses"></span>
+<span id="Range-clauses-1"></span>
+```
 
 The hard comparison uses a fixed-width significand comparison when
 rounded products cannot determine the result. The firm calculation
@@ -69,7 +114,12 @@ firm or soft optimum that rounds to zero retains its sign. Within a few
 ulps of the value's overflow boundary, rounding in the products can
 give `floatmax(T)` or `Inf`.
 
-## Endpoint clauses
+## [Endpoint clauses](@id spec-mcp-endpoints)
+
+```@raw html
+<span id="Endpoint-clauses"></span>
+<span id="Endpoint-clauses-1"></span>
+```
 
 Apply the first matching proximal rule for a nonnegative, non-NaN step.
 
@@ -90,14 +140,24 @@ the saturated penalty `aλ²/2`, subject to rounding in the working type.
 With infinite shape and finite positive level the value is `λ*abs(x)`.
 At a finite positive step the infinite-shape map uses soft thresholding.
 
-## Failure behavior
+## [Failure behavior](@id spec-mcp-failures)
+
+```@raw html
+<span id="Failure-behavior"></span>
+<span id="Failure-behavior-1"></span>
+```
 
 The constructor rejects negative and NaN levels and nonpositive and NaN
 shapes. Direct array and iterate oracles reject negative and NaN steps
 before writes. Array steps are checked in full, including at inactive
 positions. A symmetric sparse iterate output rejects an array step.
 
-## Limitations and non-guarantees
+## [Limitations and non-guarantees](@id spec-mcp-limitations)
+
+```@raw html
+<span id="Limitations-and-non-guarantees"></span>
+<span id="Limitations-and-non-guarantees-1"></span>
+```
 
 The homogeneous targets describe the supported precision. `Scaled` uses
 its effective step and value rules with ordinary positive finite factors.
@@ -105,7 +165,12 @@ Its zero-factor constructor rejects MCP. Long homogeneous dense arrays use
 vectorized variable-step blocks when the block satisfies the firm or hard
 range checks. Mixed blocks and unresolved comparisons use the scalar path.
 
-## Clauses owned elsewhere
+## [Clauses owned elsewhere](@id spec-mcp-elsewhere)
+
+```@raw html
+<span id="Clauses-owned-elsewhere"></span>
+<span id="Clauses-owned-elsewhere-1"></span>
+```
 
 This section links to the shared owners.
 
@@ -113,7 +178,16 @@ This section links to the shared owners.
 - [Shared range guarantees](@ref numerical-value-range)
 - [Scaling a function](@ref scaling-guide)
 
-## Evidence
+## [Evidence](@id spec-mcp-evidence)
+
+```@raw html
+<span id="Evidence"></span>
+<span id="Evidence-1"></span>
+```
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `mcp.prox.stored-output` | `guaranteed` | [Allocating interface](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L139-L143), [destination writes](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L140-L155), [stored-point implementation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L210-L212), [endpoint and aliasing assertions](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/mcp.jl#L134-L155), and [destination rounding at the kink](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/mcp.jl#L340-L350) |
 
 [`test/mcp.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/mcp.jl)
 checks the complete objective with a high-precision reference and a bounded
@@ -121,7 +195,12 @@ numerical search. It also covers range, endpoints, exact aliases, step
 validation and fused values in both supported types. The
 [penalty guide](@ref mcp-guide) contains an executable example.
 
-## History
+## [History](@id spec-mcp-history)
+
+```@raw html
+<span id="History"></span>
+<span id="History-1"></span>
+```
 
 The [feature issue](https://github.com/mlakolar/ProximalBase.jl/issues/952)
 and [restoration plan](https://github.com/mlakolar/ProximalBase.jl/issues/1042)

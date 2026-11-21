@@ -96,7 +96,13 @@ value `NaN` at any radius. An empty input has value zero and is copied.
 
 ## [Failure behavior](@id spec-indballl1-failures)
 
-A negative or NaN radius throws `ArgumentError` at construction. A negative
+### [Invalid radius at construction](@id ind-ball-l1.constructor.invalid-radius)
+
+A negative or NaN radius throws `ArgumentError` at construction.
+
+### Invalid steps and arguments
+
+A negative
 or NaN scalar step throws `ArgumentError` before writes, also for `α * f` with `α ≥ 0`,
 which is `f` itself. Invalid axes, shapes and argument types are checked before
 writes as described in [array and precision conventions](@ref numerical-usage).
@@ -125,6 +131,10 @@ and `Float64`. It covers feasible boundaries, overflow, tiny radii, stored
 results, storage routes and validation before writes. The
 [`IndBallL1` API example](@ref IndBallL1) is executed by the strict
 documentation build.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `ind-ball-l1.constructor.invalid-radius` | `guaranteed` | [Radius constructor](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl1.jl#L49-L55), [nonnegative real check](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/utils.jl#L42), and [invalid-radius tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl1.jl#L108-L112) |
 
 ## [History](@id spec-indballl1-history)
 

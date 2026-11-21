@@ -548,6 +548,14 @@ def recommend(versions, by_version, verdicts, acc, acc_versions, ref, notes):
         result["provisional"].append("no ADMM cells")
     elif not exact:
         result["provisional"].append("the instance %s stands in for the 1500x5000 instance of section 11.1" % inst)
+    partial_cells = sorted({k[:4] for k, j in verdicts.items() if j["partial"]})
+    if partial_cells:
+        result["provisional"].append("%d cells have fewer than %d processes" % (len(partial_cells), PROCESSES_WANTED))
+    missing = sorted({k[1] for k in verdicts} - {k[1] for k in acc})
+    if missing:
+        result["provisional"].append("no accuracy outputs for %d timed cases (first: %s)" % (len(missing), missing[0]))
+    if acc_versions and not any(rows[0]["kind"] == "control" for rows in acc.values() if rows):
+        result["provisional"].append("no outputs of the #1078 controls")
     for var in VARIANTS:
         c = {}
         # (A1) passes eta in every case where S passes

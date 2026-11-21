@@ -90,6 +90,23 @@
         }
       ],
       "reviewer": "reconcile_pr_review@a12427c5514982c689a98b3c26c572929abf4198"
+    },
+    {
+      "source_sha256": "ec441414f9dfb40f4dc4875ed39fe3701d2b4222227dfb42aa8a60424a46edd7",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.prox-block.compact-buffers",
+          "text": "`prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,\nreturns `out` and accepts `out === u`.",
+          "sha256": "9252f39e02d1e19cac835987712ad3e28cf0b73a424f1edd0444b20ac1c34309"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-preconditions",
+          "text": "It checks the group, lengths,\none-based real buffers, step and detected nonidentical overlap before\nwriting. The caller supplies an output buffer independent of iterate\nstorage. `prox_block(f, u, k, γ)` allocates that buffer. To store the\nresult, the caller writes it into the matching block as a separate step.",
+          "sha256": "fa52746334a300253599323bc9e90ada7bb146f492bf16bb5f1ed052dcbca05b"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@a1361ea3c2b197879770c2edfd05433035113cf9"
     }
   ]
 }

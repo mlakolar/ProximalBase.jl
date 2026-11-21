@@ -25,7 +25,7 @@ accepted, and `-0.0` is a zero response.
 The value is the sum over observations. For ``n>0`` and a finite sum,
 `(1/n) * f`, that is `Scaled(f, 1/n)`, gives the mean. For ``n=0``, evaluating
 `(1/0) * f` returns `NaN`. A sum that overflows to `Inf` stays `Inf` after
-scaling.
+scaling by `1/n`.
 
 The constructor has no weight or offset argument. The predictor oracles
 evaluate the loss at a supplied predictor that meets the requirements under
@@ -45,8 +45,8 @@ false. The API supplies no gradient Lipschitz bound: `lipschitz(f)` throws
 ## [Supported arguments](@id spec-poissonloss-arguments)
 
 The constructor takes `y::Vector{Float64}` and `X::Matrix{Float64}`.
-Coefficients, gradient outputs, predictors and derivative outputs are one-based
-`StridedVector{Float64}`. The operations are `f(β)`, `gradient!(g, f, β)`,
+Coefficients and gradient outputs of length `size(X, 2)`, and predictors and
+derivative outputs of length `length(y)`, are one-based `StridedVector{Float64}`. The operations are `f(β)`, `gradient!(g, f, β)`,
 `value_and_gradient!(g, f, β)`, `ProximalBase.value_from_predictor(f, η)`,
 `ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)` and the allocating
 `gradient` and `value_and_gradient`. A loss wrapped in `Scaled` supports `f(β)`,
@@ -69,8 +69,8 @@ output to be disjoint from the inputs and outputs of every other concurrent call
 Before any write, a call with otherwise valid arguments throws `ArgumentError`
 when `Base.mightalias` reports an overlap of two nonempty arrays: an output and
 the input, the other output, `y`, `X` or the scratch, or a coefficient vector or
-predictor and the scratch. Sharing that `Base.mightalias` does not report is the caller's
-responsibility.
+predictor and the scratch. Sharing that `Base.mightalias` does not report is the
+caller's responsibility.
 
 ## [Results](@id spec-poissonloss-results)
 
@@ -124,8 +124,8 @@ value term and the derivative are `Inf`, also when `yᵢ*ηᵢ` overflows. When
 does not recover a finite exact term or derivative whose computation
 overflows. The exact value term can be finite for ``\eta_i`` up to about 716.4,
 and the exact derivative for ``\eta_i`` up to about 710.48. The sum of the
-terms, the transposed product and the outer scaling use ordinary floating-point
-arithmetic with their usual rounding and range limits.
+terms and the transposed product use ordinary floating-point arithmetic with
+their usual rounding and range limits.
 
 **Implementation notes (not guarantees).** One loop computes the requested
 quantities from `e = exp(η)`: the value term

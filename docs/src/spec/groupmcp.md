@@ -12,24 +12,29 @@ the [function guide](../group_penalty.md#group-mcp-guide) and the
 
 ## [Definition and domain](@id spec-groupmcp-definition)
 
-For disjoint nonempty groups ``G_k`` of linear indices,
+For disjoint nonempty groups ``G_k`` of linear indices and, in the formula below, finite positive ``\lambda_k`` and `a`,
 
 ```math
 f(x)=\sum_{k=1}^{K}p_{\lambda_k,a}\bigl(\lVert x_{G_k}\rVert_2\bigr),\qquad \lambda_k=\lambda_0w_k,\qquad
 p_{\lambda,a}(t)=\begin{cases}\lambda t-t^2/(2a), & 0\le t\le a\lambda,\\ a\lambda^2/2, & t>a\lambda.\end{cases}
 ```
 
-The weight multiplies the level of the scalar [MCP](mcp.md), and the shape `a` is not rescaled. Entries in no
-group are unpenalized. `GroupMCP(λ0, groups[, w]; a = 3)` converts `λ0`, `w` and `a` to
-`T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))`, with default weights ``w_k=\sqrt{\lvert G_k\rvert}``
-computed in `T`. The level and the weights are nonnegative and not `NaN`; `a` is positive and not `NaN`, and
-`a = Inf` is admitted: then ``p_{\lambda,\infty}(t)=\lambda t`` and `f` is the penalty of
-[`GroupNormL2`](groupnorml2.md) with the level `λ0` and the weights `w`. The constructor copies the groups and the
-weights and keeps their order. With no groups the value is zero and the proximal map is the identity.
+Zero and infinite levels and weights follow the [endpoint table](@ref spec-groupmcp-endpoints). The weight multiplies
+the level of the scalar [MCP](mcp.md), and the shape `a` is not rescaled. Entries in no group are unpenalized.
+`GroupMCP(λ0, groups[, w]; a = 3)` converts `λ0`, `w` and `a` to
+`T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))`. The default weights ``w_k=\sqrt{\lvert G_k\rvert}``
+are computed in `promote_type(T, Float64)` and converted to `T`. The level and the weights are nonnegative and not
+`NaN`; `a` is positive and not `NaN`, and `a = Inf` is admitted: then ``p_{\lambda,\infty}(t)=\lambda t`` and `f` is
+the penalty of [`GroupNormL2`](groupnorml2.md) with the level `λ0` and the weights `w`. The constructors, the typed
+`GroupMCP{T, G}(λ0, a, groups, w)` included, copy the groups and the weights and keep their order; the typed
+constructor converts its copied list of groups to `G`. With no groups the value is zero and the proximal map is the
+identity.
 
 ## [Traits](@id spec-groupmcp-traits)
 
-`GroupMCP` is proximable. Its convexity, smoothness and separability traits are false.
+`GroupMCP` is proximable. Its convexity, smoothness and separability traits are false. The convexity trait describes
+the type: with finite positive level, weight and shape the penalty of a group is not convex, while some instances are
+convex (`a = Inf` gives a group norm, and a zero level gives the zero function).
 
 ## [Supported arguments](@id spec-groupmcp-arguments)
 
@@ -40,9 +45,12 @@ and `value_and_prox!` has a floating-point element type; `prox` allocates one. T
 `groups[k]` and do not change an iterate. `BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)` copy
 the groups of `f`, which must then partition the entries.
 
-The numerical target is homogeneous CPU `Float32` and `Float64`: input, destination and parameters of one type, and a
-step that converts to it exactly. Other combinations take the scaled path below, computed in at least `Float64`; they
-have the range of that type and no further mixed-precision guarantee.
+The numerical target is homogeneous CPU `Float32` and `Float64`. For a finite shape, the proximal oracles try the
+ordinary path when the input, the destination and the parameters have one of these types and the step converts to it
+exactly; otherwise each group with positive finite parameters takes the scaled path below. The value tries its
+ordinary path when `float(eltype(x))` is the parameter type (`Float32` or `Float64`), also for an integer array `x`.
+At `a = Inf` the guards are those of the `GroupNormL2` kernels, which can take their ordinary path for other type
+combinations. Mixed types have the range of the recovery type and no further mixed-precision guarantee.
 
 ## [Preconditions](@id spec-groupmcp-preconditions)
 
@@ -54,11 +62,12 @@ must be independent of iterate storage, as the [pure block contract](@ref block-
 ## [Results](@id spec-groupmcp-results)
 
 `prox!` returns the destination, `prox_block!` returns `out`, and `value_and_prox!` returns the value at the stored
-output. That value takes, for each group, the term that the value of the stored output takes: zero for a group stored
-as zero or unpenalized, the plateau for a group kept on the ordinary path (formed by the same expression as the
-value), and otherwise the term at the norm of the stored entries. For a group scaled on the ordinary path, the squares
-of the stored entries are summed as they are written, so the fused value equals `f(y)` up to the order of that sum
-(and, for different input and output array types, of the other sums of squares).
+output. For a finite shape that value takes, for each group, the term that the value of the stored output takes: zero
+for a group stored as zero or unpenalized, the plateau for a group kept on the ordinary path (formed by the same
+expression as the value), and otherwise the term at the norm of the stored entries. For a group scaled on the ordinary
+path, the squares of the stored entries are summed as they are written, so the fused value equals `f(y)` up to the
+order of that sum (and, for different input and output array types, of the other sums of squares). At `a = Inf` each
+term is that of `GroupNormL2` at the stored group.
 
 ## [Ordinary-path clauses](@id spec-groupmcp-ordinary)
 
@@ -73,55 +82,68 @@ group and ``\lambda_k`` the level as formed. The group is replaced by the scalar
 and for ``\gamma\ge a``, unchanged when ``r^2>a\gamma\lambda_k^2`` and `+0` otherwise. A tie gives `+0`. The
 transition at ``\gamma=a`` takes the hard rule, as for the scalar `MCP`.
 
-These comparisons are exact for the computed norm and the level as formed; they are not exact in the entries, since
-the computed norm carries the rounding of the sum of squares. A group within that rounding of a threshold can take
-either side.
+On the `Float32` and `Float64` paths these comparisons are exact for the computed norm and the level as formed (on the
+scaled path with a wider recovery type, such as `BigFloat`, the hard comparison is rounded in that type). They are not
+exact in the entries, since the computed norm carries the rounding of the sum of squares. A group within that rounding
+of a threshold can take either side.
 
 On the ordinary path (homogeneous `Float32` or `Float64`), the level is ``\lambda_0 w_k`` rounded once in `T` and the
-norm is the square root of the sum of squares in `T`. The path applies when the level and ``a\lambda_k`` are normal
-numbers, the sum of squares passes the normal-range test of [`GroupNormL2`](groupnorml2.md), and either ``\gamma<a``
-with ``\gamma\lambda_k`` at least `2^(emin + p + 1)` (the bound of the scalar firm thresholds) or ``\gamma\ge a`` with a
-finite step. The comparisons with ``\gamma\lambda_k`` and ``a\lambda_k`` use the sign of a fused residual, and the
-hard comparison is that of the scalar `MCP` (a fixed-width significand comparison when rounded products cannot decide).
+norm is the square root of the sum of squares in `T`. The path applies when the rounded level `λ0*w_k` and the rounded
+kink `a*(λ0*w_k)` are normal numbers, the sum of squares passes the normal-range test of
+[`GroupNormL2`](groupnorml2.md), and either ``\gamma<a`` with the rounded product `γ*(λ0*w_k)` at least
+`2^(emin + p + 1)` (the bound of the scalar firm thresholds) or ``\gamma\ge a`` with a finite step. The comparisons with
+``\gamma\lambda_k`` and ``a\lambda_k`` use the sign of a fused residual, and the hard comparison is that of the scalar
+`MCP` (a fixed-width significand comparison when rounded products cannot decide).
 
-The value of a group is ``r(\lambda_k-r/(2a))`` when `r` is below the rounded kink ``a\lambda_k`` and the plateau
-``a\lambda_k^2/2`` otherwise. For a singleton group with unit weight, the proximal point agrees with `MCP` up to the
-rounding of the firm formula: the decisions are those of the scalar comparisons, and the firm values can differ by a
-few units in the last place.
+The ordinary value of a group is ``r(\lambda_k-r/(2a))`` when `r` is below the rounded kink ``a\lambda_k`` and the
+plateau ``a\lambda_k^2/2`` otherwise; ``r/(2a)`` is formed as `r*(inv(a)/2)` when `inv(a)/2` is a normal number and as
+`(r/a)/2` otherwise. For a finite shape and a singleton group with unit weight, the proximal point agrees with `MCP` up to
+the rounding of the firm formula: the decisions are those of the scalar comparisons, and the firm values can differ by
+a few units in the last place. At `a = Inf` the singleton map is that of `GroupNormL2`, which decides on the threshold
+formed as a rounded product and can give `+0` where the scalar `MCP`, deciding on a fused residual, keeps a tiny value
+(``\lambda=1+\epsilon``, ``\gamma=1-\epsilon`` and input `1.0` in `Float64`).
 
 ## [Range clauses](@id spec-groupmcp-range)
 
-The scaled path takes the groups with positive finite parameters that the ordinary path does not. It forms the norm as ``n_s2^k`` in the recovery
-type `R` (at least `Float64`, wide enough for the input, destination, parameters and step), as `GroupNormL2` does, and
-the level as the product of the significands of `λ0` and `w_k` rounded once in `R`, with its exponent kept apart. No
-product ``\lambda_k``, ``\gamma\lambda_k``, ``a\lambda_k`` or ``a\gamma\lambda_k^2`` is formed as one number: the
-decisions use the signs of ``r-\gamma\lambda_k`` and ``r-a\lambda_k`` in units of `r`, and, for `R = Float64`, an exact
-comparison of ``r^2`` with ``a\gamma\lambda_k^2``. For a wider `R` (such as `BigFloat`) that comparison is rounded in
-`R`. A firm factor is formed from the residual ``r-\gamma\lambda_k`` in the units of `r`. A firm output entry has at
-most the magnitude of its input entry.
+For a finite shape, the scaled path takes the groups with positive finite parameters that the ordinary path does not.
+It classifies the group (a `NaN` or an infinite entry, a zero group) and, for a finite nonzero group, forms the norm as
+``n_s2^k`` in the recovery type `R` (`promote_type(Float64, ...)` over the input, destination, parameter and step
+types, so `Float64` itself for `Float64` data), as `GroupNormL2` does; the scaling by ``2^k`` gives the range. The
+level is the product of the significands of `λ0` and `w_k` rounded once in `R`, with its exponent kept apart. The
+decisions of the scaled path do not use ``\lambda_k``, ``\gamma\lambda_k``, ``a\lambda_k`` or ``a\gamma\lambda_k^2``
+formed as single numbers (the ordinary trial may have formed rounded products before it falls back; they are not
+used): they use the signs of ``r-\gamma\lambda_k`` and ``r-a\lambda_k`` in units of `r`, and a comparison of ``r^2``
+with ``a\gamma\lambda_k^2`` on the parts, exact for `R = Float64` and rounded in a wider `R`. A firm factor is formed
+from the residual ``r-\gamma\lambda_k`` in the units of `r` and is at most one, so a firm output entry has at most the
+magnitude of its input entry.
 
 So an overflowing finite product ``\lambda_0w_k`` is not a stored infinity, and an underflowing one is not a stored
-zero. Under `Float64`, at `a = 3` and `w = [1.0]`:
+zero. Three `Float64` examples, each with its own parameters:
 
 ```@example group_mcp
 using ProximalBase
-g = GroupMCP(2.0^1000, [1:1], [1.0])        # γλ = 2^-60 < r = 2^-30 < aλ: firm
+# a = 3, λ = 2^1000; the level in units of r = 2^-30 (2^1030) overflows. γλ = 2^-60 < r < aλ: firm
+g = GroupMCP(2.0^1000, [1:1], [1.0])
 @assert prox_block(g, [2.0^-30], 1, 2.0^-1060) == [2.0^-30 - 2.0^-60]
-h = GroupMCP(2.0^-993, [1:1], [1.0]; a = 1.5 * 2.0^1023)   # r² = 2^60 ≤ aγλ² = 2.25 * 2^60: zero
+# a = γ = 1.5 * 2^1023, λ = 2^-993; aγ overflows. r² = 2^60 ≤ aγλ² = 2.25 * 2^60: zero
+h = GroupMCP(2.0^-993, [1:1], [1.0]; a = 1.5 * 2.0^1023)
 @assert prox_block(h, [2.0^30], 1, 1.5 * 2.0^1023) == [0.0]
-u = GroupMCP(1e-200, [1:2], [1e-200]; a = 1e200)   # λ rounds to 0 in Float64; γλ = 1e-300 > r
+# a = 1e200, λ0 = w = 1e-200; λ0*w rounds to 0. γλ = 1e-300 > r: zero
+u = GroupMCP(1e-200, [1:2], [1e-200]; a = 1e200)
 @assert prox_block(u, [1e-310, 2e-310], 1, 1e100) == [0.0, 0.0]
 ```
 
-The group norm is formed in `R`, not in the input type. Entries whose sum of squares overflows the input type
-therefore give a representable output in a wider destination (`Float32` entries near `floatmax(Float32)` and a
-`Float64` destination), and the homogeneous case recovers the decisions for such groups.
+On the scaled path the group norm is the scaled norm in `R`, not a sum of squares in the input type. Entries whose sum
+of squares overflows the input type therefore give a representable output in a wider destination (`Float32` entries
+near `floatmax(Float32)` and a `Float64` destination), and the homogeneous case recovers the decisions for such groups.
 
 The value returns the ordinary sum of the group terms when it is below `floatmax(T)/2` and, for `Float32` and
-`Float64`, at least `n floatmin(T)` for `n` terms rounded from positive finite parameters at nonzero groups. Otherwise
-the terms are recomputed as significands and exponents and summed in at least `Float64`, except for a `NaN` sum and an
-infinite or `NaN` term, which keep the ordinary sum. A plateau or an interior term out of range is formed in parts. Within a few units in the last place of the overflow
-threshold, a value can be `floatmax(T)` or `Inf`.
+`Float64`, at least `n floatmin(T)`. For a finite shape, `n` counts the terms rounded from positive finite parameters at
+nonzero groups (a term that rounded to `Inf` included); at `a = Inf` it counts the groups with positive finite level and
+weight, zero groups included. Otherwise the terms are recomputed as significands and exponents and summed in at least
+`Float64`, with the plateau of a finite-shape group with an infinite entry formed in parts. The ordinary sum is kept
+for a `NaN` sum, a `NaN` group, a nonzero group with an infinite weight or level and, at `a = Inf`, a group with an
+infinite entry. Within a few units in the last place of the overflow threshold, a value can be `floatmax(T)` or `Inf`.
 
 ## [Endpoint clauses](@id spec-groupmcp-endpoints)
 
@@ -157,22 +179,28 @@ axes; a `DimensionMismatch` for different shapes, groups beyond the argument and
 group; a `BoundsError` for a group number out of range or a `Bool`. A `SymmetricSparseIterate` argument or output of a
 proximal oracle throws an `ArgumentError` before any write.
 
-`kkt_violation(f, v, x, k)` returns the signed screen ``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` at a zero group (that of
-`GroupNormL2`, with the level and the weight passed as separate factors, so that an overflowing finite product is
-recovered) and `abs(v[k])` at an entry in no group. It throws an `ArgumentError` at a nonzero group and in the
-full-point form `kkt_violation(f, v, x)`, and `kkt_violation(f, v, i)` throws the `ArgumentError` of a non-separable
-group function. Layout, count and extent errors are those of `GroupNormL2`.
+At a real array point (a `BlockIterate` and a `SparseIterate` included), `kkt_violation(f, v, x, k)` returns at a zero
+group the signed screen of `GroupNormL2`, with the level and the weight passed as separate factors, so that an
+overflowing finite product is recovered: ``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite data and coefficient, and
+otherwise the rules of that screen (a `NaN` entry gives `NaN`; an infinite entry without a `NaN` gives `Inf`; with a
+stored infinite level or weight, finite entries give `-Inf`). At an entry in no group it returns `abs(v[k])`. At such a point it throws an
+`ArgumentError` at a nonzero group and in the full-point form `kkt_violation(f, v, x)`; `kkt_violation(f, v, i)` throws
+the `ArgumentError` of a non-separable group function. Layout, count and extent errors are those of `GroupNormL2`. A
+`SymmetricSparseIterate` point gives a `MethodError`.
 
 ## [Limitations and non-guarantees](@id spec-groupmcp-limitations)
 
-`GroupMCP` is not convex. The zero-group screen is a first-order score: a zero value does not imply a global
-minimizer. The point-aware score at a nonzero group and the full-point form are not implemented.
+With finite positive parameters the penalty is not convex, and the zero-group screen is a first-order score: a zero
+value does not imply a global minimizer. The point-aware score at a nonzero group and the full-point form are not
+implemented.
 
 `Scaled(GroupMCP(...), α)` multiplies the value by `α` and calls the proximal operator with the effective step
-``\alpha\gamma``. An effective step formed from finite positive factors that leaves the normal range is rounded, as for
-the scalar `MCP`: an overflow reaches the function as `Inf` (each penalized group becomes `+0`), and an underflow as
-zero (the identity). A zero `α` throws an `ArgumentError`. There is no compact block method and no point-aware score
-under `Scaled` (`MethodError`).
+``\alpha\gamma`` as rounded, as for the scalar `MCP`. A product of finite positive factors that leaves the normal range
+is passed on as rounded: a nonzero subnormal step is used as it is, and a step that rounds to `Inf` or to zero follows
+the infinite-step or zero-step row of the endpoint table (each penalized group with positive finite level and weight
+becomes `+0` at `Inf` and is kept at zero, while a stored infinite level or weight still gives `+0`). A negative step
+whose product with `α` rounds to `-0` reaches the function as a zero step. A zero `α` throws an `ArgumentError`. There
+is no compact block method and no point-aware score under `Scaled` (`MethodError`).
 
 ```@example group_mcp
 g = GroupMCP(2.0^-700, [1:2], [1.0])
@@ -180,8 +208,10 @@ g = GroupMCP(2.0^-700, [1:2], [1.0])
 @assert prox_block(g, [0.6, 0.8], 1, 2.0^1023) == [0.6, 0.8]            # a large finite step keeps the group
 ```
 
-There is no `SymmetricSparseIterate` proximal operator, `restrict`, per-group step or array step (`MethodError` for the
-last three). A `SparseIterate` destination is written entry by entry, as for `GroupNormL2`.
+There is no `SymmetricSparseIterate` proximal operator, `restrict`, per-group step or array step. `restrict`, and array
+steps with `Array`, `SparseIterate` and `BlockIterate` arguments, give a `MethodError`; the shared
+`SymmetricSparseIterate` routes reject an array step with an `ArgumentError`. A `SparseIterate` destination is written
+entry by entry, as for `GroupNormL2`.
 
 ## [Clauses owned elsewhere](@id spec-groupmcp-elsewhere)
 
@@ -198,13 +228,15 @@ last three). A `SparseIterate` destination is written entry by entry, as for `Gr
 ## [Evidence](@id spec-groupmcp-evidence)
 
 [`test/groupmcp.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/groupmcp.jl) compares the proximal
-map with an independent BigFloat minimization of the radial objective (the scalar reference of `test/mcp_reference.jl`
-at the exact group norm), by the objective at the computed output within a stated tolerance and, where the reference
-decision is stable under the rounding of the norm, by the output itself. It covers group sizes 1 to 512, permuted and
-noncontiguous groups with entries in no group, exact ties, the endpoint rows, the two scaled-path examples above and
-underflowing or overflowing products, scaling by powers of two across the two paths, singleton groups against `MCP`,
-`Array`, `SparseIterate`, `BlockIterate` and compact blocks, refusals before writes, the fused value against the value
-at the stored output, zero allocations on the ordinary paths, `Scaled`, the refused methods and the zero-group screen.
+map with an independent BigFloat minimization of the radial objective: the scalar reference of
+`test/mcp_reference.jl` (a 256-bit candidate comparison) at the group norm computed in 512-bit BigFloat. It compares the
+objective at the computed output within a stated tolerance and, where the reference decision is stable under the
+rounding of the norm, the output itself. It covers group sizes 1 to 512, permuted and noncontiguous groups with entries
+in no group, exact ties, the endpoint rows, the scaled-path examples above and underflowing or overflowing products, a
+tiny shape whose reciprocal overflows, scaling by powers of two across the two paths, singleton groups against `MCP`,
+`Array`, `SparseIterate`, `BlockIterate` and compact blocks, refusals with the destinations compared to sentinel
+copies, the fused value against the value at the stored output, zero allocations on the ordinary paths, `Scaled`, the
+refused methods and the zero-group screen.
 
 ## [History](@id spec-groupmcp-history)
 

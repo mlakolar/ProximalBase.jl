@@ -5,36 +5,42 @@
 #     PB_ROUNDS=12 julia --startup-file=no --threads=1 --check-bounds=no --project=benchmark benchmark/groupmcp/run.jl
 #
 # Roles: X, GroupMCP of PB_SOURCE; XC, a second compilation of PB_SOURCE (A/A control); R, GroupNormL2 of PB_REFERENCE
-# on the same groups, weights, level and step (a different function with the same data movement). Each root has a src/
-# folder that defines these names with the methods GroupMCP(λ0, groups, w; a), GroupNormL2(λ0, groups, w), f(x), prox!,
-# value_and_prox! and prox_block!(out, f, u, k, γ): a tree with this restoration does, and so does the frozen tree
-# legacy/full (eff21b6d7d33c622313122f46c6ee71693c101ee). Run the candidate and the legacy tree in separate processes
-# with the same PB_REFERENCE (the base of the pull request) and compare them with summarize.py, which pairs the ratios
-# X/R of the two processes on the cases whose outputs agree. PB_REVERSE=1 loads the trees in the order R, XC, X instead
-# of X, XC, R (the other compile order; run it in a fresh process with its own output directory).
+# on the same groups, weights, level and step. R is a different function with a similar pass over the data, not the same
+# data movement: for example, a group kept in place by GroupMCP is not written, while soft shrinkage writes it. PB_SOURCE
+# needs a src/ folder that defines GroupMCP with the methods GroupMCP(λ0, groups, w; a), f(x), prox!, value_and_prox! and
+# prox_block!(out, f, u, k, γ) (a tree with this restoration does, and so does the frozen tree legacy/full,
+# eff21b6d7d33c622313122f46c6ee71693c101ee); PB_REFERENCE needs GroupNormL2(λ0, groups, w) with the same methods. Run the
+# candidate and the legacy tree in separate processes with the same PB_REFERENCE (the base of the pull request) and
+# compare them with summarize.py, which divides the median ratios X/R of the two processes on the cases whose saved
+# outputs agree. PB_REVERSE=1 sets the module load order R, XC, X instead of X, XC, R (run it in a fresh process with its
+# own output directory); the order of the first verification and warmup calls, and of the timed roles, follows ORDERS
+# in both cases.
 #
 # Cases: Float32 and Float64; 4096 entries in groups of 1, 4, 32, 512 or 4096 entries, contiguous (ranges) or permuted
 # (index vectors); shape a = 3, level 0.75, unit weights; steps γ = a/2 (firm), 15a/16 (firm near a) and 3a/2 (hard);
-# regimes zero (every group zeroed), partial (groups zeroed, scaled and kept in turn; zeroed and kept for the hard step)
-# and noshrink (every group kept). A zeroed group has half the zero threshold of its step as its norm, a kept group twice
-# the largest threshold, and a scaled group the midpoint of the firm interval (3% from its ends for γ = 15a/16), so that
-# implementations that decide on the computed norm agree. Each case has
-# PB_INPUTS (default 8) inputs with the same group norms and different directions; the timed samples cycle through them
-# (the setup selects the next one, outside the timing), and the three roles read the same arrays.
+# regimes zero (every group zeroed), partial (groups zeroed, scaled and kept in turn; zeroed and kept for the hard step;
+# with 4096-entry groups the single group is zeroed) and noshrink (every group kept). The target norm of a zeroed group
+# is half the zero threshold of its step, that of a kept group twice the largest threshold, and that of a scaled group
+# the midpoint of the firm interval (aλ/32 from either end for γ = 15a/16); the inputs are these targets along random
+# directions, converted to T, so that implementations that decide on the computed norm agree. Each case has PB_INPUTS
+# (default 8) inputs with the same target norms and different directions; the timed samples cycle through them (the
+# setup selects the next one, outside the timing), and the three roles read the same arrays.
 #
 # Operations: value, prox (into another array), prox_inplace (prox!(x, f, x, γ); the setup restores x), value_and_prox,
 # block_sweep (prox_block! over every group into separate outputs) and block_sweep_inplace (out === u; the setup restores
 # the inputs). Every sample is one call or one sweep (evals = 1). Each round times the roles of every case in an order that
 # repeats every six rounds, the cases in reverse order in even rounds. PB_ROUNDS must be a positive multiple of six.
 #
-# Before timing, each case is run once per role. XC must equal X (isequal); X must match the closed form of the radial map
-# in BigFloat at the exact group norm, entrywise within 16 (m + 8) κ eps(T) max|u| (κ = a/(a - γ) for γ < a, else 1), and its
-# value within 16 (m + K) eps(T) of the BigFloat value; a mismatch stops the script, or, with PB_STRICT=0 (for the legacy
-# tree), is recorded as fail in verification.csv. The outputs of X are written to outputs/ for summarize.py.
-# PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
+# Before timing, each case is run once per role on its first input. XC must equal X (isequal); X must match the closed form
+# of the radial map at the group norm computed in 256-bit BigFloat, entrywise within 16 (m + 8) κ eps(T) max|u|
+# (κ = a/(a - γ) for γ < a, else 1), and its value within 16 (m + K) eps(T) of the BigFloat value (for the fused value,
+# relative to the larger of that value and floatmin(T)); a mismatch stops the script, or, with PB_STRICT=0 (for the legacy
+# tree), is recorded as fail in verification.csv. The outputs of X on the first input are written to outputs/ for
+# summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
 #
-# Output files: provenance.txt, verification.csv, raw.csv (every timing, with the median memory and allocations of the
-# trial), ratios.csv (per round X/R and XC/X) and outputs/<case id with / replaced by _>.bin.
+# Output files: provenance.txt, verification.csv, raw.csv (per round and role, the median and minimum time of the trial,
+# and the memory and allocations that BenchmarkTools reports with the median estimate, taken from the trial's minimum
+# measurements), ratios.csv (per round X/R and XC/X) and outputs/<case id with / replaced by _>.bin.
 using BenchmarkTools, Dates, Random, Statistics
 
 Threads.nthreads() == 1 || error("one Julia thread required")
@@ -137,8 +143,8 @@ end
 group_probes(PB, d) = probes(d, PB.GroupMCP(d.λ0, d.groups, d.w; a = d.a), PB.prox!, PB.value_and_prox!, PB.prox_block!)
 reference_probes(PB, d) = probes(d, PB.GroupNormL2(d.λ0, d.groups, d.w), PB.prox!, PB.value_and_prox!, PB.prox_block!)
 
-# The closed form of the radial map at the exact norm of each group, and the value, in BigFloat (the group norms of the
-# inputs are placed away from the thresholds of their step, as the header states).
+# The closed form of the radial map at the norm of each group, and the value, in BigFloat at the working precision set
+# by the caller (256 bits); the target group norms are placed away from the thresholds of their step, as the header states.
 function bigprox(d, x)
     a, λ, γ = BigFloat(d.a), BigFloat(d.λ0), BigFloat(d.γ)
     y = BigFloat.(x)

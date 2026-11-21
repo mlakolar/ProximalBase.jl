@@ -6,19 +6,22 @@
     GroupMCP(λ0, groups; a = 3)
     GroupMCP(λ0, groups, w; a = 3)
 
-Group minimax concave penalty `f(x) = Σₖ p(‖x[Gₖ]‖₂; λ₀wₖ, a)`, where
-`p(t; λ, a)` is the [`MCP`](@ref) penalty `λt - t²/(2a)` for `t ≤ aλ` and
-`aλ²/2` above. The weight multiplies the level, and `a` is not rescaled.
-Default weights are `wₖ = √|Gₖ|`. Groups are nonempty, disjoint lists or
-ranges of positive linear indices; entries in no group are unpenalized. The
-level and weights are nonnegative and not `NaN`, and `a > 0` (`a = Inf`
-gives the penalty of [`GroupNormL2`](@ref)). The constructor copies `groups`
-and `w`. `GroupMCP` is not convex.
+Group minimax concave penalty `f(x) = Σₖ p(‖x[Gₖ]‖₂; λ₀wₖ, a)`, where, for
+finite positive `λ₀wₖ` and `a`, `p(t; λ, a)` is the [`MCP`](@ref) penalty
+`λt - t²/(2a)` for `t ≤ aλ` and `aλ²/2` above; the endpoint table of the
+numerical contract gives the other cases. The weight multiplies the level, and
+`a` is not rescaled. Default weights are `wₖ = √|Gₖ|`. Groups are nonempty,
+disjoint lists or ranges of positive linear indices; entries in no group are
+unpenalized. The level and weights are nonnegative and not `NaN`, and `a > 0`
+(`a = Inf` gives the penalty of [`GroupNormL2`](@ref)). The constructors copy
+`groups` and `w`. The type trait `isconvex` is false: with finite positive
+parameters the penalty is not convex.
 
-[`prox`](@ref) takes a nonnegative **scalar** step `γ`. With `r = ‖u[Gₖ]‖₂`, it
-replaces `r` by the scalar MCP proximal point of `r`: the group is kept,
-scaled toward zero (`γ < a`), or set to `+0`. [`prox_block`](@ref) takes a
-compact vector in `groups[k]` order and does not update an iterate.
+[`prox`](@ref) takes a nonnegative **scalar** step `γ`. For finite positive
+`λ₀wₖ` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces `r`
+by the scalar MCP proximal point of `r`: the group is kept, scaled toward zero
+(`γ < a`), or set to `+0`. [`prox_block`](@ref) takes a compact vector in
+`groups[k]` order and does not update an iterate.
 
 # Examples
 ```jldoctest
@@ -48,15 +51,17 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
   detected by `Base.mightalias` are rejected.
 - Zero-weight groups stay unchanged. Infinite weights, or an infinite level
   with positive weight, fix a group at `+0`, including at zero step.
-- [`kkt_violation`](@ref) has the zero-group screen `‖v[Gₖ]‖₂ - λ₀wₖ` and
-  `abs(v[i])` for entries in no group; it throws an `ArgumentError` at a
-  nonzero group and in the full-point form. A zero score does not imply a
-  global minimizer.
+- [`kkt_violation`](@ref) has the zero-group screen of `GroupNormL2`
+  (`‖v[Gₖ]‖₂ - λ₀wₖ` for finite data) and `abs(v[i])` for entries in no group;
+  at a real array point it throws an `ArgumentError` at a nonzero group and in
+  the full-point form. A zero score does not imply a global minimizer.
 - No `SymmetricSparseIterate`, `restrict` or per-group steps.
 
 See the [GroupMCP numerical contract](@ref spec-groupmcp) for endpoint and
 range rules.
 """
+struct _GroupMCPOwned end
+
 struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   λ0::T
   a::T
@@ -65,7 +70,8 @@ struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abst
   group_of::Vector{Int}   # group_of[i] = k for i ∈ Gₖ, 0 for an index in no group
   free::Vector{Int}       # the indices up to the largest in a group that are in none
 
-  function GroupMCP{T, G}(λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+  # The route of the outer constructors, which pass groups and weights that they own already.
+  function GroupMCP{T, G}(::_GroupMCPOwned, λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
     _check_one_based_groups(groups)
     length(w) == length(groups) ||
       throw(DimensionMismatch("GroupMCP needs one weight per group: $(length(groups)) groups and $(length(w)) weights"))
@@ -74,6 +80,12 @@ struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abst
     a > 0 || throw(ArgumentError("a must be positive, got $a"))
     group_of = _group_of(groups)
     new{T, G}(λ0, a, groups, w, group_of, findall(iszero, group_of))
+  end
+  # The typed constructor copies each group, the list of groups and the weights, and checks the copies; the copied list
+  # is converted to G.
+  function GroupMCP{T, G}(λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+    _check_one_based_groups(groups)
+    GroupMCP{T, G}(_GroupMCPOwned(), λ0, a, convert(G, map(copy, groups)), copy(w))
   end
 end
 
@@ -87,13 +99,15 @@ function GroupMCP(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}
   a > 0 || throw(ArgumentError("a must be positive, got $a"))
   T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))
   G = _own_groups(groups)
-  GroupMCP{T, typeof(G)}(convert(T, λ0), convert(T, a), G, Vector{T}(w))
+  GroupMCP{T, typeof(G)}(_GroupMCPOwned(), convert(T, λ0), convert(T, a), G, Vector{T}(w))
 end
 
 function GroupMCP(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}; a::Real = 3)
   _check_one_based_groups(groups)
   T = float(promote_type(typeof(λ0), typeof(a)))
-  GroupMCP(λ0, groups, T[sqrt(T(length(G))) for G in groups]; a)
+  # the root of the group size in at least Float64, converted once: a narrow T (Float16) can overflow at the size
+  R = promote_type(T, Float64)
+  GroupMCP(λ0, groups, T[convert(T, sqrt(R(length(G)))) for G in groups]; a)
 end
 
 isproximable(::Type{<:GroupMCP}) = true
@@ -162,8 +176,15 @@ end
 # The plateau term of the ordinary paths, and the term at a norm r; the value and the fused value form them with these
 # expressions.
 @inline _gmcp_plateau(λ, kink) = λ * (kink / 2)
-# (inv(a)/2 does not depend on the group, so a loop over the groups can form it once)
-@inline _gmcp_ordinary_term(r, λ, a, kink) = r < kink ? r * (λ - r * (inv(a) / 2)) : _gmcp_plateau(λ, kink)
+# Below the kink, r (λ - r/(2a)), with r/(2a) formed as r (inv(a)/2) when that factor is a normal number (it does not
+# depend on the group, so a loop over the groups can form it once) and as (r/a)/2 otherwise (a shape near floatmin or
+# floatmax); r/a < λ there, so the second factor stays in [λ/2, λ] up to rounding.
+@inline function _gmcp_ordinary_term(r, λ, a, kink)
+  r < kink || return _gmcp_plateau(λ, kink)
+  h = inv(a) / 2
+  c = (floatmin(h) <= h <= floatmax(h)) ? r * h : (r / a) / 2
+  r * (λ - c)
+end
 
 # y[G] = q x[G] stored, possibly in place, and the sum of the squares of the stored entries
 @inline function _gmcp_scale!(y, x, G, q::T) where {T}
@@ -181,8 +202,9 @@ end
 #  Group values (finite a)
 ####################################
 
-# The term of one group in T and whether it counts for the underflow test of the sum: a term rounded from positive
-# finite parameters at a nonzero group counts; exact zeros and nonfinite terms do not.
+# The term of one group in T and whether it counts for the underflow test of the sum. A term rounded from positive
+# finite parameters at a nonzero group counts, also when it rounds to Inf; zero groups, unpenalized groups, a zero level,
+# hard groups (an infinite weight or level) and NaN groups do not.
 # Ordinary path: homogeneous Float32 or Float64 parameters, a normal level λ = λ0 w and kink aλ, and a sum of squares
 # that _squares_normal accepts. The plateau applies when the computed norm is at least the rounded kink.
 @inline function _gmcp_term(λ0, w, a, x, G, ::Type{T}) where {T}
@@ -193,8 +215,8 @@ end
     if (floatmin(T) <= λ <= floatmax(T)) & (floatmin(T) <= kink <= floatmax(T))
       s = _indexed_sumabs2(x, G, T)
       if isfinite(s) & _squares_normal(s, length(G), T)
-        r = sqrt(s)
-        return (_gmcp_ordinary_term(r, λ, a, kink), true)
+        t = _gmcp_ordinary_term(sqrt(s), λ, a, kink)
+        t >= 0 && return (t, true)      # a negative or NaN term would be a defect of the ordinary formula: recomputed
       elseif iszero(s) && _l2_all_zero(x, G, T)
         return (zero(T), false)
       end
@@ -222,7 +244,7 @@ end
 # out of line: the term of a group that the fused loop recomputes, which keeps its sums out of the loop over the groups
 @noinline _gmcp_term_outofline(λ0, w, a, x, G, ::Type{T}) where {T} = _gmcp_term(λ0, w, a, x, G, T)
 
-# For a = Inf the terms of GroupNormL2 at the level λ0 wₖ; they count where 0 < λ0, wₖ < Inf.
+# For a = Inf the terms of GroupNormL2 at the level λ0 wₖ; they count where 0 < λ0, wₖ < Inf, zero groups included.
 @inline _gmcp_counted(λ0, w) = (zero(λ0) < λ0 < Inf) & (zero(w) < w < Inf)
 @inline function _gmcp_term(f::GroupMCP, x, k::Integer, ::Type{T}) where {T}
   G = @inbounds f.groups[k]
@@ -233,8 +255,10 @@ end
 
 # The ordinary sum v of the terms is returned when it is below floatmax(T)/2 and, for Float32 and Float64, at least n
 # floatmin(T), with n the number of counted terms (the test of GroupNormL2's values, _sum_kept). Otherwise the terms are
-# recomputed as parts and summed with their exponents (_ExpSum, in at least Float64), except for a NaN sum and for
-# an infinite or NaN term, where the ordinary sum is kept.
+# recomputed as parts and summed with their exponents (_ExpSum, in at least Float64); terms that rounded to Inf from
+# positive finite parameters, and the plateau of a finite-shape group with an infinite entry, are recomputed too. The
+# ordinary sum is kept for a NaN sum, a NaN group, a nonzero hard group (an infinite weight or level) and, for a = Inf,
+# a group with an infinite entry.
 @inline function _gmcp_value_checked(f::GroupMCP, x, v::T, n::Int) where {T}
   (_l2_ordinary(v, T) && (!_underflow_checked(T) || _sum_kept(v, n))) && return v
   _gmcp_value_recomputed(f, x, v)
@@ -311,7 +335,8 @@ end
               V || (_l2_scale!(y, x, G, q); return T(_L2_RECOMPUTE))
               sy = _gmcp_scale!(y, x, G, q)
               (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
-              return _gmcp_ordinary_term(sqrt(sy), λ, a, kink)
+              t = _gmcp_ordinary_term(sqrt(sy), λ, a, kink)
+              return t >= 0 ? t : T(_L2_RECOMPUTE)
             end
           else
             _mcp_keeps(r, λ, a, γ) || return T(_l2_zero!(y, G))
@@ -411,13 +436,15 @@ end
     w = @inbounds f.w[k]
     s = _gmcp_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
     if V
-      if s >= 0
-        v += s
-        n += 1
-      elseif s == _L2_RECOMPUTE
+      # the kernel returns the two codes or a term that is not negative (a term that would not be is recomputed);
+      # any other value is added, so that it is not dropped
+      if s == _L2_RECOMPUTE
         t, c = _gmcp_term_outofline(f.λ0, w, f.a, y, G, T)
         v += t
         n += c
+      elseif s != _L2_ZERO
+        v += s
+        n += 1
       end
     end
   end
@@ -483,8 +510,9 @@ kkt_violation(f::GroupMCP, g::AbstractArray, i::Integer) =
 @noinline _gmcp_kkt_point_error() = throw(ArgumentError(
   "kkt_violation(f, v, x) is not implemented for GroupMCP; use kkt_violation(f, v, x, k) at a zero group or an entry in no group"))
 
-# The screen ‖v[G]‖₂ - λ0 wₖ of a zero group (that of GroupNormL2, with the level and the weight passed as factors);
-# a nonzero group throws an ArgumentError.
+# The screen of a zero group, that of GroupNormL2 with the level and the weight passed as factors (‖v[G]‖₂ - λ0 wₖ for
+# finite data and coefficient, with GroupNormL2's rules for NaN and infinite entries and coefficients); a nonzero group
+# throws an ArgumentError.
 @inline function _gmcp_zero_score(f::GroupMCP, g, x, k, ::Type{W}) where {W}
   G = @inbounds f.groups[k]
   _l2_zero_group(x, G, W) || _gmcp_kkt_nonzero_error(k)

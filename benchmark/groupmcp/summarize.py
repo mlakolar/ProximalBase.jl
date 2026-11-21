@@ -7,11 +7,13 @@
 Per case and round the ratios come from ratios.csv; the summary is the median over rounds, with the minimum and maximum.
 With two directories, a case is compared only when the outputs of X in the two processes agree (outputs/*.bin) entrywise
 within 16 (m + 8) kappa eps(T) times the largest magnitude of the candidate output, and for values within 16 (m + K)
-eps(T) relative; kappa is a/(a - gamma) for the firm steps. Cases whose ratio exceeds 1.05 are marked with '!'.
-The median memory and allocations of X (raw.csv) are reported per case.
+eps(T) relative; nonfinite values must be equal (NaN with NaN, infinities of the same sign); kappa is a/(a - gamma) for
+the firm steps. The outputs compared are those of the first input of each case. Cases whose ratio exceeds 1.05 are
+marked with '!'. The memory and allocations of X are those of its last row in raw.csv (the last round).
 """
 import array
 import csv
+import math
 import os
 import statistics
 import sys
@@ -58,13 +60,24 @@ def agree(case, a, b):
     eps, K = EPS[T], TOTAL // m
     scalars = 1 if op in ("value", "value_and_prox") else 0
     for i in range(scalars):
-        if abs(a[i] - b[i]) > 16 * (m + K) * eps * abs(a[i]):
+        x, y = a[i], b[i]
+        if not (math.isfinite(x) and math.isfinite(y)):
+            if not ((math.isnan(x) and math.isnan(y)) or x == y):
+                return False
+            continue
+        if abs(x - y) > 16 * (m + K) * eps * abs(x):
             return False
     rest_a, rest_b = a[scalars:], b[scalars:]
     if not rest_a:
         return True
-    bound = 16 * (m + 8) * KAPPA[step] * eps * max(abs(v) for v in rest_a)
-    return all(abs(x - y) <= bound and (x == 0) == (y == 0) for x, y in zip(rest_a, rest_b))
+    for x, y in zip(rest_a, rest_b):
+        if not (math.isfinite(x) and math.isfinite(y)):
+            if not ((math.isnan(x) and math.isnan(y)) or x == y):
+                return False
+    finite = [abs(v) for v in rest_a if math.isfinite(v)]
+    bound = 16 * (m + 8) * KAPPA[step] * eps * max(finite, default=0.0)
+    return all(abs(x - y) <= bound and (x == 0) == (y == 0)
+               for x, y in zip(rest_a, rest_b) if math.isfinite(x) and math.isfinite(y))
 
 
 def summary(values):

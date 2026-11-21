@@ -1,9 +1,9 @@
 module GroupMCPTest
 # GroupMCP: values, array and compact block proximal operators, the zero-group KKT screen and the refused methods,
-# against independent BigFloat evaluations of
+# against BigFloat evaluations, independent of the package, of
 #   f(x) = Σₖ p(‖x[Gₖ]‖₂; λ0 wₖ, a),   prox_{γf}(u)[Gₖ] = (t*/r) u[Gₖ],  r = ‖u[Gₖ]‖₂,
-# where t* minimizes p(t) + (t - r)²/(2γ) over t ≥ 0 (the scalar reference of mcp_reference.jl, which does not use the
-# package), in Float32 and Float64.
+# where t* minimizes p(t) + (t - r)²/(2γ) over t ≥ 0 (the scalar reference of mcp_reference.jl, a candidate comparison
+# at 256 bits, which does not use the package), with r computed in 512-bit BigFloat, in Float32 and Float64.
 using Test, ProximalBase, Random, OffsetArrays
 using ..TestUtils
 
@@ -19,7 +19,7 @@ biglevel(λ0, w) = setprecision(() -> big(λ0) * big(w), BigFloat, PREC)
 bigp(t, λ, a) = isinf(a) ? λ * t : (t <= a * λ ? λ * t - t^2 / (2 * big(a)) : big(a) * λ^2 / 2)
 
 # The proximal point of one group with finite entries at positive finite λ0, w and γ: the scalar reference at the
-# exact norm, along u.
+# norm computed in 512-bit BigFloat, along u.
 function refgroup(u, λ0, w, a, γ)
   setprecision(BigFloat, PREC) do
     U = big.(u)
@@ -47,7 +47,7 @@ end
 # The checks of one group y = prox at u (finite entries; positive finite λ0, w, γ):
 #  * the objective at y is within tol of the reference minimum, with
 #      tol = (n + 8) eps S (4 + (n + 8) eps κ) + n δ (2r/γ + λ),
-#    S = r²/(2γ) + p(r), κ = a/(a - γ) for γ < a (0 otherwise), n = |G|, δ = nextfloat(zero(T)): the effect of an
+#    S = r²/(2γ) + p(r), κ = a/(a - γ) for finite a and γ < a (0 otherwise), n = |G|, δ = nextfloat(zero(T)): the effect of an
 #    error of (n + 2) eps in the computed norm on the decisions and on the firm point (whose slope is κ), and the
 #    absolute rounding of subnormal outputs;
 #  * when the reference decision is the same at r (1 ± (n + 8) eps), y is u (kept), +0 (zero), or within
@@ -80,20 +80,25 @@ function check_group(y::AbstractVector{T}, u, λ0, w, a, γ) where {T}
   okobj && okdec
 end
 
-# a value within (n + K + 8) eps of the reference and 4K subnormal spacings, for K groups of at most n entries
-# (within that relative distance of floatmax(T), floatmax(T) or Inf)
+# A value against its reference, for K groups of at most n entries, with ρ = (n + K + 8) eps: NaN only for a NaN
+# reference; beyond floatmax(T) (1 + ρ) the infinity of the sign of the reference; within ρ of floatmax(T) that infinity
+# or a finite value within ρ; below, a finite value within ρ of the reference and 4K subnormal spacings.
 function close_value(v::T, ref, n, K) where {T}
+  isnan(ref) && return isnan(v)
+  isnan(v) && return false
   ρ = (n + K + 8) * big(eps(T))
-  abs(ref) > big(floatmax(T)) * (1 - ρ) && v >= floatmax(T) && return true
-  abs(ref) > big(floatmax(T)) * (1 + big(eps(T))) && return v == T(Inf)
-  abs(big(v) - ref) <= ρ * abs(ref) + 4K * big(nextfloat(zero(T)))
+  M = big(floatmax(T))
+  abs(ref) > M * (1 + ρ) && return v == copysign(T(Inf), ref)
+  abs(ref) > M * (1 - ρ) && v == copysign(T(Inf), ref) && return true
+  isfinite(v) && abs(big(v) - ref) <= ρ * abs(ref) + 4K * big(nextfloat(zero(T)))
 end
 
 # The fused value against the value at the stored output, for groups of at most n entries and K groups: the same terms,
 # except that the sum of squares of a group scaled on the ordinary path is accumulated as its entries are stored and can
 # associate differently, within (n + 4) eps of the value (the terms are nonnegative) and 4K subnormal spacings.
-fused_close(v::T, w, n, K) where {T} =
-  isequal(v, w) || abs(big(v) - big(w)) <= (n + 4) * big(eps(T)) * abs(big(w)) + 4K * big(nextfloat(zero(T)))
+# Nonfinite values must be equal (isequal).
+fused_close(v::T, w, n, K) where {T} = isequal(v, w) ||
+  (isfinite(v) && isfinite(w) && abs(big(v) - big(w)) <= (n + 4) * big(eps(T)) * abs(big(w)) + 4K * big(nextfloat(zero(T))))
 
 # a random vector of n entries and norm close to r (r a BigFloat), in T
 function vector_with_norm(rng, ::Type{T}, n, r) where {T}
@@ -260,7 +265,7 @@ end
     s = prox_block(MCP(λ, a), v, 1, γ)
     g = prox_block(GroupMCP(λ, [1:1], T[1]; a), T[v], 1, γ)[1]
     if isfinite(a)
-      # the decisions agree; the firm values within two ulps (the group divides by the norm)
+      # the decisions agree; the firm values within two ulps and a subnormal spacing (the group divides by the norm)
       @test iszero(s) == iszero(g) && (s == v) == (g == v)
       @test abs(g - s) <= 2eps(abs(s)) + δ
     else
@@ -280,7 +285,8 @@ end
 end
 
 @testset "cold-path counterexamples" begin
-  # an overflowing level with a subnormal step: γλ = 2^-60 < r = 2^-30 < aλ, firm
+  # λ = 2^1000 is normal; in units of r = 2^-30 the level (2^1030) overflows, and the step is subnormal:
+  # γλ = 2^-60 < r < aλ, firm
   g = GroupMCP(2.0^1000, [1:1], [1.0])
   y = prox_block(g, [2.0^-30], 1, 2.0^-1060)
   @test y[1] == prox_block(MCP(2.0^1000, 3.0), 2.0^-30, 1, 2.0^-1060) == 2.0^-30 - 2.0^-60
@@ -288,7 +294,8 @@ end
   g2 = GroupMCP(2.0^490, [1:2], [1.0])
   @test prox_block(g2, [2.0^-540, 0.0], 1, 2.0^-1060) == [2.0^-540 - 2.0^-570, 0.0]
   @test check_group(prox_block(g2, [2.0^-540, 0.0], 1, 2.0^-1060), [2.0^-540, 0.0], 2.0^490, 1.0, 3.0, 2.0^-1060)
-  # an underflowing level with a = γ beyond the range of aγ: r² = 2^60 ≤ aγλ² = 2.25 2^60, zero
+  # λ = 2^-993 is normal; in units of r = 2^30 the level (2^-1023) is subnormal, and aγ overflows:
+  # r² = 2^60 ≤ aγλ² = 2.25 2^60, zero
   A = 1.5 * 2.0^1023
   h = GroupMCP(2.0^-993, [1:1], [1.0]; a = A)
   @test prox_block(h, [2.0^30], 1, A) == [0.0]
@@ -304,13 +311,60 @@ end
   # at a = 3 the step is in the hard regime: kept, as r² > aγλ²
   @test prox_block(GroupMCP(1e-200, [1:2], [1e-200]), u, 1, 1e100) == u
   @test check_group(prox_block(GroupMCP(1e-200, [1:2], [1e-200]), u, 1, 1e100), u, 1e-200, 1e-200, 3.0, 1e100)
-  # an overflowed finite product λ = 2e308 is not a stored infinity: r² > aγλ² = 4e296, kept, value aλ²/2 = 2e296
+  # an overflowed finite product λ ≈ 2e308 is not a stored infinity: r² > aγλ² ≈ 4e296, kept, value aλ²/2 ≈ 2e296
   f = GroupMCP(2e154, [1:2], [1e154]; a = 1e-320)
   u2 = [3e300, 4e300]
   @test prox_block(f, u2, 1, 1.0) == u2 && check_group(prox_block(f, u2, 1, 1.0), u2, 2e154, 1e154, 1e-320, 1.0)
   @test prox_block(f, [3e147, 4e147], 1, 1.0) == [0.0, 0.0]
   @test isfinite(f(u2)) && close_value(f(u2), refterm(u2, 2e154, 1e154, 1e-320), 2, 1)
   @test value_and_prox!(similar(u2), f, u2, 1.0) === f(u2)
+end
+
+@testset "typed constructor ownership and default weights" begin
+  # the typed constructor copies the groups, the list of groups and the weights
+  G = [[1], [2]]
+  w = [1.0, 1.0]
+  f = GroupMCP{Float64, typeof(G)}(1.0, 3.0, G, w)
+  @test f.groups !== G && f.groups[1] !== G[1] && f.w !== w
+  G[1][1] = 3
+  w[2] = Inf
+  @test f.groups == [[1], [2]] && f.w == [1.0, 1.0] && f.group_of == [1, 2]
+  @test prox(f, [3.0, 4.0], 1.0) == [3.0, 4.0]
+  R = [1:2, 3:4]
+  @test GroupMCP{Float64, typeof(R)}(1.0, 3.0, R, [1.0, 2.0]).groups == R
+  A = AbstractVector{Int}[[2, 1], 3:4]
+  fa = GroupMCP{Float64, typeof(A)}(1.0, 3.0, A, [1.0, 2.0])
+  @test fa.groups == A && fa.groups[1] !== A[1]
+  # the default weight √|G| without overflowing the group size in a narrow type
+  @test GroupMCP(Float16(1), [1:65536]).w == Float16[256]
+  @test GroupMCP(1f0, [1:2, 1:3 .+ 2]).w == Float32[sqrt(2f0), sqrt(3f0)]
+end
+
+@testset "tiny shapes ($T)" for T in (Float32, Float64)
+  # a = 2^-(E+1) is subnormal and inv(a) overflows; λ = 2^E. At γ = a/2 the input 3/8 is firm (γλ = 1/4 < 3/8 < aλ = 1/2)
+  # with output 1/4, whose value is r (λ - r/(2a)) = (3/16) 2^E
+  E = exponent(floatmax(T))
+  a = ldexp(one(T), -E - 1)
+  λ = ldexp(one(T), E)
+  f = GroupMCP(λ, [1:1], T[1]; a)
+  u = T[3 / 8]
+  y = similar(u)
+  v = value_and_prox!(y, f, u, a / 2)
+  @test y == T[1 / 4] && prox_block(f, u, 1, a / 2) == y
+  @test f(y) == ldexp(T(3 / 16), E) && v == f(y)
+  # with a second group whose plateau overflows, the value is Inf, not NaN
+  g = GroupMCP(λ, [1:1, 2:2], T[1, 4]; a)
+  @test g(T[1 / 4, 3]) === T(Inf)
+  z = similar(u, 2)
+  @test value_and_prox!(z, g, T[3 / 8, 3], a / 2) === T(Inf) && z == T[1 / 4, 3]
+end
+
+@testset "zero-group screen at nonfinite values" begin
+  # an infinite weight: Inf at an infinite gradient entry, NaN at a NaN one, -Inf at finite entries
+  g = GroupMCP(1.0, [1:2], [Inf])
+  @test kkt_violation(g, [Inf, 1.0], zeros(2), 1) === Inf
+  @test isnan(kkt_violation(g, [Inf, NaN], zeros(2), 1))
+  @test kkt_violation(g, [3.0, 4.0], zeros(2), 1) === -Inf
 end
 
 @testset "scaling by powers of two ($T)" for T in (Float32, Float64)
@@ -456,15 +510,25 @@ end
   sentinel() = fill(T(7), 4)
   for (op, args) in ((prox!, ()), (value_and_prox!, ()))
     y = sentinel()
-    @test_throws DimensionMismatch op(fill(T(7), 5), f, x, one(T))
-    @test_throws DimensionMismatch op(fill(T(7), 3), f, T[1, 2, 3], one(T))     # the groups reach index 4
+    y5 = fill(T(7), 5)
+    @test_throws DimensionMismatch op(y5, f, x, one(T))
+    @test y5 == fill(T(7), 5)
+    y3 = fill(T(7), 3)
+    @test_throws DimensionMismatch op(y3, f, T[1, 2, 3], one(T))     # the groups reach index 4
+    @test y3 == fill(T(7), 3)
     for γ in (-one(T), T(NaN), -T(Inf))
       @test_throws ArgumentError op(y, f, x, γ)
     end
-    @test_throws ArgumentError op(zeros(Int, 4), f, x, one(T))               # integer destination
-    @test_throws ArgumentError op(zeros(Rational{Int}, 4), f, x, one(T))
+    yi = fill(7, 4)
+    @test_throws ArgumentError op(yi, f, x, one(T))                  # integer destination
+    @test yi == fill(7, 4)
+    yr = fill(7 // 1, 4)
+    @test_throws ArgumentError op(yr, f, x, one(T))
+    @test yr == fill(7 // 1, 4)
     @test_throws ArgumentError op(y, f, Complex{T}.(x), one(T))
-    @test_throws ArgumentError op(OffsetVector(sentinel(), 0:3), f, x, one(T))
+    yo = OffsetVector(sentinel(), 0:3)
+    @test_throws ArgumentError op(yo, f, x, one(T))
+    @test parent(yo) == sentinel()
     @test y == sentinel()
     buf = T[1, 2, 3, 4, 5]
     @test_throws ArgumentError op(view(buf, 2:5), f, view(buf, 1:4), one(T))  # partial overlap
@@ -477,9 +541,13 @@ end
   for k in (0, 3, -1, true)
     @test_throws BoundsError prox_block!(out, f, T[1, 2], k, one(T))
   end
-  @test_throws DimensionMismatch prox_block!(out, f, T[1, 2, 3], 1, one(T))
-  @test_throws DimensionMismatch prox_block!(fill(T(7), 3), f, T[1, 2], 1, one(T))
-  @test_throws ArgumentError prox_block!(Complex{T}[7, 7], f, T[1, 2], 1, one(T))
+  @test_throws DimensionMismatch prox_block!(out, f, T[1, 2, 3], 1, one(T))    # input length
+  o3 = fill(T(7), 3)
+  @test_throws DimensionMismatch prox_block!(o3, f, T[1, 2], 1, one(T))       # output length
+  @test o3 == fill(T(7), 3)
+  oc = Complex{T}[7, 7]
+  @test_throws ArgumentError prox_block!(oc, f, T[1, 2], 1, one(T))
+  @test oc == Complex{T}[7, 7]
   for γ in (-one(T), T(NaN))
     @test_throws ArgumentError prox_block!(out, f, T[1, 2], 1, γ)
     @test_throws ArgumentError prox_block(f, T[1, 2], 1, γ)
@@ -565,7 +633,7 @@ end
     v = f(u)
     okv = close_value(v, refterm(u, λ0, w, a), n, 1)
     z = similar(u)
-    okf = fused_close(value_and_prox!(z, f, u, γ), f(z), n, 1)
+    okf = fused_close(value_and_prox!(z, f, u, γ), f(z), n, 1) && check_group(z, u, λ0, w, a, γ)
     ncase += 1
     nok += ok & okv & okf
     (ok & okv & okf) || @info "extreme-scale failure" T n λ0 w a γ ok okv okf
@@ -584,9 +652,11 @@ end
       y = similar(x)
       v = value_and_prox!(y, f, x, γ)
       @test fused_close(v, f(y), 5, 4)
-      # mixed precision: the value of the stored output
+      # a Float64 destination: Float32 data take the scaled path, whose fused terms are those of f(y64) for these
+      # cases; Float64 data take the ordinary path, with the tolerance above
       y64 = zeros(Float64, 14)
-      @test value_and_prox!(y64, f, x, γ) === f(y64)         # the scaled path recomputes the terms of the nonzero stored groups
+      v64 = value_and_prox!(y64, f, x, γ)
+      @test T === Float32 ? v64 === f(y64) : fused_close(v64, f(y64), 5, 4)
     end
   end
 end
@@ -609,8 +679,14 @@ end
     u = [0.6, 0.8]
     @test prox(Scaled(g, 2.0^600), u, 2.0^600) == prox(g, u, Inf) == [0.0, 0.0]
     @test prox_block(GroupMCP(2.0^-700, [1:2], [1.0]), u, 1, 2.0^1023) == u
-    # an underflowing effective step rounds to zero: the identity
+    # an underflowing effective step rounds to zero: the identity at this positive finite level and finite weight
     @test prox(Scaled(GroupMCP(1.0, [1:2]), 2.0^-600), u, 2.0^-600) == u
+    # a stored infinite level still gives +0 at that zero step
+    @test isequal(prox(Scaled(GroupMCP(Inf, [1:1], [1.0]), 2.0^-600), [0.5], 2.0^-600), [0.0])
+    # a nonzero subnormal effective step (2^-1025) is used as it is: γλ = 1/4, firm
+    @test prox(Scaled(GroupMCP(2.0^1023, [1:1], [1.0]), 2.0^-512), [0.5], 2.0^-513) == [0.25]
+    # a negative step whose product with the factor rounds to -0 reaches the function as a zero step
+    @test prox(Scaled(GroupMCP(1.0, [1:1], [1.0]), nextfloat(0.0)), [2.0], -0.25) == [2.0]
   end
 end
 

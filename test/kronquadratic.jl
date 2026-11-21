@@ -228,7 +228,8 @@ end
       v, G = value_and_gradient(f, X)
       @test v isa T && G isa Matrix{T}
       @test issymmetric(G)
-      # tolerance: the p² terms of the transposed sum, plus 2p + 4 for the products accumulated before it
+      # a common tolerance chosen for both routes and both value oracles in these cases, (p² + 2p + 4) u times the
+      # sum of absolute terms; p² is the term count of the transposed sum of the accumulating value-only call
       @test abs(f(X) - kron_value(A64, B64, C64, Xm)) <= (p^2 + 2p + 4) * eps(T) * scale
       @test abs(v - kron_value(A64, B64, C64, Xm)) <= (p^2 + 2p + 4) * eps(T) * scale
       @test abs(f(X) - f(Matrix(X))) <= 2 * (p^2 + 2p + 4) * eps(T) * scale
@@ -394,8 +395,9 @@ end
   scores = [kkt_violation(g, Gref, X, k) for k in 1:ncoordinates(X)]
   @test maximum(scores) <= tol
   @test count(iszero, Xm) > 0 && count(!iszero, Xm - Diagonal(Xm)) > 0
-  # the same loop on dense matrices minimizes over all matrices with the gradient A X B + C, a different
-  # feasible set; its KKT scores are checked, and for these data and λ its solution differs
+  # the same loop on dense matrices targets the objective over all matrices, with the gradient A X B + C, a different
+  # feasible set; the checks below establish approximate stationarity of its result and, for these data and λ,
+  # an observed difference from the symmetric result
   Xd = dense_pgd(f, g, p, T, 2000)
   Gd = Float64.(Σx) * Float64.(Xd) * Float64.(Σy) + Float64.(C)
   @test maximum(kkt_violation(g, Gd, Xd, i) for i in 1:p^2) <= tol
@@ -628,6 +630,57 @@ end
   end
   @test isequal(parent(G), before)
   @test_throws "can read" f(padded(T))
+end
+
+@testset "disjoint views, scratch-backed iterates and reads inside wrappers ($T)" for T in (Float32, Float64)
+  f = KronQuadratic(T[2 1; 1 3], T[1 0; 0 2], T[1 2; 2 1])
+  # two slabs of one array are disjoint: accepted, with the values of independent arrays
+  M = zeros(T, 2, 2, 2)
+  M[:, :, 1] = T[1 2; 3 4]
+  X, G = view(M, :, :, 1), view(M, :, :, 2)
+  v, H = value_and_gradient(f, T[1 2; 3 4])
+  for g in (f, Scaled(f, T(2)))
+    @test value_and_gradient!(G, g, X) == (g === f ? v : value_and_gradient(g, T[1 2; 3 4])[1])
+    @test G == (g === f ? H : value_and_gradient(g, T[1 2; 3 4])[2])
+    @test X == T[1 2; 3 4]
+  end
+  # a symmetric iterate whose storage is the function's scratch (built from internal fields) is refused before
+  # writes, on the dense route (p = 1, storage f.X) and on the accumulating route (p = 4, storage f.AX or f.W)
+  h = KronQuadratic(T[2;;], T[3;;])
+  S = SymmetricSparseIterate{T}(vec(h.X), [1], [1], 1, 1)
+  S[1, 1] = 1
+  @test ProximalBase._kron_dense_route(S, 1)
+  G1 = fill(T(7), 1, 1)
+  for op in (gradient!, value_and_gradient!)
+    @test_throws "scratch" op(G1, h, S)
+  end
+  @test_throws "scratch" h(S)
+  @test G1 == T[7;;] && S[1, 1] == 1
+  rng = Xoshiro(29)
+  k = KronQuadratic(random_symmetric(rng, T, 4), random_symmetric(rng, T, 4))
+  for buffer in (k.AX, k.W)
+    n = 10
+    S4 = SymmetricSparseIterate{T}(vec(buffer), [1; zeros(Int, n - 1)], [1; zeros(Int, n - 1)], 1, 4)
+    S4[1, 1] = 1
+    @test !ProximalBase._kron_dense_route(S4, 4)
+    G4 = fill(T(7), 4, 4)
+    @test_throws "scratch" value_and_gradient!(G4, k, S4)
+    @test_throws "scratch" k(S4)
+    @test_throws "scratch" value_and_gradient!(G4, Scaled(k, T(2)), S4)
+    @test all(==(7), G4) && S4[1, 1] == 1
+  end
+  # storage inside wrappers is not checked for readability: a padded reinterpretation inside Symmetric or transpose
+  # throws Base.PaddingError during the call, with the destination and the argument unchanged; the next call is exact
+  for Y in (Symmetric(padded(T), :L), transpose(padded(T)))
+    D = fill(T(7), 2, 2)
+    Yp = copy(parent(parent(Y)))
+    for op in (gradient!, value_and_gradient!)
+      @test_throws Base.PaddingError op(D, f, Y)
+    end
+    @test_throws Base.PaddingError f(Y)
+    @test all(==(7), D) && isequal(parent(parent(Y)), Yp)
+    @test value_and_gradient!(D, f, T[1 2; 3 4]) == v && D == H
+  end
 end
 
 @testset "route predicate at the boundary 2n = p²/8 ($T)" for T in (Float32, Float64)

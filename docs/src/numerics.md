@@ -84,9 +84,10 @@ recomputed. See [LinearFunction range clauses](@ref spec-linear-range) for its f
 answer into a representable result in the working precision.
 
 `KronQuadratic` values and gradients are not among these recovered quadratic
-values: they use ordinary working-precision arithmetic, in which each
-intermediate product and sum is rounded, so a result can be subnormal, zero or
-nonfinite where the exact value is not, depending on the operations. See the
+values: they use ordinary working-precision arithmetic, in which the selected
+kernel rounds its operations (a fused multiply-add rounds once), so a result can
+be subnormal, zero or nonfinite where the exact value is not, depending on the
+operations. See the
 [KronQuadratic range clauses](@ref spec-kronquadratic-range).
 
 The squared-residual recomputation that `SqrNormL2` and the least-squares oracles share has the same kind of

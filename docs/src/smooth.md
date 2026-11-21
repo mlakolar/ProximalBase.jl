@@ -442,8 +442,10 @@ a ``q\times q`` matrix `B` and a ``p\times q`` matrix `C`, zero when omitted.
 three share one element type, `Float32` or `Float64`. The constructor copies
 them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
 ``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
-products ``AX`` and ``(AX)B``, and a value-only call at a sparse symmetric
-iterate uses ``AX`` and ``BX`` without forming ``(AX)B``.
+products ``AX`` and ``(AX)B``. A value-only call at a symmetric iterate with
+``n`` nonzero active values and ``2n\leq p^2/8`` (the accumulating route) uses
+``AX`` and ``BX`` without forming ``(AX)B``; above that cutoff it forms
+``(AX)B`` as well.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
@@ -456,8 +458,8 @@ with the Frobenius inner product:
 ```
 
 This is the full-matrix gradient `G` that the coordinate form
-[`kkt_violation(g, G, X, k)`](@ref kkt_violation) of a penalty `g` reads at a
-symmetric iterate. One coordinate
+[`kkt_violation(g, G, X, k)`](@ref kkt_violation) reads at a symmetric iterate,
+for a penalty `g` that supports that form, such as `NormL1`. One coordinate
 ``(r,c)``, ``r\neq c``, moves the two entries ``X_{rc}`` and ``X_{cr}``
 together, so the derivative of ``q`` along that coordinate is
 ``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. When `C`
@@ -513,16 +515,19 @@ direction ``D``, which is `KronQuadratic(w * W, W, w * (S - W))` evaluated at
 the direction ``D``, not at the new point ``\Theta+D``. The same model written
 as a function of the new point ``Z=\Theta+D`` has a different linear term:
 `KronQuadratic(w * W, W, w * (S - 2W))` at ``Z``, up to a constant, when
-``W\Theta W=W``. The constructor needs `W` and `S` exactly symmetric and of
-one supported precision: a computed `inv(Θ)` of a dense matrix can have
-unequal mirrored entries, so pass, for example, `Matrix(Symmetric(inv(Θ), :L))`.
+``W\Theta W=W``. The constructor checks the matrices passed to it, the
+weighted products included: they must be finite, exactly symmetric and of one
+supported precision, so use a weight `w` of the precision of `W` and `S`. A
+computed `inv(Θ)` of a dense matrix can have unequal mirrored entries; pass,
+for example, `Matrix(Symmetric(inv(Θ), :L))`.
 
 The oracles write scratch matrices that `f` owns: do not call them
 concurrently on one object (see the [ownership table](@ref numerical-usage)). Values and gradients use ordinary
 working-precision arithmetic, without the range recovery of other quadratic
-values: each intermediate product and sum is rounded, so a result can be
-subnormal, zero or nonfinite where the exact value is not, depending on the
-route and the order of the operations. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
+values: the selected kernel rounds its operations in the working precision
+(fused multiply-adds round once), so a result can be subnormal, zero or
+nonfinite where the exact value is not, depending on the route and the order
+of the operations. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
 
 ## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
 

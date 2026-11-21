@@ -30,9 +30,10 @@ wrapper and `matrixview(X)` are `AbstractMatrix` arguments and get `A X B + C`.
 The argument and a gradient destination have the element type `T` of the data.
 `gradient` returns a `Matrix{T}` and `value_and_gradient` returns `(v, G)` with
 `v::T` and `G::Matrix{T}`. `gradient!` and `value_and_gradient!` write into a
-strided `p × q` matrix, row-strided views included, that Base can read and write
-and that shares no memory with the argument (including the arrays inside a
-structured argument), `A`, `B`, `C` or the scratch of `f`. There is no proximal operator.
+strided `p × q` matrix, row-strided views included, that shares no memory with the
+argument (including the backing vectors of `Diagonal`, `Bidiagonal`,
+`SymTridiagonal` and `Tridiagonal` arguments), `A`, `B`, `C` or the scratch of `f`.
+There is no proximal operator.
 
 `f` is convex when `A` and `B` are both positive semidefinite or both negative
 semidefinite. [`isconvex`](@ref) returns `false` because the constructor does
@@ -42,6 +43,14 @@ working-precision approximation, which can round below it.
 
 The oracles use scratch matrices stored in `f`: do not call them concurrently on one
 object. An argument that shares memory with that scratch throws `ArgumentError`.
+
+The checks before writes cover the arrays the caller passes: `G`, the argument,
+`A`, `B` and `C`. A reinterpretation passed as `G`, directly or through views and
+reshapes, must be one Base can read and write; one passed as the argument must be
+one Base can read. Storage inside other wrappers is not checked: if a read of it
+fails during the call, for example a padded reinterpretation inside `Symmetric` or
+`transpose`, the call throws that error with `G` and the argument unchanged, and
+the scratch of `f` may be partly written (the next call overwrites it).
 
 # Examples
 ```jldoctest
@@ -65,7 +74,7 @@ struct KronQuadratic{T<:Union{Float32, Float64}, MC<:Union{Nothing, Matrix{T}}} 
   csym::Bool          # whether C is nothing, or square and exactly symmetric
   X::Matrix{T}        # scratch: the copy of the argument on the copy routes
   AX::Matrix{T}       # scratch: A X
-  W::Matrix{T}        # scratch: A X B (plus C before a copy into a strided destination), or B X
+  W::Matrix{T}        # scratch: A X B (plus C before the copy into a destination off the direct route), or B X
 
   function KronQuadratic(A::AbstractMatrix, B::AbstractMatrix, C::Union{Nothing, AbstractMatrix} = nothing)
     T = _kron_eltype(A, B, C)
@@ -115,7 +124,7 @@ lipschitz(f::KronQuadratic) = _opnorm_upper(f.A) * _opnorm_upper(f.B)
     ProximalBase.kronquadratic_data(f::KronQuadratic)
 
 Return `(; A, B, C)`: the matrices that `f` stores, not copies, with `C === nothing`
-when the linear coefficient was omitted. Treat them as read-only: they are ordinary
+when the linear coefficient was omitted or passed as `nothing`. Treat them as read-only: they are ordinary
 mutable matrices, and a change to them changes `f` without the checks of the constructor.
 
 # Examples
@@ -142,24 +151,33 @@ _kron_checksize(f::KronQuadratic, X, name) = size(X) == size(f) || _kron_size_er
   throw(ArgumentError("KronQuadratic $what must have the element type $T of its data, not $S; convert first, for example with $T.($name)"))
 
 # A reinterpreted array whose parent has padding can be writable and not readable, or the reverse
-# (Base.PaddingError). The check uses Base's own tests, through SubArray and ReshapedArray wrappers, before any write.
-_kron_accessible(A) = true
-_kron_accessible(A::Union{SubArray, Base.ReshapedArray}) = _kron_accessible(parent(A))
-function _kron_accessible(A::Base.ReinterpretArray)
+# (Base.PaddingError). The check uses Base's own tests on a caller-visible reinterpretation, also seen through
+# SubArray and ReshapedArray wrappers, before any write; it does not look inside other wrappers (Symmetric,
+# Transpose, structured matrices), whose reads can still throw during the call.
+_kron_accessible(A, write) = true
+_kron_accessible(A::Union{SubArray, Base.ReshapedArray}, write) = _kron_accessible(parent(A), write)
+function _kron_accessible(A::Base.ReinterpretArray, write)
   try
     Base.check_readable(A)
-    Base.check_writable(A)
+    write && Base.check_writable(A)
   catch e
     e isa Base.PaddingError || rethrow()
     return false
   end
-  _kron_accessible(parent(A))
+  _kron_accessible(parent(A), write)
 end
 
-# Whether a may share memory with the array buf, including through the parents of wrappers and the vectors inside
-# structured matrices (_smooth_kkt_overlap), or through the storage of a symmetric iterate.
-_kron_overlap(buf, a) = _smooth_kkt_overlap(buf, a)
+# Whether a may share memory with the array buf. Base.mightalias sees the storage of arrays and views, and keeps
+# the disjointness of distinct views of one parent. Structured matrices whose backing vectors it does not report
+# are checked through those vectors, also inside Symmetric, Hermitian, triangular, Transpose and Adjoint wrappers.
+_kron_overlap(buf, a) = Base.mightalias(buf, a) || _kron_backing_overlap(buf, a)
 _kron_overlap(buf, a::SymmetricSparseIterate) = Base.mightalias(buf, a)
+_kron_backing_overlap(buf, a) = false
+_kron_backing_overlap(buf, a::Union{Symmetric, Hermitian, UpperTriangular, LowerTriangular, UnitUpperTriangular,
+                                    UnitLowerTriangular, Transpose, Adjoint}) = _kron_overlap(buf, parent(a))
+_kron_backing_overlap(buf, a::Diagonal) = _kron_overlap(buf, a.diag)
+_kron_backing_overlap(buf, a::Union{Bidiagonal, SymTridiagonal}) = _kron_overlap(buf, a.dv) || _kron_overlap(buf, a.ev)
+_kron_backing_overlap(buf, a::Tridiagonal) = _kron_overlap(buf, a.dl) || _kron_overlap(buf, a.d) || _kron_overlap(buf, a.du)
 _kron_scratch_overlap(f::KronQuadratic, a) = _kron_overlap(f.X, a) || _kron_overlap(f.AX, a) || _kron_overlap(f.W, a)
 @noinline _kron_scratch_error(name) =
   throw(ArgumentError("KronQuadratic $name must not share memory with the scratch of the function"))
@@ -168,7 +186,7 @@ function _kron_check_input(f::KronQuadratic{T}, X::AbstractMatrix) where {T}
   eltype(X) === T || _kron_type_error("input", eltype(X), T, "X")
   _check_one_based(X)
   _kron_checksize(f, X, "X")
-  _kron_accessible(X) || throw(ArgumentError("KronQuadratic requires an input that Base can read, not a $(typeof(X))"))
+  _kron_accessible(X, false) || throw(ArgumentError("KronQuadratic requires an input that Base can read, not a $(typeof(X))"))
   _kron_scratch_overlap(f, X) && _kron_scratch_error("input")
   nothing
 end
@@ -180,6 +198,7 @@ function _kron_check_input(f::KronQuadratic{T}, X::SymmetricSparseIterate) where
   _kron_checksize(f, X, "X")
   f.csym || throw(ArgumentError("KronQuadratic at a SymmetricSparseIterate requires an exactly symmetric C; " *
                                 "construct it with a symmetric C, for example (C + C')/2"))
+  _kron_scratch_overlap(f, X) && _kron_scratch_error("input")
   nothing
 end
 
@@ -188,7 +207,7 @@ function _kron_check_output(G, f::KronQuadratic{T}, X) where {T}
   eltype(G) === T || _kron_type_error("gradient output", eltype(G), T, "G")
   _check_one_based(G)
   _kron_checksize(f, G, "G")
-  _kron_accessible(G) || throw(ArgumentError("KronQuadratic requires a gradient output that Base can read and write, not a $(typeof(G))"))
+  _kron_accessible(G, true) || throw(ArgumentError("KronQuadratic requires a gradient output that Base can read and write, not a $(typeof(G))"))
   (G === X || _kron_overlap(G, X)) && throw(ArgumentError("the gradient must not overwrite x"))
   _kron_scratch_overlap(f, G) && _kron_scratch_error("gradient output")
   (Base.mightalias(G, f.A) || Base.mightalias(G, f.B) || (f.C !== nothing && Base.mightalias(G, f.C))) &&
@@ -201,8 +220,8 @@ end
 ####################################
 
 # The direct route takes a strided matrix with unit first stride and a column stride of at least max(1, rows), which
-# mul! can pass to BLAS for eligible sizes; any other argument is copied into f.X first, and any other destination
-# receives a copy of the result.
+# mul! can pass to BLAS for eligible sizes. An accepted matrix argument that fails this test is copied into f.X
+# first, and an accepted destination that fails it receives a copy of the result from f.W.
 @inline _kron_blas(X) = false
 @inline _kron_blas(X::StridedMatrix) = stride(X, 1) == 1 && stride(X, 2) >= max(1, size(X, 1))
 
@@ -256,8 +275,8 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 # column over the active coordinates (_kron_left!), they cost at most 4pn flops for n nonzero active values,
 # in axpy loops. After a dense copy, a matrix product costs about 2p³ flops. The heuristic takes the dense route
 # when 2n > p²/8: up to that point the column route does at most about an eighth of the flops of the product it
-# replaces, which leaves room for the lower throughput per flop of an axpy loop. Counting the nonzero values
-# needs no coordinate conversion.
+# replaces, which leaves room for a potentially lower throughput per flop of an axpy loop, depending on the sizes
+# and kernels. Counting the nonzero values needs no coordinate conversion.
 function _kron_dense_route(X::SymmetricSparseIterate, p::Int)
   vals = activevalues(X)
   n = 0
@@ -331,8 +350,8 @@ function _kron_stored_value(W::Matrix{T}, C, X::SymmetricSparseIterate{T}) where
   s / 2 + t
 end
 
-# Σᵢⱼ P[i, j] Q[j, i] = ⟨P, Qᵀ⟩ of two p × p matrices, in 32 × 32 tiles, each summed on its own before it
-# is added to the total.
+# Σᵢⱼ P[i, j] Q[j, i] = ⟨P, Qᵀ⟩ of two p × p matrices, in tiles of up to 32 × 32 entries, each summed on its
+# own before it is added to the total.
 function _kron_transposed_dot(P::Matrix{T}, Q::Matrix{T}) where {T}
   p = size(P, 1)
   s = zero(T)
@@ -350,7 +369,7 @@ end
 @inline _kron_dense_copy_value(f::KronQuadratic, D, W) =
   (v = dot(D, W) / 2; f.C === nothing ? v : v + dot(f.C, D))
 
-# The value ⟨X, A X B⟩/2 + ⟨C, X⟩. Without a GEMM on the sparse route: with X, A and B symmetric,
+# The value ⟨X, A X B⟩/2 + ⟨C, X⟩. Without a matrix product on the accumulating route: with X, A and B symmetric,
 # ⟨X, A X B⟩ = tr(A X B X) = Σᵢⱼ (A X)[i, j] (B X)[j, i].
 function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
@@ -412,7 +431,8 @@ for S in (AbstractMatrix, SymmetricSparseIterate)
     v, G
   end
 end
-# The same for Scaled, with the checks of the function inside; the gradient is then written by Scaled.
+# The methods below do the same for a matrix argument of Scaled(f) and of Scaled(Scaled(f)), with the checks of f;
+# the gradient is then written by Scaled. Other wrappers and symmetric iterates use the generic allocating oracles.
 const _ScaledKron = Union{Scaled{<:KronQuadratic}, Scaled{<:Scaled{<:KronQuadratic}}}
 _kron_leaf(f::KronQuadratic) = f
 _kron_leaf(s::Scaled) = _kron_leaf(s.f)

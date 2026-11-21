@@ -696,7 +696,7 @@ has each measured trial; the trial that warms each call before the rounds is not
 Before timing, the script compares the outputs at the first of the eight arguments of each case: the
 control must reproduce the candidate's outputs (`isequal`), and the archive must agree within
 `1000 eps(T)` relative (`isapprox`, norm-relative for the gradient). An archive that does not load, or
-has no `KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads the
+defines no module `ProximalBase` with `KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads the
 candidate before the archive and times it first in odd rounds (even rounds reverse the order);
 `PB_FILTER` selects cases by a regular expression on their ids;
 `PB_CHECK_ONLY=1` stops after the output checks; `PB_QUICK=1` runs small sizes for one round.

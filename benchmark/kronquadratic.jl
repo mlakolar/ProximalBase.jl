@@ -8,7 +8,7 @@
 #
 # The trees are loaded with Base.include into their own modules, as benchmark/run.jl does, in the order archive,
 # candidate, control (PB_REVERSE=1: candidate, archive, control, also the timing order of odd rounds). An archive
-# that does not load, or that has no KronQuadratic, is reported and its cells are timed without it. Each round times
+# that does not load, or that defines no module ProximalBase with KronQuadratic, is reported and its cells are timed without it. Each round times
 # the roles of each case in alternating order (reversed in even rounds) and keeps per role the median and the minimum over the samples of
 # its trial. A case cycles through COPIES distinct arguments, so that consecutive calls do not repeat their input;
 # the roles share the dense arguments, the data and the output, and build their own iterates from the same
@@ -45,9 +45,11 @@ else
   load(Candidate, candidate_root) === nothing || error("the candidate does not load")
 end
 load(CandidateControl, candidate_root) === nothing || error("the control does not load")
-archive_error === nothing && !isdefined(Archive.ProximalBase, :KronQuadratic) &&
-  (archive_error = "no KronQuadratic in $archive_root")
-isdefined(Candidate.ProximalBase, :KronQuadratic) || error("the candidate has no KronQuadratic")
+# whether a loaded tree defines the module ProximalBase with KronQuadratic
+has_kron(m) = isdefined(m, :ProximalBase) && isdefined(getfield(m, :ProximalBase), :KronQuadratic)
+archive_error === nothing && !has_kron(Archive) && (archive_error = "no ProximalBase.KronQuadratic in $archive_root")
+has_kron(Candidate) || error("the candidate has no ProximalBase.KronQuadratic")
+has_kron(CandidateControl) || error("the control has no ProximalBase.KronQuadratic")
 archive_error === nothing || println("archive skipped: ", archive_error)
 const ROLES = archive_error === nothing ? (:archive, :candidate, :control) : (:candidate, :control)
 const MODULES = Dict(:archive => Archive, :candidate => Candidate, :control => CandidateControl)

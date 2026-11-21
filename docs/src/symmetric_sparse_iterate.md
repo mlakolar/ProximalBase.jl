@@ -172,8 +172,8 @@ sufficient to accept a symmetric iterate.
 for `p = q` and, when `C` is supplied, an exactly symmetric `C`. Its gradient
 there is `(A X B + B X A)/2 + C`, a dense matrix whose mirrored entries receive
 the same computed value, `NaN` included (so `issymmetric` holds for results
-without `NaN`). It differs from the gradient `A X B + C` that `matrixview(x)`
-gets as a matrix argument when `A X B` is not symmetric; see
+without `NaN`). In exact arithmetic it differs from the gradient `A X B + C` that
+`matrixview(x)` gets as a matrix argument when `A X B` is not symmetric; see
 [Kronecker quadratic](@ref Kronecker-quadratic).
 
 When a supported `Scaled` gradient oracle writes to a symmetric iterate,

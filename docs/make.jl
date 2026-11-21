@@ -104,6 +104,10 @@ makedocs(;
             "BlockIterate internals" => "developer/block_storage.md",
             "Coordinate views and aliasing" => "developer/views_aliasing.md",
             "Function and oracle dispatch" => "developer/oracle_dispatch.md",
+            "Numerical routines" => "developer/routines/index.md",
+            "Scaled products" => "developer/routines/scaled-products.md",
+            "Squared residuals in power-of-two units" => "developer/routines/squared-residuals.md",
+            "The shared ℓ₁-ball level" => "developer/routines/l1-ball-level.md",
         ],
         "Numerical contracts" => [
             "How to read the contracts" => "spec/index.md",
@@ -133,6 +137,7 @@ makedocs(;
             "IndBallL2" => "spec/indballl2.md",
             "LogDetLoss" => "spec/logdet.md",
             "LogisticLoss" => "spec/logisticloss.md",
+            "PoissonLoss" => "spec/poissonloss.md",
             "GroupNormLinf" => "spec/groupnormlinf.md",
             "SparseGroupNormL2" => "spec/sparsegroupnorml2.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",

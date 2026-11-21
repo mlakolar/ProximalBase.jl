@@ -172,6 +172,14 @@ that happens to pass.
   scope awaits the owner's decision. [Source](../../../src/functions/sparsegroupnorml2.jl)
   · [Tests](../../../test/sparsegroupnorml2.jl)
 
+- The SparseGroupNormL2 KKT endpoint paragraph says “For finite entries”.
+  This could refer to stored inputs or to values after conversion to the
+  working type. The score classifies converted gradient and point entries.
+  The shared group-score tests include a finite integer point that becomes
+  infinite in `Float16`. The scope awaits the owner's decision.
+  [Source](../../../src/functions/sparsegroupnorml2.jl)
+  · [Shared group-score tests](../../../test/kkt_block.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

@@ -294,7 +294,8 @@ the files consistent with each other is outside these checks.
 
 ## Rerun
 
-Run from the package root. Set the pinned identity and the directories once in the shell, replacing the placeholders.
+Run from the package root. The commands of a block that depend on each other are chained with `&&` (the loop of step 5
+stops at a failed process), so that such a block stops at its first failure. Set the pinned identity and the directories once in the shell, replacing the placeholders.
 `OUT` holds the campaign output of all Julia versions and `SMOKE` the smoke-check output, outside `OUT`. Run each Julia
 block once per Julia version, with that version's `julia` first on the `PATH` (the generator and the reference on 1.13.4
 only):
@@ -309,8 +310,8 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    groups, not the campaign; the SHAs may be unset with `PB_CHECK_ONLY=1`):
 
    ```
-   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" julia --threads=1 --project=. "$D/generate.jl"
-   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" PB_OUTPUT="$SMOKE/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" julia --threads=1 --project=. "$D/generate.jl" &&
+   PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" PB_OUTPUT="$SMOKE/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" &&
    PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/inputs" PB_OUTPUTS="$SMOKE/$V/outputs-$V" julia --threads=1 --project=. "$D/accuracy.jl"
    ```
 
@@ -325,12 +326,13 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    `PB_FILTER=c1078` into a directory outside `OUT`, so that they do not replace the full index:
 
    ```
-   PB_GROUP=outputs PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
-   PB_INPUTS="$INPUTS" PB_OUTPUTS="$OUT/$V/outputs-$V" julia --threads=1 --project=. "$D/accuracy.jl"
+   PB_GROUP=outputs PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" &&
+   PB_INPUTS="$INPUTS" PB_OUTPUTS="$OUT/$V/outputs-$V" julia --threads=1 --project=. "$D/accuracy.jl" &&
    python3 -I "$D/summarize.py" "$OUT/$V/outputs-$V" --tables-only --manifest "$INPUTS/inputs-index.tsv"
    ```
 
-4. Reference optima, once on Julia 1.13.4, and the iteration counts, per Julia version (both in `$OUT/reference`):
+4. Reference optima, once on Julia 1.13.4 (the first command; the harness refuses it on another version), and the
+   iteration counts, per Julia version (the second command); the two are independent, and both write to `$OUT/reference`:
 
    ```
    PB_GROUP=admm_reference PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V" PB_REFERENCE="$OUT/reference" julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
@@ -345,7 +347,7 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    for order in S_first C_first; do
      for proc in 1 2 3; do
        PB_ORDER="$order" PB_PROC="$proc" PB_INPUTS="$INPUTS" PB_OUTPUT="$OUT/$V/timings-$order-$proc" PB_REFERENCE="$OUT/reference" \
-         julia --threads=1 --check-bounds=no --project=. "$D/harness.jl"
+         julia --threads=1 --check-bounds=no --project=. "$D/harness.jl" || break 2
      done
    done
    ```
@@ -360,13 +362,13 @@ export D=docs/audit/wide-leastsquares-solves-1103 V="$(julia -e 'print(VERSION)'
    kept with the raw results:
 
    ```
-   python3 -I "$D/summarize.py" --gather "$OUT" "$SUM" --inputs "$INPUTS/inputs-index.tsv"
+   python3 -I "$D/summarize.py" --gather "$OUT" "$SUM" --inputs "$INPUTS/inputs-index.tsv" &&
    python3 -I "$D/summarize.py" "$SUM" --source-sha "$PB_SOURCE_SHA" --harness-sha "$PB_HARNESS_SHA" --manifest "$SUM/inputs-index.tsv"
    ```
 
-   The summary command writes `tables.md`, `per-process-ratios.tsv` and `verdict.json` into `$SUM` when the preflight
-   passes, and otherwise lists the problems and exits with status 2. The 8-thread diagnostic and other partial data are
-   summarized apart with `python3 -I "$D/summarize.py" "<diagnostic dir>" --tables-only --manifest "$INPUTS/inputs-index.tsv"`,
+   The summary command, which runs only when the gather succeeded, writes `tables.md`, `per-process-ratios.tsv` and
+   `verdict.json` into `$SUM` when the preflight passes, and otherwise lists the problems and exits with status 2. The
+   8-thread diagnostic and other partial data are summarized apart with `python3 -I "$D/summarize.py" "<diagnostic dir>" --tables-only --manifest "$INPUTS/inputs-index.tsv"`,
    which writes `tables-partial.md`.
 
 Environment variables of `harness.jl`: `PB_INPUTS`, `PB_OUTPUT` (required unless `PB_CHECK_ONLY=1`), `PB_REFERENCE`

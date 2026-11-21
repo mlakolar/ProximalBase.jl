@@ -61,7 +61,7 @@ Criteria as implemented (the plan is the reference; see the README):
 """
 import argparse
 import collections
-import glob
+import fnmatch
 import hashlib
 import json
 import math
@@ -354,13 +354,20 @@ class Problems:
 # The checksum list
 # ---------------------------------------------------------------------------------------------------------------------
 
+def find_files(root, pattern):
+    """The files under root (a literal path, not a pattern) whose base name matches pattern, sorted."""
+    out = []
+    for d, _dirs, files in os.walk(root):
+        out.extend(os.path.join(d, f) for f in files if fnmatch.fnmatchcase(f, pattern))
+    return sorted(out)
+
+
 def campaign_files(root):
     """The files under root that match ALLOWLIST, as paths relative to root with / separators."""
     out = set()
     for pat in ALLOWLIST:
-        for p in glob.glob(os.path.join(root, "**", pat), recursive=True):
-            if os.path.isfile(p):
-                out.add(os.path.relpath(p, root).replace(os.sep, "/"))
+        for p in find_files(root, pat):
+            out.add(os.path.relpath(p, root).replace(os.sep, "/"))
     return sorted(out)
 
 
@@ -394,10 +401,12 @@ def gather_plan(src, dst, inputs):
     """The source -> destination mapping of a gather, built before anything is copied. It refuses a destination that
     exists and is not empty, a manifest other than `inputs` in the producer tree (or no single manifest when `inputs` is
     not given), two sources with the same destination, an outputs file outside a directory named outputs-<julia>, and a
-    kind of file that the tree does not hold."""
+    kind of file that the tree does not hold, an outputs index, failures index or accuracy file without the other two in
+    its source directory, and a reference file without its z binary beside it (or the reverse). The roots are literal
+    paths: the files are found by walking them and matching base names."""
     if os.path.exists(dst) and (not os.path.isdir(dst) or os.listdir(dst)):
         raise GatherError("the destination %s exists and is not an empty directory" % dst)
-    manifests = sorted(p for p in glob.glob(os.path.join(src, "**", "inputs-index.tsv"), recursive=True) if os.path.isfile(p))
+    manifests = find_files(src, "inputs-index.tsv")
     if inputs:
         if not os.path.isfile(inputs):
             raise GatherError("--inputs %s is not a file" % inputs)
@@ -412,7 +421,7 @@ def gather_plan(src, dst, inputs):
     plan = {os.path.join(dst, "inputs-index.tsv"): man}
     problems = []
     for kind, pat, sub in GATHER_KINDS:
-        found = sorted(p for p in glob.glob(os.path.join(src, "**", pat), recursive=True) if os.path.isfile(p))
+        found = find_files(src, pat)
         if kind == "reference":
             found = [p for p in found if not p.endswith("-z.f64")]
         if not found:
@@ -429,6 +438,21 @@ def gather_plan(src, dst, inputs):
                 problems.append("%s and %s would both be copied to %s" % (plan[target], p, os.path.relpath(target, dst)))
                 continue
             plan[target] = p
+    # companions stay together: an outputs index, its failures index and one accuracy file share a source directory, and
+    # a reference file and its z binary share one
+    by_dir = collections.defaultdict(list)
+    for p in find_files(src, "outputs-index.tsv") + find_files(src, "outputs-failures.tsv") + find_files(src, "accuracy-*.tsv"):
+        by_dir[os.path.dirname(p)].append(os.path.basename(p))
+    for d, names in sorted(by_dir.items()):
+        acc = [n for n in names if n.startswith("accuracy-")]
+        if "outputs-index.tsv" not in names or "outputs-failures.tsv" not in names or len(acc) != 1:
+            problems.append("%s does not hold one outputs index, one failures index and one accuracy file together (%s)" % (d, ", ".join(sorted(names))))
+    for p in find_files(src, "reference-*.tsv"):
+        if not os.path.isfile(p[:-len(".tsv")] + "-z.f64"):
+            problems.append("the reference %s has no z binary beside it" % p)
+    for p in find_files(src, "reference-*-z.f64"):
+        if not os.path.isfile(p[:-len("-z.f64")] + ".tsv"):
+            problems.append("the z binary %s has no reference file beside it" % p)
     if problems:
         raise GatherError("; ".join(problems))
     return plan
@@ -1123,28 +1147,28 @@ class Campaign:
         self.procs, self.untimed, self.refs, self.outputs, self.acc_files = {}, {}, {}, {}, {}
         self.acc, self.notes = {}, []
 
-    def glob(self, pattern):
-        return sorted(glob.glob(os.path.join(self.root, "**", pattern), recursive=True))
+    def find(self, pattern):
+        return find_files(self.root, pattern)
 
     def load_files(self, P):
         """Class 2: parse every file. Returns the parsed objects (a file with a problem is marked in P)."""
         man, pins, verdict = self.man, self.pins, self.verdict
         parsed = {"timings": [], "untimed": [], "references": [], "outputs": [], "accuracy": []}
-        for path in self.glob("inputs-index.tsv"):
+        for path in self.find("inputs-index.tsv"):
             if man is not None and os.path.abspath(path) != os.path.abspath(man.path) and sha256_file(path) != man.sha256:
                 P.add(os.path.relpath(path, self.root), "another manifest in the campaign directory")
-        for path in self.glob("timings-*.tsv"):
+        for path in self.find("timings-*.tsv"):
             parsed["timings"].append((path, parse_timing(path, man, pins, verdict, P)))
-        for path in self.glob("admm-untimed-*.tsv"):
+        for path in self.find("admm-untimed-*.tsv"):
             parsed["untimed"].append((path, parse_untimed(path, man, pins, verdict, P)))
-        for path in self.glob("reference-*.tsv"):
+        for path in self.find("reference-*.tsv"):
             parsed["references"].append((path, parse_reference(path, man, pins, P)))
-        for path in self.glob("outputs-index.tsv"):
+        for path in self.find("outputs-index.tsv"):
             parsed["outputs"].append((path, parse_outputs(path, man, pins, verdict, P)))
-        for path in self.glob("outputs-failures.tsv"):
+        for path in self.find("outputs-failures.tsv"):
             if not os.path.isfile(os.path.join(os.path.dirname(path), "outputs-index.tsv")):
                 P.add(os.path.relpath(path, self.root), "failures index without an outputs index in its directory")
-        for path in self.glob("accuracy-*.tsv"):
+        for path in self.find("accuracy-*.tsv"):
             parsed["accuracy"].append((path, parse_accuracy(path, man, pins, verdict, P)))
         return parsed
 
@@ -2164,7 +2188,7 @@ def run_tables_only(args):
     root = args.dir
     pins = {"source_sha": args.source_sha, "harness_sha": args.harness_sha}
     P = Problems()
-    paths = [args.manifest] if args.manifest else sorted(glob.glob(os.path.join(root, "**", "inputs-index.tsv"), recursive=True))
+    paths = [args.manifest] if args.manifest else find_files(root, "inputs-index.tsv")
     man = None
     for path in paths:
         man = load_manifest(path, P)

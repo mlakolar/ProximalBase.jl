@@ -698,7 +698,7 @@ end
   end
 end
 
-@testset "route predicate at the boundary 2n = p²/8 ($T)" for T in (Float32, Float64)
+@testset "route predicates at the boundaries 2n = p²/8 and, for the value, 2n = p²/16 ($T)" for T in (Float32, Float64)
   p = 8                                         # p²/8 = 8: n = 4 accumulates, n = 5 takes the dense copy
   X = SymmetricSparseIterate(T, p)
   for k in 1:4
@@ -707,11 +707,17 @@ end
   @test !ProximalBase._kron_dense_route(X, p)
   X[8, 1] = 1
   @test ProximalBase._kron_dense_route(X, p)
-  # both routes agree with the formula on each side of the boundary
+  # the value-only cutoff 2n = p²/16 = 4: n = 2 accumulates, n = 3 takes the dense copy
+  Yv = SymmetricSparseIterate(T, p)
+  Yv[2, 1] = 1; Yv[3, 3] = 2
+  @test !ProximalBase._kron_dense_route(Yv, p, 32)
+  Yv[5, 4] = 3
+  @test ProximalBase._kron_dense_route(Yv, p, 32)
+  # both routes agree with the formula on each side of both boundaries (n = 2, 3 for the value; n = 4, 5 for the gradient)
   rng = Xoshiro(17)
   f = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, p), random_symmetric(rng, T, p))
   d = ProximalBase.kronquadratic_data(f)
-  for n in (4, 5)
+  for n in (2, 3, 4, 5)
     Y = SymmetricSparseIterate(T, p)
     for k in 1:n
       Y[k + 1, k] = T(k) / 4

@@ -105,7 +105,8 @@ when ``2n\leq p^2/8`` (the accumulating route), and formed by `mul!` on a
 dense copy otherwise. A zero coefficient, stored or absent, contributes
 nothing to that accumulation. The gradient then forms ``(AX)B`` with `mul!`;
 on the accumulating route its value is a pass over the stored entries. A
-value-only call on the accumulating route forms ``AX`` and ``BX`` over the
+value-only call takes the accumulating route when ``2n\leq p^2/16`` (it
+accumulates two products); there it forms ``AX`` and ``BX`` over the
 active coordinates and sums ``\sum_{ij}(AX)_{ij}(BX)_{ji}`` in tiles of up to
 ``32\times32`` entries, without forming ``(AX)B``. Results are rounded in
 working precision, and the routes can differ by rounding.

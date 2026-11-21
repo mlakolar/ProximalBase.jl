@@ -220,10 +220,10 @@ sets the supported configurations.
 ```@example sparse_group_score_working_type_regression
 using ProximalBase, Test # hide
 f = SparseGroupNormL2(1.0, 1.0, [[1]]) # hide
-gradient = SymmetricSparseIterate([1.0 0.0; 0.0 1.0]) # hide
-point = zeros(2, 2) # hide
-@test !applicable(kkt_violation, f, gradient, point, 1) # hide
-@test !applicable(kkt_violation, f, gradient, point) # hide
+symmetric_gradient = SymmetricSparseIterate([1.0 0.0; 0.0 1.0]) # hide
+array_point = zeros(2, 2) # hide
+@test !applicable(kkt_violation, f, symmetric_gradient, array_point, 1) # hide
+@test !applicable(kkt_violation, f, symmetric_gradient, array_point) # hide
 @test kkt_violation(f, Float16[0], [1000000], 1) === Float16(Inf) # hide
 nothing # hide
 ```

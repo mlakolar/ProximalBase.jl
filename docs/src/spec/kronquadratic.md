@@ -40,50 +40,34 @@ overflow to `Inf`, or be `NaN` when one norm overflows and the other is zero.
 
 A matrix argument is a one-based `AbstractMatrix{T}` of size ``(p, q)``:
 dense matrices, strided views, `SparseIterate`, `Symmetric` wrappers and
-`matrixview` of a symmetric iterate. An accepted argument (see the failure
-behavior below) is read directly by the products when it is a `StridedMatrix`
-with first stride 1 and a column stride of at least ``\max(1, p)``; any other
-accepted matrix argument, reversed columns included, is copied into the
-function's scratch first.
+`matrixview` of a symmetric iterate. The products read the argument directly
+when it is a `StridedMatrix` with first stride 1 and a column stride of at
+least ``\max(1, p)``; any other matrix argument, reversed columns included, is
+copied into the function's scratch first.
 
 A [`SymmetricSparseIterate`](@ref) argument has element type `T` and
 dimension ``p``, and requires ``p=q``.
 
-`gradient!` and `value_and_gradient!` write into a one-based
-`StridedMatrix{T}` of size ``(p, q)``, row-strided views included; a
-reinterpretation passed as the destination must be one Base can read and
-write. With a matrix argument, an accepted destination that is not a
-`StridedMatrix` with first stride 1 and column stride of at least
-``\max(1, p)`` receives a copy of the result from scratch; with a symmetric
-iterate, the destination is written entry by entry. `gradient` returns a
-`Matrix{T}`, and `value_and_gradient` returns `(v, G)` with `v::T` and
-`G::Matrix{T}`; both check the argument before they allocate. Vector
-arguments, `BlockIterate`, symmetric-iterate destinations and proximal
-operators are unsupported.
-
-The destination must not share memory with the argument. As for every
-built-in gradient ([`gradient!`](@ref)), `G === X` throws `ArgumentError` and
-other overlapping views are unsupported. The checks listed under the failure
-behavior detect some overlaps and are not exhaustive; for example, a view of
-a `Diagonal` whose diagonal is backed by the destination is not detected. For
-a matrix argument on the copy route above, and for a symmetric iterate, the
-argument is read completely, into scratch or into the products, before the
-destination is written, so the result is computed from the argument as it was
-at the call; an undetected overlap can change the caller's argument through
-the write to the destination. When both the argument and the destination are
-strided matrices with unit first stride and a column stride of at least
-``\max(1,p)``, the argument is read again after the destination is first
-written, and no such statement holds; with such an argument and another
-strided destination, the argument is read completely before the destination
-is written.
+`gradient!` and `value_and_gradient!` write into a one-based writable
+`StridedMatrix{T}` of size ``(p, q)``, row-strided views included. With a
+matrix argument, a destination that is not a `StridedMatrix` with first
+stride 1 and column stride of at least ``\max(1, p)`` receives a copy of the
+result from scratch; with a symmetric iterate, the destination is written
+entry by entry. `gradient` returns a `Matrix{T}`, and `value_and_gradient`
+returns `(v, G)` with `v::T` and `G::Matrix{T}`. Vector arguments,
+`BlockIterate`, symmetric-iterate destinations and proximal operators are
+unsupported.
 
 ## [Preconditions](@id spec-kronquadratic-preconditions)
 
 The matrices that [`ProximalBase.kronquadratic_data`](@ref) returns are the
 stored copies, ordinary mutable matrices; treat them as read-only. The oracles
 write scratch matrices stored in the function: calls on one object must not
-run concurrently. Use one object per task. The destination must not share
-memory with the argument (see the supported arguments).
+run concurrently. Use one object per task. The destination must be
+independent of the argument and of the matrices `kronquadratic_data` returns.
+As for the other built-in gradients ([`gradient!`](@ref)), `G === X` throws
+`ArgumentError` and other overlapping views are unsupported; the failure
+behavior lists the overlaps that the oracles detect.
 
 ## [Results](@id spec-kronquadratic-results)
 
@@ -144,38 +128,18 @@ size, throws `DimensionMismatch`.
 
 The oracles check, before any write, the element types of the argument and
 the destination (`ArgumentError`), one-based axes (`ArgumentError`), sizes
-(`DimensionMismatch`), a strided destination (`ArgumentError`), a
-reinterpretation passed as the destination that Base cannot read and write,
-or passed as the argument that Base cannot read, directly or through views and
-reshapes (`ArgumentError`), and, as far as the overlap checks detect it, an
-argument or destination that shares memory with the scratch of the function
-or a destination that shares memory with the argument or with `A`, `B` or `C`
-(`ArgumentError`), and at a
-symmetric iterate ``p=q`` (`DimensionMismatch`) and, when `C` is supplied,
-its exact symmetry (`ArgumentError`). `C` is not averaged.
-
-The overlap checks are `G === X`, `Base.mightalias` (which returns false for
-views that Base can establish as disjoint), overlap with `A`, `B`, `C` and the scratch,
-and the backing vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and
-`Tridiagonal` arguments, also inside `Symmetric`, `Hermitian`, triangular,
-`Transpose` and `Adjoint` wrappers. They are not exhaustive (see the
-supported arguments).
-
-Readability is checked for a reinterpretation passed as the destination or
-the argument, directly or through views and reshapes; storage inside other
-wrappers is not checked for readability. If a read of it fails during the
-call, for example a padded reinterpretation inside `Symmetric` or
-`transpose`, the call throws that error with the destination and the argument
-unchanged; the scratch of the function may be partly written, and subsequent
-valid calls initialize the scratch they use before reading it.
+(`DimensionMismatch`), a strided destination (`ArgumentError`), `G === X` and
+an overlap of the destination with the argument, `A`, `B` or `C` that
+`Base.mightalias` reports (`ArgumentError`), and at a symmetric iterate
+``p=q`` (`DimensionMismatch`) and, when `C` is supplied, its exact symmetry
+(`ArgumentError`). `C` is not averaged.
 
 ## [Limitations and non-guarantees](@id spec-kronquadratic-limitations)
 
 There is no proximal operator, Hessian-vector product, coordinate curvature
 or `restrict`. Convexity is not certified. Overflow and underflow are not
-recovered. Readability of storage inside wrappers other than views and
-reshapes of a reinterpretation is not checked before the call, and the
-overlap checks are not exhaustive (see the failure behavior). The summation order depends on the route:
+recovered. Overlapping views that `Base.mightalias` does not report are not
+detected. The summation order depends on the route:
 BLAS kernels where `mul!` uses them; the column accumulation of the
 accumulating route; the tiled sum of its value-only call; and Julia's `dot`
 or a pass over the stored entries for the other values.

@@ -706,30 +706,46 @@ run. In this run the in-place ratios were below one at some sizes, and the in-pl
 ## KronQuadratic harness
 
 `kronquadratic.jl` times `KronQuadratic` (issue #1059) between the archived source tree at
-eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`) and a
-second compilation of the candidate as the A/A control, in `Float32` and `Float64`, with one BLAS
-thread: the value and `value_and_gradient!` on dense `p × q` matrices with `p = q = 50, 200, 800`
-and `200 × 100`, and on `SymmetricSparseIterate` arguments at `p = 200` with 200, 2000 and 20100
-active coordinates (20100 is every coordinate). Each case cycles through eight distinct arguments.
-The roles share the dense arguments, the data and the output; each builds its own iterates from the
-same coordinates and values, and the script checks that each iterate has the stated number of active
+eff21b6d7d33c622313122f46c6ee71693c101ee (`PB_ARCHIVE`), the candidate (`PB_CANDIDATE`), a
+second compilation of the candidate as the A/A control, and a dense role written in the script, in
+`Float32` and `Float64`, with one BLAS thread. The dense role copies a `SymmetricSparseIterate` into a
+dense matrix through the public accessors of the candidate tree (`activecoordinates`,
+`activevalues`, `tril_cartesian`), forms `A D` and `(A D) B` with `mul!`, and takes the value
+`dot(D, W)/2 + dot(C, D)` and the gradient `(W + Wᵀ)/2 + C`, with buffers allocated once per case;
+for a matrix argument it forms `A X` and `(A X) B`.
+
+The default cells are the value and `value_and_gradient!` on dense `p × q` matrices with
+`p = q = 50, 200, 800` and `200 × 100`, and on `SymmetricSparseIterate` arguments at `p = 200` with
+200, 2000 and 20100 active coordinates (20100 is every coordinate). `PB_SWEEP=1` runs the symmetric
+sweep instead: `p = 50, 200, 800` and the nonzero counts of `sweep_counts(p)`, from `p/2` to every
+coordinate, with counts on both sides of the candidate's cutoffs (`2n = p²/16` for value-only calls,
+`2n = p²/8` for gradient calls). The sweep builds and times one cell at a time; `PB_ROUNDS_LARGE` sets
+the rounds at `p = 800`, and the trials there take one second instead of half a second.
+
+Each case cycles through eight distinct arguments. The roles share the dense arguments, the data and
+the output; each tree builds its own iterates from the same coordinates and values (the dense role reads
+the candidate's), and the script checks that each iterate has the stated number of active
 coordinates. Each round times the roles of each case in alternating order and keeps per role the
 median and the minimum of its samples. The summary (printed, and written to `summary.tsv` when
-`PB_OUTPUT` is set) gives per case the candidate's times, the median over the rounds of the ratios
-candidate/archive and control/candidate of the trial minima and medians, and the warmed allocations of
-each role, with the Julia version and `BLAS.get_config()` in its header. With `PB_OUTPUT`, `raw.tsv`
-has each measured trial; the trial that warms each call before the rounds is not recorded.
+`PB_OUTPUT` is set) gives per case the route the candidate takes (`matrix`, or `accumulate` or `dense`
+at a symmetric iterate, from `ProximalBase._kron_dense_route` with the cutoff of the call), the
+candidate's times, the median over the rounds of the ratios candidate/dense, candidate/archive and
+control/candidate of the trial minima and medians, and the warmed allocations of each role, with the
+Julia version, the CPU and `BLAS.get_config()` in its header. With `PB_OUTPUT`, `raw.tsv` has each
+measured trial; the trial that warms each call before the rounds is not recorded.
 
 Before timing, the script compares the outputs at the first of the eight arguments of each case: the
-control must reproduce the candidate's outputs (`isequal`), and the archive must agree within
-`1000 eps(T)` relative (`isapprox`, norm-relative for the gradient). An archive that does not load, or
-does not bind `ProximalBase` to a module that defines `KronQuadratic`, is reported and its cells are timed without it. `PB_REVERSE=1` loads the
-candidate before the archive and times it first in odd rounds (even rounds reverse the order);
-`PB_FILTER` selects cases by a regular expression on their ids;
-`PB_CHECK_ONLY=1` stops after the output checks; `PB_QUICK=1` runs small sizes for one round.
+control must reproduce the candidate's outputs (`isequal`), and the archive and the dense role must agree
+within `1000 eps(T)` relative (`isapprox`, norm-relative for the gradient). An archive that does not
+load, or does not bind `ProximalBase` to a module that defines `KronQuadratic`, is reported and its
+cells are timed without it. `PB_REVERSE=1` loads the candidate before the archive and times it first in
+odd rounds (even rounds reverse the order); `PB_FILTER` selects cases by a regular expression on their
+ids; `PB_CHECK_ONLY=1` stops after the output checks; `PB_QUICK=1` runs small sizes for one round.
 
 ```sh
 mkdir -p /tmp/pb1059-archive && git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb1059-archive
 PB_ARCHIVE=/tmp/pb1059-archive PB_CANDIDATE="$PWD" PB_ROUNDS=11 PB_OUTPUT=/tmp/pb1059-results \
+  julia --threads=1 --project=benchmark benchmark/kronquadratic.jl
+PB_ARCHIVE=/tmp/pb1059-archive PB_CANDIDATE="$PWD" PB_SWEEP=1 PB_ROUNDS=5 PB_OUTPUT=/tmp/pb1059-sweep \
   julia --threads=1 --project=benchmark benchmark/kronquadratic.jl
 ```

@@ -529,10 +529,9 @@ entries; pass, for example, `Matrix(Symmetric(inv(Θ), :L))`.
 
 The oracles write scratch matrices that `f` owns: do not call them
 concurrently on one object (see the [ownership table](@ref numerical-usage)).
-A gradient destination must not share memory with the argument: as for every
-built-in gradient, `G === X` throws and other overlapping views are
-unsupported; the oracles detect some further overlaps, not all of them (see
-the [numerical contract](@ref spec-kronquadratic-arguments)). Values and gradients use ordinary
+A gradient destination must be independent of the argument and of the data:
+as for the other built-in gradients, `G === X` throws and other overlapping
+views are unsupported (see the [numerical contract](@ref spec-kronquadratic-preconditions)). Values and gradients use ordinary
 working-precision arithmetic, without the range recovery of other quadratic
 values: the selected kernel rounds its operations in the working precision
 (fused multiply-adds round once), so a result can be subnormal, zero or

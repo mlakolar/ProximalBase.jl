@@ -30,23 +30,12 @@ wrapper and `matrixview(X)` are `AbstractMatrix` arguments and get `A X B + C`.
 The argument and a gradient destination have the element type `T` of the data.
 `gradient` returns a `Matrix{T}` and `value_and_gradient` returns `(v, G)` with
 `v::T` and `G::Matrix{T}`. `gradient!` and `value_and_gradient!` write into a
-strided `p × q` matrix `G`, row-strided views included, that must not share memory
-with the argument, `A`, `B`, `C` or the scratch of `f`. As for every built-in
-gradient, `G === X` throws `ArgumentError` and other overlapping views are
-unsupported. The checks before writes also refuse overlaps that `Base.mightalias`
-reports, overlaps with `A`, `B`, `C` and the scratch, and overlaps with the backing
-vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and `Tridiagonal` arguments,
-also inside `Symmetric`, `Hermitian`, triangular, `Transpose` and `Adjoint`
-wrappers; they do not detect every overlap (a view of such a structured matrix, for
-example). For an argument that is not a strided matrix with unit first stride and a
-column stride of at least `max(1, p)`, and for a symmetric iterate, the argument is
-read completely, into scratch or into the products, before `G` is written: the
-result is computed from the argument as it was at the call, and an undetected
-overlap can change the caller's argument through the write to `G`. When both the
-argument and `G` are strided matrices with unit first stride and a column stride of
-at least `max(1, p)`, the argument is read again after `G` is first written, and no
-such statement holds; with such an argument and another strided `G`, the argument is
-read completely before `G` is written. There is no proximal operator.
+writable strided `p × q` matrix `G`, row-strided views included, that must be
+independent of the argument and of the matrices `kronquadratic_data(f)` returns. As
+for the other built-in gradients, `G === X` throws `ArgumentError` and other
+overlapping views are unsupported; the oracles also throw `ArgumentError` before
+writes when `Base.mightalias` reports an overlap of `G` with the argument, `A`, `B`
+or `C`. There is no proximal operator.
 
 `f` is convex when `A` and `B` are both positive semidefinite or both negative
 semidefinite. [`isconvex`](@ref) returns `false` because the constructor does
@@ -57,16 +46,7 @@ exact product and is subject to the ordinary range limits (it can overflow to
 `Inf`, or be `NaN` when one norm overflows and the other is zero).
 
 The oracles use scratch matrices stored in `f`: do not call them concurrently on one
-object. An argument that the checks above detect to share memory with that scratch
-throws `ArgumentError`.
-
-A reinterpretation passed as `G`, directly or through views and reshapes, must be
-one Base can read and write; one passed as the argument must be one Base can read.
-Readability of storage inside other wrappers is not checked: if a read of it fails
-during the call, for example a padded reinterpretation inside `Symmetric` or
-`transpose`, the call throws that error with `G` and the argument unchanged, and
-the scratch of `f` may be partly written; subsequent valid calls initialize the
-scratch they use before reading it.
+object.
 
 # Examples
 ```jldoctest
@@ -166,46 +146,10 @@ _kron_checksize(f::KronQuadratic, X, name) = size(X) == size(f) || _kron_size_er
 @noinline _kron_type_error(what, S, T, name) =
   throw(ArgumentError("KronQuadratic $what must have the element type $T of its data, not $S; convert first, for example with $T.($name)"))
 
-# A reinterpreted array whose parent has padding can be writable and not readable, or the reverse
-# (Base.PaddingError). The check uses Base's own tests on a caller-visible reinterpretation, also seen through
-# SubArray and ReshapedArray wrappers, before any write; it does not look inside other wrappers (Symmetric,
-# Transpose, structured matrices), whose reads can still throw during the call.
-_kron_accessible(A, write) = true
-_kron_accessible(A::Union{SubArray, Base.ReshapedArray}, write) = _kron_accessible(parent(A), write)
-function _kron_accessible(A::Base.ReinterpretArray, write)
-  try
-    Base.check_readable(A)
-    write && Base.check_writable(A)
-  catch e
-    e isa Base.PaddingError || rethrow()
-    return false
-  end
-  _kron_accessible(parent(A), write)
-end
-
-# Whether a may share memory with the array buf, as far as these checks detect it. Base.mightalias reports whether
-# the storage of two arrays might overlap; it returns false for views that Base can establish as disjoint (for
-# example distinct slabs of one array). Structured matrices whose backing vectors it does not report are checked through those vectors,
-# also inside Symmetric, Hermitian, triangular, Transpose and Adjoint wrappers; other wrappers of them (a view, for
-# example) are not looked through.
-_kron_overlap(buf, a) = Base.mightalias(buf, a) || _kron_backing_overlap(buf, a)
-_kron_overlap(buf, a::SymmetricSparseIterate) = Base.mightalias(buf, a)
-_kron_backing_overlap(buf, a) = false
-_kron_backing_overlap(buf, a::Union{Symmetric, Hermitian, UpperTriangular, LowerTriangular, UnitUpperTriangular,
-                                    UnitLowerTriangular, Transpose, Adjoint}) = _kron_overlap(buf, parent(a))
-_kron_backing_overlap(buf, a::Diagonal) = _kron_overlap(buf, a.diag)
-_kron_backing_overlap(buf, a::Union{Bidiagonal, SymTridiagonal}) = _kron_overlap(buf, a.dv) || _kron_overlap(buf, a.ev)
-_kron_backing_overlap(buf, a::Tridiagonal) = _kron_overlap(buf, a.dl) || _kron_overlap(buf, a.d) || _kron_overlap(buf, a.du)
-_kron_scratch_overlap(f::KronQuadratic, a) = _kron_overlap(f.X, a) || _kron_overlap(f.AX, a) || _kron_overlap(f.W, a)
-@noinline _kron_scratch_error(name) =
-  throw(ArgumentError("KronQuadratic $name must not share memory with the scratch of the function"))
-
 function _kron_check_input(f::KronQuadratic{T}, X::AbstractMatrix) where {T}
   eltype(X) === T || _kron_type_error("input", eltype(X), T, "X")
   _check_one_based(X)
   _kron_checksize(f, X, "X")
-  _kron_accessible(X, false) || throw(ArgumentError("KronQuadratic requires an input that Base can read, not a $(typeof(X))"))
-  _kron_scratch_overlap(f, X) && _kron_scratch_error("input")
   nothing
 end
 
@@ -216,7 +160,6 @@ function _kron_check_input(f::KronQuadratic{T}, X::SymmetricSparseIterate) where
   _kron_checksize(f, X, "X")
   f.csym || throw(ArgumentError("KronQuadratic at a SymmetricSparseIterate requires an exactly symmetric C; " *
                                 "construct it with a symmetric C, for example (C + C')/2"))
-  _kron_scratch_overlap(f, X) && _kron_scratch_error("input")
   nothing
 end
 
@@ -225,9 +168,8 @@ function _kron_check_output(G, f::KronQuadratic{T}, X) where {T}
   eltype(G) === T || _kron_type_error("gradient output", eltype(G), T, "G")
   _check_one_based(G)
   _kron_checksize(f, G, "G")
-  _kron_accessible(G, true) || throw(ArgumentError("KronQuadratic requires a gradient output that Base can read and write, not a $(typeof(G))"))
-  (G === X || _kron_overlap(G, X)) && throw(ArgumentError("the gradient must not overwrite x"))
-  _kron_scratch_overlap(f, G) && _kron_scratch_error("gradient output")
+  _checkgradient_output(G, X)
+  Base.mightalias(G, X) && throw(ArgumentError("the gradient must not overwrite x"))
   (Base.mightalias(G, f.A) || Base.mightalias(G, f.B) || (f.C !== nothing && Base.mightalias(G, f.C))) &&
     throw(ArgumentError("KronQuadratic gradient output must be independent of A, B and C"))
   nothing
@@ -439,31 +381,11 @@ function value_and_gradient!(G, f::KronQuadratic, X::SymmetricSparseIterate)
 end
 gradient!(G, f::KronQuadratic, X::SymmetricSparseIterate) = (value_and_gradient!(G, f, X); G)
 
-# The allocating oracles check the argument before they allocate a Matrix{T} of size (p, q), so that the
-# destination is a plain matrix also for an argument with one-based non-Array axes.
-_kron_new_gradient(f::KronQuadratic{T}) where {T} = Matrix{T}(undef, size(f))
-for S in (AbstractMatrix, SymmetricSparseIterate)
-  @eval gradient(f::KronQuadratic, X::$S) = (_kron_check_input(f, X); gradient!(_kron_new_gradient(f), f, X))
-  @eval function value_and_gradient(f::KronQuadratic, X::$S)
-    _kron_check_input(f, X)
-    G = _kron_new_gradient(f)
-    v = value_and_gradient!(G, f, X)
-    v, G
-  end
-end
-# The methods below do the same for a matrix argument of Scaled(f, α) and of Scaled(Scaled(f, α), β), with the checks
-# of f; the gradient is then written by Scaled. Other Scaled wrappers, and Scaled wrappers at symmetric iterates, use
-# the generic allocating oracles.
-const _ScaledKron = Union{Scaled{<:KronQuadratic}, Scaled{<:Scaled{<:KronQuadratic}}}
-_kron_leaf(f::KronQuadratic) = f
-_kron_leaf(s::Scaled) = _kron_leaf(s.f)
-gradient(s::_ScaledKron, X::AbstractMatrix) =
-  (f = _kron_leaf(s); _kron_check_input(f, X); gradient!(_kron_new_gradient(f), s, X))
-function value_and_gradient(s::_ScaledKron, X::AbstractMatrix)
-  f = _kron_leaf(s)
-  _kron_check_input(f, X)
-  G = _kron_new_gradient(f)
-  v = value_and_gradient!(G, s, X)
+# The allocating oracles at a symmetric iterate (the generic ones take arrays): a dense Matrix{T} gradient.
+gradient(f::KronQuadratic, X::SymmetricSparseIterate) = gradient!(_gradient_buffer(X), f, X)
+function value_and_gradient(f::KronQuadratic, X::SymmetricSparseIterate)
+  G = _gradient_buffer(X)
+  v = value_and_gradient!(G, f, X)
   v, G
 end
 

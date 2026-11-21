@@ -1,9 +1,9 @@
 # [Floating-point range in proximal calculations](@id learn-floating-point)
 
 The [proximal exercises](@ref learn-proximal-exercises) use small, finite
-inputs. Here the inputs are still finite, but an intermediate product
-can exceed the working type's range. The example illustrates floating-point
-arithmetic. The [numerical contracts](@ref numerics) state where ProximalBase
+inputs. A finite input can still lead to
+[intermediate overflow](../glossary.md#glossary-intermediate-overflow)
+when a product exceeds the working type's range. The [numerical contracts](@ref numerics) state where ProximalBase
 uses range recovery.
 
 ## [A finite product with an overflowing intermediate](@id learn-intermediate-overflow)

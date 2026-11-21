@@ -158,6 +158,30 @@ that happens to pass.
   [Source](../../../src/functions/groupnormlinf.jl)
   · [Tests](../../../test/groupnormlinf.jl)
 
+- The SparseGroupNormL2 definition says the constructor “copies the
+  supplied groups and weights”. For a collection with a concrete range
+  element type, this could promise an independent copy of each supplied
+  range or a copy of the outer collection. `_own_groups` copies the outer
+  vector and retains the range objects. The ownership test mutates the
+  supplied index vectors and weight vector. The copy requirement for
+  range objects awaits the owner's decision.
+  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
+  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
+  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
+
+## SparseGroupNormL2 decisions recorded in #1123
+
+The owner approved three wordings and statuses in
+[#1123](https://github.com/mlakolar/ProximalBase.jl/pull/1123):
+
+| Source question | Merged clause | Status |
+|:--|:--|:--|
+| Symmetric iterate arguments | [Symmetric iterate arguments](../../src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.oracles.symmetric-arguments) | `precondition` |
+| Invalid proximal steps with no groups | [Invalid proximal steps](../../src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.prox.invalid-step) | `guaranteed` |
+| Classification after conversion to the working type | [Point-aware score classification](../../src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.kkt.entry-classification) | `characterized` |
+
+The following notes record the questions as written before that review.
+
 - The SparseGroupNormL2 guide calls `SymmetricSparseIterate` unsupported
   for KKT. This could refer to the point argument alone or also to the
   supplied gradient. The point methods reject symmetric iterates, and the
@@ -181,17 +205,6 @@ that happens to pass.
   infinite in `Float16`. The scope awaits the owner's decision.
   [Source](../../../src/functions/sparsegroupnorml2.jl)
   · [Shared group-score tests](../../../test/kkt_block.jl)
-
-- The SparseGroupNormL2 definition says the constructor “copies the
-  supplied groups and weights”. For a collection with a concrete range
-  element type, this could promise an independent copy of each supplied
-  range or a copy of the outer collection. `_own_groups` copies the outer
-  vector and retains the range objects. The ownership test mutates the
-  supplied index vectors and weight vector. The copy requirement for
-  range objects awaits the owner's decision.
-  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
-  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
-  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
 
 ## Owner review and next gates
 

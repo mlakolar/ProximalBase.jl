@@ -995,6 +995,109 @@ class UpstreamTests(unittest.TestCase):
         self.save()
         self.assert_rejected('merged pull request')
 
+    def reviewed_move_fixture(self, *, leave_source=False, bad_basis=False, reverse=False,
+                              change_history=False, bad_parent_row=False):
+        old = self.baseline[0]
+        m.git("checkout", "--quiet", "--detach", self.before, root=self.root)
+        self.changed = self.changed.replace("Updated `1` rule.", "Updated `1` rule.\n\nSecond rule.")
+        self.after = self.commit(self.changed, "upstream splits original span")
+        self.select("prose")
+        terminal = [block for block in m.blocks(self.changed, old.path)
+                    if block.text in ("Updated `1` rule.", "Second rule.")]
+        hashes = [block.sha for block in terminal]
+        del self.event["replacement_sha"]
+        self.event["replacement_shas"] = hashes
+        self.record["dest_sha"] = ";".join(hashes)
+        self.record["dest"] = ";".join([old.path] * len(hashes))
+        self.save()
+        ledger = self.receipt.parent / "ledger.tsv"
+        m.write_tsv(ledger, m.FIELDS, [
+            dict(self.rows[0], dest=self.record["dest"], dest_sha=self.record["dest_sha"],
+                 reviewer="different@revision" if bad_parent_row else self.record["reviewer"])])
+        m.git("add", str(self.receipt.relative_to(self.root)), str(ledger.relative_to(self.root)), root=self.root)
+        before_move = self.commit(self.changed, "record upstream history")
+        if change_history:
+            self.record["reviewer"] = self.event["reviewer"] = "replacement@revision"
+            self.save()
+        historical = dict(self.record)
+
+        target = "docs/src/spec/family.md"
+        scope = target + "#family-range"
+        source_span = "\n\n".join(block.text for block in terminal)
+        source_after = self.changed if leave_source else self.changed.replace(source_span, "See the family contract.")
+        (self.root / old.path).write_text(source_after)
+        self.path = target
+        (self.root / target).parent.mkdir(parents=True)
+        moved_span = "\n\n".join(block.text for block in reversed(terminal)) if reverse else source_span
+        moved = "# Family\n\n## [Range](@id family-range)\n\n" + moved_span + "\n"
+        basis_file = self.receipt.parent / "migration-bases.json"
+        m.write_tsv(ledger, m.FIELDS, [
+            dict(self.rows[0], action="move", dest=";".join([scope] * 2),
+                 dest_sha=";".join(hashes), reviewer="mechanical")])
+        basis = dict(block_id=old.id, baseline_sha=old.sha,
+                     upstream_sha="0" * 64 if bad_basis else m.receipt_digest(historical),
+                     source_shas=hashes, evidence="Independent review of the exact span.")
+        basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        m.git("add", old.path, *(str(file.relative_to(self.root)) for file in
+                               (ledger, self.receipt, basis_file)), root=self.root)
+        after_move = self.commit(moved, "move the reviewed terminal span")
+        basis_file.unlink()
+
+        final = moved.replace("Second rule.", "Latest rule.")
+        after = self.commit(final, "upstream edits one moved block")
+        final_hashes = [block.sha for block in m.blocks(final, target) if block.kind == "prose"]
+        event = self.make_event(after_move, after, hashes[0], final_hashes[0], number=1022)
+        del event["source_sha"], event["replacement_sha"]
+        event.update(source_shas=hashes, replacement_shas=final_hashes)
+        self.rows[0].update(action="upstream", dest=";".join([scope] * 2),
+                            dest_sha=";".join(final_hashes), reviewer=event["reviewer"])
+        self.record.update(dest=self.rows[0]["dest"], dest_sha=self.rows[0]["dest_sha"],
+                           reviewer=event["reviewer"], events=[self.event, event], move_after_event=1,
+                           reviewed_move=dict(before_commit=before_move, after_commit=after_move))
+        self.save()
+
+    def test_upstream_chain_continues_after_a_reviewed_terminal_span_moves(self):
+        self.reviewed_move_fixture()
+        revisions = {event[key] for event in self.record["events"]
+                     for key in ("before_commit", "after_commit")}
+        revisions.update(self.record["reviewed_move"].values())
+        (self.root / ".git/shallow").write_text("\n".join(sorted(revisions)) + "\n")
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        for kind in ("tokens", "sentences", "examples"):
+            self.assertEqual(m.accounting(self.baseline, mappings, kind), [])
+
+    def test_upstream_chain_requires_the_actual_move_parent_and_unchanged_history(self):
+        self.reviewed_move_fixture()
+        before = self.record["reviewed_move"]["before_commit"]
+        self.record["reviewed_move"]["before_commit"] = self.before
+        self.save()
+        self.assert_rejected("reviewed move before_commit is not after_commit's first parent")
+        self.record["reviewed_move"]["before_commit"] = before
+        self.record["events"][0]["reviewer"] = "altered@revision"
+        self.save()
+        self.assert_rejected("prefix differs from the historical receipt")
+
+    def test_upstream_chain_rejects_a_move_with_a_stale_basis(self):
+        self.reviewed_move_fixture(bad_basis=True)
+        self.assert_rejected("exact reviewed upstream terminal span")
+
+    def test_upstream_chain_rejects_a_copy_in_place_of_a_move(self):
+        self.reviewed_move_fixture(leave_source=True)
+        self.assert_rejected("remove and relocate the exact unique terminal span")
+
+    def test_upstream_chain_rejects_reordered_move_members(self):
+        self.reviewed_move_fixture(reverse=True)
+        self.assert_rejected("remove and relocate the exact unique terminal span")
+
+    def test_upstream_chain_rejects_rewritten_history_at_the_move(self):
+        self.reviewed_move_fixture(change_history=True)
+        self.assert_rejected("unchanged historical upstream receipt")
+
+    def test_upstream_chain_requires_the_historical_ledger_row(self):
+        self.reviewed_move_fixture(bad_parent_row=True)
+        self.assert_rejected("tracked historical upstream row")
+
     def test_unused_migration_basis_does_not_become_an_exemption(self):
         old = self.baseline[0]
         basis = dict(block_id=old.id, baseline_sha=old.sha, upstream_sha=m.receipt_digest(self.record),

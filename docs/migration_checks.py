@@ -835,26 +835,72 @@ def sequence_starts(values, sequence):
             if values[i:i + len(sequence)] == sequence]
 
 
+def tracked_ledger_matches(old, commit, root, **expected):
+    path = "docs/audit/docs-tracks-1019/ledger.tsv"
+    if not git("ls-tree", "--full-tree", commit, "--", path, root=root).strip():
+        return False
+    ledger = git("show", f"{commit}:{path}", root=root)
+    rows = [row for row in parse_tsv(ledger.splitlines(keepends=True)) if row.get("block_id") == old.id]
+    return (len(rows) == 1 and rows[0].get("sha") == old.sha and rows[0].get("kind") == old.kind and
+            all(rows[0].get(key) == value for key, value in expected.items()))
+
+
+def tracked_move_matches(old, commit, destination, hashes, root):
+    return tracked_ledger_matches(old, commit, root, action="move", dest_sha=";".join(hashes),
+                                  dest=";".join([destination] * len(hashes)))
+
+
 def validate_upstream_prior_move(old, destination, first_event, root, source_hashes):
     """Find the exact tracked move of the source span in the event's parent."""
     before = first_event.get("before_commit") if isinstance(first_event, dict) else None
     if not isinstance(before, str) or not re.fullmatch(r"[0-9a-f]{40}", before):
         raise ValueError("upstream requires an exact Git object ID: before_commit")
-    message = "upstream outside the original file requires a matching move in the first event's parent ledger"
-    path = "docs/audit/docs-tracks-1019/ledger.tsv"
-    if not git("ls-tree", "--full-tree", before, "--", path, root=root).strip():
-        raise ValueError(message)
-    ledger = git("show", f"{before}:{path}", root=root)
-    rows = [row for row in parse_tsv(ledger.splitlines(keepends=True)) if row.get("block_id") == old.id]
-    expected = dict(sha=old.sha, kind=old.kind, action="move",
-                    dest=";".join([destination] * len(source_hashes)), dest_sha=";".join(source_hashes))
-    if len(rows) != 1 or any(rows[0].get(key) != value for key, value in expected.items()):
-        raise ValueError(message)
+    if not tracked_move_matches(old, before, destination, source_hashes, root):
+        raise ValueError("upstream outside the original file requires a matching move in the first event's parent ledger")
     return before
 
 
-def validate_upstream_moved_basis(old, destination, prefix, first_event, root):
+def git_span_count(commit, path, anchor, hashes, root):
+    if not git("ls-tree", "--full-tree", commit, "--", path, root=root).strip():
+        return 0
+    text = git("show", f"{commit}:{path}", root=root)
+    hashes_at_scope = [block.sha for block in blocks(section_text(text, anchor), path)]
+    return len(sequence_starts(hashes_at_scope, hashes))
+
+
+def validate_reviewed_move(old, destination, move, receipt, source, root):
+    """Verify a reviewed span's actual relocation across the landed move."""
+    if not isinstance(move, dict) or set(move) != {"before_commit", "after_commit"}:
+        raise ValueError("reviewed move requires exact before_commit and after_commit")
+    before, after = move["before_commit"], move["after_commit"]
+    validate_first_parent(before, after, "reviewed move", root)
+    for commit in (before, after):
+        historical = receipt_records(root, "upstream.json", "changes", schema=2, commit=commit).get(old.id)
+        if receipt_digest(historical) != receipt_digest(receipt):
+            raise ValueError("reviewed move requires the unchanged historical upstream receipt")
+    if not tracked_ledger_matches(old, before, root, action="upstream", dest=receipt["dest"],
+                                  dest_sha=receipt["dest_sha"], reviewer=receipt["reviewer"]):
+        raise ValueError("reviewed move requires the tracked historical upstream row")
+    basis = receipt_records(root, "migration-bases.json", "bases", commit=after).get(old.id, {})
+    validate_migration_basis(old, basis, receipt, source)
+    hashes = [block.sha for block in source]
+    if not tracked_move_matches(old, after, destination, hashes, root):
+        raise ValueError("reviewed move requires the exact tracked terminal-span move")
+    original_path, original_anchor = split_destination(destination_parts(receipt["dest"])[0])
+    path, anchor = split_destination(destination)
+    if (git_span_count(before, original_path, original_anchor, hashes, root) != 1 or
+            git_span_count(before, original_path, "", hashes, root) != 1 or
+            git_span_count(after, original_path, "", hashes, root) != 0 or
+            git_span_count(before, path, "", hashes, root) != 0 or
+            git_span_count(after, path, anchor, hashes, root) != 1 or
+            git_span_count(after, path, "", hashes, root) != 1):
+        raise ValueError("reviewed move must remove and relocate the exact unique terminal span")
+
+
+def validate_upstream_moved_basis(old, destination, record, move_after, root):
     """Verify the prior original-file events and the reviewed span they supplied to a move."""
+    prefix = record["events"][:move_after]
+    first_event = record["events"][move_after]
     if not isinstance(first_event, dict):
         raise ValueError("upstream event must be an object")
     source_hashes = upstream_hashes(first_event, "source")
@@ -871,6 +917,8 @@ def validate_upstream_moved_basis(old, destination, prefix, first_event, root):
     validate_migration_basis(old, basis, receipt, source)
     if [block.sha for block in source] != source_hashes:
         raise ValueError("post-move upstream source must match the historical terminal span")
+    if "reviewed_move" in record:
+        validate_reviewed_move(old, destination, record["reviewed_move"], receipt, source, root)
     return source
 
 
@@ -904,6 +952,8 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     if "move_after_event" in record and (type(move_after) is not int or not 0 < move_after < len(events)
                                          or not current or path == old.path or not anchor):
         raise ValueError("move_after_event requires original-file events followed by a move to a named section")
+    if "reviewed_move" in record and not move_after:
+        raise ValueError("reviewed_move requires move_after_event")
     source = [old]
     scope = None
     if path != old.path:
@@ -912,8 +962,7 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
         if row.get("action") != "upstream":
             raise ValueError("post-move receipts require an upstream ledger action")
         if move_after:
-            source = validate_upstream_moved_basis(old, destinations[0], events[:move_after],
-                                                   events[move_after], root)
+            source = validate_upstream_moved_basis(old, destinations[0], record, move_after, root)
         else:
             validate_upstream_prior_move(old, destinations[0], events[0], root, [old.sha])
         scope = (path, anchor)
@@ -933,6 +982,18 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     if len(starts) != 1:
         raise ValueError("no block with expected hash sequence uniquely contiguous at the current destination")
     return current[starts[0]:starts[0] + len(hashes)]
+
+
+def validate_first_parent(before, after, label, root):
+    for commit in (before, after):
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError(f"{label} requires exact Git commit IDs")
+    # Shallow roots retain raw parent headers even when revision walking stops.
+    git("cat-file", "commit", before, root=root)
+    header = git("cat-file", "commit", after, root=root).partition("\n\n")[0]
+    parents = re.findall(r"^parent ([0-9a-f]{40})$", header, re.M)
+    if not parents or parents[0] != before:
+        raise ValueError(f"{label} before_commit is not after_commit's first parent")
 
 
 def validate_upstream_event(old, record, root=ROOT, *, scope=None):
@@ -959,12 +1020,7 @@ def validate_upstream_event(old, record, root=ROOT, *, scope=None):
         if not isinstance(record.get(key), str) or not re.fullmatch(r"[0-9a-f]{40}", record[key]):
             raise ValueError(f"upstream requires an exact Git object ID: {key}")
     before, after = record["before_commit"], record["after_commit"]
-    # Read raw commit headers: HEAD^ / revision walking stops at shallow roots.
-    git("cat-file", "commit", before, root=root)
-    header = git("cat-file", "commit", after, root=root).partition("\n\n")[0]
-    parents = re.findall(r"^parent ([0-9a-f]{40})$", header, re.M)
-    if not parents or parents[0] != before:
-        raise ValueError("upstream before_commit is not after_commit's first parent")
+    validate_first_parent(before, after, "upstream", root)
     path, anchor = scope if scope is not None else (old[0].path, "")
     texts = []
     for commit, key in ((before, "before_blob"), (after, "after_blob")):

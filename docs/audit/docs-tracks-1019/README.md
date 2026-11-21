@@ -226,6 +226,13 @@ basis must bind that receipt and its terminal hashes. Those hashes must match
 the ordered source of the first post-move event. The current `upstream` row
 uses those parent records as evidence, so remove its active migration basis.
 
+To record the actual relocation as well, include `reviewed_move` with the
+move's full `before_commit` and `after_commit` IDs. The checker verifies the
+first-parent diff, the same historical receipt in both trees, the tracked
+ledger rows and the landed migration basis. The ordered span must leave the
+original file and appear at the named destination. CI fetches both revisions
+alongside the upstream event revisions.
+
 The checker derives the complete replacement span from the source-owned changed
 line regions. An unchanged neighboring block is excluded only when positional
 block matching and unchanged raw-line alignment agree. Matching text elsewhere

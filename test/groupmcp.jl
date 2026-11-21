@@ -337,7 +337,7 @@ end
   @test fa.groups == A && fa.groups[1] !== A[1]
   # the default weight √|G| without overflowing the group size in a narrow type
   @test GroupMCP(Float16(1), [1:65536]).w == Float16[256]
-  @test GroupMCP(1f0, [1:2, 1:3 .+ 2]).w == Float32[sqrt(2f0), sqrt(3f0)]
+  @test GroupMCP(1f0, [1:2, 3:5]).w == Float32[sqrt(2f0), sqrt(3f0)]
 end
 
 @testset "tiny shapes ($T)" for T in (Float32, Float64)

@@ -853,3 +853,10 @@ the newly added scaling example, the new migration section, and the edited
 first-parent diff adds one heading and retains the existing headings and
 explicit IDs. The authored link changes add references to #1080. The rendered
 anchor and link audits cover the existing guide forwards and spec targets.
+
+Against the ledger PR's base `62df416397b0165f6af5895416c966a575a2095d`,
+all six blocking checks pass with zero findings using the strict #1118
+render of the same authored manual. The rendered link audit covers 81
+pages, with zero broken links or orphan pages. The supplemental report
+finds zero removed lines. All 2,162 frozen ID/hash/kind tuples and all
+earlier upstream events are retained. The checker fixtures pass 131 tests.

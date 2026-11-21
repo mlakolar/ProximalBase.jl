@@ -346,6 +346,18 @@ weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling
 warmed allocations and product counts. Independent BigFloat and finite-difference
 references check the value and both gradient spaces, including weighted tails.
 
+## Poisson regression coverage
+
+`poissonloss` checks dense `Float64` Poisson regression against an independent
+BigFloat reference fed the `Float64` predictor, with tolerances taken from the
+per-term accuracy statement of the contract. It covers zero, integer and
+noninteger counts, predictors up to `log(floatmax(Float64))` and strongly
+negative predictors, a caller-formed offset through the predictor oracles,
+each endpoint and overflow branch of the scalar term, finite differences,
+validation and aliases with outputs checked unchanged after each refusal,
+`Scaled`, borrowed and mutated inputs, empty shapes, traits, warmed
+allocations and product counts.
+
 ## SCAD coverage
 
 `scad` checks the globally minimizing scalar prox against independent BigFloat objectives

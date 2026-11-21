@@ -121,6 +121,11 @@ with the loss element type and response axes. The call returns the logistic
 objective and reads neither design entries nor private workspace entries. See
 [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
 
+For a [`PoissonLoss`](@ref), supply the complete predictor `η = X*β`, or `X*β + offset`
+when the caller forms an offset, as a `StridedVector{Float64}` of length `length(y)`.
+The call returns `sum(exp(ηᵢ) - yᵢ*ηᵢ)` and reads neither design entries nor private
+workspace entries. See [Poisson regression](@ref Poisson-regression-loss) for its limits.
+
 See [predictor domains, accuracy and ownership](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 and [`ProximalBase.value_from_residual`](@ref).
 """
@@ -168,6 +173,11 @@ For a [`LogisticLoss`](@ref), supply `η = X*β + offset`. The operation returns
 the logistic objective, writes `d[i] = w[i] * (σ(η[i]) - y[i])` and forms
 `g = X' * d`. Both outputs must be independent of the weights and offset as
 well. See [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
+
+For a [`PoissonLoss`](@ref), supply `η = X*β`, or `X*β + offset` when the caller forms
+an offset. The operation returns the Poisson objective, writes `d[i] = exp(η[i]) - y[i]`
+and forms `g = X' * d`. Both outputs must also be independent of the response `y`.
+See [Poisson regression](@ref Poisson-regression-loss) for its limits.
 
 See [predictor accuracy, failure and concurrency rules](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """

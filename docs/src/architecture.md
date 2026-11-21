@@ -24,7 +24,9 @@ to functions; residuals, stopping policy and working sets belong to the caller.
 | `src/functions/quadratic.jl` | Quadratic function and cached eigendecomposition-based proximal map |
 | `src/functions/leastsquares.jl` | Least-squares residual scratch and lazy thin SVD prox |
 | `src/functions/sqrt_leastsquares.jl` | Convex nonsmooth square-root residual-norm loss, its value evaluation and shared norm kernel |
-| `src/functions/leastsquares_predictor.jl` | Shared qualified predictor/residual value oracles for both least-squares losses, and gradient oracle for `LeastSquaresLoss` |
+| `src/functions/leastsquares_predictor.jl` | Shared qualified predictor/residual value oracles for both least-squares losses, and gradient oracle for `LeastSquaresLoss`; the generic predictor oracle functions that `LogisticLoss` and `PoissonLoss` extend |
+| `src/functions/logisticloss.jl` | Logistic regression loss: scalar value and derivative terms, predictor products, validation and the predictor oracles for it |
+| `src/functions/poissonloss.jl` | Poisson regression loss for dense `Float64` data: scalar value and derivative terms, predictor products, validation and the predictor oracles for it |
 | `src/functions/separable.jl` | Generic separable entry kernels and array/sparse traversal |
 | `src/functions/mcp.jl` | MCP entry values, global scalar proximal minimization and dense array-step kernels |
 | `src/functions/scad.jl` | SCAD entry values and global scalar proximal minimization |

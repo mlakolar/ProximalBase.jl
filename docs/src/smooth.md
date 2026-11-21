@@ -622,3 +622,69 @@ v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)
 @assert g ≈ gradient(f, β)
 (value=v, gradient=g)
 ```
+
+## [Poisson regression](@id Poisson-regression-loss)
+
+Construct `f = PoissonLoss(y, X)` for the unnormalized Poisson regression
+objective with the log link. For an ``n\times p`` design and a length-``p``
+coefficient vector,
+
+```math
+\eta = X\beta,\qquad
+f(\beta)=\sum_{i=1}^n [e^{\eta_i}-y_i\eta_i],\qquad
+\nabla f(\beta)=X^\top d,\quad d_i=e^{\eta_i}-y_i.
+```
+
+The sum omits the term ``\log\Gamma(y_i+1)``, which does not depend on
+``\beta``. It is a sum, not a mean: `(1/n) * f` (that is, `Scaled(f, 1/n)`)
+gives the mean, and there is no `f / n`. Use `y::Vector{Float64}` and
+`X::Matrix{Float64}`. Responses are finite and nonnegative; noninteger
+responses are accepted. Other element types, views and sparse designs throw
+`MethodError`. Include a column of ones to estimate an intercept. The
+constructor has no weight or offset argument.
+
+The loss is convex and smooth. Its traits `isproximable` and `isseparable`
+return false, and `lipschitz(f)` throws `ArgumentError` because the curvature
+``e^{\eta_i}`` has no global bound. Use `f(β)`, `gradient(f, β)` or
+`value_and_gradient(f, β)`. The mutating counterparts take a caller-owned
+one-based strided `Float64` output of length ``p``. `gradient!(g, f, β)`
+returns `g`, and `value_and_gradient!(g, f, β)` returns the scalar value.
+
+If the caller already holds the predictor ``\eta``, pass it to
+`ProximalBase.value_from_predictor(f, η)` or
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. The predictor
+oracles take any length-``n`` predictor, so a caller who wants an offset (for
+example an exposure ``t_i`` with offset ``\log t_i``) forms
+``\eta = X\beta + \mathrm{offset}`` and passes it. The fused call writes
+``d_i=e^{\eta_i}-y_i`` to `d` and the coefficient gradient ``X^\top d`` to `g`,
+using one product with `X'`. These operations take an unwrapped loss and leave
+the supplied predictor intact. Observation weights have no route in this
+loss.
+
+A term whose `exp(ηᵢ)` or `yᵢ*ηᵢ` overflows is computed as `±Inf`, even where
+the exact term is finite. See the
+[PoissonLoss preconditions](@ref spec-poissonloss-preconditions) and the
+[PoissonLoss range clauses](@ref spec-poissonloss-range).
+
+```@example poisson_regression
+using ProximalBase
+X = [1.0 0.0; 1.0 2.0; 1.0 -1.0]
+y = [0.0, 3.0, 1.0]
+f = PoissonLoss(y, X)
+β = [0.5, 0.25]
+η = X * β
+v, g = value_and_gradient(f, β)
+@assert v ≈ sum(exp.(η) .- y .* η)
+@assert g ≈ X' * (exp.(η) .- y)
+@assert ((1 / 3) * f)(β) ≈ v / 3
+
+# The caller forms an exposure offset and passes the complete predictor.
+exposure = [1.0, 2.0, 0.5]
+ηoffset = X * β + log.(exposure)
+goffset, d = similar(β), similar(y)
+w = ProximalBase.value_and_gradient_from_predictor!(goffset, d, f, ηoffset)
+@assert d ≈ exposure .* exp.(η) .- y
+@assert goffset ≈ X' * d
+@assert w == ProximalBase.value_from_predictor(f, ηoffset)
+(value=v, gradient=g, value_with_offset=w)
+```

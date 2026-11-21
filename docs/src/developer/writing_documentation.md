@@ -110,11 +110,11 @@ Describe the calculation and its current implementation in a
 used to verify the description. Link supported arguments and numerical claims
 to the section that owns them in the [family contracts](../spec/index.md).
 
-Use ordinary finite inputs in Learn exercises. Give readers enough information
-to predict the result, then use a Documenter example to check it against the
-derivation or a reference calculation. The
-[floating-point range lesson](@ref learn-floating-point) uses an overflowing
-intermediate to explain working-type arithmetic.
+Give readers enough information to predict the result, then use a Documenter
+example to check it against the derivation or a reference calculation. Use
+ordinary finite inputs for those exercises outside the
+[floating-point range lesson](@ref learn-floating-point). That lesson covers
+intermediate overflow and subnormal spacing in the working type.
 
 Regenerate the Learn figures from the repository root.
 

@@ -89,6 +89,12 @@ function close_value(v::T, ref, n, K) where {T}
   abs(big(v) - ref) <= ρ * abs(ref) + 4K * big(nextfloat(zero(T)))
 end
 
+# The fused value against the value at the stored output, for groups of at most n entries and K groups: the same terms,
+# except that the sum of squares of a group scaled on the ordinary path is accumulated as its entries are stored and can
+# associate differently, within (n + 4) eps of the value (the terms are nonnegative) and 4K subnormal spacings.
+fused_close(v::T, w, n, K) where {T} =
+  isequal(v, w) || abs(big(v) - big(w)) <= (n + 4) * big(eps(T)) * abs(big(w)) + 4K * big(nextfloat(zero(T)))
+
 # a random vector of n entries and norm close to r (r a BigFloat), in T
 function vector_with_norm(rng, ::Type{T}, n, r) where {T}
   d = randn(rng, n)
@@ -210,7 +216,7 @@ end
     @test close_value(g(u), refterm(u, λ0, w, a), n, 1)
     z = similar(u)
     v = value_and_prox!(z, g, u, γ)
-    @test (z == y || check_group(z, u, λ0, w, a, γ)) && v === g(z)
+    @test (z == y || check_group(z, u, λ0, w, a, γ)) && fused_close(v, g(z), n, 1)
   end
   @test nok == ncase
   # several groups in one array: permuted, noncontiguous, with entries in no group before, between and after
@@ -238,7 +244,7 @@ end
       end
       z = fill(T(NaN), 14)
       v = value_and_prox!(z, f, x, γ)
-      @test z == y && v === f(z)
+      @test z == y && fused_close(v, f(z), 3, 4)
       xi = copy(x)
       @test value_and_prox!(xi, f, xi, γ) === v && xi == y            # exact in-place use
     end
@@ -559,7 +565,7 @@ end
     v = f(u)
     okv = close_value(v, refterm(u, λ0, w, a), n, 1)
     z = similar(u)
-    okf = value_and_prox!(z, f, u, γ) === f(z)
+    okf = fused_close(value_and_prox!(z, f, u, γ), f(z), n, 1)
     ncase += 1
     nok += ok & okv & okf
     (ok & okv & okf) || @info "extreme-scale failure" T n λ0 w a γ ok okv okf
@@ -577,10 +583,10 @@ end
       x = randn(rng, T, 14) .* T(2)^rand(rng, -3:3)
       y = similar(x)
       v = value_and_prox!(y, f, x, γ)
-      @test v === f(y)
+      @test fused_close(v, f(y), 5, 4)
       # mixed precision: the value of the stored output
       y64 = zeros(Float64, 14)
-      @test value_and_prox!(y64, f, x, γ) === f(y64)
+      @test value_and_prox!(y64, f, x, γ) === f(y64)         # the scaled path recomputes every term
     end
   end
 end

@@ -28,7 +28,7 @@ equal contiguous groups; `K` must be positive and divide the entry length.
 A group partition describes how variables are **stored and updated**; it
 is not itself a penalty or regularization function. Pass groups as indices,
 or use `BlockIterate(x, f)` / `BlockIterate([T,] p, f)` with a
-[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref) or [`SparseGroupNormL2`](@ref) penalty to copy its groups.
+[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`SparseGroupNormL2`](@ref) or [`GroupMCP`](@ref) penalty to copy its groups.
 Those groups must partition
 the full iterate, even though a penalty can leave entries unpenalized.
 `NormL1` remains an entrywise mathematical function.

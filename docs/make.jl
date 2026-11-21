@@ -130,6 +130,7 @@ makedocs(;
             "LogDetLoss" => "spec/logdet.md",
             "LogisticLoss" => "spec/logisticloss.md",
             "GroupNormLinf" => "spec/groupnormlinf.md",
+            "GroupMCP" => "spec/groupmcp.md",
             "SparseGroupNormL2" => "spec/sparsegroupnorml2.md",
             "Pure block proximal contract" => "developer/contracts/block-prox-0.6.md",
             "Iterate-family contract" => "developer/contracts/iterate-family-0.6.md",

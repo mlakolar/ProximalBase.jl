@@ -554,3 +554,59 @@ kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0])
 See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints).
 
 See the [GroupNormLinf limitations and non-guarantees](@ref spec-groupnormlinf-limitations).
+## [The group minimax concave penalty](@id group-mcp-guide)
+
+`GroupMCP` applies the [minimax concave penalty](@ref mcp-guide) to the Euclidean norms of disjoint groups,
+
+```math
+g(x)=\sum_{k=1}^{K}p_{\lambda_k,a}\bigl(\lVert x_{G_k}\rVert_2\bigr),\qquad \lambda_k=\lambda_0w_k,\qquad
+p_{\lambda,a}(t)=\begin{cases}\lambda t-t^2/(2a), & 0\le t\le a\lambda,\\ a\lambda^2/2, & t>a\lambda.\end{cases}
+```
+
+The weight multiplies the level, and the shape `a` is not rescaled. The constructors follow those of
+[`GroupNormL2`](@ref group-l2-guide), with the default weights ``w_k=\sqrt{\lvert G_k\rvert}`` and the keyword
+`a = 3`; `a = Inf` gives the penalty of `GroupNormL2`. The penalty is not convex.
+
+| Mathematical form | Julia constructor | Meaning |
+|:--|:--|:--|
+| ``\sum_k p_{\lambda_0\sqrt{\lvert G_k\rvert},3}(\lVert x_{G_k}\rVert_2)`` | `GroupMCP(λ0, groups)` | Default weights and shape |
+| ``\sum_k p_{\lambda_0w_k,a}(\lVert x_{G_k}\rVert_2)`` | `GroupMCP(λ0, groups, w; a)` | One nonnegative weight per group |
+| ``\lambda_0\sum_k w_k\lVert x_{G_k}\rVert_2`` | `GroupMCP(λ0, groups, w; a = Inf)` | The penalty of `GroupNormL2(λ0, groups, w)` |
+
+### Proximal operator: radial MCP thresholding
+
+For a step ``\gamma\ge0`` and ``r=\lVert x_{G_k}\rVert_2``, the proximal operator replaces the norm of each group by the
+global minimizer ``t_*`` of ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0`` and keeps its direction. For
+``\gamma<a`` the group becomes `+0` when ``r\le\gamma\lambda_k``, is kept when ``r\ge a\lambda_k``, and is otherwise scaled
+by ``(r-\gamma\lambda_k)a/((a-\gamma)r)``. For ``\gamma\ge a`` the group is kept when ``r^2>a\gamma\lambda_k^2`` and becomes
+`+0` otherwise. Entries in no group are unchanged.
+
+```@example group_penalty
+gm = GroupMCP(1.0, [[1, 4], [3, 2]], [1.0, 1.0])     # entry 5 is in no group
+xm = [1.2, 4.0, 3.0, 1.6, 7.0]
+pm = prox(gm, xm, 1.0)
+@assert pm ≈ [0.9, 4.0, 3.0, 1.2, 7.0]               # group 1: r = 2 is shrunk to 1.5; group 2: r = 5 > aλ = 3 is kept
+@assert gm(xm) ≈ (2 - 4 / 6) + 1.5                   # λr - r²/(2a) at r = 2, and the plateau aλ²/2
+@assert prox(gm, xm, 12.0) == [0.0, 0.0, 0.0, 0.0, 7.0]   # γ = 12 > a: kept only when r² > aγλ² = 36
+@assert prox(GroupMCP(1.0, [1:2], [1.0]; a = Inf), [3.0, 4.0], 1.0) == prox(GroupNormL2(1.0, [1:2], [1.0]), [3.0, 4.0], 1.0)
+pm
+```
+
+`prox!`, `value_and_prox!` and `prox_block!` accept exact in-place use and reject other detected overlaps and
+destinations whose element type is not floating point, before any write. `value_and_prox!` returns the value at the
+stored output. `prox_block!(out, g, u, k, γ)`, the allocating `prox_block` and `BlockIterate(p, g)` /
+`BlockIterate(x, g)` follow [the group ℓ₂ norm](@ref group-l2-guide).
+
+### Zero-group screen
+
+At a zero group, `kkt_violation(g, v, x, k)` is the screen ``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` of `GroupNormL2`, and an
+entry in no group scores `abs(v[k])`. At a nonzero group and in the full-point form it throws an `ArgumentError`. Because
+the penalty is not convex, a zero score does not imply a global minimizer.
+
+```@example group_penalty
+@assert kkt_violation(gm, [3.0, 0.0, 0.0, 4.0, 0.5], zeros(5), 1) == 4.0    # ‖(3, 4)‖₂ - 1
+@assert kkt_violation(gm, [3.0, 0.0, 0.0, 4.0, 0.5], zeros(5), 5) == 0.5
+```
+
+See the [GroupMCP numerical contract](@ref spec-groupmcp) for the endpoint table, the range clauses and the
+limitations under `Scaled`.

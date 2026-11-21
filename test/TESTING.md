@@ -156,6 +156,20 @@ and in the full-point value), with `NaN` against `Inf` in either order of the gr
 entries are checked; element types (integers, mixed, Float16) with `@inferred`, and BigFloat at four times its precision without `@inferred`; `Scaled` with one factor,
 an infinite factor (the first stack of nested wrappers on an array, a `SparseIterate` and a `BlockIterate`, the other two on arrays), and chains that fold and that do not (the refusals at a nonzero
 group, at a zero entry inside it, at a nonzero entry in no group and in the full-point form, and a `SymmetricSparseIterate`); and zero warmed allocations of the new forms.
+`groupmcp` checks `GroupMCP` in Float32/64 against an independent BigFloat minimization of the radial objective (the scalar
+reference of `mcp_reference.jl` at the exact group norm): the objective at the computed output within
+`(n + 8) eps S (4 + (n + 8) eps κ) + n δ (2r/γ + λ)` of the reference minimum (`S = r²/(2γ) + p(r)`, `κ = a/(a - γ)` for
+`γ < a`), and, where the reference decision is the same at `r (1 ± (n + 8) eps)`, the kept group bit for bit, `+0`, or each
+firm entry within `((n + 8) κ + 8) eps max|u| + 2δ`. It covers the worked examples and exactly representable ties, group sizes
+1 to 512 with shapes near 0, near 1, large and infinite and steps below, at and above `a`, permuted and noncontiguous groups
+with entries in no group, singleton groups against `MCP` (the decisions, and the firm values within two ulps), two
+scaled-path counterexamples and underflowing or overflowing products of level and weight, scaling by powers of two across the
+ordinary and scaled paths (bit for bit in Float64), each endpoint row and the precedence of `NaN` over `Inf`, `a = Inf`
+against `GroupNormL2`, `SparseIterate`, `BlockIterate`, matrix and compact-block arguments, refusals before writes
+(shapes, extent, group number, step, aliasing, offset axes and non-floating destinations), zero allocations on the ordinary
+paths, the infinite-weight and input-type-overflow reproducers, a seeded sweep of extreme scales, the fused value against
+the value at the stored output (within `(n + 4) eps` of it, as a scaled group's sum of squares can associate differently; bit for bit with a wider destination), `Scaled` (and its rounded effective step), the refused
+methods and the zero-group screen.
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate
@@ -317,6 +331,9 @@ The weight of `groupnormlinf` is 125 seconds, replacing the 35-second snapshot w
 the nonzero-group and full-point scores of `kkt_violation` for `GroupNormLinf`.
 [PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44663113969/attempts/1).
 The observation was taken before two testsets of the file were shortened, so the weight is conservative.
+
+The provisional weight of `groupmcp` is 60 seconds. It rounds up, with margin for the CI runner, the Discovery observations
+of the file, 46.0 seconds on Julia 1.10.13 and 43.6 seconds on Julia 1.13.4, before a CI run of the file exists.
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

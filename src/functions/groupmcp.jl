@@ -159,8 +159,22 @@ end
   (mt * c, et + el)
 end
 
-# The plateau term of the ordinary paths; the value and the fused value form it with this expression.
+# The plateau term of the ordinary paths, and the term at a norm r; the value and the fused value form them with these
+# expressions.
 @inline _gmcp_plateau(λ, kink) = λ * (kink / 2)
+@inline _gmcp_ordinary_term(r, λ, a, kink) = r < kink ? r * (λ - (r / a) / 2) : _gmcp_plateau(λ, kink)
+
+# y[G] = q x[G] stored, possibly in place, and the sum of the squares of the stored entries
+@inline function _gmcp_scale!(y, x, G, q::T) where {T}
+  S = eltype(y)
+  s = zero(T)
+  @inbounds @simd for i in G
+    v = convert(S, q * convert(T, x[i]))
+    y[i] = v
+    s += abs2(convert(T, v))
+  end
+  s
+end
 
 ####################################
 #  Group values (finite a)
@@ -179,7 +193,7 @@ end
       s = _indexed_sumabs2(x, G, T)
       if isfinite(s) & _squares_normal(s, length(G), T)
         r = sqrt(s)
-        return (r < kink ? r * (λ - (r / a) / 2) : _gmcp_plateau(λ, kink), true)
+        return (_gmcp_ordinary_term(r, λ, a, kink), true)
       elseif iszero(s) && _l2_all_zero(x, G, T)
         return (zero(T), false)
       end
@@ -203,6 +217,9 @@ end
   m, e = k == _EXPONENT_INF ? _gmcp_plateau_parts(λ0, w, a, R) : _gmcp_value_parts(λ0, w, a, ns, k)
   (convert(T, _scaled_product(m, one(R), e)), true)
 end
+
+# out of line: the term of a group that the fused loop recomputes, which keeps its sums out of the loop over the groups
+@noinline _gmcp_term_outofline(λ0, w, a, x, G, ::Type{T}) where {T} = _gmcp_term(λ0, w, a, x, G, T)
 
 # For a = Inf the terms of GroupNormL2 at the level λ0 wₖ; they count where 0 < λ0, wₖ < Inf.
 @inline _gmcp_counted(λ0, w) = (zero(λ0) < λ0 < Inf) & (zero(w) < w < Inf)
@@ -266,13 +283,15 @@ end
 
 # y[G] = the proximal point of γ p(‖⋅‖₂; λ0 w, a) at x[G], possibly in place (y === x), for a finite a. Returns, in T,
 # _L2_ZERO when the term of the stored group is zero (a zero group, or an unpenalized one), _L2_RECOMPUTE when it is to
-# be recomputed from the stored group, and otherwise the plateau term of a group kept on the ordinary path.
+# be recomputed from the stored group, and otherwise the term of a group kept or scaled on the ordinary path: the
+# plateau of a kept group, and, with V (the fused value), for a scaled group the term at the norm of its stored entries,
+# whose squares are summed as they are written.
 # Ordinary path (O = true: Float32 or Float64 throughout, the step converted exactly): a normal level λ = λ0 w (rounded
 # once) and kink aλ, a firm threshold γλ of at least _mcp_firm_product_min for γ < a or a finite step for γ ≥ a, and a
 # sum of squares that _squares_normal accepts. The decisions are the scalar MCP comparisons at the computed norm r and
 # the rounded level λ: zero when r ≤ γλ (the sign of the fused residual r - γλ), kept when r ≥ aλ, both exact; for
 # γ ≥ a kept when r² > aγλ² (_mcp_keeps). A firm group is scaled by min(1, (r - γλ) a/((a - γ) r)).
-@inline function _gmcp_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}) where {O}
+@inline function _gmcp_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false)) where {O, V}
   T = float(eltype(y))
   if O
     λ = λ0 * w
@@ -287,8 +306,11 @@ end
             res = fma(-γ, λ, r)
             res > 0 || return T(_l2_zero!(y, G))
             if r < kink || (r == kink && !_mcp_at_or_above_kink(r, a, λ))
-              _l2_scale!(y, x, G, min(one(T), (res / ((a - γ) / a)) / r))
-              return T(_L2_RECOMPUTE)
+              q = min(one(T), (res / ((a - γ) / a)) / r)
+              V || (_l2_scale!(y, x, G, q); return T(_L2_RECOMPUTE))
+              sy = _gmcp_scale!(y, x, G, q)
+              (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
+              return _gmcp_ordinary_term(sqrt(sy), λ, a, kink)
             end
           else
             _mcp_keeps(r, λ, a, γ) || return T(_l2_zero!(y, G))
@@ -378,20 +400,21 @@ function _gmcp_prox_all!(y, f::GroupMCP, x, γ::Real, ::Val{V}) where {V}
 end
 
 # The fused value takes the term of each group as the value of the stored output does: zero for the _L2_ZERO code, the
-# plateau returned by the kernel for a group kept on the ordinary path, and otherwise the term of the stored group.
+# term returned by the kernel for a group kept or scaled on the ordinary path (for a scaled group the sum of squares of
+# the stored entries can associate differently from that of the value), and otherwise the term of the stored group.
 @noinline function _gmcp_prox_loop!(y, f::GroupMCP, x, γ::Real, ::Val{O}, ::Val{V}) where {O, V}
   T = _valtype(y)
   v, n = zero(T), 0
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    s = _gmcp_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O))
+    s = _gmcp_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
     if V
       if s >= 0
         v += s
         n += 1
       elseif s == _L2_RECOMPUTE
-        t, c = _gmcp_term(f.λ0, w, f.a, y, G, T)
+        t, c = _gmcp_term_outofline(f.λ0, w, f.a, y, G, T)
         v += t
         n += c
       end

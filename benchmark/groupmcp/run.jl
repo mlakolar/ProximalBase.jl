@@ -23,8 +23,8 @@
 # is half the zero threshold of its step, that of a kept group twice the largest threshold, and that of a scaled group
 # the midpoint of the firm interval (aλ/32 from either end for γ = 15a/16); the inputs are these targets along random
 # directions, converted to T, so that implementations that decide on the computed norm agree. Each case has PB_INPUTS
-# (default 8) inputs with the same target norms and different directions; the timed samples cycle through them (the
-# setup selects the next one, outside the timing), and the three roles read the same arrays.
+# (default 8) inputs with the same target norms and independently drawn directions; the setup of each timed sample selects
+# the next input of the pool (outside the timing), and the three roles read the same arrays.
 #
 # Operations: value, prox (into another array), prox_inplace (prox!(x, f, x, γ); the setup restores x), value_and_prox,
 # block_sweep (prox_block! over every group into separate outputs) and block_sweep_inplace (out === u; the setup restores

@@ -2,8 +2,9 @@ module GroupMCPTest
 # GroupMCP: values, array and compact block proximal operators, the zero-group KKT screen and the refused methods,
 # against BigFloat evaluations, independent of the package, of
 #   f(x) = Σₖ p(‖x[Gₖ]‖₂; λ0 wₖ, a),   prox_{γf}(u)[Gₖ] = (t*/r) u[Gₖ],  r = ‖u[Gₖ]‖₂,
-# where t* minimizes p(t) + (t - r)²/(2γ) over t ≥ 0 (the scalar reference of mcp_reference.jl, a candidate comparison
-# at 256 bits, which does not use the package), with r computed in 512-bit BigFloat, in Float32 and Float64.
+# where t* minimizes p(t) + (t - r)²/(2γ) over t ≥ 0 (the scalar reference of mcp_reference.jl, which does not use the
+# package: a candidate comparison at 256 bits, repeated at 4096 bits for near-ties), with r computed in 512-bit BigFloat,
+# in Float32 and Float64.
 using Test, ProximalBase, Random, OffsetArrays
 using ..TestUtils
 
@@ -303,7 +304,7 @@ end
   @test prox_block(h, [nextfloat(2.0^30 * 1.5)], 1, A) == [nextfloat(2.0^30 * 1.5)]
   h2 = GroupMCP(2.0^-993, [1:2], [1.0]; a = A)                # the sum of squares underflows: the scaled path
   @test prox_block(h2, [2.0^-1000, 0.0], 1, A) == [0.0, 0.0]
-  # an underflowed finite product λ0 w is not a stored zero: γλ = 1e-300 > r, zero for γ < a
+  # an underflowed finite product λ0 w is not a stored zero: γλ ≈ 1e-300 > r, zero for γ < a
   u = [1e-310, 2e-310]
   for a in (1e200, Inf)
     @test prox_block(GroupMCP(1e-200, [1:2], [1e-200]; a), u, 1, 1e100) == [0.0, 0.0]
@@ -320,21 +321,27 @@ end
   @test value_and_prox!(similar(u2), f, u2, 1.0) === f(u2)
 end
 
-@testset "typed constructor ownership and default weights" begin
-  # the typed constructor copies the groups, the list of groups and the weights
-  G = [[1], [2]]
-  w = [1.0, 1.0]
-  f = GroupMCP{Float64, typeof(G)}(1.0, 3.0, G, w)
-  @test f.groups !== G && f.groups[1] !== G[1] && f.w !== w
+@testset "constructor ownership and default weights" begin
+  # the outer constructors copy the groups and the weights
+  G = [[2], [1]]
+  w = [1.0, 2.0]
+  weighted = GroupMCP(1.0, G, w)
+  defaulted = GroupMCP(1.0, G)
+  @test weighted.groups[1] !== G[1] && weighted.w !== w && defaulted.groups[1] !== G[1]
   G[1][1] = 3
-  w[2] = Inf
-  @test f.groups == [[1], [2]] && f.w == [1.0, 1.0] && f.group_of == [1, 2]
-  @test prox(f, [3.0, 4.0], 1.0) == [3.0, 4.0]
-  R = [1:2, 3:4]
-  @test GroupMCP{Float64, typeof(R)}(1.0, 3.0, R, [1.0, 2.0]).groups == R
-  A = AbstractVector{Int}[[2, 1], 3:4]
-  fa = GroupMCP{Float64, typeof(A)}(1.0, 3.0, A, [1.0, 2.0])
-  @test fa.groups == A && fa.groups[1] !== A[1]
+  w[1] = 4
+  @test weighted.groups == defaulted.groups == [[2], [1]] && weighted.w == [1.0, 2.0] && defaulted.w == [1.0, 1.0]
+  @test weighted.group_of == defaulted.group_of == [2, 1]
+  # the typed constructor validates and stores its arguments as given: nested vectors, ranges, an abstract element type,
+  # view-backed groups and a list that is a view
+  for groups in ([[1], [2]], [1:1, 2:2], AbstractVector{Int}[[1], 2:2], [view([1, 2, 3], 1:1), view([1, 2, 3], 2:2)],
+                 view([[1], [2], [3]], 1:2))
+    ws = [1.0, 1.0]
+    f = GroupMCP{Float64, typeof(groups)}(1.0, 3.0, groups, ws)
+    @test f.groups === groups && f.w === ws && f.group_of == [1, 2]
+    @test prox(f, [3.0, 4.0], 1.0) == [3.0, 4.0]
+  end
+  @test_throws ArgumentError GroupMCP{Float64, Vector{Vector{Int}}}(1.0, 3.0, [[1], [1]], [1.0, 1.0])
   # the default weight √|G| without overflowing the group size in a narrow type
   @test GroupMCP(Float16(1), [1:65536]).w == Float16[256]
   @test GroupMCP(1f0, [1:2, 3:5]).w == Float32[sqrt(2f0), sqrt(3f0)]
@@ -652,8 +659,7 @@ end
       y = similar(x)
       v = value_and_prox!(y, f, x, γ)
       @test fused_close(v, f(y), 5, 4)
-      # a Float64 destination: Float32 data take the scaled path, whose fused terms are those of f(y64) for these
-      # cases; Float64 data take the ordinary path, with the tolerance above
+      # a Float64 destination: bitwise equality for the Float32 data of these cases, the tolerance above for Float64 data
       y64 = zeros(Float64, 14)
       v64 = value_and_prox!(y64, f, x, γ)
       @test T === Float32 ? v64 === f(y64) : fused_close(v64, f(y64), 5, 4)

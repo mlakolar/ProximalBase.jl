@@ -498,12 +498,11 @@ group and of the distance of every group, a zero group included, where the dista
 (zero for finite entries when the sum of the magnitudes of `v_G`, as the call computes it in the working type, is at most `c`) and not the margin: in exact arithmetic, for a positive margin, `distance <= margin <= sqrt(n)*distance` for a group of `n`
 entries. Under `Scaled` it has the routes of `GroupNormL2`. The three-argument form and a `SymmetricSparseIterate` throw an `ArgumentError`.
 
-[`GroupMCP`](@ref) has `kkt_violation(f, v, x, k)` at a zero group, the screen of `GroupNormL2` with its rules for
-non-finite values (`norm(v_G) - λ0*w_G` for finite data and coefficient), and `abs(vₖ)` at an entry in no group. At a real
-array point (a `BlockIterate` included) it throws an `ArgumentError` at a nonzero group and in the full-point form, and the
-form `kkt_violation(f, v, i)` throws an `ArgumentError`; a `SymmetricSparseIterate` point gives a `MethodError`. With finite
-positive parameters the penalty is not convex, and a zero score does not imply a global minimizer. Under `Scaled` it has
-no point-aware score (`MethodError`).
+[`GroupMCP`](@ref) has `kkt_violation(f, v, x, k)` at a zero group, the screen of `GroupNormL2` with the level and the
+weight as separate factors (`norm(v_G) - λ0*w_G` for finite `v`, `λ0` and `w_G`; its numerical contract gives the other
+cases), and `abs(vₖ)` at an entry in no group. At a real array point (a `BlockIterate` included) it throws an
+`ArgumentError` at a nonzero group and in the full-point form, and `kkt_violation(f, v, i)` throws an `ArgumentError`. A
+zero score does not imply a global minimizer. Under `Scaled` it has no point-aware score (`MethodError`).
 
 `LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
 `gradient!` in the function's scratch type `T` and reduce the residual in

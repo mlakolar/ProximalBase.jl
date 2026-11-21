@@ -2,29 +2,27 @@
 #  group MCP  Σₖ p(‖x[Gₖ]‖₂; λ0 wₖ, a)
 ####################################
 
-# marks the internal constructor route that takes groups and weights already owned by the object
-struct _GroupMCPOwned end
-
 """
     GroupMCP(λ0, groups; a = 3)
     GroupMCP(λ0, groups, w; a = 3)
 
-Group minimax concave penalty `f(x) = Σₖ p(‖x[Gₖ]‖₂; λ₀wₖ, a)`, where, for
-finite positive `λ₀wₖ` and `a`, `p(t; λ, a)` is the [`MCP`](@ref) penalty
-`λt - t²/(2a)` for `t ≤ aλ` and `aλ²/2` above; the endpoint table of the
-numerical contract gives the other cases. The weight multiplies the level, and
-`a` is not rescaled. Default weights are `wₖ = √|Gₖ|`. Groups are nonempty,
-disjoint lists or ranges of positive linear indices; entries in no group are
-unpenalized. The level and weights are nonnegative and not `NaN`, and `a > 0`
-(`a = Inf` gives the penalty of [`GroupNormL2`](@ref)). The constructors copy
-`groups` and `w`. The type trait `isconvex` is false: with finite positive
-parameters the penalty is not convex.
+Group minimax concave penalty `f(x) = Σₖ p(‖x[Gₖ]‖₂; λₖ, a)`, where `λₖ` is
+the effective coefficient of group `k` defined by the endpoint table of the
+[numerical contract](@ref spec-groupmcp-endpoints) (`λ₀wₖ` for finite positive
+`λ₀` and `wₖ`) and, for finite positive `λₖ` and `a`, `p(t; λ, a)` is the
+[`MCP`](@ref) penalty `λt - t²/(2a)` for `t ≤ aλ` and `aλ²/2` above. The shape
+`a` is not rescaled by the weights. Default weights are `wₖ = √|Gₖ|`. Groups
+are nonempty, disjoint lists or ranges of positive linear indices; entries in
+no group are unpenalized. The level and weights are nonnegative and not `NaN`,
+and `a > 0`. The constructors above copy `groups` and `w`. The type trait
+`isconvex` is false.
 
 [`prox`](@ref) takes a nonnegative **scalar** step `γ`. For finite positive
-`λ₀wₖ` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces `r`
-by the scalar MCP proximal point of `r`: the group is kept, scaled toward zero
-(`γ < a`), or set to `+0`. [`prox_block`](@ref) takes a compact vector in
-`groups[k]` order and does not update an iterate.
+`λₖ`, `a` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces
+`r` by a minimizer of the scalar MCP proximal problem at `r` (`+0` at a tie):
+the group is kept, scaled toward zero (`γ < a`), or set to `+0`. At `a = Inf`
+each group follows the rules of [`GroupNormL2`](@ref). [`prox_block`](@ref)
+takes a compact vector in `groups[k]` order and does not update an iterate.
 
 # Examples
 ```jldoctest
@@ -52,12 +50,15 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
   Negative or `NaN` steps fail before writes.
 - Exact in-place use (`y === x`, `out === u`) is supported; other overlaps
   detected by `Base.mightalias` are rejected.
-- Zero-weight groups stay unchanged. Infinite weights, or an infinite level
-  with positive weight, fix a group at `+0`, including at zero step.
-- [`kkt_violation`](@ref) has the zero-group screen of `GroupNormL2`
-  (`‖v[Gₖ]‖₂ - λ₀wₖ` for finite data) and `abs(v[i])` for entries in no group;
-  at a real array point it throws an `ArgumentError` at a nonzero group and in
-  the full-point form. A zero score does not imply a global minimizer.
+- A group with zero weight is unpenalized (unchanged, value 0) at every level.
+  An infinite weight, or an infinite level with positive weight, fixes a group
+  at `+0`, including at zero step.
+- [`kkt_violation`](@ref) has the zero-group screen of `GroupNormL2` and
+  `abs(v[i])` for entries in no group; at a real array point it throws an
+  `ArgumentError` at a nonzero group and in the full-point form. A zero score
+  does not imply a global minimizer.
+- The typed constructor `GroupMCP{T, G}(λ0, a, groups, w)` stores `groups` and
+  `w` without copying them: do not mutate them afterwards.
 - No `SymmetricSparseIterate`, `restrict` or per-group steps.
 
 See the [GroupMCP numerical contract](@ref spec-groupmcp) for endpoint and
@@ -71,8 +72,9 @@ struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abst
   group_of::Vector{Int}   # group_of[i] = k for i ∈ Gₖ, 0 for an index in no group
   free::Vector{Int}       # the indices up to the largest in a group that are in none
 
-  # The route of the outer constructors, which pass groups and weights that they own already.
-  function GroupMCP{T, G}(::_GroupMCPOwned, λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
+  # The typed constructor stores groups and w as given (the outer constructors pass their own copies); the caller must
+  # not mutate them afterwards.
+  function GroupMCP{T, G}(λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
     _check_one_based_groups(groups)
     length(w) == length(groups) ||
       throw(DimensionMismatch("GroupMCP needs one weight per group: $(length(groups)) groups and $(length(w)) weights"))
@@ -81,12 +83,6 @@ struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: Abst
     a > 0 || throw(ArgumentError("a must be positive, got $a"))
     group_of = _group_of(groups)
     new{T, G}(λ0, a, groups, w, group_of, findall(iszero, group_of))
-  end
-  # The typed constructor copies each group, the list of groups and the weights, and checks the copies; the copied list
-  # is converted to G.
-  function GroupMCP{T, G}(λ0::T, a::T, groups::G, w::Vector{T}) where {T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}}
-    _check_one_based_groups(groups)
-    GroupMCP{T, G}(_GroupMCPOwned(), λ0, a, convert(G, map(copy, groups)), copy(w))
   end
 end
 
@@ -100,7 +96,7 @@ function GroupMCP(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}
   a > 0 || throw(ArgumentError("a must be positive, got $a"))
   T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))
   G = _own_groups(groups)
-  GroupMCP{T, typeof(G)}(_GroupMCPOwned(), convert(T, λ0), convert(T, a), G, Vector{T}(w))
+  GroupMCP{T, typeof(G)}(convert(T, λ0), convert(T, a), G, Vector{T}(w))
 end
 
 function GroupMCP(λ0::Real, groups::AbstractVector{<:AbstractVector{<:Integer}}; a::Real = 3)
@@ -256,10 +252,10 @@ end
 
 # The ordinary sum v of the terms is returned when it is below floatmax(T)/2 and, for Float32 and Float64, at least n
 # floatmin(T), with n the number of counted terms (the test of GroupNormL2's values, _sum_kept). Otherwise the terms are
-# recomputed as parts and summed with their exponents (_ExpSum, in at least Float64); terms that rounded to Inf from
-# positive finite parameters, and the plateau of a finite-shape group with an infinite entry, are recomputed too. The
-# ordinary sum is kept for a NaN sum, a NaN group, a nonzero hard group (an infinite weight or level) and, for a = Inf,
-# a group with an infinite entry.
+# recomputed as parts and summed with their exponents (_ExpSum, in at least Float64). The recomputation skips groups with
+# a zero weight, and with a zero level and a finite weight, before it reads their entries. Of the remaining groups, a
+# NaN entry, a nonzero hard group (an infinite weight, or an infinite level with a positive weight) and, for a = Inf, an
+# infinite entry keep the ordinary sum, as does a NaN sum.
 @inline function _gmcp_value_checked(f::GroupMCP, x, v::T, n::Int) where {T}
   (_l2_ordinary(v, T) && (!_underflow_checked(T) || _sum_kept(v, n))) && return v
   _gmcp_value_recomputed(f, x, v)
@@ -512,8 +508,8 @@ kkt_violation(f::GroupMCP, g::AbstractArray, i::Integer) =
   "kkt_violation(f, v, x) is not implemented for GroupMCP; use kkt_violation(f, v, x, k) at a zero group or an entry in no group"))
 
 # The screen of a zero group, that of GroupNormL2 with the level and the weight passed as factors (‖v[G]‖₂ - λ0 wₖ for
-# finite data and coefficient, with GroupNormL2's rules for NaN and infinite entries and coefficients); a nonzero group
-# throws an ArgumentError.
+# finite v, λ0 and wₖ; ‖v[G]‖₂ for a zero weight; GroupNormL2's rules for NaN and infinite values otherwise); a nonzero
+# group throws an ArgumentError.
 @inline function _gmcp_zero_score(f::GroupMCP, g, x, k, ::Type{W}) where {W}
   G = @inbounds f.groups[k]
   _l2_zero_group(x, G, W) || _gmcp_kkt_nonzero_error(k)

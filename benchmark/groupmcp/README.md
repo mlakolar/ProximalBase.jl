@@ -4,8 +4,8 @@
 (XC, the A/A control) and GroupNormL2 of a reference tree on the same groups (R, the cost reference, a different
 function). The header of `run.jl` lists the cases, the operations, the verification before timing and the output
 files. `summarize.py` reports one result directory, or compares a candidate directory with a legacy directory on the
-cases whose saved outputs agree; the outputs are saved for the first input of each case, while the timing cycles
-through all inputs.
+cases whose saved outputs agree; the outputs are saved for the first input of each case, while the timed samples rotate
+through the input pool (with fewer sample setups than `PB_INPUTS`, some inputs are not timed).
 
 From the package root, with the base of the pull request as the reference tree and the frozen `legacy/full` tree:
 

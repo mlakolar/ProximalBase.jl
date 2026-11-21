@@ -157,25 +157,27 @@ entries are checked; element types (integers, mixed, Float16) with `@inferred`, 
 an infinite factor (the first stack of nested wrappers on an array, a `SparseIterate` and a `BlockIterate`, the other two on arrays), and chains that fold and that do not (the refusals at a nonzero
 group, at a zero entry inside it, at a nonzero entry in no group and in the full-point form, and a `SymmetricSparseIterate`); and zero warmed allocations of the new forms.
 `groupmcp` checks `GroupMCP` in Float32/64 against a BigFloat minimization of the radial objective that does not use the
-package (the scalar reference of `mcp_reference.jl`, a 256-bit candidate comparison, at the group norm computed in 512-bit
-BigFloat): the objective at the computed output within `(n + 8) eps S (4 + (n + 8) eps κ) + n δ (2r/γ + λ)` of the reference
-minimum (`S = r²/(2γ) + p(r)`, `κ = a/(a - γ)` for finite `a` and `γ < a`, and 0 otherwise), and, where the reference decision
-is the same at `r (1 ± (n + 8) eps)`, the kept group bit for bit, `+0`, or each firm entry within `((n + 8) κ + 8) eps max|u| +
-2δ`. It covers the worked examples and exactly representable ties, group sizes 1 to 512 with shapes near 0, near 1, large and
-infinite and steps below, at and above `a`, permuted and noncontiguous groups with entries in no group, singleton groups
-against `MCP` (the decisions, and the firm values within two ulps and one subnormal spacing for finite `a`), the scaled-path
-counterexamples and underflowing or overflowing products of level and weight, a subnormal shape whose reciprocal overflows
-(value and fused value), the ownership of the typed constructor and the default weight of a large Float16 group, scaling by
-powers of two across the ordinary and scaled paths (bit for bit in Float64), each endpoint row and the precedence of `NaN`
-over `Inf`, `a = Inf` against `GroupNormL2`, `SparseIterate`, `BlockIterate`, matrix and compact-block arguments, refusals
-with each destination compared to a sentinel copy (shapes, extent, compact input and output lengths, group number, step,
-aliasing, offset axes, a complex input, a complex compact output and non-floating destinations), zero allocations on the ordinary paths, the infinite-weight
-and input-type-overflow reproducers, a seeded sweep of extreme scales (compact and array outputs against the reference), the
-fused value against the value at the stored output (equal nonfinite values, finite ones within `(n + 4) eps` of it and `4K`
-subnormal spacings, as a scaled group's sum of squares can associate differently; bit for bit for the Float32 data with a
-Float64 destination that the file tests), `Scaled` (its rounded effective step: overflowing, underflowing to zero with a
-finite and an infinite level, subnormal, and a negative step rounding to `-0`), the refused methods and the zero-group screen
-(also at an infinite weight with infinite or `NaN` gradient entries).
+package (the scalar reference of `mcp_reference.jl`, a candidate comparison at 256 bits that is repeated at 4096 bits
+for near-ties, at the group norm computed in 512-bit BigFloat): the objective at the computed output within
+`(n + 8) eps S (4 + (n + 8) eps κ) + n δ (2r/γ + λ)` of the reference minimum (`S = r²/(2γ) + p(r)`, `κ = a/(a - γ)` for
+finite `a` and `γ < a`, and 0 otherwise), and, where the reference decision is the same at `r (1 ± (n + 8) eps)`, the
+kept group bit for bit, `+0`, or each firm entry within `((n + 8) κ + 8) eps max|u| + 2δ`. It covers the worked examples
+and exactly representable ties, group sizes 1 to 512 with shapes near 0, near 1, large and infinite and steps below, at
+and above `a`, permuted and noncontiguous groups with entries in no group, singleton groups against `MCP` (the
+decisions, and the firm values within two ulps and one subnormal spacing for finite `a`), the scaled-path
+counterexamples and underflowing or overflowing products of level and weight, a subnormal shape whose reciprocal
+overflows (value and fused value), the copies made by the outer constructors, view-backed groups and lists accepted by
+the typed constructor, and the default weight of a large Float16 group, scaling by powers of two across the ordinary and
+scaled paths (bit for bit in Float64), each endpoint row and the precedence of `NaN` over `Inf`, `a = Inf` against
+`GroupNormL2`, `SparseIterate`, `BlockIterate`, matrix and compact-block arguments, refusals with each destination
+compared to a sentinel copy (shapes, extent, compact input and output lengths, group number, step, aliasing, offset
+axes, a complex input, a complex compact output and non-floating destinations), zero allocations on the ordinary paths,
+the infinite-weight and input-type-overflow reproducers, a seeded sweep of extreme scales (compact and array outputs
+against the reference), the fused value against the value at the stored output (equal nonfinite values, finite ones
+within `(n + 4) eps` of it and `4K` subnormal spacings, as a scaled group's sum of squares can associate differently;
+bit for bit for the Float32 data with a Float64 destination that the file tests), `Scaled` (its rounded effective step:
+overflowing, underflowing to zero with a finite and an infinite level, subnormal, and a negative step rounding to `-0`),
+the refused methods and the zero-group screen (also at an infinite weight with infinite or `NaN` gradient entries).
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate

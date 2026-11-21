@@ -218,6 +218,7 @@ the parameters of the particular object.
 | `LinearFunction` | yes | yes | yes | yes | no |
 | `SqrNormL2` | yes | yes | yes | yes | uncentered and finite level only |
 | `QuadraticFunction` | yes | yes | no | no¹ | no |
+| `KronQuadratic` | yes | no | no | no² | no |
 | `LeastSquaresLoss` | yes | yes | no | yes | no |
 | `SqrtLeastSquaresLoss` | no | no | no | yes | no |
 | `LogDetLoss` | yes | yes | no | yes | no |
@@ -242,6 +243,10 @@ step converted to the element type after any `Scaled` factors, is not `< 1`
 `γ > 0`, the proximal subproblem has a unique minimizer if and only if `1 + γ λmin(A) > 0`
 for the true smallest eigenvalue; the check tests the computed value. A
 successful prox does not establish convexity.
+
+² `KronQuadratic(A, B, C)` is convex when `A` and `B` are both positive
+semidefinite or both negative semidefinite. The constructor does not check
+semidefiniteness, so `isconvex` returns `false`.
 
 **Important:** A true trait describes a mathematical capability but does
 not manufacture Julia methods or guarantee support for every array layout,

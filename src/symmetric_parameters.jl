@@ -14,6 +14,7 @@ entry_parameters(::IndNonnegative) = ()
 entry_parameters(f::IndBox) = (:l => f.l, :u => f.u)
 entry_parameters(f::LinearFunction) = (:c => f.c,)
 entry_parameters(f::SqrNormL2) = (:y => f.y,)
+entry_parameters(f::KronQuadratic) = (:C => f.C,)
 _inner_functions(f::Scaled) = (f.f,)
 
 check_symmetric_parameters(f::AbstractFunction, x) = (_check_entry_arrays(f, x); true)

@@ -46,7 +46,7 @@ apply alongside each entry.
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
-| `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
+| `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
 | `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
 | `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |

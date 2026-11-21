@@ -105,6 +105,14 @@ that happens to pass.
   decision. [Source](../../../src/functions/normlinf.jl)
   · [Tests](../../../test/normlinf.jl)
 
+- The GroupNormL2 endpoint row for positive finite parameters and step also
+  says `γ = Inf` fixes the group at zero. It could describe a separate
+  infinite-step branch or fall under the row's finite-step qualifier. The
+  guide table and infinite-step tests exercise the branches separately.
+  The qualifier awaits the owner's decision.
+  [Guide](../../src/group_penalty.md#group-l2-endpoints)
+  · [Tests](../../../test/groupnorml2.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

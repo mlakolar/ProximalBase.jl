@@ -140,15 +140,12 @@ including implicit zeros of a `SparseIterate`.
 See the [IndBallL1 numerical contract](@ref spec-indballl1) for ℓ₁-ball
 feasibility, power-of-two scaling, and tiny-radius projection.
 
-`GroupNormL2` values apply the same check to their group terms `λ0*w[k]*‖x[G_k]‖₂`,
-and recompute a sum below `K*floatmin(T)` for `K` groups from the terms' exponents.
+See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
+
 `GroupNormLinf` values apply the same check to their group terms `λ0*w[k]*max|x[G_k]|`, each formed in floating point
 as `(λ0*w[k])*m` with two rounded products when `λ0*w[k]` is a normal number (and by the three-factor kernel otherwise)
 and then converted to the output type, and may recompute from the exponents of `w[k]*max|x[G_k]|` with `λ0` applied once.
-The proximal operators of `GroupNormL2` recompute, for finite inputs, a group norm whose sum of
-squares overflows or underflows and a threshold `γ*λ0*w[k]` outside the range, in
-power-of-two units; the ordinary path needs a normal threshold and a normal sum of
-squares, and is otherwise unchanged.
+See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
 See the [NormLinf range clauses](@ref spec-normlinf-range).
 
@@ -270,10 +267,7 @@ all-NaN result or a particular exception.
 | `NormL1` | See the [NormL1 endpoint clauses](@ref spec-norml1-endpoints) |
 | `NormL2` | See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints) |
 | `NormLinf` | See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints) |
-| `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
-| `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (see [zero-step rule](@ref infinite-penalty-at-zero-step)), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
-| `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
-| `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
+| `GroupNormL2` | See the [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints) |
 | `SparseGroupNormL2` | See the [sparse-group endpoint rules](@ref sparse-group-l2-endpoints). |
 | `GroupNormLinf`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), also at an infinite level or step; zero value |
 | `GroupNormLinf`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` and `γ = Inf` included, also for `NaN`/`±Inf` inputs, and also for an infinite weight with a zero level; value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |

@@ -13,7 +13,8 @@
     "moves-quadratic.json",
     "moves-linear.json",
     "moves-norml2.json",
-    "moves-normlinf.json"
+    "moves-normlinf.json",
+    "moves-groupnorml2.json"
   ],
   "changes": [
     {
@@ -1808,6 +1809,636 @@
           "dest_sha": "512258919984c42523ca953cc06721a7cabfc6460c0d56fc25e11cba7090c9c8",
           "manifest": "moves-normlinf.json",
           "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::45",
+      "baseline_sha": "32df38ed36e420ca59887ba175ff2a077629758d6b1cdc52549ad01ce49231ce",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "32df38ed36e420ca59887ba175ff2a077629758d6b1cdc52549ad01ce49231ce"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "32df38ed36e420ca59887ba175ff2a077629758d6b1cdc52549ad01ce49231ce",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "32df38ed36e420ca59887ba175ff2a077629758d6b1cdc52549ad01ce49231ce",
+          "source_start": 18376,
+          "source_end": 18409,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "32df38ed36e420ca59887ba175ff2a077629758d6b1cdc52549ad01ce49231ce",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::46",
+      "baseline_sha": "79326025b31938179e3952d57957917cd243a56a26e06354fb68de5e346e35c8",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "79326025b31938179e3952d57957917cd243a56a26e06354fb68de5e346e35c8"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "79326025b31938179e3952d57957917cd243a56a26e06354fb68de5e346e35c8",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "79326025b31938179e3952d57957917cd243a56a26e06354fb68de5e346e35c8",
+          "source_start": 18410,
+          "source_end": 18419,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "79326025b31938179e3952d57957917cd243a56a26e06354fb68de5e346e35c8",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::47",
+      "baseline_sha": "09da49d750d4474120ed8d7cf1a625020e7a17add947b93c98ac06578758c7eb",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "09da49d750d4474120ed8d7cf1a625020e7a17add947b93c98ac06578758c7eb"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "09da49d750d4474120ed8d7cf1a625020e7a17add947b93c98ac06578758c7eb",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "09da49d750d4474120ed8d7cf1a625020e7a17add947b93c98ac06578758c7eb",
+          "source_start": 18420,
+          "source_end": 18506,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "09da49d750d4474120ed8d7cf1a625020e7a17add947b93c98ac06578758c7eb",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::48",
+      "baseline_sha": "8e612a954c9a2414e2fdcd59e8365a70e7e2e5a94802de5513ce071db50ec0e5",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "8e612a954c9a2414e2fdcd59e8365a70e7e2e5a94802de5513ce071db50ec0e5"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "8e612a954c9a2414e2fdcd59e8365a70e7e2e5a94802de5513ce071db50ec0e5",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "8e612a954c9a2414e2fdcd59e8365a70e7e2e5a94802de5513ce071db50ec0e5",
+          "source_start": 18507,
+          "source_end": 18740,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "8e612a954c9a2414e2fdcd59e8365a70e7e2e5a94802de5513ce071db50ec0e5",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::49",
+      "baseline_sha": "cd5f4b75de5d1d73060fee54c1acaa5522eebd8dae7a20fb982e0975ff30faa4",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "cd5f4b75de5d1d73060fee54c1acaa5522eebd8dae7a20fb982e0975ff30faa4"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "cd5f4b75de5d1d73060fee54c1acaa5522eebd8dae7a20fb982e0975ff30faa4",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "cd5f4b75de5d1d73060fee54c1acaa5522eebd8dae7a20fb982e0975ff30faa4",
+          "source_start": 18741,
+          "source_end": 18810,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "cd5f4b75de5d1d73060fee54c1acaa5522eebd8dae7a20fb982e0975ff30faa4",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::50",
+      "baseline_sha": "5c0eea0c56407357313eab4b3e3787ebf015674efa24e5cd3618326447c2c570",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "5c0eea0c56407357313eab4b3e3787ebf015674efa24e5cd3618326447c2c570"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "5c0eea0c56407357313eab4b3e3787ebf015674efa24e5cd3618326447c2c570",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "5c0eea0c56407357313eab4b3e3787ebf015674efa24e5cd3618326447c2c570",
+          "source_start": 18811,
+          "source_end": 18882,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "5c0eea0c56407357313eab4b3e3787ebf015674efa24e5cd3618326447c2c570",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::51",
+      "baseline_sha": "75d56b4718c3d439756847330a223adfcc362c7ef6428427a10eb79d5f60fb0c",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "75d56b4718c3d439756847330a223adfcc362c7ef6428427a10eb79d5f60fb0c"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "75d56b4718c3d439756847330a223adfcc362c7ef6428427a10eb79d5f60fb0c",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "75d56b4718c3d439756847330a223adfcc362c7ef6428427a10eb79d5f60fb0c",
+          "source_start": 18883,
+          "source_end": 18981,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "75d56b4718c3d439756847330a223adfcc362c7ef6428427a10eb79d5f60fb0c",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::52",
+      "baseline_sha": "9401b320a2cb5ba449a37c2b60177cd44b019f1a330c8141ec63ed713d3731ec",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "9401b320a2cb5ba449a37c2b60177cd44b019f1a330c8141ec63ed713d3731ec"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "9401b320a2cb5ba449a37c2b60177cd44b019f1a330c8141ec63ed713d3731ec",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "9401b320a2cb5ba449a37c2b60177cd44b019f1a330c8141ec63ed713d3731ec",
+          "source_start": 18982,
+          "source_end": 19195,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "9401b320a2cb5ba449a37c2b60177cd44b019f1a330c8141ec63ed713d3731ec",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::53",
+      "baseline_sha": "9a50141b4ead7caba12daeb121d12ae6be2d8d7792257cb07245a578bd119648",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "9a50141b4ead7caba12daeb121d12ae6be2d8d7792257cb07245a578bd119648"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "9a50141b4ead7caba12daeb121d12ae6be2d8d7792257cb07245a578bd119648",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "9a50141b4ead7caba12daeb121d12ae6be2d8d7792257cb07245a578bd119648",
+          "source_start": 19196,
+          "source_end": 19268,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "9a50141b4ead7caba12daeb121d12ae6be2d8d7792257cb07245a578bd119648",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::54",
+      "baseline_sha": "d8419e04efce23ea69514cae3d598c22322f10650816cff98ba112812320ef9d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "d8419e04efce23ea69514cae3d598c22322f10650816cff98ba112812320ef9d"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "d8419e04efce23ea69514cae3d598c22322f10650816cff98ba112812320ef9d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "d8419e04efce23ea69514cae3d598c22322f10650816cff98ba112812320ef9d",
+          "source_start": 19270,
+          "source_end": 19377,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "d8419e04efce23ea69514cae3d598c22322f10650816cff98ba112812320ef9d",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::55",
+      "baseline_sha": "559f644595d08212d7130de2d0fc2838ee33119688f5e9fabe7997a6d349195a",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "559f644595d08212d7130de2d0fc2838ee33119688f5e9fabe7997a6d349195a"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "559f644595d08212d7130de2d0fc2838ee33119688f5e9fabe7997a6d349195a",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "559f644595d08212d7130de2d0fc2838ee33119688f5e9fabe7997a6d349195a",
+          "source_start": 19378,
+          "source_end": 19444,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "559f644595d08212d7130de2d0fc2838ee33119688f5e9fabe7997a6d349195a",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::56",
+      "baseline_sha": "9e60bef2d30f12e615d946319c466f882417f96bb68908bef33e49b492ebfcbc",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "9e60bef2d30f12e615d946319c466f882417f96bb68908bef33e49b492ebfcbc"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "9e60bef2d30f12e615d946319c466f882417f96bb68908bef33e49b492ebfcbc",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "9e60bef2d30f12e615d946319c466f882417f96bb68908bef33e49b492ebfcbc",
+          "source_start": 19445,
+          "source_end": 19635,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "9e60bef2d30f12e615d946319c466f882417f96bb68908bef33e49b492ebfcbc",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::57",
+      "baseline_sha": "41afa9dd8dffbc4b0f3d8ec50bb9b9815d21b46c3f10a671fe9f05625c6a8bbc",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "41afa9dd8dffbc4b0f3d8ec50bb9b9815d21b46c3f10a671fe9f05625c6a8bbc"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "41afa9dd8dffbc4b0f3d8ec50bb9b9815d21b46c3f10a671fe9f05625c6a8bbc",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "41afa9dd8dffbc4b0f3d8ec50bb9b9815d21b46c3f10a671fe9f05625c6a8bbc",
+          "source_start": 19636,
+          "source_end": 19853,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "41afa9dd8dffbc4b0f3d8ec50bb9b9815d21b46c3f10a671fe9f05625c6a8bbc",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::58",
+      "baseline_sha": "fdee268934504ca84b55bc1acb70a93922c6d92e1a1a61ff5156f7273f151579",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "fdee268934504ca84b55bc1acb70a93922c6d92e1a1a61ff5156f7273f151579"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "fdee268934504ca84b55bc1acb70a93922c6d92e1a1a61ff5156f7273f151579",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "fdee268934504ca84b55bc1acb70a93922c6d92e1a1a61ff5156f7273f151579",
+          "source_start": 19854,
+          "source_end": 20035,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "fdee268934504ca84b55bc1acb70a93922c6d92e1a1a61ff5156f7273f151579",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::59",
+      "baseline_sha": "ac8c1dda6518c3253a084687edbd4114119415dfda0c3344a32bf70cfd286306",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "ac8c1dda6518c3253a084687edbd4114119415dfda0c3344a32bf70cfd286306"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "ac8c1dda6518c3253a084687edbd4114119415dfda0c3344a32bf70cfd286306",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "ac8c1dda6518c3253a084687edbd4114119415dfda0c3344a32bf70cfd286306",
+          "source_start": 20036,
+          "source_end": 20143,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "ac8c1dda6518c3253a084687edbd4114119415dfda0c3344a32bf70cfd286306",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::60",
+      "baseline_sha": "2fec918d5e10eb9a0a94639fdf6446823facccbf406f2bf1ac057610bea1e30d",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "2fec918d5e10eb9a0a94639fdf6446823facccbf406f2bf1ac057610bea1e30d"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "2fec918d5e10eb9a0a94639fdf6446823facccbf406f2bf1ac057610bea1e30d",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "2fec918d5e10eb9a0a94639fdf6446823facccbf406f2bf1ac057610bea1e30d",
+          "source_start": 20144,
+          "source_end": 20276,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "2fec918d5e10eb9a0a94639fdf6446823facccbf406f2bf1ac057610bea1e30d",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::61",
+      "baseline_sha": "bbd378cb59e665e63bde85f563cd021f88f749f7b3ad63b6bedaea0018493264",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "bbd378cb59e665e63bde85f563cd021f88f749f7b3ad63b6bedaea0018493264"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "bbd378cb59e665e63bde85f563cd021f88f749f7b3ad63b6bedaea0018493264",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "bbd378cb59e665e63bde85f563cd021f88f749f7b3ad63b6bedaea0018493264",
+          "source_start": 20277,
+          "source_end": 20330,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "bbd378cb59e665e63bde85f563cd021f88f749f7b3ad63b6bedaea0018493264",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::62",
+      "baseline_sha": "da9bc4c7a4e4eb2214a0045977e263a59f3fac2a7abfa1aa5291624742a103b3",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "da9bc4c7a4e4eb2214a0045977e263a59f3fac2a7abfa1aa5291624742a103b3"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "da9bc4c7a4e4eb2214a0045977e263a59f3fac2a7abfa1aa5291624742a103b3",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "da9bc4c7a4e4eb2214a0045977e263a59f3fac2a7abfa1aa5291624742a103b3",
+          "source_start": 20332,
+          "source_end": 20556,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "da9bc4c7a4e4eb2214a0045977e263a59f3fac2a7abfa1aa5291624742a103b3",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::63",
+      "baseline_sha": "3c8f72a80bff5b17e23fd140a4aa3949b06eb84796e5b72d028e7a076ed4295f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3c8f72a80bff5b17e23fd140a4aa3949b06eb84796e5b72d028e7a076ed4295f"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "3c8f72a80bff5b17e23fd140a4aa3949b06eb84796e5b72d028e7a076ed4295f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3c8f72a80bff5b17e23fd140a4aa3949b06eb84796e5b72d028e7a076ed4295f",
+          "source_start": 20557,
+          "source_end": 20970,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "3c8f72a80bff5b17e23fd140a4aa3949b06eb84796e5b72d028e7a076ed4295f",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::64",
+      "baseline_sha": "0beeb8f1a882709c6b448eaf6a114a98df90f3c180ac0213d81875ec7195368f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "0beeb8f1a882709c6b448eaf6a114a98df90f3c180ac0213d81875ec7195368f"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "0beeb8f1a882709c6b448eaf6a114a98df90f3c180ac0213d81875ec7195368f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "0beeb8f1a882709c6b448eaf6a114a98df90f3c180ac0213d81875ec7195368f",
+          "source_start": 20971,
+          "source_end": 21061,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "0beeb8f1a882709c6b448eaf6a114a98df90f3c180ac0213d81875ec7195368f",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/group_penalty.md::[The ℓ₂ and group ℓ₂ norms](@id l2-penalty-guide) / [The group ℓ₂ norm](@id group-l2-guide) / [Exceptional parameters and values](@id group-l2-endpoints)::65",
+      "baseline_sha": "d13330f19a65d9482f83a0260296ca3afe9e86b1b80984b4d5e9959b3b6d1cbe",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "d13330f19a65d9482f83a0260296ca3afe9e86b1b80984b4d5e9959b3b6d1cbe"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "d13330f19a65d9482f83a0260296ca3afe9e86b1b80984b4d5e9959b3b6d1cbe",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "d13330f19a65d9482f83a0260296ca3afe9e86b1b80984b4d5e9959b3b6d1cbe",
+          "source_start": 21062,
+          "source_end": 21219,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "d13330f19a65d9482f83a0260296ca3afe9e86b1b80984b4d5e9959b3b6d1cbe",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 6
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::74",
+      "baseline_sha": "95559ba640e045998bf5a7e9cd6b8fbc7189b5115c2720061e7ea464d059c5ff",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "95559ba640e045998bf5a7e9cd6b8fbc7189b5115c2720061e7ea464d059c5ff"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
+      "dest_sha": "95559ba640e045998bf5a7e9cd6b8fbc7189b5115c2720061e7ea464d059c5ff",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "95559ba640e045998bf5a7e9cd6b8fbc7189b5115c2720061e7ea464d059c5ff",
+          "source_start": 10869,
+          "source_end": 11036,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
+          "dest_sha": "95559ba640e045998bf5a7e9cd6b8fbc7189b5115c2720061e7ea464d059c5ff",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 4
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::75",
+      "baseline_sha": "48f623081889dfbbb4b5ff7460ba25c8898efe792e41ea18d10566e67fd26d6c",
+      "previous_action": "upstream",
+      "action": "move",
+      "comparison_source_shas": [
+        "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
+        "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2"
+      ],
+      "dest": "docs/src/numerics.md;docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
+      "dest_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51;086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51",
+          "source_start": 11037,
+          "source_end": 11396,
+          "child_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::76",
+          "dest": "docs/src/numerics.md",
+          "dest_sha": "5f74c33f7bfa6353e1fa3800f7c7956b3444e736682ff93b797314abb26ccc51"
+        },
+        {
+          "source_sha": "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2",
+          "source_start": 11397,
+          "source_end": 11694,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-range",
+          "dest_sha": "086121a608ed598b229ae1cc999e62b11559565621ba66e3091a0b5299de89d2",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 5
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::127",
+      "baseline_sha": "787df43a6741848d0924b4bf5d5c8fdde520ce17db13b2ae7b96c2a982c5e9fb",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "787df43a6741848d0924b4bf5d5c8fdde520ce17db13b2ae7b96c2a982c5e9fb"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "787df43a6741848d0924b4bf5d5c8fdde520ce17db13b2ae7b96c2a982c5e9fb",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "787df43a6741848d0924b4bf5d5c8fdde520ce17db13b2ae7b96c2a982c5e9fb",
+          "source_start": 24635,
+          "source_end": 24741,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "787df43a6741848d0924b4bf5d5c8fdde520ce17db13b2ae7b96c2a982c5e9fb",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 0
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::128",
+      "baseline_sha": "03385441b50d4238ef73c1f2f4eef1d91b4d6cad580d0ebe04d59deaef1de882",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "03385441b50d4238ef73c1f2f4eef1d91b4d6cad580d0ebe04d59deaef1de882"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "03385441b50d4238ef73c1f2f4eef1d91b4d6cad580d0ebe04d59deaef1de882",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "03385441b50d4238ef73c1f2f4eef1d91b4d6cad580d0ebe04d59deaef1de882",
+          "source_start": 24742,
+          "source_end": 25034,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "03385441b50d4238ef73c1f2f4eef1d91b4d6cad580d0ebe04d59deaef1de882",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 1
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::129",
+      "baseline_sha": "3aceac99e5c2694d0d8fd2b41bf034dc7c48fa28f2b72a81b4809ff33dbcc45e",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "3aceac99e5c2694d0d8fd2b41bf034dc7c48fa28f2b72a81b4809ff33dbcc45e"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "3aceac99e5c2694d0d8fd2b41bf034dc7c48fa28f2b72a81b4809ff33dbcc45e",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "3aceac99e5c2694d0d8fd2b41bf034dc7c48fa28f2b72a81b4809ff33dbcc45e",
+          "source_start": 25035,
+          "source_end": 25268,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "3aceac99e5c2694d0d8fd2b41bf034dc7c48fa28f2b72a81b4809ff33dbcc45e",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 2
+        }
+      ]
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::130",
+      "baseline_sha": "88543fb7203ac1278798119783bb70030b72b6b87bfec0ded074d3f44e52422f",
+      "previous_action": "stay",
+      "action": "move",
+      "comparison_source_shas": [
+        "88543fb7203ac1278798119783bb70030b72b6b87bfec0ded074d3f44e52422f"
+      ],
+      "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+      "dest_sha": "88543fb7203ac1278798119783bb70030b72b6b87bfec0ded074d3f44e52422f",
+      "reviewer": "mechanical",
+      "pieces": [
+        {
+          "source_sha": "88543fb7203ac1278798119783bb70030b72b6b87bfec0ded074d3f44e52422f",
+          "source_start": 25269,
+          "source_end": 25394,
+          "dest": "docs/src/spec/groupnorml2.md#spec-groupnorml2-endpoints",
+          "dest_sha": "88543fb7203ac1278798119783bb70030b72b6b87bfec0ded074d3f44e52422f",
+          "manifest": "moves-groupnorml2.json",
+          "manifest_index": 3
         }
       ]
     }

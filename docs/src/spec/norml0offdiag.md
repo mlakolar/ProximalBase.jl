@@ -94,9 +94,15 @@ so a `Float64` level is not rounded to `Float32` before the product.
 
 ## [Ordinary-path clauses](@id spec-norml0offdiag-ordinary)
 
+### [Diagonal preservation](@id norm-l0-offdiag.prox.diagonal)
+
 Under the storage preconditions of the
 [supported arguments](@ref spec-norml0offdiag-arguments), the diagonal is
-copied bit for bit, including `-0.0`. Each entry ``(i,j)`` with
+copied bit for bit, including `-0.0`.
+
+### Off-diagonal entries
+
+Each entry ``(i,j)`` with
 ``i\neq j`` is the ``(i,j)`` entry of `prox(NormL0(λ), V, γ)`, computed from
 ``V_{ij}`` alone and not mirrored from ``V_{ji}``. For ``\lambda>0`` the entry
 is kept when the scalar comparison of `NormL0` on the converted operands finds
@@ -226,6 +232,10 @@ This section links to the shared owners.
   for the scalar rule of `NormL0`
 
 ## [Evidence](@id spec-norml0offdiag-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l0-offdiag.prox.diagonal` | `guaranteed` | [Separate and in-place write loops](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/norml0offdiag.jl#L238-L264), [Unpenalized diagonal tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/norml0offdiag.jl#L181-L190), and [Negative zero on the diagonal](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/norml0offdiag.jl#L765-L768) |
 
 [`test/norml0offdiag.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/norml0offdiag.jl)
 compares the proximal map with an exact `Rational{BigInt}` minimization over the

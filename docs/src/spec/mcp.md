@@ -43,8 +43,13 @@ passed through `Scaled`.
 
 ## Results
 
+### [Proximal return values](@id mcp.prox.stored-output)
+
 `prox` allocates the result, `prox!` returns the destination, and
 `value_and_prox!` evaluates the value at the stored proximal point.
+
+### Storage traversal
+
 Same-kind sparse value and scalar-step prox paths visit stored entries.
 An off-diagonal symmetric entry contributes twice to the value.
 
@@ -114,6 +119,10 @@ This section links to the shared owners.
 - [Scaling a function](@ref scaling-guide)
 
 ## Evidence
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `mcp.prox.stored-output` | `guaranteed` | [Allocating interface](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L139-L143), [destination writes](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L140-L155), [stored-point implementation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/separable.jl#L210-L212), [endpoint and aliasing assertions](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/mcp.jl#L134-L155), and [destination rounding at the kink](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/mcp.jl#L340-L350) |
 
 [`test/mcp.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/mcp.jl)
 checks the complete objective with a high-precision reference and a bounded

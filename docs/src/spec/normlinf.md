@@ -86,8 +86,16 @@ contract](../numerics.md#numerical-value-range) states the hypotheses and the sc
 This passage concerns [full-point optimality scores](../group_penalty.md#norm-linf-kkt).
 
 For finite entries, a zero level gives ``\lVert v\rVert_2``, and an infinite level gives `0` at the zero point and
-`Inf` at another point. A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;
-otherwise an infinite entry gives `Inf`, also at a zero or an infinite level. The working type is
+`Inf` at another point.
+
+### [Non-finite full-point scores](@id norm-linf.kkt.nonfinite-entries)
+
+A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;
+otherwise an infinite entry gives `Inf`, also at a zero or an infinite level.
+
+### Working type and range
+
+The working type is
 `float(promote_type(eltype(v), eltype(x)))`. The rules for the levels, the non-finite entries, the
 ranges and the accuracy are in the [numerical contract](../numerics.md).
 
@@ -112,6 +120,10 @@ ranges and the accuracy are in the [numerical contract](../numerics.md).
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
 
 ## [Evidence](@id spec-normlinf-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-linf.kkt.nonfinite-entries` | `guaranteed` | [Full-point dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/normlinf.jl#L1162-L1173), [Non-finite classification](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/normlinf.jl#L1080-L1087), and [NaN precedence and infinite entries](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/kkt_linf.jl#L442-L473) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

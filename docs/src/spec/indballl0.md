@@ -44,9 +44,15 @@ magnitudes. General bounds are in [Range guarantees](@ref numerical-value-range)
 
 ## [Endpoint clauses](@id spec-indballl0-endpoints)
 
+### [Finite counted data for projection](@id ind-ball-l0.prox.finite-counted-data)
+
 [`IndBallL0`](@ref) requires finite counted data for projection. The kernel
 classifies counted entries during the support count. A counted nonfinite
-entry throws before the first write. A free diagonal is copied regardless
+entry throws before the first write.
+
+### Other projection and value rules
+
+A free diagonal is copied regardless
 of its values. In the standalone indicator, a counted NaN returns NaN for
 any budget, and either infinity counts as nonzero. In a symmetric input
 the selected triangle determines the entries used by both oracles.
@@ -85,6 +91,10 @@ scaling limits.
 
 - Endpoint behavior, argument validation, and signed zeros. [`test/indballl0.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indballl0.jl)
 - Exhaustive small-case support comparisons and storage cases. [`test/indballl0_reference.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indballl0_reference.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `ind-ball-l0.prox.finite-counted-data` | `guaranteed` | [Dense count and validation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl0.jl#L164-L201), [sparse projection validation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl0.jl#L327-L335), [symmetric dense validation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl0.jl#L497-L505), [symmetric sparse validation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl0.jl#L571-L575), [rejection and untouched-output assertions](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl0.jl#L274-L281), [dense and symmetric cases](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl0.jl#L300-L309), and [vector cases in both precisions](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl0_reference.jl#L194-L211) |
 
 ## [History](@id spec-indballl0-history)
 

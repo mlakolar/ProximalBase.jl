@@ -52,7 +52,12 @@ twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
 |:--|:--|
 | `NormL2` | The rules of one `GroupNormL2` group with weight one (rows below); value `0` at zero level; no proximal operator for a `SymmetricSparseIterate` (`ArgumentError` before any write) |
 
+### [Zero-level value](@id norm-l2.value.zero-level)
+
 A zero level gives value zero.
+
+### Other level and step cases
+
 An infinite level gives zero at the zero argument (including an empty array),
 `NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the
 [endpoint table](@ref group-l2-endpoints) also describes the norm's prox;
@@ -81,6 +86,10 @@ The “rows below” in the retained table refer to the [GroupNormL2 endpoint ta
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
 
 ## [Evidence](@id spec-norml2-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l2.value.zero-level` | `guaranteed` | [Zero-level value branch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/numerical_kernels.jl#L1017-L1026) and [Zero-level value and non-finite inputs](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/norml2.jl#L358-L369) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

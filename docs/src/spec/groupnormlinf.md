@@ -158,7 +158,11 @@ The [group optimality scores](../group_penalty.md#Optimality-scores-2) explain t
 `kkt_violation` fold the level of a chain, as above). A group that reaches the
 infinite-step exit then gives `+0`, where the exact radius ``\alpha\gamma\lambda_0w_k`` can be below the ℓ₁ norm of the
 group; a group with a zero weight or a zero level with a finite weight keeps the identity, because those exits come first.
+### [Zero factor in Scaled](@id group-norm-linf.scaled.zero-factor)
+
 A zero `α` throws an `ArgumentError`.
+
+### Scaled step example
 
 ```@example group_penalty
 scaled = Scaled(GroupNormLinf(2.0^-1020, [1:2]), 2.0^1000)
@@ -181,6 +185,10 @@ prox(scaled, [2000.0, 500.0], 2.0^30)
 | Group optimality scores | [Point-aware scores](@ref spec-kkt_violation-endpoints) |
 
 ## [Evidence](@id spec-groupnormlinf-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `group-norm-linf.scaled.zero-factor` | `guaranteed` | [Scaled constructor](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L111-L118), [Zero-scale error](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L133-L135), and [GroupNormLinf zero-factor rejection test](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/groupnormlinf.jl#L1638-L1644) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

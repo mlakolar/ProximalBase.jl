@@ -877,3 +877,14 @@ Six histories gained an event and two are new. The ledger retains all
 2,162 frozen roots. The upstream audit holds 74 receipts and 150 events. The historical and
 current readings of the migration inventory remain open after the explicit
 `PoissonLoss` exception.
+
+## NormL1 finite-factor overflow deduplication
+
+Independent review `reconcile_pr_review@a4a818b27075aa67c5693cd5c0019d806503f15e` compared the removed
+endpoint sentence with the two retained limitation sentences. The ledger row
+for `numerics.md` endpoint root `::159` points to those exact sentences in
+their original order under `norm-l1.prox.finite-factor-overflow`. The scope
+of the [#866 behavior](https://github.com/mlakolar/ProximalBase.jl/issues/866)
+remains finite factors whose threshold overflows with an infinite input.
+The endpoint table, the genuinely infinite level and weight rules, and the
+example assertions remain in place.

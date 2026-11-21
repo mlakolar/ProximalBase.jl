@@ -182,6 +182,17 @@ that happens to pass.
   [Source](../../../src/functions/sparsegroupnorml2.jl)
   · [Shared group-score tests](../../../test/kkt_block.jl)
 
+- The SparseGroupNormL2 definition says the constructor “copies the
+  supplied groups and weights”. For a collection with a concrete range
+  element type, this could promise an independent copy of each supplied
+  range or a copy of the outer collection. `_own_groups` copies the outer
+  vector and retains the range objects. The ownership test mutates the
+  supplied index vectors and weight vector. The copy requirement for
+  range objects awaits the owner's decision.
+  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
+  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
+  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

@@ -44,13 +44,13 @@ apply alongside each entry.
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
-| `NormL2` | [The ℓ₂ norm](@ref norm-l2-guide) | Existing pages |
-| `NormLinf` | [The ℓ∞ norm](../group_penalty.md#The-NormLinf-norm) | Existing pages |
-| `GroupNormL2` | [The group ℓ₂ norm](@ref group-l2-guide) | Existing pages |
+| `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
+| `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |
+| `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
 | `SparseGroupNormL2` | [Sparse group lasso](@ref sparse-group-l2-guide) and [endpoint rules](@ref sparse-group-l2-endpoints) | Existing pages |
 | `GroupNormLinf` | [The group ℓ∞ norm](@ref group-linf-guide) and [clip accuracy](@ref groupnormlinf-clip-accuracy) | Existing pages |
-| `Scaled` | [Scaling a function](@ref scaling-guide) | Existing pages |
-| `kkt_violation` | [Checking optimality with KKT conditions](../operations.md#Checking-optimality-with-KKT-conditions) and [numerical endpoint rules](../numerics.md#NaN,-infinities-and-zeros) | Existing pages |
+| `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
+| `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |
 
 ## Status vocabulary
 

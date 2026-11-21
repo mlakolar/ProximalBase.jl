@@ -29,11 +29,7 @@ The proximal operators take arrays of the same size; a `BlockIterate` or a
 `SparseIterate` is read and written by indexing its entries, O(length) in general, as
 an array. A
 `SymmetricSparseIterate` has no `NormL2` proximal operator: those calls throw an
-`ArgumentError` before anything is written. A zero level gives value zero.
-An infinite level gives zero at the zero argument (including an empty array),
-`NaN` at a `NaN` entry, and `Inf` otherwise. With unit group weight, the
-[endpoint table](@ref group-l2-endpoints) also describes the norm's prox;
-in particular zero level takes precedence over an infinite step.
+`ArgumentError` before anything is written. See the [NormL2 endpoint clauses](@ref spec-norml2-endpoints).
 
 ## The NormLinf norm
 
@@ -42,12 +38,7 @@ Its proximal operator clips the entries at a level ``\tau\ge0``,
 ``\operatorname{clamp}(x_i,-\tau,\tau)``, where ``\sum_i(\lvert x_i\rvert-\tau)_+=\gamma\lambda``,
 and it is zero when ``\gamma\lambda\ge\lVert x\rVert_1``. The level comes from the
 projection onto the ℓ₁ ball of radius ``\gamma\lambda`` (Condat's algorithm, with Michelot's as a fallback),
-and the output is the clip itself, not ``x`` minus that projection. The error of ``\tau`` is absolute: on the ordinary
-finite path, at most ``2.25\,n\,\varepsilon\max_i\lvert x_i\rvert+2n\delta`` for ``n\ge1`` entries with
-``n\varepsilon\le 1/2``, relative to the radius ``a`` that the proximal operator forms from ``\gamma`` and ``\lambda``
-and the entries read in the output type, with ``\varepsilon`` the machine epsilon and ``\delta`` the smallest subnormal
-number of the output type (the storage of a subnormal radius or output adds ``\delta``). The [numerical
-contract](numerics.md) states the hypotheses and the scaled units of the exceptional path. The value takes arrays and
+and the output is the clip itself, not ``x`` minus that projection. See the [NormLinf range clauses](@ref spec-normlinf-range).  The value takes arrays and
 the three iterates, and a
 `SymmetricSparseIterate` (its largest stored magnitude); the proximal operators take arrays and
 the sparse and block iterates, and a `SymmetricSparseIterate` argument or output throws an `ArgumentError` before
@@ -116,11 +107,7 @@ y1 = copy(y); y1[2] = -prevfloat(abs(y[2]))
 (stationary = kkt_violation(fl, v, y), one_ulp_below = kkt_violation(fl, v, y1))
 ```
 
-For finite entries, a zero level gives ``\lVert v\rVert_2``, and an infinite level gives `0` at the zero point and
-`Inf` at another point. A `NaN` entry of `v` or `x` gives `NaN`, also beside an infinite entry;
-otherwise an infinite entry gives `Inf`, also at a zero or an infinite level. The working type is
-`float(promote_type(eltype(v), eltype(x)))`. The rules for the levels, the non-finite entries, the
-ranges and the accuracy are in the [numerical contract](numerics.md).
+See the [NormLinf endpoint clauses](@ref spec-normlinf-endpoints).
 
 The norm is not separable, so it has the full-point form and no form for an entry or a group. The calls
 `kkt_violation(g, v, i)` and `kkt_violation(g, v, x, k)` at an array, a `SparseIterate`, a `BlockIterate` or a
@@ -304,41 +291,7 @@ scores
 
 ### [Exceptional parameters and values](@id group-l2-endpoints)
 
-| Case | Result for group ``k`` |
-|:--|:--|
-| ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included; value zero |
-| ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` included, also for `NaN` and `±Inf` inputs (see [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)) |
-| ``\lambda_0=0`` or ``\gamma=0``, finite parameters | The identity |
-| ``\gamma=\infty``, positive finite level and weight | Fixed at `+0` |
-| A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN` |
-| A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged: the norm is infinite and the threshold ``\gamma\lambda_0w_k`` is finite, also when its floating-point product overflows |
-| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
-
-The common interpretation of [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)
-applies. A finite zero group becomes `+0` under positive finite parameters. An
-infinite-weight or infinite-level group's value is zero at a zero group, `NaN`
-when it contains `NaN`, and `Inf` otherwise; a zero weight overrides these value
-rules and contributes zero.
-For finite inputs, norms whose sums of squares overflow or underflow and
-thresholds outside the floating-point range are recomputed in power-of-two
-units, so that a representable proximal point is returned accurately. Values recover terms that round below `floatmin`: for `Float32` and `Float64`,
-a sum below `K*floatmin`, where `K` is the total number of groups, is recomputed
-using term exponents. Values at or above `floatmax/2` are recomputed in
-power-of-two units and accumulated in at least `Float64`. Within a few eps of
-the overflow threshold the result may be `floatmax` or `Inf`, regardless of
-which one the exact value rounds to. See [value range limits](@ref numerical-value-range).
-
-`GroupNormL2` does not apply to a `SymmetricSparseIterate` (its proximal operators
-throw an `ArgumentError` before anything is written), and it has no
-`restrict`, no per-group step and no compact block method under `Scaled`.
-With a positive finite `α`, `Scaled(GroupNormL2(...), α)` multiplies the value by
-`α`, computes the array proximal operator with the step `αγ`, and scores a group by evaluating the score of
-`GroupNormL2` on `v/α` and multiplying it by `α` (see the [scaling guide](@ref scaling-guide)
-for the limits and the unsupported cases); `test/kkt_block.jl` checks these scores
-against the definition of the scaled function. A zero `α` throws an
-`ArgumentError`, and an infinite `α` has no endpoint rule of its own. The
-[group-lasso example](examples/group_lasso_prox.md) checks the value, the
-proximal operators, the block operations and the screen against their formulas.
+See the [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints).
 
 ## [Sparse group lasso](@id sparse-group-l2-guide)
 

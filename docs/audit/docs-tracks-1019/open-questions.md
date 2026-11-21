@@ -89,6 +89,45 @@ that happens to pass.
   [Source](../../../src/functions/linear.jl)
   · [Tests](../../../test/linear_value_recovery.jl)
 
+- The `NormL2` range text says the sums visit “each off-diagonal symmetric
+  coordinate twice”. This could count contributions to the squared norm or
+  visits to the stored entry. The ordinary sum doubles a stored off-diagonal
+  square, and recovery uses a multiplicity. The wording awaits the owner's
+  decision. [Source](../../../src/functions/sqrnorml2.jl)
+  · [Tests](../../../test/norml2.jl)
+
+- The NormLinf range paragraph calls τ* the root of the level equation
+  at the rounded radius. If the radius rounds to zero, every level at or above
+  the largest magnitude solves the equation. The statement could refer to the
+  smallest root or apply only when the rounded radius stays positive. The
+  implementation uses the largest entry as the zero-radius reference in its
+  exceptional-path derivation. The range interpretation awaits the owner's
+  decision. [Source](../../../src/functions/normlinf.jl)
+  · [Tests](../../../test/normlinf.jl)
+
+- The GroupNormL2 endpoint row for positive finite parameters and step also
+  says `γ = Inf` fixes the group at zero. It could describe a separate
+  infinite-step branch or fall under the row's finite-step qualifier. The
+  guide table and infinite-step tests exercise the branches separately.
+  The qualifier awaits the owner's decision.
+  [Guide](../../src/group_penalty.md#group-l2-endpoints)
+  · [Tests](../../../test/groupnorml2.jl)
+
+- The Scaled endpoint paragraph says finite-data built-in losses simplify
+  to ZeroFunction at zero scale. It could refer to all current built-in
+  losses or only those with a domain-preserving zero-scale representation.
+  The source has separate zero-scale methods for LeastSquaresLoss and
+  SqrtLeastSquaresLoss. The LogisticLoss and LogDetLoss types use the
+  default error path. The family scope awaits the owner's decision.
+  [Source](../../../src/functions/scaled.jl)
+
+- The GroupNormLinf accuracy row describes the margin as a computed sum
+  minus the coefficient. It could refer only to ordinary subtraction or also
+  to overflow. The non-finite row and source give positive infinity when
+  the sum overflows, including at an infinite coefficient. The scope of the
+  subtraction wording awaits the owner's decision.
+  [Source](../../../src/functions/groupnormlinf.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

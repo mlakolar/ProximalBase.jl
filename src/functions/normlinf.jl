@@ -546,10 +546,14 @@ end
 
 # Condat's pass. The stored entries are buf[1:nt] (the candidates that restarts have displaced) and buf[nt+1:nt+nv] (the nv
 # candidates, of running sum s); the level ρ and the rules that update it are in claim 4. The entries after the first are read in
-# groups of four, whose four comparisons with ρ are joined in one branch, and the last one to three entries (when n - 1 is not a
-# multiple of four) one by one. After each group in which an entry is above ρ, and not in the loop of the last entries, the loop
-# compares the count nv with the count in force, cap at first, and calls `_condat_many` when the count exceeds it; below, a test
-# is such a call. cap is the early count max(8, n ÷ 8) for the ordinary read `_AbsRead`. The scaled read of the overflow paths,
+# groups of four, and the last one to three entries (when n - 1 is not a multiple of four) one by one. A group is tested as a
+# whole against ρ as it stands at the start of the group: if any of its four entries is above that ρ, `_condat_step!` runs on all
+# four in order, and an entry that is not above the current ρ (which the earlier steps of the group may have raised) returns from
+# `_condat_step!` with the state unchanged; if all four are at most that ρ, the group skips the steps. The tail of one to three
+# entries is not part of that joined test: each entry of it is sent to `_condat_step!` on its own, one at a time. After each group
+# in which an entry is above ρ, and not in the loop of the last entries, the loop compares the count nv with the count in force,
+# cap at first, and calls `_condat_many` when the count exceeds it; below, a test is such a call. cap is the early count
+# max(8, n ÷ 8) for the ordinary read `_AbsRead`. The scaled read of the overflow paths,
 # each of whose reads is an `ldexp`, keeps cap = cap2, because the extra passes of an early handover through it can cost more than
 # the candidate updates they save; so does any other read (`_early_count`). The count of an input of at most 4 entries is not
 # compared, and an input of at most 8 entries has no test (after its one group of four the count is at most 5). A test with cap2 =
@@ -573,8 +577,8 @@ end
 # entries waits for, and a pass of the iteration over all the entries is (for Float32 and Float64) a vectorized loop with a few
 # operations per entry. A count above cap while ρ is at most the plain level of all the entries, where the handover would start,
 # is taken as a sign that the pass would join many more entries. Once ρ has passed that level, a handover would start at ρ
-# itself, and the pass continues: the entries that ρ discards cost their comparisons with ρ (four joined in one branch) and no
-# step. This is a heuristic, and on some inputs the handover costs more than the rest of the pass would.
+# itself, and the pass continues: an entry not above ρ is not stored, and a group of four with no entry above ρ skips the
+# steps. This is a heuristic, and on some inputs the handover costs more than the rest of the pass would.
 #
 # Without a handover the iteration runs on the stored entries from max(ρ, (s - a)/nv), the plain level of the final candidates.
 # With at most four stored entries it reads them through `_plain_read`, which selects the plain loop of `_l1ball_excess` in
@@ -638,11 +642,12 @@ end
 
 # The handover: the iteration on all the entries from max(ρ, (s - a)/n), the larger of the level ρ of Condat's pass and the
 # plain level of all the entries, with s the sum of the caller's pass when it is given and the sum of the entries formed here
-# when it is not (claim 2 bounds this start). The handover at the test with cap in force is taken when ρ n ≤ s - a, so that it
-# starts at the plain level up to a rounding of that test; at the test with cap2 in force ρ can be the larger (after it has passed
-# the plain level; for n ≥ 8192 and for a read other than `_AbsRead`, where the level is not tested; and without the caller's
-# sum, where the level is not tested either and the plain level of the sum formed here can be negative). It is not inlined, which keeps `_l1ball_threshold!` to Condat's
-# pass and one call for the handover.
+# when it is not (claim 2 bounds this start). When `_condat_many` tests the level (cap < cap2 in force, and the caller supplied
+# its sum), it hands over when the test ρ n > s - a fails (ρ n ≤ s - a, the values not being NaN), so the start is the plain
+# level up to a rounding of that test. At the test with cap2 in force the handover is taken without the level test, and ρ can
+# be the larger: after it has passed the plain level; for n ≥ 8192 and for a read other than `_AbsRead`, where the level is not
+# tested; and without the caller's sum, where the level is not tested either and the plain level of the sum formed here can be
+# negative. It is not inlined, which keeps `_l1ball_threshold!` to Condat's pass and one call for the handover.
 @noinline function _l1ball_handover(x, n::Int, a::T, rd::F, s::T, ρ::T) where {T, F}
   lv = (s - a) / n
   _l1ball_iterate(x, n, a, rd, ifelse(ρ > lv, ρ, lv))
@@ -651,13 +656,15 @@ end
   _l1ball_handover(x, n, a, rd, _linf_sum(x, rd, T), ρ)
 end
 
-# One entry y of Condat's pass, with the level ρ (claim 4): an entry not above ρ is not stored. Otherwise it joins the nv candidates when
-# their plain level with y, (s + y - a)/(nv + 1), exceeds y - a, which is the test s > (y - a) nv, and then ρ becomes
-# max(ρ, (s (1 - (nv + 4) u) - a)/nv) for the new candidates, u = eps(T)/2: the factor covers the roundings of the sum, the product, the
-# difference and the quotient: with the exact level L_V of the candidates, the value is at most L_V + δ/2 when its numerator is nonnegative and
-# at most 0 otherwise (claim 4 gives the consequences for the exact level of all the entries). If the test fails, the candidates
-# stay in the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The maximum is taken
-# with a comparison (the values are not NaN). It returns (nt, nv, s, ρ); the caller compares the count nv after a group of four.
+# One entry y of Condat's pass, with the level ρ (claim 4): an entry not above ρ is not stored, and the call returns at once with
+# the buffer not written and nt, nv, s and ρ unchanged. Otherwise y joins the nv candidates when their plain level with y,
+# (s + y - a)/(nv + 1), exceeds y - a, which is the test s > (y - a) nv, and then ρ becomes max(ρ, (s (1 - (nv + 4) u) - a)/nv)
+# for the new candidates, u = eps(T)/2: the factor covers the roundings of the sum, the product, the difference and the quotient:
+# with the exact level L_V of the candidates, the value is at most L_V + δ/2 when its numerator is nonnegative and at most 0
+# otherwise (claim 4 gives the consequences for the exact level of all the entries). If the test fails, the candidates stay in
+# the buffer in front of y (they are counted in nt) and y starts them anew, with ρ ← max(ρ, prevfloat(y - a)). The maximum is
+# taken with a comparison (the values are not NaN). It returns (nt, nv, s, ρ); the caller compares the count nv after a group of
+# four.
 @inline function _condat_step!(buf::AbstractArray{T}, y::T, nt::Int, nv::Int, s::T, ρ::T, a::T, u::T) where {T}
   y > ρ || return nt, nv, s, ρ
   if s > (y - a) * nv

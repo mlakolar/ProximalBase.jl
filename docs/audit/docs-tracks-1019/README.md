@@ -217,6 +217,15 @@ original block at that scope in the moved file's before blob. Each event
 verifies both blobs at the moved path and keeps its span within the recorded
 scope. The current ledger uses the `upstream` action for this case.
 
+A verbatim move of an already-reviewed upstream span can also precede another
+upstream edit. Set `move_after_event` to the number of original-file events
+before that move. In the first post-move event's actual parent, the tracked
+ledger must record the exact ordered move to the named section. The tracked
+upstream receipt must match the original-file prefix, and the tracked migration
+basis must bind that receipt and its terminal hashes. Those hashes must match
+the ordered source of the first post-move event. The current `upstream` row
+uses those parent records as evidence, so remove its active migration basis.
+
 The checker derives the complete replacement span from the source-owned changed
 line regions. An unchanged neighboring block is excluded only when positional
 block matching and unchanged raw-line alignment agree. Matching text elsewhere
@@ -224,7 +233,7 @@ in the old file does not exempt a newly introduced copy from the receipt.
 
 Events need not be adjacent commits or have identical whole-file blobs between
 them: unrelated upstream work may edit other sections. Exact block-hash
-continuity is mandatory. Each chain verifies exact contiguous replacement spans
+continuity is mandatory. Each event verifies exact contiguous replacement spans
 within one file. Each PR's merged status is independently verified and recorded
 in `review.md`; an offline
 checker cannot authenticate it. CI fetches the exact before/after revisions for

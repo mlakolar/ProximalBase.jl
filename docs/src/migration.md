@@ -61,8 +61,9 @@ accepts a strided or CSC design. See [logistic regression](smooth.md#Logistic-re
 data. It takes the sum over observations of `exp(ηᵢ) - yᵢηᵢ` at `η = X*β`, requires
 finite nonnegative responses, and has no weight or offset argument. A caller who
 forms `η = X*β + offset` evaluates the offset model through the predictor oracles.
-It does not restore the archived `ProximalBase.Poisson` scalar loss with its
-weights, offsets, second derivative and curvature. See
+It does not restore the archived scalar `ProximalBase.Poisson()` loss, which had
+second-derivative (`deriv2`) and curvature (`curvature`) methods, or the archived
+`GLMLoss` wrapper, which owned the weights and offsets. See
 [Poisson regression](smooth.md#Poisson-regression-loss).
 
 ### Removed scalar-loss interface (0.6, breaking)

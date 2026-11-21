@@ -1,21 +1,27 @@
 """
     PoissonLoss(y, X)
 
-Convex, smooth Poisson regression loss with predictor `η = X*β`, value
-`sum(exp(ηᵢ) - yᵢ*ηᵢ)` and gradient `X' * (exp(ηᵢ) - yᵢ)ᵢ`. The sum is not
-divided by the number of observations; `(1/n) * f` gives the mean. The term
-`log Γ(yᵢ + 1)` that does not depend on `β` is omitted.
+Convex, smooth Poisson regression loss with predictor `η = X*β`. The
+mathematical objective is `sum(exp(ηᵢ) - yᵢ*ηᵢ)` with gradient
+`X' * (exp(ηᵢ) - yᵢ)ᵢ`; the computed terms at an infinite predictor or an
+overflowing intermediate follow the
+[endpoint rules](@ref spec-poissonloss-endpoints). The constant `log Γ(yᵢ + 1)`
+of the negative log-likelihood does not depend on `β` and is omitted. The value
+is a sum over observations. For a positive number of observations `n` and a
+finite unscaled sum, `(1/n) * f` gives the mean.
 
 Use a `Vector{Float64}` of responses and a `Matrix{Float64}` design with
 `size(X, 1) == length(y)`. Responses must be finite and nonnegative; a
 noninteger response is accepted. The constructor borrows both arrays. It has
 no weight or offset argument. A caller who forms `η = X*β + offset` evaluates
 that model through [`ProximalBase.value_from_predictor`](@ref) and
-[`ProximalBase.value_and_gradient_from_predictor!`](@ref).
+[`ProximalBase.value_and_gradient_from_predictor!`](@ref), which take any
+predictor that meets their buffer requirements.
 
 The loss implements [`gradient!`](@ref) and [`value_and_gradient!`](@ref),
-with no proximal operator and no global curvature bound, so
-[`lipschitz`](@ref) throws. A term whose `exp(ηᵢ)` or `yᵢ*ηᵢ` overflows is
+with no proximal operator. The API supplies no gradient bound for any
+instance, so [`lipschitz`](@ref) throws; the curvature in `β` is unbounded for a
+design with a nonzero row. A term whose `exp(ηᵢ)` or `yᵢ*ηᵢ` overflows is
 computed as `±Inf`. See [Poisson regression](@ref Poisson-regression-loss) for
 ownership, scaling and numerical limits.
 """
@@ -35,9 +41,12 @@ end
 issmooth(::Type{<:PoissonLoss}) = true
 isconvex(::Type{<:PoissonLoss}) = true
 
-# The value term and the derivative of one observation at the predictor η. A zero
-# response or an infinite exponential takes the exponential itself, which avoids
-# 0*Inf at a zero response and Inf - Inf at η = +Inf. NaN in η gives NaN.
+# The requested value term (V) and derivative (D) of one observation at the
+# predictor η; a quantity that is not requested is returned as zero. The value term
+# is e = exp(η) for a zero response or an infinite exponential, and e - y*η
+# otherwise. ifelse evaluates both arms, so the selection of e keeps the NaN of an
+# unselected 0*Inf (zero response, infinite η) or Inf - Inf (infinite exponential
+# and product) out of the result. NaN in η gives NaN.
 @inline function _poisson_terms(η::Float64, y::Float64, ::Val{V}, ::Val{D}) where {V,D}
   e = exp(η)
   v = V ? ifelse(iszero(y) | (e == Inf), e, e - y * η) : 0.0

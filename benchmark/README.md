@@ -603,9 +603,11 @@ includes the first invocation and its compilation, after loading source.
 
 ## Poisson-loss harness
 
-`PoissonLoss` does not exist in the master tree, so this harness loads only the
-candidate source. Use a dedicated single-thread allocation for the candidate and
-for the independently compiled reference and A/A control.
+`PoissonLoss` does not exist at the base commit `a38c0a8e6a6b7e8955dc784448542e4fd294c450`,
+so this harness takes no baseline root and requires a candidate checkout that contains
+`src/functions/poissonloss.jl`, and it loads the package source of that checkout
+only. Use a dedicated single-thread allocation for the candidate and for the
+independently compiled reference and A/A control.
 
 ```sh
 julia scripts/instantiate.jl benchmark

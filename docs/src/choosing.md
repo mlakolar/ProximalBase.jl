@@ -71,11 +71,12 @@ julia> (value, Tuple(out))
 ```
 
 The [getting-started tutorial](getting_started.md) combines these operations
-into a lasso iteration. If you already hold a predictor or residual, the
+into a lasso iteration. If you already hold a predictor, the
 [supplied-predictor value oracles](smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 serve the least-squares, square-root least-squares, logistic and Poisson losses
 without recomputing `X*β`; the supplied-predictor gradient hook applies to
-`LeastSquaresLoss`, `LogisticLoss` and `PoissonLoss`. Their buffer and
+`LeastSquaresLoss`, `LogisticLoss` and `PoissonLoss`. A held residual is served by
+the residual value oracle of the two least-squares losses only. Their buffer and
 consistency preconditions still apply.
 
 ## Choose storage when you need it

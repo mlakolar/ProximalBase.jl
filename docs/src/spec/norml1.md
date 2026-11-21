@@ -63,8 +63,13 @@ For symmetric storage, follow [Symmetric parameters](@ref symmetric-parameter-gu
 
 ## [Results](@id spec-norml1-results)
 
+### [Proximal results and stored value](@id norm-l1.value-and-prox.stored-output)
+
 `prox!` writes to a supplied destination; `value_and_prox!` writes
 the proximal point and returns `g` evaluated at that stored output.
+
+### Destination and weight ownership
+
 Exact input/output identity is supported, but partially overlapping
 views are not. Weights are stored by reference, so modifying them also
 changes the function.
@@ -208,6 +213,10 @@ numerical guarantees.
 
 The [endpoint example](@ref spec-norml1-endpoints) is executed by the strict
 documentation build.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l1.value-and-prox.stored-output` | `guaranteed` | [Public proximal dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/separable.jl#L68-L75), [stored-output evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/separable.jl#L210-L212), and [dense proximal and fused tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/core_functions.jl#L27-L36) |
 
 ## [History](@id spec-norml1-history)
 

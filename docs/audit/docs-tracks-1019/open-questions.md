@@ -113,6 +113,14 @@ that happens to pass.
   [Guide](../../src/group_penalty.md#group-l2-endpoints)
   · [Tests](../../../test/groupnorml2.jl)
 
+- The Scaled endpoint paragraph says finite-data built-in losses simplify
+  to ZeroFunction at zero scale. It could refer to all current built-in
+  losses or only those with a domain-preserving zero-scale representation.
+  The source has separate zero-scale methods for LeastSquaresLoss and
+  SqrtLeastSquaresLoss. The LogisticLoss and LogDetLoss types use the
+  default error path. The family scope awaits the owner's decision.
+  [Source](../../../src/functions/scaled.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

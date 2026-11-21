@@ -393,7 +393,8 @@ function partition_at(s::AbstractString, sep::AbstractString)
 end
 
 # The rows of a tab-separated file of this study: the `# key: value` header, the column names and the rows as
-# dictionaries. A file without the closing line `# complete: yes` is an interrupted write and is rejected.
+# dictionaries. A file without the closing line `# complete: yes` is an interrupted write and is rejected, and so is a
+# file that repeats a header key.
 function read_tsv(path::AbstractString)
     isfile(path) || error("missing file $path")
     parse_tsv(read(path, String), path)
@@ -408,7 +409,9 @@ function parse_tsv(text::AbstractString, path::AbstractString)
     for line in lines
         if startswith(line, "#")
             k, _, v = partition_at(line[2:end], ":")
-            header[strip(k)] = strip(v)
+            key = String(strip(k))
+            haskey(header, key) && error("$path repeats the header key $(repr(key))")
+            header[key] = strip(v)
         elseif cols === nothing
             cols = String.(split(line, '\t'))
         else
@@ -422,7 +425,10 @@ end
 
 function load_manifest(dir::AbstractString)
     path = joinpath(dir, "inputs-index.tsv")
-    header, cols, rows = read_tsv(path)
+    isfile(path) || error("missing file $path")
+    bytes = read(path)
+    sha = bytes2hex(sha256(bytes))                   # the digest of the bytes that are parsed
+    header, cols, rows = parse_tsv(String(copy(bytes)), path)
     get(header, "format", "") == MANIFEST_FORMAT || error("$path: format $(get(header, "format", "none")), expected $MANIFEST_FORMAT")
     cols == MANIFEST_COLUMNS || error("$path: unexpected columns")
     order = String[]
@@ -432,9 +438,12 @@ function load_manifest(dir::AbstractString)
         push!(byid[row["case"]], row)
     end
     cases = Case[]
+    meta = [c for c in MANIFEST_COLUMNS if !(c in ("array", "file", "shape", "sha256", "note"))]
     for id in order
         rs = byid[id]
         r = rs[1]
+        all(q -> all(k -> q[k] == r[k], meta), rs) || error("$path: the rows of case $id disagree in their case fields")
+        sort([q["array"] for q in rs]) == ["V", "X", "y"] || error("$path: case $id needs exactly the arrays X, y and V")
         arrays = Dict{String,ArrayInfo}()
         for q in rs
             haskey(arrays, q["array"]) && error("$path: duplicate array $(q["array"]) of case $id")
@@ -453,7 +462,7 @@ function load_manifest(dir::AbstractString)
                           gammas = γs, acc_gammas = aγs, lambda_max = isempty(r["lambda_max"]) ? NaN : parse(Float64, r["lambda_max"]),
                           sigma_max = parse(Float64, r["sigma_max"]), arrays = arrays))
     end
-    Manifest(String(dir), header, cases, file_sha256(path))
+    Manifest(String(dir), header, cases, sha)
 end
 
 # The array `name` of a case. The bytes of the file are read once, hashed, compared with the SHA-256 of the manifest
@@ -564,11 +573,16 @@ function admm_step!(w::AdmmWork{T}, px::P, obj, γ::T, κ::T) where {T,P}
     (rr, ss, nx, nz, nu)
 end
 
-# Boyd's stopping rule: ‖x - z‖ < √p ε_abs + ε_rel max(‖x‖, ‖z‖) and ρ‖z - zold‖ < √p ε_abs + ε_rel ρ‖u‖. Both norms
-# are computed; the second comparison is evaluated only when the first holds (&&).
+# Boyd's residual norms and tolerances from the sums of admm_step!: r = ‖x - z‖, s = ρ‖z - zold‖,
+# eps_pri = √p ε_abs + ε_rel max(‖x‖, ‖z‖), eps_dual = √p ε_abs + ε_rel ρ‖u‖.
+function boyd_measures(p::Int, ρ::Real, t::NTuple{5,Float64}; εabs = 1e-4, εrel = 1e-2)
+    (sqrt(t[1]), ρ * sqrt(t[2]), sqrt(p) * εabs + εrel * max(sqrt(t[3]), sqrt(t[4])), sqrt(p) * εabs + εrel * ρ * sqrt(t[5]))
+end
+# Boyd's stopping rule r < eps_pri and s < eps_dual. The four values are computed; the second comparison is evaluated
+# only when the first holds (&&).
 function boyd_converged(p::Int, ρ::Real, t::NTuple{5,Float64}; εabs = 1e-4, εrel = 1e-2)
-    r, s = sqrt(t[1]), ρ * sqrt(t[2])
-    r < sqrt(p) * εabs + εrel * max(sqrt(t[3]), sqrt(t[4])) && s < sqrt(p) * εabs + εrel * ρ * sqrt(t[5])
+    r, s, epri, edual = boyd_measures(p, ρ, t; εabs, εrel)
+    r < epri && s < edual
 end
 
 # The fixed-point residual ‖z - soft(z - X'(Xz - y), λ)‖∞ of the lasso at z and its objective
@@ -610,7 +624,8 @@ end
 # An untimed run of one role for at most cap iterations (exactly cap when a target is not reached). It records, for
 # Boyd's rule and for the stationarity target tight_tol·scale, the status (:reached, or :capped when the run went
 # through all cap iterations without meeting the target), the iteration count k (the first iteration that meets the
-# target, or cap when capped) and the measures (r, s, stationarity, objective) at that iteration, and the trajectory
+# target, or cap when capped) and the measures (r, s, eps_pri, eps_dual, stationarity, objective) at that iteration,
+# and the trajectory
 # at the checkpoints and at the iterations that reached a target. The run stops when both targets are reached.
 function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; tight_tol::Real, scale::Real, cap::Int,
                       εabs = 1e-4, εrel = 1e-2) where {T}
@@ -620,14 +635,14 @@ function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; t
     role.prepare(obj)
     w = AdmmWork(T, n, p)
     boyd = tight = nothing
-    rows = NTuple{5,Float64}[]
+    rows = NTuple{7,Float64}[]
     ran = 0
-    last = (NaN, NaN, NaN, NaN)
+    last = (NaN, NaN, NaN, NaN, NaN, NaN)
     for k in 1:cap
         t = admm_step!(w, role.px, obj, γ, κ)
         res, objective = lasso_measures!(w, X, y, λ)
         ran = k
-        last = (sqrt(t[1]), ρ * sqrt(t[2]), res, objective)
+        last = (boyd_measures(p, ρ, t; εabs, εrel)..., res, objective)
         hit = false
         if boyd === nothing && boyd_converged(p, ρ, t; εabs, εrel)
             boyd = (k, last)

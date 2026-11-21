@@ -82,8 +82,9 @@ accuracy controls (small designs, among them a square and a tall one).
 - Proximal inputs: eight columns per main case. The first four are random `N(0, 1)` vectors and the last four are `z - u`
   iterates of an S-ADMM run on the same data at `ρ = 1` (`λ = 0.1‖X'y‖∞`) after 1, 5, 20 and 100 iterations. The study
   uses these four stored vectors as the ADMM inputs at every step, also for the accuracy evidence of the ADMM cells at
-  `ρ = 0.1` and `10`, where they are registered test vectors rather than iterates of that run. The generator checks
-  that the four vectors of each kind are pairwise different, and the harness checks it again when it reads a case.
+  `ρ = 0.1` and `10`, where they are registered test vectors rather than iterates of that run. The validator of the
+  generator (`PB_CHECK_ONLY=1`) checks that the four vectors of each kind are pairwise different, and the harness checks
+  it each time it reads a main case.
 - The wide lasso instances are the Float64 Gaussian cases 1500×5000 (§11.1), 500×5000 and 200×20000. The timing
   groups use the Gaussian cases and the consistent responses of the rank-deficient designs; their inconsistent
   responses are used for the accuracy evaluation.
@@ -128,10 +129,11 @@ A process with timing groups writes one file `timings-<julia>-<order>-<proc>-<gr
 lines, one row per (case, measurement, parameter, round, position, role) and the closing line. The timed rows hold the
 time per call, the GC time, the bytes and the allocations per call. Other rows hold context: `batch_plan` (the calls per
 batch, batches and call cap, with the slowest calibrated time per call), `penalty_pairs` (the executed (step, input)
-pairs of each schedule), `loadavg_1m`, `workingset` (the reachable bytes of each object; the same key can repeat across
-groups) and, in the ADMM stage, `admm_iters` and `admm_reached`. A failure of one sample, of one role's setup or
-calibration, or of a whole case is recorded as a row `error` (the cell and the message) and the process continues; the
-summarizer refuses a campaign with an `error` row until that cell is rerun. A warm-up for each element type calls the
+pairs of each schedule), `loadavg_1m` and `workingset` (the reachable bytes of each object), each keyed by the group,
+and, in the ADMM stage, `admm_iters` and `admm_reached`. A computation error of one sample, of one role's setup or
+calibration, or of a whole case (including a refused untimed file) is recorded as a row `error` (the cell and the
+message) and the process continues; the summarizer refuses a campaign with an `error` row until that cell is rerun. An
+integrity error when a case's inputs are read (a SHA-256 or size mismatch) stops the process. A warm-up for each element type calls the
 routines of each role (the ADMM routines for Float64 only) before the first timed sample; first use is therefore timed
 in a warmed process, with the state of the native libraries shared.
 
@@ -145,9 +147,11 @@ and the order is reversed in the even ones. The calls per batch come from a cali
 once per case, on a complete cycle of the random inputs at `γ = 1`, shared by every step and both kinds of inputs of the
 case; for penalty, once per schedule. The plan is the smallest multiple of the cycle with about 20 ms of calls and at
 least 30 calls (warm) or about 50 ms of calls (penalty) for the slowest calibrated role, at most 3000 calls (rounded
-down to a multiple of the cycle), and one cycle with one batch when that role needs 0.1 s or more per call. Each role is
-calibrated under the same guard as the samples: a role whose calibration throws gets an `error` row for the cell and a
-fresh object, the plan comes from the other roles, and the other roles, cells and schedules continue.
+down to a multiple of the cycle), and one cycle with one batch when that role needs 0.1 s or more per call; the
+`batch_plan` row records the slowest calibrated time per call losslessly, so that the summarizer recomputes the plan.
+Each participating primary role (one with an object) is calibrated under the same guard as the samples: a role whose
+calibration throws gets an `error` row for the cell and a rebuilt object (absent again if the rebuild fails too), the
+plan comes from the other roles, and the other roles, cells and schedules continue.
 
 1. **First use** (`first_use`): construction, factorization and first prox on a fresh object at `γ = 1`, one sample per
    role and round, the input rotating through the four random vectors by round (the same for all roles of a round),
@@ -175,11 +179,13 @@ fresh object, the plan comes from the other roles, and the other roles, cells an
    - `admm_reference`: S-ADMM at `ρ = 1` only, to the lasso stationarity
      `‖z - soft(z - X'(Xz - y), λ)‖∞ ≤ 1e-12 max(1, ‖X'y‖∞)`, checked every 10 iterations and at the cap, at most
      `PB_REFERENCE_CAP` iterations. One pinned reference is generated per instance on Julia 1.13.4 (the harness refuses
-     another version outside `PB_CHECK_ONLY`) and serves both versions. Its file is named by the instance and the
-     digests of `X` and `y` and records whether the run converged, the objective and the identities.
+     another version outside `PB_CHECK_ONLY`) and serves both versions. Its file name holds the instance and the first 12
+     hexadecimal digits of the digests of `X` and `y`; the file records both full digests, whether the run converged,
+     the objective, `λ`, `λmax`, the scale and the identities, and names the binary file of `z` (`p` Float64 values).
    - `admm_untimed`, at `ρ ∈ {0.1, 1, 10}`: for each primary role and level, the status (`reached`; `capped` when the run
      went through `PB_ADMM_CAP` iterations without meeting the target; `error` with the message when the run threw),
-     the iteration count `k` (the first iteration that meets the target, or the cap) and the measures at `k`, with the
+     the iteration count `k` (the first iteration that meets the target, or the cap) and the measures at `k` (Boyd's `r`,
+     `s`, `eps_pri` and `eps_dual`, the stationarity and the objective), with the
      trajectory at checkpoints. The levels are Boyd's rule and the stationarity `1e-8 max(1, ‖X'y‖∞)`. The A/A copies
      use the counts of their family. The stationarity check, with its two matrix-vector products, runs in this pass and
      in the reference pass at each check, and once after each timed run outside its timed interval.
@@ -202,24 +208,26 @@ fresh object, the plan comes from the other roles, and the other roles, cells an
 
 - `η = ‖X'(Xβ - y) + ρ(β - v)‖∞ / (‖X'‖∞‖Xβ‖∞ + ‖X'y‖∞ + ρ(‖β‖∞ + ‖v‖∞))` in 256-bit BigFloat, with `ρ = 1/big(T(γ))`, and
   whether `η ≤ 1e3 eps(T)`, decided in BigFloat before `η` is rounded to Float64 for the file;
-- the forward error for `n ≤ 500` (`PB_FORWARD_MAX_N`, recorded in the file header) against the 128-bit BigFloat Cholesky
+- the forward error for `n ≤ PB_FORWARD_MAX_N` (default 500, recorded in the file header) against the 128-bit BigFloat Cholesky
   solution of the dual system `(XX' + ρI)a* = y - Xv`, `β* = v + X'a*`, relative to `‖β*‖∞` (absolute when `β* = 0`); a
   diagnostic that no criterion uses.
 
 An output fails accuracy when `η > 1e3 eps(T)`. An output that the harness recorded as a failure has `η = Inf`, fails and
 has the status `error: <message>`; an output with a nonfinite entry and no recorded failure has `η = Inf`, fails and has
-the status `nonfinite`. For `n ≤ 500` the forward error of those two kinds is `Inf`; for larger `n` it is `NaN` for every
-output. The per-case accuracy table reports the largest `η_C/η_S` over the (step, input) keys where `η_S > 0` and `η_C` is
+the status `nonfinite`. For `n ≤ PB_FORWARD_MAX_N` the forward error of those two kinds is `Inf`; for larger `n` it is
+`NaN` for every output. The accuracy header records the Julia version that produced the outputs (`julia`) and the one
+that evaluated them (`evaluator_julia`). The per-case accuracy table reports the largest `η_C/η_S` over the (step, input) keys where `η_S > 0` and `η_C` is
 finite, beside the failure counts; its row listing is capped at 40 cases.
 
-The accuracy evidence of a timing cell is the (step, input) pairs that its measurement executes: first use, step 1 with
-the four random inputs; warm, its step with its four inputs; penalty, the pairs of one cycle of the schedule (above); ADMM,
-the step `1/ρ` with the four stored ADMM iterates. A cell whose variant or S fails at one of them has its timing reported
+The accuracy evidence of a timing cell is a set of (step, input) pairs: first use, step 1 with the four random inputs;
+warm, its step with its four inputs; penalty, the pairs that one cycle of the schedule executes (above); ADMM, the step
+`1/ρ` with the four stored ADMM vectors, registered test vectors sampled from an S-ADMM run at `ρ = 1` that the timed
+runs do not take as inputs. A cell whose variant or S fails at one of them has its timing reported
 and is excluded from the speed criteria (it is not faster).
 
 The calibration of S before the campaign is the full outputs run and evaluation (step 3 of the rerun) on every case,
-before the timed processes; the summary lists each main case where an S output exceeds `η/eps = 100` (a factor 10 below
-the threshold). The threshold is not changed after the fact. `PB_CHECK_ONLY` runs the algebra check of the prototypes on
+before the timed processes; `summarize.py --tables-only` on that outputs directory lists each main case where an S
+output exceeds `η/eps = 100` (a factor 10 below the threshold), before any timed process runs. The threshold is not changed after the fact. `PB_CHECK_ONLY` runs the algebra check of the prototypes on
 one small case (`η ≤ 1e3 eps` for `γ ≤ 1`; the value at `γ = 1e3` is reported) and a subset of the groups; it is not that
 calibration.
 
@@ -235,15 +243,27 @@ for comparison.
 
 ## Criteria
 
-Pre-registered in the plan. `summarize.py` applies them only to the registered campaign, in verdict mode:
+Pre-registered in the plan. `summarize.py` applies them in verdict mode, to a campaign that passes its checks.
+
+**Scope of the checks.** The summarizer guards against incomplete, mixed, misplaced, truncated or corrupted evidence:
+missing or extra files and rows, files of another identity, manifest, Julia version, CPU kind or condition, values out of
+their domain, and values that contradict another value of the same record or of a related file (for example a pass flag
+against its `η`, an ADMM status against its measures, a batch plan against its rule). The authenticity of the values
+rests on the pinned harness and on the checksum list written when the campaign is gathered; a hand-made edit that keeps
+the files consistent with each other is outside these checks.
+
 
 - It takes the campaign directory and the pinned identity (`--source-sha`, `--harness-sha`, `--manifest`, the
   `inputs-index.tsv` whose SHA-256 it computes). It accepts the full inventory of cases and controls of the full profile
   (written into `summarize.py` from the plan and compared with the manifest), both Julia versions, the three processes of
-  each order with one BLAS thread, 21 rounds and 5 ADMM repeats with all eight roles, one untimed file per version and
-  instance, one converged reference per instance, and per version one outputs index, one failures index and one
-  accuracy file of every case.
-- Before computing anything it runs a preflight in three classes: the manifest and the pins; each file on its own
+  each order with one BLAS thread, 21 rounds with all eight roles, 5 ADMM repeats with the roles of the families that
+  reached each level (a capped family has its level records and no timed rows), one untimed file per version and
+  instance, one converged reference per instance, per version one outputs index, one failures index and one accuracy
+  file of every case, one CPU vendor and model across the primary timing files and one BLAS configuration per Julia
+  version, and the checksum list `sha256-list.tsv` of the gathered files, which must hold exactly the files it reads
+  with the SHA-256 of the bytes it parses.
+- Before computing anything it runs a preflight in three classes: the manifest, the pins and the checksum list; each
+  file on its own and the files against the checksum list
   (format, closing line, identity, conditions, parseable fields, values in their domain, no duplicate row, no `error`
   row); the inventory and the consistency across files (missing or extra files and rows, the role order of each round
   against the process order, the ADMM counts and status against the untimed file recorded in the timing header, a valid
@@ -274,22 +294,24 @@ Pre-registered in the plan. `summarize.py` applies them only to the registered c
 
 ## Rerun
 
-Run from the package root. Set the pinned identity and the directories once in the shell, replacing the placeholders;
-run each Julia block once per Julia version, with that version's `julia` first on the `PATH` (the generator and the
-reference on 1.13.4 only):
+Run from the package root. Set the pinned identity and the directories once in the shell, replacing the placeholders.
+`OUT` holds the campaign output of all Julia versions and `SMOKE` the smoke-check output, outside `OUT`. Run each Julia
+block once per Julia version, with that version's `julia` first on the `PATH` (the generator and the reference on 1.13.4
+only):
 
 ```
 export PB_SOURCE_SHA=<sha of the measured source> PB_HARNESS_SHA=<sha of this folder> PB_SOURCE=<checkout of the source>
-export INPUTS=<inputs dir> OUT=<output dir of this Julia version> REF=<reference dir> D=docs/audit/wide-leastsquares-solves-1103
+export INPUTS=<inputs dir> OUT=<campaign output dir> SMOKE=<smoke output dir outside OUT> SUM=<summary dir> D=docs/audit/wide-leastsquares-solves-1103
+export V=$(julia -e 'print(VERSION)')
 ```
 
 1. Smoke checks (seconds to minutes; they exercise the prototypes against S, the integrity checks and a subset of the
    groups, not the campaign; the SHAs may be unset with `PB_CHECK_ONLY=1`):
 
    ```
-   PB_CHECK_ONLY=1 PB_INPUTS=$OUT/small-inputs julia --threads=1 --project=. $D/generate.jl
-   PB_CHECK_ONLY=1 PB_INPUTS=$OUT/small-inputs PB_OUTPUT=$OUT/small julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_CHECK_ONLY=1 PB_INPUTS=$OUT/small-inputs PB_OUTPUTS=$OUT/small/outputs-$(julia -e 'print(VERSION)') julia --threads=1 --project=. $D/accuracy.jl
+   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs julia --threads=1 --project=. $D/generate.jl
+   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs PB_OUTPUT=$SMOKE/$V julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_CHECK_ONLY=1 PB_INPUTS=$SMOKE/inputs PB_OUTPUTS=$SMOKE/$V/outputs-$V julia --threads=1 --project=. $D/accuracy.jl
    ```
 
 2. Inputs, once, on Julia 1.13.4 (the full profile; every later command reads this directory):
@@ -298,20 +320,21 @@ export INPUTS=<inputs dir> OUT=<output dir of this Julia version> REF=<reference
    PB_INPUTS=$INPUTS julia --threads=1 --project=. $D/generate.jl
    ```
 
-3. Prox outputs and accuracy, per Julia version: the calibration of S, before the timed processes. The controls alone can
-   be rerun with `PB_FILTER=c1078` into an output directory of their own, so that they do not replace the full index:
+3. Prox outputs and accuracy, per Julia version: the calibration of S, before the timed processes. The second command
+   prints, among its tables, the main cases where an S output exceeds `η/eps = 100`. The controls alone can be rerun with
+   `PB_FILTER=c1078` into a directory outside `OUT`, so that they do not replace the full index:
 
    ```
-   PB_GROUP=outputs PB_INPUTS=$INPUTS PB_OUTPUT=$OUT julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_INPUTS=$INPUTS PB_OUTPUTS=$OUT/outputs-$(julia -e 'print(VERSION)') julia --threads=1 --project=. $D/accuracy.jl
-   PB_GROUP=outputs PB_FILTER=c1078 PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/controls julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_GROUP=outputs PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_INPUTS=$INPUTS PB_OUTPUTS=$OUT/$V/outputs-$V julia --threads=1 --project=. $D/accuracy.jl
+   python3 -I $D/summarize.py $OUT/$V/outputs-$V --tables-only --manifest $INPUTS/inputs-index.tsv
    ```
 
-4. Reference optima, once on Julia 1.13.4, and the iteration counts, per Julia version:
+4. Reference optima, once on Julia 1.13.4, and the iteration counts, per Julia version (both in `$OUT/reference`):
 
    ```
-   PB_GROUP=admm_reference PB_INPUTS=$INPUTS PB_OUTPUT=$OUT PB_REFERENCE=$REF julia --threads=1 --check-bounds=no --project=. $D/harness.jl
-   PB_GROUP=admm_untimed PB_INPUTS=$INPUTS PB_OUTPUT=$OUT PB_REFERENCE=$REF julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_GROUP=admm_reference PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V PB_REFERENCE=$OUT/reference julia --threads=1 --check-bounds=no --project=. $D/harness.jl
+   PB_GROUP=admm_untimed PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V PB_REFERENCE=$OUT/reference julia --threads=1 --check-bounds=no --project=. $D/harness.jl
    ```
 
 5. Timed processes, per Julia version, each a fresh process (the groups can be split over processes with the same
@@ -321,23 +344,34 @@ export INPUTS=<inputs dir> OUT=<output dir of this Julia version> REF=<reference
    ```
    for order in S_first C_first; do
      for proc in 1 2 3; do
-       PB_ORDER=$order PB_PROC=$proc PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/timings-$order-$proc PB_REFERENCE=$REF \
+       PB_ORDER=$order PB_PROC=$proc PB_INPUTS=$INPUTS PB_OUTPUT=$OUT/$V/timings-$order-$proc PB_REFERENCE=$OUT/reference \
          julia --threads=1 --check-bounds=no --project=. $D/harness.jl
      done
    done
    ```
 
-6. Summary: gather the output directories of both Julia versions and the reference directory into `<summary dir>`
-   (without the 8-thread diagnostic and the controls-only outputs), then:
+6. Gather the campaign into `$SUM` by an explicit list of file-name patterns (the manifest, the timing files, the untimed
+   and reference files with the `z` binaries, and per version the outputs index, the failures index and the accuracy
+   file), write the checksum list, and summarize:
 
    ```
-   python3 -I $D/summarize.py <summary dir> --source-sha $PB_SOURCE_SHA --harness-sha $PB_HARNESS_SHA --manifest $INPUTS/inputs-index.tsv
-   python3 -I $D/summarize.py <diagnostic dir> --tables-only --manifest $INPUTS/inputs-index.tsv
+   mkdir -p $SUM/reference && cp $INPUTS/inputs-index.tsv $SUM/
+   cp $OUT/reference/reference-*.tsv $OUT/reference/reference-*-z.f64 $OUT/reference/admm-untimed-*.tsv $SUM/reference/
+   for v in 1.10.13 1.13.4; do
+     mkdir -p $SUM/$v/outputs-$v $SUM/$v/timings
+     cp $OUT/$v/outputs-$v/outputs-index.tsv $OUT/$v/outputs-$v/outputs-failures.tsv $OUT/$v/outputs-$v/accuracy-all.tsv $SUM/$v/outputs-$v/
+     cp $OUT/$v/timings-*/timings-*.tsv $SUM/$v/timings/
+   done
+   python3 -I $D/summarize.py $SUM --write-checksums
+   python3 -I $D/summarize.py $SUM --source-sha $PB_SOURCE_SHA --harness-sha $PB_HARNESS_SHA --manifest $SUM/inputs-index.tsv
    ```
 
-   The first command writes `tables.md`, `per-process-ratios.tsv` and `verdict.json` into `<summary dir>` when the
-   preflight passes, and otherwise lists the problems and exits with status 2. The second prints partial tables and
-   writes `tables-partial.md`.
+   `--write-checksums` writes `sha256-list.tsv` (format `pb1103-checksums-1`: the path of each gathered file relative to
+   `$SUM` and its SHA-256, with the closing line), to be kept with the raw results. The summary command writes
+   `tables.md`, `per-process-ratios.tsv` and `verdict.json` into `$SUM` when the preflight passes, and otherwise lists the
+   problems and exits with status 2. The 8-thread diagnostic and other partial data are summarized apart with
+   `python3 -I $D/summarize.py <diagnostic dir> --tables-only --manifest $INPUTS/inputs-index.tsv`, which writes
+   `tables-partial.md`.
 
 Environment variables of `harness.jl`: `PB_INPUTS`, `PB_OUTPUT` (required unless `PB_CHECK_ONLY=1`), `PB_REFERENCE`
 (directory of the reference optima and the iteration counts; default `PB_OUTPUT`), `PB_ORDER`, `PB_PROC`, `PB_ROUNDS`

@@ -3,29 +3,41 @@
 
 Verdict mode (the default) judges one registered campaign under one pinned identity:
 
-    python3 -I summarize.py <campaign dir> --source-sha <sha> --harness-sha <sha> --manifest <inputs-index.tsv>
+    python3 -I summarize.py <campaign dir> --source-sha <sha> --harness-sha <sha> --manifest <campaign dir>/inputs-index.tsv
 
 Tables only, a diagnostic for partial or other data (no criteria, no recommendation, not evidence):
 
     python3 -I summarize.py <dir> --tables-only [--manifest <inputs-index.tsv>] [--source-sha <sha>] [--harness-sha <sha>]
 
-The campaign directory is searched recursively for the files of harness.jl (timings-*.tsv, admm-untimed-*.tsv,
-reference-*.tsv, outputs-index.tsv with outputs-failures.tsv) and of accuracy.jl (accuracy-*.tsv).
+The checksum list of a gathered campaign (written at gather time, kept with the raw results):
 
-Verdict mode accepts the registered campaign and nothing else: the full profile of generate.jl (the case and control
-inventory below, checked against the manifest, whose SHA-256 this script computes), both Julia versions 1.10.13 and
-1.13.4, the three processes of each role order with one BLAS thread, 21 rounds and 5 ADMM repeats with all eight roles,
-one untimed file per Julia version and lasso instance, one converged reference per lasso instance, and per Julia
-version one outputs index, one failures index and one accuracy file of the full manifest. Before computing anything it
-runs a preflight in three classes: (1) the manifest and the pinned identity, (2) each file on its own (format, closing
-line, identity, conditions, parseable fields, values in their domain, no duplicate rows, no recorded `error` row),
-(3) the inventory and the consistency across files (missing or extra files and rows, the role order of each round
-against the file's order, the ADMM counts against the untimed records, the ADMM end points, the accuracy coverage
-against the outputs and failures). At the first class with a problem it prints the problems it found in that class (a
-file with another format or other columns is not checked further), exits with
-status 2 and writes no verdict (it removes a verdict.json, tables.md and per-process-ratios.tsv left in the directory
-by an earlier run). When the preflight passes, it applies the criteria of the plan as Boolean logic and writes
-tables.md, per-process-ratios.tsv and verdict.json into the campaign directory.
+    python3 -I summarize.py <campaign dir> --write-checksums
+
+The campaign directory is searched recursively for the files that match ALLOWLIST: the manifest, the files of harness.jl
+(timings-*.tsv, admm-untimed-*.tsv, reference-*.tsv with their z binaries, outputs-index.tsv with outputs-failures.tsv)
+and of accuracy.jl (accuracy-*.tsv).
+
+Scope: the checks guard against incomplete, mixed, misplaced, truncated or corrupted evidence, and against values that
+contradict another value of the same record or of a related file. The authenticity of the values rests on the pinned
+harness and the checksum list; an edit that keeps the files consistent with each other is outside these checks.
+
+Verdict mode requires: the full profile of generate.jl (the case and control inventory below, checked against the
+manifest gathered into the campaign directory), both Julia versions 1.10.13 and 1.13.4, the three processes of each role
+order with one BLAS thread on one CPU kind (one BLAS configuration per Julia version), 21 rounds with all eight roles,
+5 ADMM repeats with the roles of the families that reached each level, one untimed file per Julia version and lasso
+instance, one converged reference per lasso instance, per Julia version one outputs index, one failures index and one
+accuracy file of the full manifest, and the checksum list. Before computing anything it runs a preflight in three
+classes: (1) the manifest, the pinned identity and the checksum list; (2) each file on its own (format, closing line,
+no repeated header key, identity, conditions, parseable fields, values in their domain and consistent within the record,
+no duplicate rows, no recorded `error` row) and the files read against the checksum list (the same paths, and the
+SHA-256 of the bytes that were parsed); (3) the inventory and the consistency across files (missing or extra files and
+rows, the role order of each round against the file's order, batch plans against their rule, the ADMM counts against
+the untimed records, the ADMM end points against their targets, CPU and BLAS metadata, the accuracy rows against the
+outputs and failures). At the first class with a problem it prints the problems it found in that class (a file with
+another format or other columns is not checked further), exits with status 2 and writes no verdict (it removes a
+verdict.json, tables.md and per-process-ratios.tsv left in the directory by an earlier run). When the preflight passes,
+it applies the criteria of the plan as Boolean logic and writes tables.md, per-process-ratios.tsv and verdict.json into
+the campaign directory.
 
 Criteria as implemented (the plan is the reference; see the README):
   * Per cell (case, measurement, parameter) and variant V in {C_B, C_D, C_W}: each of the six processes of a Julia
@@ -36,10 +48,10 @@ Criteria as implemented (the plan is the reference; see the README):
   * ADMM cells: when S or V is capped at the level (the untimed run went through the cap without meeting the target),
     the cell is `capped`, a lower bound, which counts as inconclusive.
   * An output passes accuracy when eta <= 1e3 eps(T), decided by accuracy.jl in BigFloat. The accuracy evidence of a
-    cell is the (step, input) pairs that its measurement executes: first use, step 1 and the four random inputs; warm,
-    its step and its four inputs; penalty, the pairs of one cycle of the schedule (recorded by the harness in the rows
-    penalty_pairs and checked against the same rule here); ADMM, the step 1/rho and the four stored ADMM iterates
-    (vectors sampled from an S-ADMM run at rho = 1). A cell whose variant or S fails at one of them is `excluded`:
+    cell is a set of (step, input) pairs: first use, step 1 and the four random inputs; warm, its step and its four
+    inputs; penalty, the pairs that one cycle of the schedule executes (recorded by the harness in the rows
+    penalty_pairs and checked against the same rule here); ADMM, the step 1/rho with the four stored ADMM vectors,
+    registered test vectors sampled from an S-ADMM run at rho = 1, which the timed runs do not take as inputs. A cell whose variant or S fails at one of them is `excluded`:
     its timing is reported and it is not faster for any criterion.
   * Recommendation per variant (recommend()): (A) when A1, A2, A3 speed and A3 gap are true; (B) when (A) does not
     hold and B1, A3 speed and B3 are true; (C) when neither (A) nor (B) holds.
@@ -87,7 +99,10 @@ SCHEDULES = {"alt2": {"Float64": (1.0, 1e3), "Float32": (1.0, 1e3)},
 NV_MAIN, NV_RAND = 8, 4
 ADMM_RHOS = (0.1, 1.0, 10.0)
 ADMM_LEVELS = ("boyd", "tight")
-ADMM_TIMED = ("admm_total", "admm_factor", "admm_iter", "admm_objective", "admm_stationarity", "admm_valid")
+ADMM_TIMED = ("admm_total", "admm_factor", "admm_iter", "admm_objective", "admm_stationarity", "admm_valid", "admm_r", "admm_s",
+              "admm_eps_pri", "admm_eps_dual")
+# relative slack for comparisons of values written with 10 significant digits
+SLACK = 1e-9
 INSTANCE_11_1 = "f64/gauss/noisy/1500x5000"
 CONTROL_DESIGNS = (("axis1x2", 1, 2), ("axis1x2n", 1, 2), ("axis1x3", 1, 3), ("diag2x4", 2, 4), ("diag2x4z", 2, 4),
                    ("rot1x2", 1, 2), ("rot2x4", 2, 4), ("rot2x4z", 2, 4), ("sq2x2", 2, 2), ("tall3x2", 3, 2))
@@ -101,14 +116,15 @@ FASTER, SLOWER = 0.95, 1.05
 GAP_SLACK = 1e-8
 MAX_LISTED = 40
 
-FORMATS = {"manifest": "pb1103-inputs-2", "timings": "pb1103-timings-3", "untimed": "pb1103-admm-untimed-2",
+FORMATS = {"manifest": "pb1103-inputs-2", "timings": "pb1103-timings-3", "untimed": "pb1103-admm-untimed-3",
            "reference": "pb1103-reference-1", "outputs": "pb1103-outputs-2", "failures": "pb1103-outputs-failures-1",
-           "accuracy": "pb1103-accuracy-3"}
+           "accuracy": "pb1103-accuracy-4"}
 MANIFEST_COLUMNS = ["case", "kind", "eltype", "design", "response", "n", "p", "seed", "timed", "lasso", "gammas",
                     "acc_gammas", "lambda_max", "sigma_max", "array", "file", "shape", "sha256", "note"]
 TIMING_COLUMNS = ["case", "measurement", "param", "round", "position", "role", "value", "gc_s", "bytes", "allocs"]
-UNTIMED_COLUMNS = ["case", "rho", "role", "record", "level", "status", "k", "cap", "r_norm", "s_norm", "stationarity",
-                   "objective", "note"]
+UNTIMED_MEASURES = ["r_norm", "s_norm", "eps_pri", "eps_dual", "stationarity", "objective"]
+UNTIMED_COLUMNS = ["case", "rho", "role", "record", "level", "status", "k", "cap"] + UNTIMED_MEASURES + ["note"]
+ADMM_CHECKPOINTS = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000)
 OUTPUT_COLUMNS = ["case", "role", "file", "eltype", "shape", "sha256", "nfail", "copy_identical", "acc_gammas", "nv"]
 FAILURE_COLUMNS = ["case", "role", "gamma_index", "vindex", "message"]
 ACCURACY_COLUMNS = ["case", "eltype", "kind", "role", "gamma_index", "gamma", "vindex", "eta", "forward_error", "pass",
@@ -118,6 +134,12 @@ GROUP_OF = {"first_use": "first_use", "first_use_part": "first_use", "warm": "wa
 GROUP_OF.update({m: "admm" for m in ADMM_TIMED})
 CONTEXT = ("batch_plan", "loadavg_1m", "workingset")
 SUMMARY_FILES = ("verdict.json", "tables.md", "per-process-ratios.tsv")
+# The gathered campaign: the file-name patterns of the files that verdict mode reads (searched recursively), and the
+# checksum list written over them at gather time (--write-checksums).
+ALLOWLIST = ("inputs-index.tsv", "timings-*.tsv", "admm-untimed-*.tsv", "reference-*.tsv", "reference-*-z.f64",
+             "outputs-index.tsv", "outputs-failures.tsv", "accuracy-*.tsv")
+CHECKSUM_FILE = "sha256-list.tsv"
+CHECKSUM_FORMAT = "pb1103-checksums-1"
 
 
 def registered_cases():
@@ -228,9 +250,21 @@ def to_float(s):
     return float(s)
 
 
-def sha256_file(path):
+# The SHA-256 of each file this script has read, keyed by its absolute path: each digest is of the bytes that were
+# parsed (the file is read once), and the checksum list is compared with this record.
+DIGESTS = {}
+
+
+def read_bytes(path):
     with open(path, "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()
+        data = fh.read()
+    DIGESTS[os.path.abspath(path)] = hashlib.sha256(data).hexdigest()
+    return data
+
+
+def sha256_file(path):
+    read_bytes(path)
+    return DIGESTS[os.path.abspath(path)]
 
 
 class Skipped(Exception):
@@ -238,10 +272,10 @@ class Skipped(Exception):
 
 
 def read_tsv(path):
-    """(header, columns, rows) of a tab-separated file of the study. A `# key: value` line anywhere is a header line."""
+    """(header, columns, rows) of a tab-separated file of the study. A `# key: value` line anywhere is a header line; a
+    repeated header key makes the file unusable."""
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = [l for l in fh.read().split("\n") if l != ""]
+        lines = [l for l in read_bytes(path).decode("utf-8", errors="replace").split("\n") if l != ""]
     except OSError as e:
         raise Skipped("unreadable: %s" % e)
     if not lines or lines[-1] != "# complete: yes":
@@ -250,6 +284,8 @@ def read_tsv(path):
     for i, line in enumerate(lines):
         if line.startswith("#"):
             k, _, v = line[1:].partition(":")
+            if k.strip() in header:
+                raise Skipped("header key %r repeated" % k.strip())
             header[k.strip()] = v.strip()
         elif cols is None:
             cols = line.split("\t")
@@ -265,8 +301,7 @@ def read_tsv(path):
 
 def read_kv(path):
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = [l for l in fh.read().split("\n") if l != ""]
+        lines = [l for l in read_bytes(path).decode("utf-8", errors="replace").split("\n") if l != ""]
     except OSError as e:
         raise Skipped("unreadable: %s" % e)
     if not lines or lines[-1] != "complete\tyes":
@@ -312,6 +347,71 @@ class Problems:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# The checksum list
+# ---------------------------------------------------------------------------------------------------------------------
+
+def campaign_files(root):
+    """The files under root that match ALLOWLIST, as paths relative to root with / separators."""
+    out = set()
+    for pat in ALLOWLIST:
+        for p in glob.glob(os.path.join(root, "**", pat), recursive=True):
+            if os.path.isfile(p):
+                out.add(os.path.relpath(p, root).replace(os.sep, "/"))
+    return sorted(out)
+
+
+def write_checksums(root):
+    lines = ["# format: %s" % CHECKSUM_FORMAT, "path\tsha256"]
+    files = campaign_files(root)
+    for f in files:
+        with open(os.path.join(root, f), "rb") as fh:
+            lines.append("%s\t%s" % (f, hashlib.sha256(fh.read()).hexdigest()))
+    lines.append("# complete: yes")
+    tmp = os.path.join(root, CHECKSUM_FILE + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.replace(tmp, os.path.join(root, CHECKSUM_FILE))      # a new file, not a rewrite of the old one
+    return len(files)
+
+
+def read_checksums(root, P):
+    """path -> SHA-256 from the checksum list of root, or None after recording why it cannot be used."""
+    path = os.path.join(root, CHECKSUM_FILE)
+    if not os.path.isfile(path):
+        P.add(CHECKSUM_FILE, "absent: write it at gather time with --write-checksums")
+        return None
+    try:
+        header, cols, rows = read_tsv(path)
+    except Skipped as e:
+        P.add(CHECKSUM_FILE, str(e))
+        return None
+    finally:
+        DIGESTS.pop(os.path.abspath(path), None)
+    if header.get("format") != CHECKSUM_FORMAT or cols != ["path", "sha256"]:
+        P.add(CHECKSUM_FILE, "not a %s file" % CHECKSUM_FORMAT)
+        return None
+    listed = {}
+    for f in rows:
+        if f[0] in listed:
+            P.add(CHECKSUM_FILE, "path listed twice", f[0])
+        listed[f[0]] = f[1]
+    return listed
+
+
+def check_checksums(root, listed, P):
+    """The files read under root (DIGESTS) against the list: the same set of paths and the same SHA-256 for each."""
+    top = os.path.abspath(root) + os.sep
+    read = {os.path.relpath(p, root).replace(os.sep, "/"): d for p, d in DIGESTS.items() if p.startswith(top)}
+    for f in sorted(set(listed) - set(read)):
+        P.add(CHECKSUM_FILE, "listed files that verdict mode did not read", f)
+    for f in sorted(set(read) - set(listed)):
+        P.add(CHECKSUM_FILE, "files read that the list does not hold", f)
+    for f in sorted(set(read) & set(listed)):
+        if read[f] != listed[f]:
+            P.add(f, "SHA-256 differs from the checksum list")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Class 1: the manifest and the pinned identity
 # ---------------------------------------------------------------------------------------------------------------------
 
@@ -335,8 +435,13 @@ def load_manifest(path, P):
         P.add(where, "unexpected columns")
         return None
     cases = collections.OrderedDict()
+    meta_cols = [c for c in MANIFEST_COLUMNS if c not in ("array", "file", "shape", "sha256", "note")]
+    first_meta = {}
     for i, f in enumerate(rows):
         r = dict(zip(cols, f))
+        meta = tuple(r[c] for c in meta_cols)
+        if first_meta.setdefault(r["case"], meta) != meta:
+            P.add(where, "the rows of a case disagree in their case fields", r["case"])
         try:
             c = cases.get(r["case"])
             if c is None:
@@ -353,12 +458,13 @@ def load_manifest(path, P):
                                        "sha256": r["sha256"]}
         except (ValueError, KeyError) as e:
             P.add(where, "unparseable row", "line of %s: %s" % (r.get("case", "?"), e))
-    for c in cases.values():
-        if not all(k in c["arrays"] for k in ("X", "y", "V")):
-            P.add(where, "case lacks one of the arrays X, y, V", c["id"])
+    for c in list(cases.values()):
+        if sorted(c["arrays"]) != ["V", "X", "y"]:
+            P.add(where, "case does not have exactly the arrays X, y and V", "%s: %s" % (c["id"], sorted(c["arrays"])))
+            del cases[c["id"]]
             continue
         c["nv"] = c["arrays"]["V"]["shape"][-1]
-    return Manifest(path, header, cases, sha256_file(path))
+    return Manifest(path, header, cases, DIGESTS[os.path.abspath(path)])
 
 
 def check_manifest_registered(man, pins, P):
@@ -422,10 +528,10 @@ def canon(meas, param):
         return param, None
     if meas == "batch_plan":
         parts = param.split("|")
-        if len(parts) != 4:
+        if len(parts) != 5 or [x.split("=", 1)[0] for x in parts[1:]] != ["calls", "batches", "cap", "tmax"]:
             raise ValueError(param)
         kv = dict(x.split("=", 1) for x in parts[1:])
-        plan = {"calls": int(kv["calls"]), "batches": int(kv["batches"]), "cap": int(kv["cap"])}
+        plan = {"calls": int(kv["calls"]), "batches": int(kv["batches"]), "cap": int(kv["cap"]), "tmax": float(kv["tmax"])}
         return parts[0], plan
     if meas == "penalty_pairs":
         name, _, rest = param.partition("|")
@@ -500,11 +606,13 @@ def parse_timing(path, man, pins, verdict, P):
             P.add(where, "unparseable field", "%s (%s)" % (line, e))
             continue
         grp = GROUP_OF.get(meas)
-        if meas == "loadavg_1m":
-            tf.loads[(case, cp)] = vals[0]
-            continue
-        if meas == "workingset":
-            tf.workingset[(case, role)] = max(tf.workingset.get((case, role), 0.0), vals[0])
+        if meas in ("loadavg_1m", "workingset"):
+            store, key = (tf.loads, (case, cp)) if meas == "loadavg_1m" else (tf.workingset, (case, cp, role))
+            if key in store:
+                P.add(where, "duplicate rows", line)
+            if cp not in TIMED_GROUPS or cp not in tf.groups or not (finite(vals[0]) and vals[0] >= 0):
+                P.add(where, "context rows of an undeclared group or with a value out of range", line)
+            store[key] = vals[0]
             continue
         if meas == "batch_plan":
             grp = "warm" if cp == "warm" else ("penalty" if cp in ("penalty:alt2", "penalty:newstep") else None)
@@ -537,7 +645,24 @@ class Untimed:
         self.levels, self.traj = {}, []
 
 
+def status_agrees(level, status, m, target):
+    """Whether the measures m (r, s, eps_pri, eps_dual, stationarity, objective) of a level record agree with its status:
+    reached needs the target met (boyd: r <= eps_pri and s <= eps_dual; tight: stationarity <= target), capped needs it
+    missed, each up to the relative slack of the 10-digit output."""
+    hi, lo = 1 + SLACK, 1 - SLACK
+    if level == "boyd":
+        met = m[0] <= m[2] * hi and m[1] <= m[3] * hi
+        missed = m[0] >= m[2] * lo or m[1] >= m[3] * lo
+    else:
+        met, missed = m[4] <= target * hi, m[4] > target * lo
+    return met if status == "reached" else missed
+
+
 def parse_untimed(path, man, pins, verdict, P):
+    """An untimed file: identity and stopping parameters (the scale is max(1, lambda_max) of the manifest), one level row
+    per (rho, primary role, level) whose measures agree with its status, finite nonnegative measures, and trajectory
+    rows that are the checkpoints up to the last iteration run and the reached iterations, without repeats, with each
+    level row equal to the trajectory row at its k."""
     where = os.path.basename(path)
     try:
         header, cols, rows = read_tsv(path)
@@ -552,6 +677,14 @@ def parse_untimed(path, man, pins, verdict, P):
     if verdict and version not in VERSIONS:
         P.add(where, "julia %s" % version)
     c = man.cases.get(case) if man is not None else None
+    try:
+        cap = to_int(header.get("admm_cap", ""))
+        tight = to_float(header.get("tight_tol", ""))
+        hscale = to_float(header.get("scale", ""))
+    except ValueError:
+        P.add(where, "unparseable admm_cap, tight_tol or scale")
+        return None
+    scale = hscale
     if man is not None:
         if c is None or not c["lasso"]:
             P.add(where, "case %s is not a lasso instance of the manifest" % case)
@@ -559,25 +692,20 @@ def parse_untimed(path, man, pins, verdict, P):
         for a, key in (("X", "x_sha256"), ("y", "y_sha256")):
             if header.get(key) != c["arrays"][a]["sha256"]:
                 P.add(where, "%s differs from the manifest" % key)
-        try:
-            if abs(to_float(header.get("scale", "nan")) - max(1.0, c["lambda_max"])) > 1e-15 * max(1.0, c["lambda_max"]):
-                P.add(where, "scale differs from max(1, lambda_max) of the manifest")
-        except ValueError:
-            P.add(where, "unparseable scale")
-    try:
-        cap = to_int(header.get("admm_cap", ""))
-        tight = to_float(header.get("tight_tol", ""))
-    except ValueError:
-        P.add(where, "unparseable admm_cap or tight_tol")
-        return None
+        scale = max(1.0, c["lambda_max"])
+        if hscale != scale:
+            P.add(where, "scale %r differs from max(1, lambda_max) = %r of the manifest" % (hscale, scale))
     if verdict and cap != ADMM_CAP:
         P.add(where, "admm_cap %d, the registered campaign has %d" % (cap, ADMM_CAP))
     if tight != ADMM_TIGHT:
         P.add(where, "tight_tol %r, the registered campaign has %r" % (tight, ADMM_TIGHT))
-    u = Untimed(path, version, case, sha256_file(path))
+    target = ADMM_TIGHT * scale
+    u = Untimed(path, version, case, DIGESTS[os.path.abspath(path)])
+    u.cap = cap
+    texts, traj = {}, collections.defaultdict(dict)
     for f in rows:
         r = dict(zip(cols, f))
-        line = "%s rho=%s %s %s %s" % (r["case"], r["rho"], r["role"], r["record"], r["level"])
+        line = "%s rho=%s %s %s %s k=%s" % (r["case"], r["rho"], r["role"], r["record"], r["level"], r["k"])
         if r["case"] != case:
             P.add(where, "rows of another case than the header", line)
             continue
@@ -587,39 +715,64 @@ def parse_untimed(path, man, pins, verdict, P):
         try:
             rho = to_float(r["rho"])
             k = to_int(r["k"])
-            meas = tuple(to_float(r[x]) for x in ("r_norm", "s_norm", "stationarity", "objective"))
+            meas = tuple(to_float(r[x]) for x in UNTIMED_MEASURES)
         except ValueError as e:
             P.add(where, "unparseable field", "%s (%s)" % (line, e))
             continue
         if rho not in ADMM_RHOS or r["role"] not in PRIMARY:
             P.add(where, "rows outside the registered penalties and primary roles", line)
             continue
+        if not all(finite(x) and x >= 0 for x in meas) or not 1 <= k <= cap or r["cap"] != str(cap):
+            P.add(where, "rows with a measure that is not finite and nonnegative, k out of 1..cap or another cap", line)
+            continue
+        mtext = tuple(r[x] for x in UNTIMED_MEASURES)
         if r["record"] == "trajectory":
+            if k in traj[(rho, r["role"])]:
+                P.add(where, "duplicate trajectory rows", line)
+            traj[(rho, r["role"])][k] = mtext
             u.traj.append((rho, r["role"], k) + meas)
             continue
         if r["record"] != "level" or r["level"] not in ADMM_LEVELS:
             P.add(where, "rows with an unknown record or level", line)
             continue
-        if r["cap"] != str(cap):
-            P.add(where, "level rows with another cap than the header", line)
         st = r["status"]
-        if not ((st == "reached" and 1 <= k <= cap) or (st == "capped" and k == cap)):
-            P.add(where, "level rows with an invalid status or k", "%s: status %s, k %d" % (line, st, k))
+        if not (st == "reached" or (st == "capped" and k == cap)):
+            P.add(where, "level rows with an invalid status or k", "%s: status %s" % (line, st))
+            continue
+        if not status_agrees(r["level"], st, meas, target):
+            P.add(where, "level rows whose measures contradict their status", "%s: status %s, %s" % (line, st, mtext))
             continue
         key = (rho, r["role"], r["level"])
         if key in u.levels:
             P.add(where, "duplicate level rows", line)
             continue
-        u.levels[key] = {"status": st, "k": k, "r": meas[0], "s": meas[1], "stationarity": meas[2], "objective": meas[3]}
+        texts[key] = mtext
+        u.levels[key] = {"status": st, "k": k, "r": meas[0], "s": meas[1], "eps_pri": meas[2], "eps_dual": meas[3],
+                         "stationarity": meas[4], "objective": meas[5]}
     for rho in ADMM_RHOS:
         for role in PRIMARY:
-            for lvl in ADMM_LEVELS:
-                if (rho, role, lvl) not in u.levels:
-                    P.add(where, "level records absent", "rho=%s %s %s" % (rho, role, lvl))
+            lv = [u.levels.get((rho, role, l)) for l in ADMM_LEVELS]
+            if None in lv:
+                P.add(where, "level records absent", "rho=%s %s" % (rho, role))
+                continue
+            ran = max(x["k"] for x in lv) if all(x["status"] == "reached" for x in lv) else cap
+            want = {k for k in ADMM_CHECKPOINTS if k <= ran} | {x["k"] for x in lv if x["status"] == "reached"}
+            got = traj.get((rho, role), {})
+            if set(got) != want:
+                P.add(where, "trajectory rows other than the checkpoints and the reached iterations",
+                      "rho=%s %s: %s, expected %s" % (rho, role, sorted(got), sorted(want)))
+                continue
+            for l, x in zip(ADMM_LEVELS, lv):
+                if got[x["k"]] != texts[(rho, role, l)]:
+                    P.add(where, "level records that differ from the trajectory row at their k", "rho=%s %s %s" % (rho, role, l))
     return u
 
 
 def parse_reference(path, man, pins, P):
+    """A reference file: identity, the instance and its digests, rho, tol and cap of the registered reference, scale,
+    lambda and lambda_max from the manifest, finite nonnegative measures, convergence (stationarity <= tol * scale and
+    an iteration count on the check cadence of every 10 iterations or the cap), and the z file of p Float64 values with
+    the recorded SHA-256."""
     where = os.path.basename(path)
     try:
         kv = read_kv(path)
@@ -634,6 +787,14 @@ def parse_reference(path, man, pins, P):
     if kv.get("julia") != REFERENCE_JULIA:
         P.add(where, "generated on Julia %s, not the pinned %s" % (kv.get("julia"), REFERENCE_JULIA))
     c = man.cases.get(case) if man is not None else None
+    try:
+        it, cap = to_int(kv.get("iterations", "")), to_int(kv.get("cap", ""))
+        rho, tol = to_float(kv.get("rho", "")), to_float(kv.get("tol", ""))
+        stat, obj, scale = to_float(kv.get("stationarity", "")), to_float(kv.get("objective", "")), to_float(kv.get("scale", ""))
+        lam, lmax = to_float(kv.get("lambda", "")), to_float(kv.get("lambda_max", ""))
+    except ValueError as e:
+        P.add(where, "unparseable field", str(e))
+        return None
     if man is not None:
         if c is None or not c["lasso"]:
             P.add(where, "case %s is not a lasso instance of the manifest" % case)
@@ -643,22 +804,29 @@ def parse_reference(path, man, pins, P):
             P.add(where, "X or y digest differs from the manifest")
         if where != "reference-%s-%s-%s.tsv" % (case_file(case), x[:12], y[:12]):
             P.add(where, "file name does not match the instance and its digests")
-    try:
-        it, cap = to_int(kv.get("iterations", "")), to_int(kv.get("cap", ""))
-        rho, tol = to_float(kv.get("rho", "")), to_float(kv.get("tol", ""))
-        stat, obj, scale = to_float(kv.get("stationarity", "")), to_float(kv.get("objective", "")), to_float(kv.get("scale", ""))
-    except ValueError as e:
-        P.add(where, "unparseable field", str(e))
-        return None
+        want_scale = max(1.0, c["lambda_max"])
+        if scale != want_scale or lmax != c["lambda_max"] or abs(lam - 0.1 * c["lambda_max"]) > 1e-15 * abs(lam):
+            P.add(where, "scale, lambda or lambda_max differ from the manifest",
+                  "scale %r (manifest %r), lambda %r, lambda_max %r (manifest %r)" % (scale, want_scale, lam, lmax, c["lambda_max"]))
+        scale = want_scale
     if (rho, tol, cap) != (1.0, REFERENCE_TOL, REFERENCE_CAP):
         P.add(where, "rho, tol or cap differ from the registered 1, %g, %d" % (REFERENCE_TOL, REFERENCE_CAP))
-    if kv.get("converged") != "true":
+    if not (finite(stat) and stat >= 0 and finite(obj) and obj >= 0 and 1 <= it <= cap):
+        P.add(where, "measures not finite and nonnegative, or iterations out of 1..cap")
+    elif kv.get("converged") != "true":
         P.add(where, "the reference did not converge", "%d iterations, stationarity %g" % (it, stat))
-    elif not (1 <= it <= cap and finite(stat) and stat <= tol * scale and finite(obj)):
-        P.add(where, "converged reference with iterations, stationarity or objective out of range")
+    elif not (stat <= tol * scale and (it % 10 == 0 or it == cap)):
+        P.add(where, "a converged reference with its stationarity above tol * scale or iterations off the check cadence",
+              "%d iterations, stationarity %g, target %g" % (it, stat, tol * scale))
     zfile = os.path.join(os.path.dirname(path), kv.get("z_file", ""))
-    if not os.path.isfile(zfile) or sha256_file(zfile) != kv.get("z_sha256"):
-        P.add(where, "the z file is missing or its SHA-256 differs")
+    if not kv.get("z_file") or not os.path.isfile(zfile):
+        P.add(where, "the z file is missing")
+    else:
+        data = read_bytes(zfile)
+        if DIGESTS[os.path.abspath(zfile)] != kv.get("z_sha256"):
+            P.add(where, "the SHA-256 of the z file differs")
+        if c is not None and len(data) != 8 * c["p"]:
+            P.add(where, "the z file has %d bytes, %d Float64 values need %d" % (len(data), c["p"], 8 * c["p"]))
     kv["_file"], kv["_objective"] = where, obj
     return kv
 
@@ -749,7 +917,7 @@ def parse_outputs(ipath, man, pins, verdict, P):
     for key, r in index.items():
         if r["nfail"] != counts[key]:
             P.add(where, "nfail differs from the number of failure rows", "%s %s: %d against %d" % (key + (r["nfail"], counts[key])))
-    return Outputs(d, header, index, failures, sha256_file(ipath))
+    return Outputs(d, header, index, failures, DIGESTS[os.path.abspath(ipath)])
 
 
 class Accuracy:
@@ -771,10 +939,18 @@ def parse_accuracy(path, man, pins, verdict, P):
         return None
     check_identity(header, man, pins, where, P)
     if verdict:
-        if header.get("julia") not in VERSIONS:
-            P.add(where, "julia %s" % header.get("julia"))
+        for key in ("julia", "evaluator_julia"):
+            if header.get(key) not in VERSIONS:
+                P.add(where, "%s %s" % (key, header.get(key, "<absent>")))
         if header.get("filter") != "":
             P.add(where, "evaluated with the filter %r; the campaign needs every case" % header.get("filter"))
+    if header.get("eta_precision_bits") != "256" or header.get("forward_precision_bits") != "128":
+        P.add(where, "evaluator precisions other than 256 and 128 bits")
+    try:
+        fmax = to_int(header.get("forward_max_n", ""))
+    except ValueError:
+        P.add(where, "unparseable forward_max_n")
+        return None
     a = Accuracy(path, header)
     for f in rows:
         r = dict(zip(cols, f))
@@ -799,6 +975,23 @@ def parse_accuracy(path, man, pins, verdict, P):
         if (ps == "true" and (st != "ok" or not finite(eta))) or (st != "ok" and (ps == "true" or eta != math.inf)):
             P.add(where, "pass, status and eta disagree", line)
             continue
+        if st == "ok" and (r["eltype"] not in EPS or not (finite(eta) or eta == math.inf) or eta < 0):
+            P.add(where, "eta of a status-ok output negative or not a number, or an unknown element type", line)
+            continue
+        if st == "ok":
+            # the pass flag was decided in BigFloat; the written Float64 eta decides it too unless it lands on the threshold
+            thr = ETA_FACTOR * EPS[r["eltype"]]
+            if (eta < thr and ps != "true") or (eta > thr and ps != "false"):
+                P.add(where, "pass flag contradicts eta and the threshold 1e3 eps(T)", "%s: eta %r, pass %s" % (line, eta, ps))
+                continue
+        if c is not None:
+            if c["n"] > fmax:
+                fe_ok = fe != fe
+            else:
+                fe_ok = (finite(fe) and fe >= 0) if st == "ok" and finite(eta) else (fe == math.inf or (finite(fe) and fe >= 0))
+            if not fe_ok or r["copy_identical"] not in ("true", "false"):
+                P.add(where, "forward_error or copy_identical out of its domain", "%s: %r" % (line, fe))
+                continue
         if c is not None and (r["eltype"] != c["eltype"] or r["kind"] != c["kind"] or not 1 <= gi <= len(c["acc_gammas"])
                               or g != c["acc_gammas"][gi - 1] or not 1 <= k <= c["nv"]):
             P.add(where, "element type, kind, step or input index differ from the manifest", line)
@@ -815,6 +1008,15 @@ def parse_accuracy(path, man, pins, verdict, P):
 # ---------------------------------------------------------------------------------------------------------------------
 # The campaign: loading in classes and the inventory (class 3)
 # ---------------------------------------------------------------------------------------------------------------------
+
+def plan_rule(tmax, cycle, min_calls, target):
+    """(calls per batch, batches) of plan_batches in harness.jl for the slowest calibrated time per call tmax."""
+    if tmax >= 0.1:
+        return cycle, 1
+    cap = cycle * max(1, BATCH_CALL_CAP // cycle)
+    calls = max(min_calls, math.ceil(target / tmax) if tmax > 0 else min_calls)
+    return min(max(cycle * -(-calls // cycle), cycle), cap), BATCHES
+
 
 class Proc:
     """One timing process (Julia version, role order, process id, BLAS threads), possibly split over several files."""
@@ -890,10 +1092,12 @@ class Campaign:
                 if k in p.rows:
                     p.dup = getattr(p, "dup", []) + [(tf.name, k)]
                 p.rows[k] = v
-            for attr in ("plans", "pairs", "loads", "untimed_ids"):
-                getattr(p, attr).update(getattr(tf, attr))
-            for k, v in tf.workingset.items():
-                p.workingset[k] = max(p.workingset.get(k, 0.0), v)
+            for attr in ("plans", "pairs", "loads", "untimed_ids", "workingset"):
+                mine = getattr(p, attr)
+                for k, v in getattr(tf, attr).items():
+                    if k in mine:
+                        p.dup_context = getattr(p, "dup_context", []) + [(tf.name, (attr, k))]
+                    mine[k] = v
         for path, u in parsed["untimed"]:
             if ok(u, os.path.basename(path)):
                 self.untimed.setdefault((u.version, u.case), []).append(u)
@@ -938,6 +1142,8 @@ class Campaign:
                     P.add(where, "group %s is in %d files (one is required)" % (g, n), ", ".join(p.group_files.get(g, [])))
             for name, k in getattr(p, "dup", []):
                 P.add(where, "rows repeated across its files", "%s %s" % (name, k))
+            for name, k in getattr(p, "dup_context", []):
+                P.add(where, "context rows repeated across its files", "%s %s" % (name, k))
             self.check_process_rows(p, timed, where, P)
             self.check_process_admm(p, lasso, where, P)
         for v in VERSIONS:
@@ -965,11 +1171,28 @@ class Campaign:
         for v in set(self.outputs) | set(self.acc_files):
             if v not in VERSIONS:
                 P.add("outputs and accuracy", "files of Julia %s" % v)
+        self.check_hardware(P)
+
+    def check_hardware(self, P):
+        """One CPU kind across the primary timing files (populated vendor and model), and one BLAS configuration and
+        OpenBLAS build per Julia version."""
+        files = [f for k, p in sorted(self.procs.items()) if k[3] == "1" for f in p.files]
+        for key in ("cpu_vendor", "cpu_model"):
+            vals = collections.Counter(f.header.get(key, "") for f in files)
+            if any(v in ("", "unknown") for v in vals) or len(vals) > 1:
+                P.add("timing files", "%s missing or not the same in every primary timing file" % key, ", ".join(
+                    "%r in %d" % (v, n) for v, n in sorted(vals.items())))
+        for v in VERSIONS:
+            for key in ("blas_config", "openblas"):
+                vals = collections.Counter(f.header.get(key, "") for f in files if f.header.get("julia") == v)
+                if len(vals) > 1 or "" in vals:
+                    P.add("timing files", "%s missing or not the same in the primary timing files of Julia %s" % (key, v),
+                          ", ".join("%r in %d" % (x, n) for x, n in sorted(vals.items())))
 
     def check_process_rows(self, p, timed, where, P):
         names = ROLE_ORDER[p.order]
         prim = [r for r in names if "'" not in r]
-        exp = {}
+        exp, plans, pairs = {}, set(), set()
         for c in timed:
             cid = c["id"]
             for rnd in range(1, ROUNDS + 1):
@@ -987,21 +1210,28 @@ class Campaign:
             for pos, role in enumerate(names, 1):
                 for call in ("prox", "refactor_prox"):
                     exp[(cid, "alloc", call, 1, role)] = pos
+            plans.add((cid, "warm"))
             plan = p.plans.get((cid, "warm"))
-            if plan is None or not (plan[0]["cap"] == BATCH_CALL_CAP and plan[0]["calls"] % NV_RAND == 0 and
-                                    NV_RAND <= plan[0]["calls"] <= BATCH_CALL_CAP and plan[0]["batches"] in (1, BATCHES)):
-                P.add(where, "batch_plan of warm absent or out of range", "%s %s" % (cid, plan))
+            if plan is None or not (plan[0]["cap"] == BATCH_CALL_CAP and finite(plan[0]["tmax"]) and plan[0]["tmax"] >= 0 and
+                                    (plan[0]["calls"], plan[0]["batches"]) == plan_rule(plan[0]["tmax"], NV_RAND, 30, 0.02)):
+                P.add(where, "batch_plan of warm absent or not the registered rule for its tmax", "%s %s" % (cid, plan))
             for s in SCHEDULES:
                 steps = SCHEDULES[s][c["eltype"]]
                 want = tuple(executed_pairs(steps))
                 if p.pairs.get((cid, s)) != want:
                     P.add(where, "penalty_pairs absent or different from the registered schedule",
                           "%s %s: %s, expected %s" % (cid, s, p.pairs.get((cid, s)), want))
+                pairs.add((cid, s))
+                plans.add((cid, "penalty:" + s))
                 plan = p.plans.get((cid, "penalty:" + s))
                 cyc = len(want)
-                if plan is None or not (plan[0]["cap"] == BATCH_CALL_CAP and plan[0]["calls"] % cyc == 0 and
-                                        plan[0]["calls"] >= cyc and plan[0]["batches"] in (1, BATCHES)):
-                    P.add(where, "batch_plan of penalty absent or out of range", "%s %s %s" % (cid, s, plan))
+                if plan is None or not (plan[0]["cap"] == BATCH_CALL_CAP and finite(plan[0]["tmax"]) and plan[0]["tmax"] >= 0 and
+                                        (plan[0]["calls"], plan[0]["batches"]) == plan_rule(plan[0]["tmax"], cyc, 1, 0.05)):
+                    P.add(where, "batch_plan of penalty absent or not the registered rule for its tmax", "%s %s %s" % (cid, s, plan))
+        for k in sorted(set(p.plans) - plans):
+            P.add(where, "batch_plan rows outside the registered design", str(k))
+        for k in sorted(set(p.pairs) - pairs):
+            P.add(where, "penalty_pairs rows outside the registered design", str(k))
         for key, pos in exp.items():
             v = p.rows.get(key)
             if v is None:
@@ -1047,13 +1277,28 @@ class Campaign:
                             key = (cid, meas, cp, 0, role)
                             exp.add(key)
                             v = p.rows.get(key)
-                            if v is None or v[1] != want:
-                                P.add(where, "%s absent or different from the untimed record" % meas,
+                            if v is None or v[1] != want or v[0] != 0:
+                                P.add(where, "%s absent, not at position 0 or different from the untimed record" % meas,
                                       "%s rho=%s %s %s: %s, untimed %s" % (cid, rho, lvl, role, None if v is None else v[1], want))
                     active = [r for r in names if u.levels.get((rho, family(r), lvl), {}).get("status") == "reached"]
+                    target = ADMM_TIGHT * max(1.0, c["lambda_max"])
                     for rep in range(1, REPEATS + 1):
                         for pos, idx in enumerate(round_indices(len(active), rep), 1):
                             role = active[idx]
+                            run = {m: p.rows.get((cid, m, cp, rep, role)) for m in ADMM_TIMED}
+                            if all(x is not None and finite(x[1]) and x[1] >= 0 for x in run.values()):
+                                val = {m: x[1] for m, x in run.items()}
+                                hi = 1 + SLACK
+                                if lvl == "tight" and val["admm_valid"] == 1.0 and val["admm_stationarity"] > target * hi:
+                                    P.add(where, "tight runs marked valid with a stationarity above the target",
+                                          "%s rho=%s rep %d %s: %g > %g" % (cid, rho, rep, role, val["admm_stationarity"], target))
+                                if lvl == "boyd" and val["admm_valid"] == 1.0 and not (
+                                        val["admm_r"] <= val["admm_eps_pri"] * hi and val["admm_s"] <= val["admm_eps_dual"] * hi):
+                                    P.add(where, "Boyd runs marked valid whose r and s miss their tolerances",
+                                          "%s rho=%s rep %d %s" % (cid, rho, rep, role))
+                                if abs(val["admm_total"] - val["admm_factor"] - val["admm_iter"]) > 1e-8 * val["admm_total"]:
+                                    P.add(where, "ADMM total time differs from factorization plus iterations",
+                                          "%s rho=%s %s rep %d %s" % (cid, rho, lvl, rep, role))
                             for meas in ADMM_TIMED:
                                 key = (cid, meas, cp, rep, role)
                                 exp.add(key)
@@ -1067,7 +1312,7 @@ class Campaign:
                                 if meas == "admm_valid" and v[1] != 1.0:
                                     P.add(where, "timed ADMM runs whose end point misses the target of the level",
                                           "%s rho=%s %s rep %d %s" % (cid, rho, lvl, rep, role))
-                                elif not finite(v[1]) or (meas in ("admm_total", "admm_factor", "admm_iter") and v[1] <= 0):
+                                elif not finite(v[1]) or v[1] < 0 or (meas in ("admm_total", "admm_factor", "admm_iter") and v[1] <= 0):
                                     P.add(where, "timed ADMM values out of range", "%s %s rho=%s %s rep %d %s" % (cid, meas, rho, lvl, rep, role))
         for key in p.rows:
             if GROUP_OF.get(key[1]) == "admm" and key not in exp and key[0] not in unchecked:
@@ -1095,6 +1340,9 @@ class Campaign:
                         failed = (cid, role, gi, k) in o.failures
                         if failed != r["status"].startswith("error: "):
                             P.add(where, "status disagrees with the failures index", "%s %s step %d input %d" % (cid, role, gi, k))
+                        ir = o.rows.get((cid, role))
+                        if ir is not None and r["copy"] != ir["copy_identical"]:
+                            P.add(where, "copy_identical disagrees with the outputs index", "%s %s step %d input %d" % (cid, role, gi, k))
         extra = [k for k in a.rows if k[0] not in self.man.cases]
         if extra:
             P.add(where, "rows outside the manifest", str(extra[0]))
@@ -1167,7 +1415,7 @@ def expected_cells(man):
 
 
 def needed_keys(case, meas, cp):
-    """The (step, input) keys that the measurement of a cell executes."""
+    """The (step, input) keys of the accuracy evidence of a cell (for ADMM, the stored ADMM vectors at the step 1/rho)."""
     if meas == "first_use":
         return [gk(1.0, k) for k in range(1, NV_RAND + 1)]
     if meas == "warm":
@@ -1498,7 +1746,7 @@ def table_workingset(camp):
         cases, loads = {}, {}
         for p in primary_procs(camp, v):
             l3 = l3_bytes(p.files[0].header.get("l3_cache", ""))
-            for (case, role), b in p.workingset.items():
+            for (case, _grp, role), b in p.workingset.items():
                 e = cases.setdefault((case, role), [0.0, l3])
                 e[0] = max(e[0], b)
             for (case, grp), la in p.loads.items():
@@ -1665,13 +1913,13 @@ def table_admm(camp, cells, ver):
     for (v, case), us in sorted(camp.untimed.items()):
         for u in us:
             for (rho, role, lvl), r in sorted(u.levels.items()):
-                lv.append([v, case, rho, role, lvl, r["status"], r["k"], r["r"], r["s"], r["stationarity"], r["objective"]])
+                lv.append([v, case, rho, role, lvl, r["status"], r["k"], u.cap, r["r"], r["s"], r["stationarity"], r["objective"]])
             for t in u.traj:
                 if t[1] == "S":
-                    traj.append([v, case, t[0], t[2]] + list(t[3:]))
-    out.append(("ADMM stopping records of the untimed pass: the status (reached, or capped after the cap of %d iterations), the "
-                "iteration count k and the measures at k" % ADMM_CAP,
-                listing(lv, ["julia", "case", "rho", "role", "level", "status", "k", "r", "s", "stationarity", "objective"], "records")))
+                    traj.append([v, case, t[0], t[2], t[3], t[4], t[7], t[8]])
+    out.append(("ADMM stopping records of the untimed pass: the status (reached, or capped after the cap of its file, which is "
+                "%d in verdict mode), the iteration count k and the measures at k" % ADMM_CAP,
+                listing(lv, ["julia", "case", "rho", "role", "level", "status", "k", "cap", "r", "s", "stationarity", "objective"], "records")))
     out.append(("ADMM trajectory of S at the checkpoints (the other primary roles are in the untimed files)",
                 listing(traj, ["julia", "case", "rho", "k", "r", "s", "stationarity", "objective"], "rows")))
     rows, orows = [], []
@@ -1804,13 +2052,17 @@ def run_verdict(args):
             P.add("pins", "--%s must be 7 to 40 lowercase hex digits" % key.replace("_", "-"), repr(val))
     if not args.manifest or not os.path.isfile(args.manifest):
         P.add("pins", "--manifest must name the inputs-index.tsv of the campaign", repr(args.manifest))
+    elif not os.path.abspath(args.manifest).startswith(os.path.abspath(root) + os.sep):
+        P.add("pins", "--manifest must be the inputs-index.tsv gathered into the campaign directory", args.manifest)
     man = load_manifest(args.manifest, P) if not P else None
     if man is not None:
         check_manifest_registered(man, pins, P)
+    listed = read_checksums(root, P)
     if P:
-        return refuse(root, "class 1: the manifest and the pinned identity", P)
+        return refuse(root, "class 1: the manifest, the pinned identity and the checksum list", P)
     camp = Campaign(root, man, pins, verdict=True)
     parsed = camp.load_files(P)
+    check_checksums(root, listed, P)
     if P:
         return refuse(root, "class 2: the files on their own", P)
     camp.accept(parsed, set())
@@ -1883,9 +2135,15 @@ def main(argv):
     ap.add_argument("--harness-sha", default="", help="the pinned harness commit")
     ap.add_argument("--manifest", default="", help="the inputs-index.tsv of the campaign")
     ap.add_argument("--tables-only", action="store_true", help="print tables from the available files; no criteria or verdict")
+    ap.add_argument("--write-checksums", action="store_true",
+                    help="write %s over the files of the gathered campaign (ALLOWLIST) and exit" % CHECKSUM_FILE)
     args = ap.parse_args(argv[1:])
     if not os.path.isdir(args.dir):
         ap.error("%s is not a directory" % args.dir)
+    if args.write_checksums:
+        n = write_checksums(args.dir)
+        print("wrote %s with %d files" % (os.path.join(args.dir, CHECKSUM_FILE), n))
+        return 0
     return run_tables_only(args) if args.tables_only else run_verdict(args)
 
 

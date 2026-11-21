@@ -25,7 +25,8 @@
 # of each output file. It stops after the header checks when one of them fails, and after the row and file checks
 # otherwise, with the list of the problems it found, before any score is written. The result is
 # accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and input
-# identities of the outputs, the SHA-256 of the outputs index and PB_FILTER), one row per (case, role, step, input), and
+# identities of the outputs, the Julia version that produced the outputs (julia) and the one that evaluated them
+# (evaluator_julia), the SHA-256 of the outputs index and PB_FILTER), one row per (case, role, step, input), and
 # the closing line `# complete: yes`.
 # With PB_CHECK_ONLY=1 the script first checks its column sweeps against the dense BigFloat evaluation eta_exact and a dense
 # dual solve on a small random problem, with and without the in-place operation, and the in-place operation against
@@ -209,7 +210,8 @@ function preflight(m::Manifest, outdir::String)
     isfile(ipath) || error("missing $ipath")
     isfile(fpath) || error("missing $fpath")
     ibytes = read(ipath)
-    header, cols, rows = parse_tsv(String(ibytes), ipath)
+    index_sha = bytes2hex(sha256(ibytes))            # before String(), which takes over the bytes of the vector
+    header, cols, rows = parse_tsv(String(copy(ibytes)), ipath)
     fheader, fcols, frows = read_tsv(fpath)
     get(header, "format", "") == "pb1103-outputs-2" || bad("outputs-index.tsv has the format $(get(header, "format", "<absent>"))")
     get(fheader, "format", "") == "pb1103-outputs-failures-1" || bad("outputs-failures.tsv has the format $(get(fheader, "format", "<absent>"))")
@@ -281,7 +283,7 @@ function preflight(m::Manifest, outdir::String)
         end
     end
     isempty(problems) || error("accuracy.jl refuses the outputs before scoring:\n  " * join(problems, "\n  "))
-    header, rows, failures, bytes2hex(sha256(ibytes))
+    header, rows, failures, index_sha
 end
 size_of_v(c::Case) = c.arrays["V"].shape[2]
 
@@ -293,7 +295,7 @@ function evaluate(m::Manifest, outdir::String)
     byid = Dict(c.id => c for c in m.cases)
     ids = unique([r["case"] for r in rows])
     open(joinpath(outdir, "accuracy-$tag.tsv"), "w") do io
-        for (k, v) in [("format", "pb1103-accuracy-3"), ("julia", get(header, "julia", "unknown")),
+        for (k, v) in [("format", "pb1103-accuracy-4"), ("julia", get(header, "julia", "unknown")), ("evaluator_julia", VERSION),
                        ("outputs_order", get(header, "order", "unknown")), ("source_sha", get(header, "source_sha", "unset")),
                        ("harness_sha", get(header, "harness_sha", "unset")), ("inputs_index_sha256", m.sha256),
                        ("outputs_index_sha256", index_sha), ("filter", rx.pattern),

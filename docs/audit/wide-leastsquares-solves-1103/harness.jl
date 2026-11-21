@@ -74,7 +74,7 @@ const ADMM_TIGHT = 1e-8
 const REFERENCE_TOL = 1e-12
 const BATCH_CALL_CAP = 3000
 const TIMINGS_FORMAT = "pb1103-timings-3"
-const UNTIMED_FORMAT = "pb1103-admm-untimed-2"
+const UNTIMED_FORMAT = "pb1103-admm-untimed-3"
 const ALL_GROUPS = ["outputs", "first_use", "warm", "penalty", "alloc", "admm_reference", "admm_untimed", "admm"]
 const TIMED_GROUPS = ["first_use", "warm", "penalty", "alloc", "admm"]
 const GROUPS = String.(split(env_string("PB_GROUP", CHECK_ONLY ? join(ALL_GROUPS, ",") : join(TIMED_GROUPS, ",")), ','))
@@ -388,17 +388,19 @@ function calibrate!(make_cycle, roles, objs, ncalls, w, c, group, param, d, γ)
     end
     tmax
 end
-plan_text(group, m, nb) = "$group|calls=$m|batches=$nb|cap=$BATCH_CALL_CAP"
+# the batch_plan param: the plan, the cap and the slowest calibrated time per call written losslessly (repr)
+plan_text(group, m, nb, tmax) = "$group|calls=$m|batches=$nb|cap=$BATCH_CALL_CAP|tmax=$(repr(Float64(tmax)))"
 
 function emit_load(w::Writer, c::Case, group)
     la = loadavg1()
     la === nothing || emit(w, c.id, "loadavg_1m", group, 0, 0, "-", la)
 end
-# the load average and the reachable bytes of the objects of the roles (the working set to compare with the L3 size)
+# the load average and the reachable bytes of the objects of the roles (the working set to compare with the L3 size),
+# keyed by the group in the param
 function emit_context(w::Writer, c::Case, roles, objs, group)
     emit_load(w, c, group)
     for (i, (r, o)) in enumerate(zip(roles, objs))
-        o === nothing || emit(w, c.id, "workingset", "reachable_bytes", 0, i, r.name, Base.summarysize(o))
+        o === nothing || emit(w, c.id, "workingset", group, 0, i, r.name, Base.summarysize(o))
     end
 end
 
@@ -461,7 +463,7 @@ function run_warm(w::Writer, roles, c::Case, d)
     tmax = calibrate!((r, o) -> WarmBatch(r.px, o, d.β, d.rand, one(T), K), roles, objs, K, w, c, "warm", "calibration|g=1",
                       d, one(T))
     m, nb = plan_batches(tmax, K; min_calls = 30, target = 0.02)
-    emit(w, c.id, "batch_plan", plan_text("warm", m, nb), 0, 0, "-", tmax)
+    emit(w, c.id, "batch_plan", plan_text("warm", m, nb, tmax), 0, 0, "-", tmax)
     for g in c.gammas
         γ = T(g)
         # bring every object to the step; a role without an object (or whose refactor failed) gets a fresh one
@@ -519,7 +521,7 @@ function run_penalty(w::Writer, roles, c::Case, d)
         tmax = calibrate!((r, o) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, gs, cycle), roles, objs, cycle, w, c,
                           "penalty", "calibration|$pname", d, last_step)
         m, nb = plan_batches(tmax, cycle; min_calls = 1, target = 0.05)
-        emit(w, c.id, "batch_plan", plan_text("penalty:$pname", m, nb), 0, 0, "-", tmax)
+        emit(w, c.id, "batch_plan", plan_text("penalty:$pname", m, nb, tmax), 0, 0, "-", tmax)
         for round in 1:ROUNDS
             for (pos, idx) in enumerate(round_indices(length(roles), round))
                 role, obj = roles[idx], objs[idx]
@@ -560,7 +562,7 @@ function run_alloc(w::Writer, roles, c::Case, d)
         r === nothing && continue
         emit(w, c.id, "alloc", "prox", 1, pos, role.name, NaN; bytes = r[1] / K, allocs = r[2] / K)
         emit(w, c.id, "alloc", "refactor_prox", 1, pos, role.name, NaN; bytes = r[3] / cycle, allocs = r[4] / cycle)
-        emit(w, c.id, "workingset", "reachable_bytes", 1, pos, role.name, r[5])
+        emit(w, c.id, "workingset", "alloc", 1, pos, role.name, r[5])
     end
 end
 
@@ -693,9 +695,11 @@ end
 untimed_path(dir, c::Case) = joinpath(dir, "admm-untimed-$(VERSION)-$(case_file(c.id)).tsv")
 
 # the columns of the untimed file: record is trajectory (level and status are -), level (one row per role, penalty and
-# level, with status reached or capped) or error (status error, k -, the message in note)
-const UNTIMED_COLUMNS = ["case", "rho", "role", "record", "level", "status", "k", "cap", "r_norm", "s_norm", "stationarity",
-                         "objective", "note"]
+# level, with status reached or capped) or error (status error, k -, the message in note); the measures are Boyd's
+# r, s, eps_pri and eps_dual, the stationarity and the objective at iteration k
+const UNTIMED_COLUMNS = ["case", "rho", "role", "record", "level", "status", "k", "cap", "r_norm", "s_norm", "eps_pri",
+                         "eps_dual", "stationarity", "objective", "note"]
+const UNTIMED_MEASURES = ["r_norm", "s_norm", "eps_pri", "eps_dual", "stationarity", "objective"]
 
 function run_admm_untimed(m::Manifest, cases, roles, dir::String)
     mkpath(dir)
@@ -714,18 +718,18 @@ function run_admm_untimed(m::Manifest, cases, roles, dir::String)
                 try
                     r = admm_untimed(role, d.X, d.y, λ, ρ; tight_tol = ADMM_TIGHT, scale = scale, cap = ADMM_CAP)
                     for row in r.rows
-                        @printf(io, "%s\t%s\t%s\ttrajectory\t-\t-\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ, role.name,
-                                Int(row[1]), ADMM_CAP, row[2], row[3], row[4], row[5])
+                        @printf(io, "%s\t%s\t%s\ttrajectory\t-\t-\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ,
+                                role.name, Int(row[1]), ADMM_CAP, row[2:7]...)
                     end
                     for (lvl, x) in (("boyd", r.boyd), ("tight", r.tight))
-                        @printf(io, "%s\t%s\t%s\tlevel\t%s\t%s\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ, role.name, lvl,
-                                x.status, x.k, ADMM_CAP, x.measures...)
+                        @printf(io, "%s\t%s\t%s\tlevel\t%s\t%s\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ,
+                                role.name, lvl, x.status, x.k, ADMM_CAP, x.measures...)
                     end
                     println("admm_untimed ", c.id, " rho=", ρ, " ", role.name, ": boyd ", r.boyd.status, " k ", r.boyd.k,
                             "; tight ", r.tight.status, " k ", r.tight.k, " (", round(time() - t0; digits = 1), " s)")
                 catch e
                     CHECK_ONLY && rethrow()
-                    println(io, join([c.id, ρ, role.name, "error", "-", "error", "-", ADMM_CAP, "NaN", "NaN", "NaN", "NaN", errmsg(e)], '\t'))
+                    println(io, join([c.id, ρ, role.name, "error", "-", "error", "-", ADMM_CAP, "NaN", "NaN", "NaN", "NaN", "NaN", "NaN", errmsg(e)], '\t'))
                 end
                 flush(io)
             end
@@ -735,18 +739,28 @@ function run_admm_untimed(m::Manifest, cases, roles, dir::String)
 end
 
 # The untimed counts of an instance for this process: (rho, role, level) => (reached, k), and the identity (file name
-# and SHA-256) of the file they come from. The file is read once and hashed, and it is accepted only when its format,
-# Julia version, source, harness, manifest digest, X and y digests, case (header and every row), cap, tight target and
-# columns are those of this process, every row has a registered penalty and a primary role, every level row has the
-# status reached (1 ≤ k ≤ cap) or capped (k = cap), no (rho, role, level) appears twice or is absent, and no run
-# failed (an error row). Otherwise it throws.
+# and SHA-256) of the file they come from. The file is read once and hashed (before decoding), and it is accepted only
+# when
+#   - its format, Julia version, source, harness, manifest digest, X and y digests, case (header and every row), cap,
+#     tight target, scale max(1, λmax) of the manifest and columns are those of this process, and no header key repeats;
+#   - every row has a registered penalty and a primary role, and finite nonnegative measures;
+#   - every (rho, role, level) has one level row with the status reached (1 ≤ k ≤ cap) or capped (k = cap), and its
+#     measures agree with the status: for boyd, r ≤ eps_pri and s ≤ eps_dual when reached and one of them at least its
+#     tolerance when capped; for tight, the stationarity at most tight_tol·scale when reached and above it when capped
+#     (each with a relative slack of UNTIMED_SLACK for the 10-digit output);
+#   - the trajectory rows of each (rho, role) are the checkpoints up to the last iteration run (the larger k when both
+#     levels are reached, the cap otherwise) and the iterations k of the reached levels, without repeats, and each
+#     level row repeats the measures of the trajectory row at its k;
+#   - no run failed (an error row).
+# Otherwise it throws.
+const UNTIMED_SLACK = 1e-9
 function load_kstar(dir::String, m::Manifest, c::Case, prim)
     path = untimed_path(dir, c)
     name = basename(path)
     isfile(path) || error("$name: missing untimed file for $(c.id) (run the group admm_untimed first)")
     bytes = read(path)
     sha = bytes2hex(sha256(bytes))
-    header, cols, rows = parse_tsv(String(bytes), name)
+    header, cols, rows = parse_tsv(String(copy(bytes)), name)
     refuse(msg) = error("$name is refused: $msg")
     function expect(key, want)
         got = get(header, key, "<absent>")
@@ -762,40 +776,71 @@ function load_kstar(dir::String, m::Manifest, c::Case, prim)
     expect("y_sha256", c.arrays["y"].sha256)
     expect("admm_cap", ADMM_CAP)
     tryparse(Float64, get(header, "tight_tol", "")) == ADMM_TIGHT || refuse("tight_tol is $(get(header, "tight_tol", "<absent>")), expected $ADMM_TIGHT")
+    scale = max(1.0, c.lambda_max)
+    tryparse(Float64, get(header, "scale", "")) == scale || refuse("scale is $(get(header, "scale", "<absent>")), expected $scale")
     cols == UNTIMED_COLUMNS || refuse("unexpected columns $(join(cols, ','))")
+    target = ADMM_TIGHT * scale
     names = Set(r.name for r in prim)
     out = Dict{Tuple{Float64,String,String},NamedTuple{(:reached, :k),Tuple{Bool,Int}}}()
+    levelmeas = Dict{Tuple{Float64,String,String},Vector{String}}()
+    traj = Dict{Tuple{Float64,String},Dict{Int,Vector{String}}}()
     for (i, r) in enumerate(rows)
         r["case"] == c.id || refuse("row $i is of the case $(r["case"])")
         ρ = tryparse(Float64, r["rho"])
         ρ !== nothing && ρ in ADMM_RHOS || refuse("row $i has the penalty $(r["rho"])")
         r["role"] in names || refuse("row $i has the role $(r["role"])")
         rec = r["record"]
-        if rec == "error"
-            refuse("the run of $(r["role"]) at rho=$(r["rho"]) failed ($(r["note"])); rerun the group admm_untimed")
-        elseif rec == "level"
-            r["level"] in ADMM_LEVELS || refuse("row $i has the level $(r["level"])")
-            tryparse(Int, r["cap"]) == ADMM_CAP || refuse("row $i has the cap $(r["cap"])")
-            k, st = tryparse(Int, r["k"]), r["status"]
-            ok = k !== nothing && (st == "reached" ? 1 <= k <= ADMM_CAP : st == "capped" ? k == ADMM_CAP : false)
-            ok || refuse("row $i has the status $st with k = $(r["k"])")
-            key = (ρ, r["role"], r["level"])
-            haskey(out, key) && refuse("row $i repeats the record of $(r["role"]) at rho=$(r["rho"]), level $(r["level"])")
-            out[key] = (reached = st == "reached", k = k)
-        elseif rec != "trajectory"
-            refuse("row $i has the record $rec")
+        rec == "error" && refuse("the run of $(r["role"]) at rho=$(r["rho"]) failed ($(r["note"])); rerun the group admm_untimed")
+        rec in ("level", "trajectory") || refuse("row $i has the record $rec")
+        tryparse(Int, r["cap"]) == ADMM_CAP || refuse("row $i has the cap $(r["cap"])")
+        k = tryparse(Int, r["k"])
+        k !== nothing && 1 <= k <= ADMM_CAP || refuse("row $i has k = $(r["k"])")
+        meas = [r[x] for x in UNTIMED_MEASURES]
+        v = [tryparse(Float64, x) for x in meas]
+        all(x -> x !== nothing && isfinite(x) && x >= 0, v) || refuse("row $i has a measure that is not finite and nonnegative")
+        if rec == "trajectory"
+            t = get!(traj, (ρ, r["role"]), Dict{Int,Vector{String}}())
+            haskey(t, k) && refuse("row $i repeats the trajectory row of $(r["role"]) at rho=$(r["rho"]), k = $k")
+            t[k] = meas
+            continue
         end
+        r["level"] in ADMM_LEVELS || refuse("row $i has the level $(r["level"])")
+        st = r["status"]
+        (st == "reached" || (st == "capped" && k == ADMM_CAP)) || refuse("row $i has the status $st with k = $(r["k"])")
+        rn, sn, epri, edual, stat = v[1], v[2], v[3], v[4], v[5]
+        lo, hi = 1 - UNTIMED_SLACK, 1 + UNTIMED_SLACK
+        met = r["level"] == "boyd" ? (rn <= epri * hi && sn <= edual * hi) : stat <= target * hi
+        missed = r["level"] == "boyd" ? (rn >= epri * lo || sn >= edual * lo) : stat > target * lo
+        (st == "reached" ? met : missed) || refuse("row $i: the measures contradict the status $st of the level $(r["level"])")
+        key = (ρ, r["role"], r["level"])
+        haskey(out, key) && refuse("row $i repeats the record of $(r["role"]) at rho=$(r["rho"]), level $(r["level"])")
+        out[key] = (reached = st == "reached", k = k)
+        levelmeas[key] = meas
     end
-    for ρ in ADMM_RHOS, r in prim, lvl in ADMM_LEVELS
-        haskey(out, (ρ, r.name, lvl)) || refuse("no $lvl record of $(r.name) at rho=$ρ")
+    for ρ in ADMM_RHOS, r in prim
+        for lvl in ADMM_LEVELS
+            haskey(out, (ρ, r.name, lvl)) || refuse("no $lvl record of $(r.name) at rho=$ρ")
+        end
+        b, t = out[(ρ, r.name, "boyd")], out[(ρ, r.name, "tight")]
+        ran = b.reached && t.reached ? max(b.k, t.k) : ADMM_CAP
+        want = Set(k for k in ADMM_CHECKPOINTS if k <= ran)
+        b.reached && push!(want, b.k)
+        t.reached && push!(want, t.k)
+        rows_ = get(traj, (ρ, r.name), Dict{Int,Vector{String}}())
+        Set(keys(rows_)) == want || refuse("the trajectory rows of $(r.name) at rho=$ρ are not the checkpoints and the reached iterations")
+        for lvl in ADMM_LEVELS
+            lm, x = levelmeas[(ρ, r.name, lvl)], out[(ρ, r.name, lvl)]
+            rows_[x.k] == lm || refuse("the $lvl record of $(r.name) at rho=$ρ differs from its trajectory row")
+        end
     end
     out, (file = name, sha256 = sha)
 end
 
 # One timed ADMM run of k iterations on the work arrays: the construction and factorization, then admm_loop! (Boyd's
-# rule evaluated after each iteration, its count consumed through SINK, not used to stop the loop). The stationarity
-# and objective are evaluated after the timed interval; valid says whether the endpoint meets the target of the level
-# (Boyd's rule on the last iteration, or the stationarity target).
+# rule evaluated after each iteration, its count consumed through SINK, not used to stop the loop). The stationarity,
+# the objective and Boyd's r, s, eps_pri and eps_dual of the last iteration are evaluated after the timed interval;
+# valid says whether the endpoint meets the target of the level (Boyd's rule on the last iteration, or the
+# stationarity target).
 function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, k::Int, wk::AdmmWork{T}, level::String,
                     scale::Real) where {T}
     γ, κ = inv(T(ρ)), λ / T(ρ)
@@ -809,8 +854,9 @@ function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, k::
     t2 = time_ns()
     SINK[] += flags
     res, objective = lasso_measures!(wk, X, y, λ)
+    bm = boyd_measures(size(X, 2), ρ, last)
     valid = level == "boyd" ? boyd_converged(size(X, 2), ρ, last) : res <= ADMM_TIGHT * scale
-    (; t_factor = (t1 - t0) * 1e-9, t_iter = (t2 - t1) * 1e-9, res, objective, valid)
+    (; t_factor = (t1 - t0) * 1e-9, t_iter = (t2 - t1) * 1e-9, res, objective, valid, boyd = bm)
 end
 
 # The timed ADMM stage of an instance, with the counts of load_kstar and the identity of their file, which is written to
@@ -846,6 +892,9 @@ function run_admm(w::Writer, roles, c::Case, d, kstar, ident)
                 emit(w, c.id, "admm_objective", param, rep, pos, role.name, t.objective)
                 emit(w, c.id, "admm_stationarity", param, rep, pos, role.name, t.res)
                 emit(w, c.id, "admm_valid", param, rep, pos, role.name, t.valid ? 1 : 0)
+                for (meas, x) in zip(("admm_r", "admm_s", "admm_eps_pri", "admm_eps_dual"), t.boyd)
+                    emit(w, c.id, meas, param, rep, pos, role.name, x)
+                end
             end
         end
     end

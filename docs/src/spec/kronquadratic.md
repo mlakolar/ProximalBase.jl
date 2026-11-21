@@ -69,10 +69,13 @@ a `Diagonal` whose diagonal is backed by the destination is not detected. For
 a matrix argument on the copy route above, and for a symmetric iterate, the
 argument is read completely, into scratch or into the products, before the
 destination is written, so the result is computed from the argument as it was
-at the call; an undetected overlap then changes the caller's argument through
-the write to the destination. On the direct route of a strided argument the
-argument is read again after the destination is written, and no such
-statement holds.
+at the call; an undetected overlap can change the caller's argument through
+the write to the destination. When both the argument and the destination are
+strided matrices with unit first stride and a column stride of at least
+``\max(1,p)``, the argument is read again after the destination is first
+written, and no such statement holds; with such an argument and another
+strided destination, the argument is read completely before the destination
+is written.
 
 ## [Preconditions](@id spec-kronquadratic-preconditions)
 
@@ -150,8 +153,8 @@ or a destination that shares memory with the argument or with `A`, `B` or `C`
 symmetric iterate ``p=q`` (`DimensionMismatch`) and, when `C` is supplied,
 its exact symmetry (`ArgumentError`). `C` is not averaged.
 
-The overlap checks are `G === X`, `Base.mightalias` (which accepts views that
-Base can establish as disjoint), overlap with `A`, `B`, `C` and the scratch,
+The overlap checks are `G === X`, `Base.mightalias` (which returns false for
+views that Base can establish as disjoint), overlap with `A`, `B`, `C` and the scratch,
 and the backing vectors of `Diagonal`, `Bidiagonal`, `SymTridiagonal` and
 `Tridiagonal` arguments, also inside `Symmetric`, `Hermitian`, triangular,
 `Transpose` and `Adjoint` wrappers. They are not exhaustive (see the

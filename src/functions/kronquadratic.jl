@@ -42,9 +42,11 @@ example). For an argument that is not a strided matrix with unit first stride an
 column stride of at least `max(1, p)`, and for a symmetric iterate, the argument is
 read completely, into scratch or into the products, before `G` is written: the
 result is computed from the argument as it was at the call, and an undetected
-overlap then changes the caller's argument through the write to `G`. On the direct
-route of a strided argument the argument is read again after `G` is written, and no
-such statement holds. There is no proximal operator.
+overlap can change the caller's argument through the write to `G`. When both the
+argument and `G` are strided matrices with unit first stride and a column stride of
+at least `max(1, p)`, the argument is read again after `G` is first written, and no
+such statement holds; with such an argument and another strided `G`, the argument is
+read completely before `G` is written. There is no proximal operator.
 
 `f` is convex when `A` and `B` are both positive semidefinite or both negative
 semidefinite. [`isconvex`](@ref) returns `false` because the constructor does
@@ -181,9 +183,9 @@ function _kron_accessible(A::Base.ReinterpretArray, write)
   _kron_accessible(parent(A), write)
 end
 
-# Whether a may share memory with the array buf, as far as these checks detect it. Base.mightalias reports the
-# storage of arrays and views and accepts the views that Base can establish as disjoint (for example distinct slabs
-# of one array). Structured matrices whose backing vectors it does not report are checked through those vectors,
+# Whether a may share memory with the array buf, as far as these checks detect it. Base.mightalias reports whether
+# the storage of two arrays might overlap; it returns false for views that Base can establish as disjoint (for
+# example distinct slabs of one array). Structured matrices whose backing vectors it does not report are checked through those vectors,
 # also inside Symmetric, Hermitian, triangular, Transpose and Adjoint wrappers; other wrappers of them (a view, for
 # example) are not looked through.
 _kron_overlap(buf, a) = Base.mightalias(buf, a) || _kron_backing_overlap(buf, a)

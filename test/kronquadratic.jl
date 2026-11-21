@@ -337,7 +337,7 @@ end
   end
 
   # SPD Σx ≠ Σy: residual of the gradient at D* rounded from a BigFloat solution, both arguments.
-  # Tolerance for these two moderate seeded residual checks: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and
+  # Tolerance for these two moderate cases: ‖G‖max ≤ c u ‖Σx‖F ‖Σy‖F ‖D*‖F with c = 4p + 8 and
   # u = eps(T), not a uniform accuracy bound for arbitrary SPD inputs and scales. A dense D* (5 × 5) takes the
   # dense route of the symmetric iterate; a diagonal D* (16 × 16, 2n = 32 ≤ p²/8) the accumulating route.
   scales = [1, 1.2, 0.9, 1.1, 1.3]

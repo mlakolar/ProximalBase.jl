@@ -26,13 +26,15 @@ that happens to pass.
   mixed-type calls. The wording awaits the owner's decision.
   [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
 
-- The `IndNonnegative` endpoint row says “`Scaled` routes do not check and
-  project”. This could refer to calls on a concrete `Scaled` wrapper or to
-  calls on the result of `Scaled(f, α)`, including `α = 0`. The tests exercise
-  projection at negative and `NaN` steps through `Scaled(f, 2)`, and confirm
-  that `Scaled(f, 0)` returns the original indicator, whose public scalar-step
-  oracles check the step. The moved row retains the original wording pending
-  an owner decision. [Source](../../../src/functions/indnonnegative.jl)
+- Before #1118, the `IndNonnegative` endpoint row said “`Scaled` routes do
+  not check and project”. This could refer to calls on a concrete `Scaled`
+  wrapper or to calls on the result of `Scaled(f, α)`, including `α = 0`.
+  The tests before #1118 exercised projection at negative and `NaN` steps
+  through `Scaled(f, 2)`, and confirmed that `Scaled(f, 0)` returned the
+  original indicator, whose public scalar-step oracles check the step.
+  #1118 replaced the quoted text with wording about the return of the
+  original indicator for nonnegative factors. Review of the wording remains open.
+  [Source](../../../src/functions/indnonnegative.jl)
   · [Scaling source](../../../src/functions/scaled.jl)
   · [Tests](../../../test/indnonnegative.jl)
 
@@ -179,6 +181,17 @@ that happens to pass.
   infinite in `Float16`. The scope awaits the owner's decision.
   [Source](../../../src/functions/sparsegroupnorml2.jl)
   · [Shared group-score tests](../../../test/kkt_block.jl)
+
+- The SparseGroupNormL2 definition says the constructor “copies the
+  supplied groups and weights”. For a collection with a concrete range
+  element type, this could promise an independent copy of each supplied
+  range or a copy of the outer collection. `_own_groups` copies the outer
+  vector and retains the range objects. The ownership test mutates the
+  supplied index vectors and weight vector. The copy requirement for
+  range objects awaits the owner's decision.
+  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
+  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
+  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
 
 ## Owner review and next gates
 

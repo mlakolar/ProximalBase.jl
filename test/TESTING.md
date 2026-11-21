@@ -346,6 +346,15 @@ weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling
 warmed allocations and product counts. Independent BigFloat and finite-difference
 references check the value and both gradient spaces, including weighted tails.
 
+## Poisson regression coverage
+
+`poissonloss` has the testsets "Agreement with the BigFloat reference" (2048-bit
+BigFloat evaluation at the `Float64` predictor, with tolerances from the accuracy
+bounds of the contract), "Ordinary path", "Finite differences", "Endpoint and
+overflow cases", "Empty shapes", "Validation before writes", "Scaled", "Borrowed
+data and strided arguments" and "Poisson predictor product counts". The Evidence
+section of `docs/src/spec/poissonloss.md` lists the cases.
+
 ## SCAD coverage
 
 `scad` checks the globally minimizing scalar prox against independent BigFloat objectives

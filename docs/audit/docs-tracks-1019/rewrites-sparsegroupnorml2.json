@@ -51,6 +51,79 @@
         }
       ],
       "reviewer": "reconcile_pr_review@75790b52c6a81865b20686a8cd39f745f15490e3"
+    },
+    {
+      "source_sha256": "595e6b2145dabea0013739f0a2b30932419685698f5c769dd7c1bff30c089927",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition",
+          "text": "Entries outside ``U`` are free in both terms and retain their values in the\nproximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term\nstill acts on that group. The constructor keeps the order of the groups and\nindices and copies the supplied groups and weights. The levels and weights\nare converted to one promoted floating type and checked for nonnegativity\nand NaN.",
+          "sha256": "f2809421db1006612a381b36181b3ac9ba9acc8d66624e09544d76e7c077bcc2"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.constructor.default-weights",
+          "text": "The default is ``w_k=\\sqrt{|G_k|}``.",
+          "sha256": "d95a55abece4d6ffaf146a6326683fe149f63ced79467d9b1b6203ef50dd50f3"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition",
+          "text": "With no groups, the value is\nzero and the proximal map is the identity.",
+          "sha256": "4a69d839bc97aada42629e1aa5716f08966ebd39af02dae2f392fc43dbcb0b3a"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@5699cf5c916bad55b8d398d60695037ea52a0e77"
+    },
+    {
+      "source_sha256": "35386937e8a3e0139e90021bbf449804f079d46b972205e223b54ccc90e3dc39",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-results",
+          "text": "On an ordinary array `k` is an entry index and selects its group.\nAn uncovered index has score `abs(v[k])`. On a `BlockIterate`,\n`k` is a group number and the selected ordered layout must agree.\nThe full-point `kkt_violation(f, v, x)` checks the full block layout\nand returns the maximum across zero, the block scores and the\nuncovered-entry magnitudes. The result measures the worst block\nor free-coordinate mismatch.",
+          "sha256": "ef2efef29f4a955990c89b1543cdecc90c4296174b89398674d8d8f15bca177a"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.kkt.assumed-zero",
+          "text": "The three-argument assumed-zero\nform with an integer index throws `ArgumentError`.",
+          "sha256": "989301219f8a1e6578a9f20e90e0665ce26f57324032f3ebd5843a64e7bb3833"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@a12427c5514982c689a98b3c26c572929abf4198"
+    },
+    {
+      "source_sha256": "ec441414f9dfb40f4dc4875ed39fe3701d2b4222227dfb42aa8a60424a46edd7",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.prox-block.compact-buffers",
+          "text": "`prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,\nreturns `out` and accepts `out === u`.",
+          "sha256": "9252f39e02d1e19cac835987712ad3e28cf0b73a424f1edd0444b20ac1c34309"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-preconditions",
+          "text": "It checks the group, lengths,\none-based real buffers, step and detected nonidentical overlap before\nwriting. The caller supplies an output buffer independent of iterate\nstorage. `prox_block(f, u, k, γ)` allocates that buffer. To store the\nresult, the caller writes it into the matching block as a separate step.",
+          "sha256": "fa52746334a300253599323bc9e90ada7bb146f492bf16bb5f1ed052dcbca05b"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@a1361ea3c2b197879770c2edfd05433035113cf9"
+    },
+    {
+      "source_sha256": "05c64c174b446d6c2750de33d0c623dee93431e411b20d329a5f4218b4f8e52e",
+      "action": "split",
+      "destinations": [
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#sparse-group-norm-l2.value-and-prox.stored-output",
+          "text": "`prox` allocates, `prox!` accepts exact in-place use, and\n`value_and_prox!` returns the value at the stored destination.",
+          "sha256": "1ad2658c6e04a449afe3aa47af89a964edd3090b13477cc109b2c8e9f1d33a9b"
+        },
+        {
+          "scope": "docs/src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-arguments",
+          "text": "Array oracles accept real one-based CPU arrays, including `SparseIterate` and\n`BlockIterate`. Groups index matrices linearly. Full-array partial\noverlap is unsupported. Full-array writes can change output iterate activity.\nWhen copying free or identity entries into a floating-point `SparseIterate`,\nthe array oracle stores negative zeros that would otherwise be read as positive.\nAbsent positive zeros stay inactive. The soft-thresholded intermediate is written in the\ndestination type before the group shrink. An explicit integer buffer can\nfail conversion here even when the final exact result is integral. Allocating\n`prox` uses floating storage for integer input. See the [endpoint rules](@ref sparse-group-l2-endpoints)\nfor zero or infinite steps, nonfinite entries and infinite parameters.",
+          "sha256": "74405585ac550a356545ee4c923b9e5d5e77e7fd130382654b2cf5ae0483fd96"
+        }
+      ],
+      "reviewer": "reconcile_pr_review@01fd655a11dd806c93920b61f083ce812bbefe7c"
     }
   ]
 }

@@ -9,6 +9,7 @@ numerical examples and capability limits for the available concrete function typ
 LeastSquaresLoss
 LogDetLoss
 LogisticLoss
+PoissonLoss
 SqrNormL2
 QuadraticFunction
 KronQuadratic
@@ -28,7 +29,7 @@ SqrtLeastSquaresLoss
 
 ## [Oracles at a supplied predictor or residual](@id Least-squares-oracles-at-a-supplied-predictor-or-residual)
 
-Both predictor operations support `LeastSquaresLoss` and `LogisticLoss`.
+Both predictor operations support `LeastSquaresLoss`, `LogisticLoss` and `PoissonLoss`.
 `SqrtLeastSquaresLoss` supports the predictor value operation. The residual
 value and data accessor serve both least-squares losses. See the individual
 operations for the supported domains and scaling rules.

@@ -601,6 +601,33 @@ For an isolated compilation probe set `PB_FIRST_CALL=1` and select a single
 case with `PB_FILTER` in each fresh process. The time in `first-call.csv`
 includes the first invocation and its compilation, after loading source.
 
+## Poisson-loss harness
+
+`PoissonLoss` does not exist at the base commit `a38c0a8e6a6b7e8955dc784448542e4fd294c450`,
+so this harness takes no baseline root. It loads the package from the candidate
+checkout, which must provide `PoissonLoss`. The candidate, the reference and the
+A/A control run in one process with one thread in Julia's default thread pool
+and one BLAS thread; use a dedicated allocation.
+
+```sh
+julia scripts/instantiate.jl benchmark
+PB_OUTPUT=/path/to/results PB_ROUNDS=7 \
+  julia --threads=1 --check-bounds=no --project=benchmark benchmark/poissonloss.jl
+```
+
+The reference is a standalone finite-data implementation with the same
+design, coefficients, responses and products, one workspace and the same
+scalar term as the candidate. The control is a second compilation of the
+reference. The five operations are `f(β)`, `gradient!`, `value_and_gradient!`
+and the two predictor oracles, at `(n, p)` = `(200, 20)`, `(2000, 100)`,
+`(10000, 50)` and `(500, 2000)` with `Float64` data and ordinary predictors.
+The case ID names the operation and the shape. `raw.csv` records, for each
+round and role, the minimum and median times and the warmed bytes and allocation
+count; `provenance.txt` records the candidate head and the Julia/BLAS settings. Compare the candidate/reference ratios within each
+round to the control/reference ratios. `PB_FILTER` selects cases by regular
+expression on the case ID. For an isolated compilation probe set
+`PB_FIRST_CALL=1` and select one case in each fresh process.
+
 ## SCAD
 
 With separate clean worktrees for the candidate and `legacy/full`, run the

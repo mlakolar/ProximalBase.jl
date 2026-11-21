@@ -41,6 +41,7 @@ apply alongside each entry.
 | `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
 | `LogDetLoss` | [Numerical contract](logdet.md) | Verbatim migration |
 | `LogisticLoss` | [Numerical contract](logisticloss.md) | Verbatim migration |
+| `PoissonLoss` | [Numerical contract](poissonloss.md) | Authored contract |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
 | `KronQuadratic` | [Numerical contract](kronquadratic.md) | Authored contract |

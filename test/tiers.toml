@@ -46,6 +46,7 @@ quick = [
   "numerical_kernels",
   "numerical_recovery",
   "one_based_axes",
+  "poissonloss",
   "quadratic_domain",
   "real_iterates",
   "ridge_precision",
@@ -115,6 +116,7 @@ normlinf = 63.7
 numerical_kernels = 66.4
 numerical_recovery = 150.0
 one_based_axes = 239.0
+poissonloss = 30.0
 quadratic_domain = 17.2
 real_iterates = 49.6
 ridge_precision = 8.5

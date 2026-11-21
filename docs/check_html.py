@@ -12,6 +12,7 @@ BUILD = ROOT / 'build'
 
 # The reader tracks share the User guide, Examples, API reference and Project.
 EXPECTED_CATEGORIES = 7
+EXPECTED_COLLAPSE_CONTROLS = 9
 
 class Page(HTMLParser):
     def __init__(self, path):
@@ -20,6 +21,7 @@ class Page(HTMLParser):
         self.ids, self.links, self.assets = set(), [], []
         self.menu_links, self.toggles = [], []
         self.in_sidebar = False
+        self.sidebar_list_depth = self.top_level_toggles = 0
         self.math = self.code = self.footer = 0
         self.tables = []
         self._table_stack = []
@@ -45,6 +47,8 @@ class Page(HTMLParser):
             self.ids.add(a['id'])
         if tag == 'nav' and a.get('class') == 'docs-sidebar':
             self.in_sidebar = True
+        if self.in_sidebar and tag == 'ul':
+            self.sidebar_list_depth += 1
         if tag == 'nav' and a.get('class') == 'docs-footer':
             self.footer += 1
         if tag == 'a' and a.get('href'):
@@ -55,8 +59,10 @@ class Page(HTMLParser):
             self.assets.append(a['src'])
         if tag == 'link' and a.get('rel') == 'stylesheet':
             self.assets.append(a.get('href', ''))
-        if tag == 'input' and a.get('class') == 'collapse-toggle':
+        if self.in_sidebar and tag == 'input' and a.get('class') == 'collapse-toggle':
             self.toggles.append(a)
+            if self.sidebar_list_depth == 1:
+                self.top_level_toggles += 1
         if 'math-container' in a.get('class', ''):
             self.math += 1
         if tag == 'code':
@@ -70,6 +76,8 @@ class Page(HTMLParser):
         elif tag == 'table' and self._table_stack:
             current = self._table_stack.pop()
             self.tables.append(current['rows'])
+        if self.in_sidebar and tag == 'ul':
+            self.sidebar_list_depth -= 1
         if tag == 'nav':
             self.in_sidebar = False
 
@@ -131,8 +139,11 @@ def main():
                 'math or code inside a rendered table cell'
             )
         assert page.footer, f'Missing previous/next footer: {page.path}'
-        assert len(page.toggles) == EXPECTED_CATEGORIES, (
-            f'Expected {EXPECTED_CATEGORIES} shallow expandable categories: {page.path}'
+        assert page.top_level_toggles == EXPECTED_CATEGORIES, (
+            f'Expected {EXPECTED_CATEGORIES} top-level expandable categories: {page.path}'
+        )
+        assert len(page.toggles) == EXPECTED_COLLAPSE_CONTROLS, (
+            f'Expected {EXPECTED_COLLAPSE_CONTROLS} sidebar collapse controls: {page.path}'
         )
     # These pages are generated from docs/design/*.md. Their math and code
     # must render as formatted elements, not plain prose in the HTML.
@@ -178,7 +189,8 @@ def main():
     report = dict(html_pages=len(pages), source_pages=source_count,
                   checked_local_links_and_assets=link_count,
                   checked_repository_source_links=checked_source_links,
-                  expandable_categories=len(home.toggles),
+                  expandable_categories=home.top_level_toggles,
+                  sidebar_collapse_controls=len(home.toggles),
                   home_categories_initially_collapsed=True,
                   broken_links=0, orphan_pages=0,
                   note='Structural validation; actual browser inspection is recorded separately.')

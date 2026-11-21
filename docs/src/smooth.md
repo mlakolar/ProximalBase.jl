@@ -722,3 +722,62 @@ v = ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)
 @assert g ≈ gradient(f, β)
 (value=v, gradient=g)
 ```
+
+## [Poisson regression](@id Poisson-regression-loss)
+
+Construct `f = PoissonLoss(y, X)` for the Poisson regression objective with the
+log link. For an ``n\times p`` design and a length-``p`` coefficient vector,
+
+```math
+\eta = X\beta,\qquad
+f(\beta)=\sum_{i=1}^n [e^{\eta_i}-y_i\eta_i],\qquad
+\nabla f(\beta)=X^\top d,\quad d_i=e^{\eta_i}-y_i.
+```
+
+The constant ``\log\Gamma(y_i+1)`` of the negative log-likelihood is omitted.
+The value is a sum; for ``n>0`` and a finite sum, `(1/n) * f` gives the mean
+as the computed sum scaled by `1/n` with ordinary rounding.
+Use `y::Vector{Float64}` with finite nonnegative responses, which may be
+noninteger, and `X::Matrix{Float64}`; include a column of ones to estimate an
+intercept. The constructor borrows both arrays and has no weight or offset
+argument.
+
+The loss is convex and smooth and has no proximal operator. The API supplies no
+gradient Lipschitz bound: `lipschitz(f)` throws `ArgumentError`. Use `f(β)`,
+`gradient(f, β)`, `value_and_gradient(f, β)`, or the mutating
+`gradient!(g, f, β)`, which returns `g`, and `value_and_gradient!(g, f, β)`,
+which returns the value.
+
+A caller who holds a predictor ``\eta``, such as ``X\beta`` or
+``X\beta + \mathrm{offset}`` with the offset ``\log t_i`` for an exposure
+``t_i``, can pass it to `ProximalBase.value_from_predictor(f, η)` or
+`ProximalBase.value_and_gradient_from_predictor!(g, d, f, η)`. The fused call
+writes ``d_i=e^{\eta_i}-y_i`` to `d` and ``X^\top d`` to `g`. Both calls take an
+unwrapped loss.
+
+The [PoissonLoss numerical contract](@ref spec-poissonloss) states the argument
+types, the overlap and concurrency preconditions, the empty case, the accuracy
+bounds, and the endpoint and overflow rules.
+
+```@example poisson_regression
+using ProximalBase
+X = [1.0 0.0; 1.0 2.0; 1.0 -1.0]
+y = [0.0, 3.0, 1.0]
+f = PoissonLoss(y, X)
+β = [0.5, 0.25]
+η = X * β
+v, g = value_and_gradient(f, β)
+@assert v ≈ sum(exp.(η) .- y .* η)
+@assert g ≈ X' * (exp.(η) .- y)
+@assert ((1 / 3) * f)(β) ≈ v / 3
+
+# The caller forms an exposure offset and passes the predictor.
+exposure = [1.0, 2.0, 0.5]
+ηoffset = X * β + log.(exposure)
+goffset, d = similar(β), similar(y)
+w = ProximalBase.value_and_gradient_from_predictor!(goffset, d, f, ηoffset)
+@assert d ≈ exposure .* exp.(η) .- y
+@assert goffset ≈ X' * d
+@assert w == ProximalBase.value_from_predictor(f, ηoffset)
+(value=v, gradient=g, value_with_offset=w)
+```

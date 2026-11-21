@@ -20,7 +20,15 @@ proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ te
 still acts on that group. The constructor keeps the order of the groups and
 indices and copies the supplied groups and weights. The levels and weights
 are converted to one promoted floating type and checked for nonnegativity
-and NaN. The default is ``w_k=\sqrt{|G_k|}``. With no groups, the value is
+and NaN.
+
+### [Default group weights](@id sparse-group-norm-l2.constructor.default-weights)
+
+The default is ``w_k=\sqrt{|G_k|}``.
+
+### Empty group collection
+
+With no groups, the value is
 zero and the proximal map is the identity.
 
 ## [Traits](@id spec-sparsegroupnorml2-traits)
@@ -30,9 +38,14 @@ zero and the proximal map is the identity.
 
 ## [Supported arguments](@id spec-sparsegroupnorml2-arguments)
 
+### [Proximal results and stored value](@id sparse-group-norm-l2.value-and-prox.stored-output)
+
 `prox` allocates, `prox!` accepts exact in-place use, and
-`value_and_prox!` returns the value at the stored destination. Array
-oracles accept real one-based CPU arrays, including `SparseIterate` and
+`value_and_prox!` returns the value at the stored destination.
+
+### Array storage and conversions
+
+Array oracles accept real one-based CPU arrays, including `SparseIterate` and
 `BlockIterate`. Groups index matrices linearly. Full-array partial
 overlap is unsupported. Full-array writes can change output iterate activity.
 When copying free or identity entries into a floating-point `SparseIterate`,
@@ -45,8 +58,14 @@ for zero or infinite steps, nonfinite entries and infinite parameters.
 
 ## [Preconditions](@id spec-sparsegroupnorml2-preconditions)
 
+### [Compact buffers and exact in-place use](@id sparse-group-norm-l2.prox-block.compact-buffers)
+
 `prox_block!(out, f, u, k, γ)` uses compact vectors in `groups[k]` order,
-returns `out` and accepts `out === u`. It checks the group, lengths,
+returns `out` and accepts `out === u`.
+
+### Buffer validation and storage
+
+It checks the group, lengths,
 one-based real buffers, step and detected nonidentical overlap before
 writing. The caller supplies an output buffer independent of iterate
 storage. `prox_block(f, u, k, γ)` allocates that buffer. To store the
@@ -63,7 +82,11 @@ An uncovered index has score `abs(v[k])`. On a `BlockIterate`,
 The full-point `kkt_violation(f, v, x)` checks the full block layout
 and returns the maximum across zero, the block scores and the
 uncovered-entry magnitudes. The result measures the worst block
-or free-coordinate mismatch. The three-argument assumed-zero
+or free-coordinate mismatch.
+
+### [Assumed-zero score rejection](@id sparse-group-norm-l2.kkt.assumed-zero)
+
+The three-argument assumed-zero
 form with an integer index throws `ArgumentError`.
 
 ## [Ordinary-path clauses](@id spec-sparsegroupnorml2-ordinary)
@@ -180,9 +203,13 @@ ranges, layouts, and point-aware scores.
 
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
+| `sparse-group-norm-l2.constructor.default-weights` | `guaranteed` | [Default-weight constructor](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/src/functions/sparsegroupnorml2.jl#L55-L60) and [Float32 and Float64 tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L109-L116) |
 | `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
 | `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |
+| `sparse-group-norm-l2.kkt.assumed-zero` | `guaranteed` | [Three-argument dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/src/functions/sparsegroupnorml2.jl#L230-L231) and [rejection test](https://github.com/mlakolar/ProximalBase.jl/blob/2ea5f3c44af317f00079ba0dd6e3bea4dc9813a7/test/sparsegroupnorml2.jl#L386) |
+| `sparse-group-norm-l2.prox-block.compact-buffers` | `guaranteed` | [Compact proximal implementation](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/src/functions/sparsegroupnorml2.jl#L223-L228), [buffer order and identity assertions](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/test/sparsegroupnorml2.jl#L79-L91), and [ordered groups in both supported precisions](https://github.com/mlakolar/ProximalBase.jl/blob/21f823f00a3234c810f95ffa49976bf1a464c61e/test/sparsegroupnorml2.jl#L139-L148) |
+| `sparse-group-norm-l2.value-and-prox.stored-output` | `guaranteed` | [Allocating dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/interface.jl#L139-L143), [array proximal and fused implementation](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/sparsegroupnorml2.jl#L138-L146), [allocating and in-place tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/sparsegroupnorml2.jl#L62-L106), and [stored-buffer rounding checks](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/sparsegroupnorml2.jl#L600-L610) |
 
 The [trait tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L111-L116) check convexity and proximability.
 

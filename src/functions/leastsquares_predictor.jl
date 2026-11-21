@@ -121,6 +121,14 @@ with the loss element type and response axes. The call returns the logistic
 objective and reads neither design entries nor private workspace entries. See
 [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
 
+For a [`PoissonLoss`](@ref), supply a one-based `StridedVector{Float64}` predictor
+`η` of length `length(y)` that does not overlap the scratch of the loss; `X*β` and
+`X*β + offset` are examples. Nonfinite entries are not refused. The call returns the
+Poisson objective, mathematically `sum(exp(ηᵢ) - yᵢ*ηᵢ)`, with computed terms as in the
+[endpoint](@ref spec-poissonloss-endpoints) and [range](@ref spec-poissonloss-range)
+clauses. See [Poisson regression](@ref Poisson-regression-loss) and the
+[preconditions](@ref spec-poissonloss-preconditions).
+
 See [predictor domains, accuracy and ownership](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)
 and [`ProximalBase.value_from_residual`](@ref).
 """
@@ -168,6 +176,15 @@ For a [`LogisticLoss`](@ref), supply `η = X*β + offset`. The operation returns
 the logistic objective, writes `d[i] = w[i] * (σ(η[i]) - y[i])` and forms
 `g = X' * d`. Both outputs must be independent of the weights and offset as
 well. See [logistic regression](@ref Logistic-regression-loss) for its supported layouts.
+
+For a [`PoissonLoss`](@ref), supply a predictor `η` as for
+[`ProximalBase.value_from_predictor`](@ref). The call returns the Poisson objective,
+writes `d[i] = exp(η[i]) - y[i]` and `g = X' * d`, with computed entries as in the
+[endpoint](@ref spec-poissonloss-endpoints) and [range](@ref spec-poissonloss-range)
+clauses. `g` and `d` are one-based `StridedVector{Float64}` buffers of lengths
+`size(X, 2)` and `length(y)` that must not overlap each other, `η`, `y`, `X` or the
+scratch of the loss. See [Poisson regression](@ref Poisson-regression-loss) and the
+[preconditions](@ref spec-poissonloss-preconditions).
 
 See [predictor accuracy, failure and concurrency rules](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 """

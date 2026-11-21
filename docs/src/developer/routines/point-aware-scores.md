@@ -48,6 +48,8 @@ and [distance at zero](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f732
 
 - [NormL1 score tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/kkt_point.jl#L158-L188) exercise the
   signed screen and the full-point reduction.
+  [Block tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/core_functions.jl#L50-L54)
+  exercise the group-number route.
 - [GroupNormLinf zero-group test](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/groupnormlinf.jl#L1344-L1354)
   uses the gradient ``(5/8,5/8)`` and unit level. It checks the
   coordinate score ``1/4`` and the full-point distance ``\sqrt{2}/8``.

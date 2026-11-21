@@ -10,8 +10,9 @@ own the exact comparison, input and endpoint rules.
 
 For finite ``v`` and positive finite level ``\lambda`` and step
 ``\gamma``, keeping a nonzero entry at ``v`` costs ``\gamma\lambda`` in
-the proximal objective. Dropping it to zero costs ``v^2/2``. The minimizer
-keeps ``v`` when ``v^2>2\gamma\lambda`` and returns zero on a tie.
+the proximal objective. Dropping it to zero costs ``v^2/2``. A strict
+cost advantage keeps ``v`` when ``v^2>2\gamma\lambda``. At equality the
+implementation chooses zero from the two minimizers.
 
 With homogeneous `Float32` inputs, the scalar comparison widens both
 products to `Float64`. On the homogeneous `Float64` route, the kernel can use the ordinary products when the right
@@ -41,7 +42,8 @@ For a symmetric input with counted diagonals, a diagonal costs one
 budget position, and an off-diagonal pair costs two. The implementation
 selects and sorts the eligible magnitude prefixes of both classes. It
 compares the gain from the next pair with the loss from the displaced
-diagonals in aligned integer units. The smallest maximizing pair count
+diagonals, using aligned integer units for the close comparisons. The
+smallest maximizing pair count
 resolves a split tie. With free diagonals, the projection copies the
 diagonal and retains up to ``\lfloor s/2\rfloor`` pairs.
 

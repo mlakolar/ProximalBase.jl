@@ -169,7 +169,7 @@ counterexamples and underflowing or overflowing products of level and weight, a 
 powers of two across the ordinary and scaled paths (bit for bit in Float64), each endpoint row and the precedence of `NaN`
 over `Inf`, `a = Inf` against `GroupNormL2`, `SparseIterate`, `BlockIterate`, matrix and compact-block arguments, refusals
 with each destination compared to a sentinel copy (shapes, extent, compact input and output lengths, group number, step,
-aliasing, offset axes, complex and non-floating destinations), zero allocations on the ordinary paths, the infinite-weight
+aliasing, offset axes, a complex input, a complex compact output and non-floating destinations), zero allocations on the ordinary paths, the infinite-weight
 and input-type-overflow reproducers, a seeded sweep of extreme scales (compact and array outputs against the reference), the
 fused value against the value at the stored output (equal nonfinite values, finite ones within `(n + 4) eps` of it and `4K`
 subnormal spacings, as a scaled group's sum of squares can associate differently; bit for bit for the Float32 data with a

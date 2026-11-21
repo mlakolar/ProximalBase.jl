@@ -89,6 +89,9 @@ jobs:
               for record in json.loads(receipts.read_text())["changes"]:
                   for event in record["events"]:
                       revisions.update((event["before_commit"], event["after_commit"]))
+                  if "reviewed_move" in record:
+                      move = record["reviewed_move"]
+                      revisions.update((move["before_commit"], move["after_commit"]))
           print("\n".join(sorted(revisions)))
           PY
           )"

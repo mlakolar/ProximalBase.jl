@@ -222,10 +222,22 @@ line regions. An unchanged neighboring block is excluded only when positional
 block matching and unchanged raw-line alignment agree. Matching text elsewhere
 in the old file does not exempt a newly introduced copy from the receipt.
 
+If an exact move relocated a previously reviewed upstream span, add
+`reviewed_move` with the full `before_commit` and `after_commit` of the landed
+move to the schema-2 receipt. Preserve its historical event prefix and append
+the edits made at the moved destination. The checker validates the historical
+receipt in both move trees, the landed migration basis and move row, and the
+source and destination spans in the first-parent diff. The complete ordered
+terminal span must have left the original file and appeared at the recorded
+destination. Later events continue at that path and heading. The current row
+uses `upstream` and the current migration-basis entry is removed once the move
+is verified through the upstream receipt. CI fetches both move revisions in
+addition to the upstream event revisions.
+
 Events need not be adjacent commits or have identical whole-file blobs between
 them: unrelated upstream work may edit other sections. Exact block-hash
-continuity is mandatory. Each chain verifies exact contiguous replacement spans
-within one file. Each PR's merged status is independently verified and recorded
+continuity is mandatory. Each event verifies exact contiguous replacement spans
+within its recorded file. Each PR's merged status is independently verified and recorded
 in `review.md`; an offline
 checker cannot authenticate it. CI fetches the exact before/after revisions for
 every recorded event at depth one, deduplicating revisions shared by events.

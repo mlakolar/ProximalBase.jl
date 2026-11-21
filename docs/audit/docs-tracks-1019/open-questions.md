@@ -141,6 +141,13 @@ that happens to pass.
   infinite-radius copy, and positive finite radius separately. The qualifier
   awaits the owner's decision. [Tests](../../../test/indballl2.jl)
 
+- The LogDetLoss endpoint paragraph says a positive finite step accepts
+  finite inputs. It could describe the input check or imply that every
+  finite matrix yields a result. The extreme-range test uses a finite
+  matrix and checks a failure before writes. The scope of “accepts”
+  awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
+  · [Tests](../../../test/logdet.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

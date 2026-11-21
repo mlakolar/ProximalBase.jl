@@ -39,7 +39,7 @@ apply alongside each entry.
 | `IndBallL2` | [Numerical contract](indballl2.md) | Verbatim migration |
 | `SqrNormL2` | [Numerical contract](sqrnorml2.md) | Verbatim migration |
 | `LeastSquaresLoss` | [Numerical contract](leastsquares.md) | Verbatim migration |
-| `LogDetLoss` | [Log-determinant loss](@ref Log-determinant-loss) | Existing pages |
+| `LogDetLoss` | [Numerical contract](logdet.md) | Verbatim migration |
 | `LogisticLoss` | [Logistic regression](@ref Logistic-regression-loss), including predictor oracles | Existing pages |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |

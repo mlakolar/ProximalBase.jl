@@ -32,19 +32,9 @@ through [`matrixview`](@ref). Results are dense. Pass a full writable strided
 matrix or view to reuse a destination. Exact in-place prox is supported.
 Gradient destinations require independent storage.
 
-The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`
-for other domain failures, with an all-NaN gradient in both cases. A zero step
-is the identity, including outside the domain. A positive finite step accepts
-finite inputs, including asymmetric or indefinite matrices. It diagonalizes
-``(X+X^\mathsf{T})/2-\gamma wS`` and replaces each eigenvalue ``d`` with the
-positive root of ``z^2-dz-\gamma w=0``. Negative, NaN and infinite steps throw
-before writing. Non-finite entries at a positive step also throw before
-factorization and writes.
+See the [LogDetLoss endpoint clauses](@ref spec-logdet-endpoints).
 
-At extreme scales the shifted matrix, its spectrum, or the reconstruction can
-exceed the working range. The proximal point is positive definite in exact
-arithmetic. Rounding can take the stored point outside the numerical domain,
-in which case the fused value follows the standalone domain rule.
+See the [LogDetLoss limitations and non-guarantees](@ref spec-logdet-limitations).
 
 ```@example library_logdet
 using ProximalBase, LinearAlgebra

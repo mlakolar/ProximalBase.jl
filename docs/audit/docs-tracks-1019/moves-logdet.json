@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "family": "logdet",
+  "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+  "moves": [
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 1863,
+      "source_end": 2424,
+      "source_line": 35,
+      "text": "The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`\nfor other domain failures, with an all-NaN gradient in both cases. A zero step\nis the identity, including outside the domain. A positive finite step accepts\nfinite inputs, including asymmetric or indefinite matrices. It diagonalizes\n``(X+X^\\mathsf{T})/2-\\gamma wS`` and replaces each eigenvalue ``d`` with the\npositive root of ``z^2-dz-\\gamma w=0``. Negative, NaN and infinite steps throw\nbefore writing. Non-finite entries at a positive step also throw before\nfactorization and writes.",
+      "destination": "docs/src/spec/logdet.md",
+      "anchor": "spec-logdet-endpoints",
+      "destination_text": "The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`\nfor other domain failures, with an all-NaN gradient in both cases. A zero step\nis the identity, including outside the domain. A positive finite step accepts\nfinite inputs, including asymmetric or indefinite matrices. It diagonalizes\n``(X+X^\\mathsf{T})/2-\\gamma wS`` and replaces each eigenvalue ``d`` with the\npositive root of ``z^2-dz-\\gamma w=0``. Negative, NaN and infinite steps throw\nbefore writing. Non-finite entries at a positive step also throw before\nfactorization and writes.",
+      "source_sha256": "d7d5c6d5c974c1a81cda7e040c1a18c87e3ad089cdeab9506c5fa903b8d8bef4",
+      "destination_sha256": "d7d5c6d5c974c1a81cda7e040c1a18c87e3ad089cdeab9506c5fa903b8d8bef4",
+      "forwarding_text": "See the [LogDetLoss endpoint clauses](@ref spec-logdet-endpoints)."
+    },
+    {
+      "source": "docs/src/smooth.md",
+      "source_revision": "e03c6d9659365d54f4e0fba1a9cd54490631eea6",
+      "source_start": 2426,
+      "source_end": 2721,
+      "source_line": 44,
+      "text": "At extreme scales the shifted matrix, its spectrum, or the reconstruction can\nexceed the working range. The proximal point is positive definite in exact\narithmetic. Rounding can take the stored point outside the numerical domain,\nin which case the fused value follows the standalone domain rule.",
+      "destination": "docs/src/spec/logdet.md",
+      "anchor": "spec-logdet-limitations",
+      "destination_text": "At extreme scales the shifted matrix, its spectrum, or the reconstruction can\nexceed the working range. The proximal point is positive definite in exact\narithmetic. Rounding can take the stored point outside the numerical domain,\nin which case the fused value follows the standalone domain rule.",
+      "source_sha256": "6e79ed5b02eb9c8fa13067a22e7dccb741a5240b95e3e8e930e492d1c492cf27",
+      "destination_sha256": "6e79ed5b02eb9c8fa13067a22e7dccb741a5240b95e3e8e930e492d1c492cf27",
+      "forwarding_text": "See the [LogDetLoss limitations and non-guarantees](@ref spec-logdet-limitations)."
+    }
+  ]
+}

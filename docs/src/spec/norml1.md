@@ -10,6 +10,8 @@ meanings and the current migration map.
 
 ## [Identity](@id spec-norml1-identity)
 
+**Links only.**
+
 Constructors and API help: [`NormL1`](@ref).
 The [`NormL1` row in the API coverage matrix](../api/coverage.md) lists the
 retained interface.
@@ -63,8 +65,13 @@ For symmetric storage, follow [Symmetric parameters](@ref symmetric-parameter-gu
 
 ## [Results](@id spec-norml1-results)
 
+### [Proximal results and stored value](@id norm-l1.value-and-prox.stored-output)
+
 `prox!` writes to a supplied destination; `value_and_prox!` writes
 the proximal point and returns `g` evaluated at that stored output.
+
+### Destination and weight ownership
+
 Exact input/output identity is supported, but partially overlapping
 views are not. Weights are stored by reference, so modifying them also
 changes the function.
@@ -148,9 +155,8 @@ prox(NormL1(Inf),[NaN,Inf],1.0)
 coordinate weight maps a *finite input value* to zero, even at zero level and step.
 For inputs of `NaN` or `±Inf` with finite level, that fixed-zero guarantee is
 intentionally not extended: retained soft-threshold arithmetic may return
-`NaN`. Separately, a threshold made from *finite* factors can overflow to
-`Inf`; with an input of `±Inf`, the current result can likewise be `NaN` even
-though the mathematical threshold is finite. These examples characterize
+`NaN`. See the [finite-factor threshold overflow clause](@ref norm-l1.prox.finite-factor-overflow).
+These examples characterize
 present behavior, not additional non-finite-output guarantees. A genuinely
 infinite **level** at any nonnegative step retains its distinct fixed-zero rule
 for positive weights, including non-finite inputs; see [the zero-step rule](@ref infinite-penalty-at-zero-step).
@@ -167,6 +173,8 @@ Constructor validation is described in the [`NormL1`](@ref) API entry.
 
 ## [Limitations and non-guarantees](@id spec-norml1-limitations)
 
+### [Finite-factor threshold overflow](@id norm-l1.prox.finite-factor-overflow)
+
 A threshold formed from entirely finite factors may itself overflow to `Inf`.
 For an input of `±Inf` this can also return `NaN`, even though the mathematical
 threshold is finite. This is a **documented, deferred limitation**
@@ -178,12 +186,14 @@ See also [Array and precision conventions](../numerical_usage.md).
 
 ## [Clauses owned elsewhere](@id spec-norml1-elsewhere)
 
+**Links only.**
+
 | Subject | Owning section |
 |:--|:--|
 | Supported precision and agreement between oracle routes | [Supported precision and oracle agreement](../numerics.md#Supported-precision-and-oracle-agreement) |
 | General range bounds and limits of recovery | [Range guarantees](@ref numerical-value-range) |
 | Infinite penalties at a zero step | [Infinite penalties at zero step](@ref infinite-penalty-at-zero-step) |
-| Sparse products and signed-zero storage behavior | [Numerical contract](../numerics.md) and [Sparse product semantics](@ref Sparse-product-semantics) |
+| Sparse products and signed-zero storage behavior | [NaN, infinities and zeros](../numerics.md#NaN,-infinities-and-zeros) and [Sparse product semantics](@ref Sparse-product-semantics) |
 | Point-aware KKT scores and their endpoint/type rules | [NaN, infinities and zeros](../numerics.md#NaN,-infinities-and-zeros) |
 | Ownership, aliases and output writes | [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases) |
 | Symmetric parameter preconditions | [Symmetric parameters](@ref symmetric-parameter-guide) |
@@ -208,6 +218,11 @@ numerical guarantees.
 
 The [endpoint example](@ref spec-norml1-endpoints) is executed by the strict
 documentation build.
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l1.value-and-prox.stored-output` | `guaranteed` | [Public proximal dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/separable.jl#L68-L75), [stored-output evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/separable.jl#L210-L212), and [dense proximal and fused tests](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/test/core_functions.jl#L27-L36) |
+| `norm-l1.prox.finite-factor-overflow` | `limitation` | [#866](https://github.com/mlakolar/ProximalBase.jl/issues/866) and [observed overflow behavior](https://github.com/mlakolar/ProximalBase.jl/blob/10f8f981740192f6b232ad9851a5a020faf9e921/test/infinite_weights.jl#L148-L165) |
 
 ## [History](@id spec-norml1-history)
 

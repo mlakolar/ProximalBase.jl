@@ -1,28 +1,37 @@
 #!/usr/bin/env python3
 """Summarizer of the wide least-squares study (#1103); Python standard library only.
 
-    python3 -I summarize.py <output dir>
+    python3 -I summarize.py <output dir> [<inputs dir or inputs-index.tsv>]
 
-It reads from the output directory (searched recursively) the files written by harness.jl
-(timings-*.tsv, admm-untimed-*.tsv, reference-*.tsv, outputs-*/outputs-index.tsv) and by accuracy.jl
-(accuracy-*.tsv), rebuilds the tables from the raw rows, applies the pre-registered criteria of the plan and
-prints markdown tables. It writes tables.md and verdict.json into the output directory. A timing file without
-its closing `# complete: yes` line is reported and left out. Process files of different BLAS thread counts belong
-in different directories; the notes list header fields that differ between the processes read.
+It reads from the output directory (searched recursively) the files written by harness.jl (timings-*.tsv,
+admm-untimed-*.tsv, reference-*.tsv, outputs-<julia>/outputs-index.tsv) and by accuracy.jl (accuracy-*.tsv), together
+with the input manifest inputs-index.tsv (found in the output directory, or given as the second argument), rebuilds the
+tables from the raw rows, applies the pre-registered criteria of the plan and prints markdown tables. It writes
+tables.md, per-process-ratios.tsv and verdict.json into the output directory.
+
+The campaign design is fixed in this file and in the manifest: the Julia versions 1.10.13 and 1.13.4, the three
+processes of each of the two role orders (S_first, C_first) with one BLAS thread (processes with other thread counts
+are diagnostics and take no part in the criteria), 21 rounds (5 ADMM repeats), the A/A controls S' and C', and every
+timed case, step, input kind and ADMM instance of the manifest. A cell, accuracy key or artifact that is absent,
+incomplete, truncated (no closing `# complete: yes` line), or made from another manifest or identity is `unknown`: it
+never satisfies a criterion and it makes the verdict provisional.
 
 Criteria as implemented (the plan is the reference; see the README):
-  * Per cell (case, measurement, param) and variant V in {C_B, C_D, C_W}: each process gives the per-round paired
-    ratios V/S, S'/S and V'/V (rounds paired within the process), and their medians. A/A spread = the largest
-    |median - 1| of S'/S and V'/V over the processes of the cell.
-  * faster: every per-process median of V/S is below 0.95 and 1 - max(medians) exceeds the A/A spread;
-    slower: every median is above 1.05 and min(medians) - 1 exceeds the A/A spread; otherwise inconclusive.
-    The plan asks for six processes (three per role order); a cell with fewer is marked partial.
-  * An output passes accuracy when eta <= 1e3 eps(T). A cell is left out of the speed criteria of a variant when
-    the variant fails accuracy at its step (the step of a warm cell; step 1 for first use; any step for penalty).
-  * Recommendations (A), (B), (C) per variant, over the cells and outputs of all Julia versions present (see recommend()).
+  * Per cell (case, measurement, parameter) and variant V in {C_B, C_D, C_W}: each of the six processes gives the paired
+    ratios V/S, S'/S and V'/V of every round, and their medians. A/A spread = the largest |median - 1| of S'/S and
+    V'/V over the six processes. faster: all six medians of V/S are below 0.95 and 1 - max(medians) exceeds the
+    spread; slower: all six are above 1.05 and min(medians) - 1 exceeds the spread; otherwise inconclusive. A cell that
+    lacks any process, round or A/A pair is unknown.
+  * An output passes accuracy when eta <= 1e3 eps(T), decided by accuracy.jl in BigFloat. The accuracy evidence of a
+    cell is the steps and inputs that its measurement uses (first use: step 1 and the random inputs; warm: its step
+    and kind of inputs; penalty: the steps of its schedule and the random inputs; ADMM: the step 1/rho and the
+    ADMM iterates). A cell whose variant (or S) fails there is excluded from the speed criteria; missing evidence
+    makes it unknown. Exclusion is reported apart from the timing label.
+  * Recommendations (A), (B), (C) per variant (see recommend()).
 """
 import collections
 import glob
+import hashlib
 import json
 import math
 import os
@@ -35,36 +44,33 @@ S_MARGIN = 10.0
 FASTER, SLOWER = 0.95, 1.05
 VARIANTS = ["C_B", "C_D", "C_W"]
 PRIMARY = ["S", "C_B", "C_D", "C_W"]
-TIME_MEASUREMENTS = ["first_use", "warm", "penalty", "admm_total"]
-PROCESSES_WANTED = 6
+EXPECTED_VERSIONS = ("1.10.13", "1.13.4")
+REFERENCE_JULIA = "1.13.4"
+EXPECTED_ORDERS = ("S_first", "C_first")
+EXPECTED_PROCS = ("1", "2", "3")
+EXPECTED_ROUNDS = 21
+EXPECTED_REPEATS = 5
+PRIMARY_BLAS = "1"
+ADMM_RHOS = (0.1, 1.0, 10.0)
+ADMM_LEVELS = ("boyd", "tight")
 GAP_SLACK = 1e-8
-SECTION_11_1 = "1500x5000"
+INSTANCE_11_1 = (1500, 5000)
+ALT2 = (1.0, 1e3)
+NEWSTEP = {"Float64": (1e-3, 1e3, 1.0, 1e6), "Float32": (1e-3, 1e3, 1.0)}
+TIMING_COLUMNS = ["case", "measurement", "param", "round", "position", "role", "value", "gc_s", "bytes", "allocs"]
+IDENT_FIELDS = ("source_sha", "harness_sha", "inputs_index_sha256")
+SAME_FIELDS = ("julia", "order", "blas_threads", "cpu_vendor", "cpu_model", "blas_config", "openblas")
+MAX_LISTED = 40
 
 
-def read_tsv(path):
-    header, cols, rows = {}, None, []
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-            if not line:
-                continue
-            if line.startswith("#"):
-                k, _, v = line[1:].partition(":")
-                header[k.strip()] = v.strip()
-            elif cols is None:
-                cols = line.split("\t")
-            else:
-                f = line.split("\t")
-                if len(f) != len(cols):
-                    raise ValueError("%s: malformed row %r" % (path, line))
-                rows.append(dict(zip(cols, f)))
-    return header, rows
+class Skipped(Exception):
+    """A file that cannot be used: interrupted, malformed or of another format."""
 
 
 def num(s):
     try:
         return float(s)
-    except ValueError:
+    except (TypeError, ValueError):
         return math.nan
 
 
@@ -73,12 +79,15 @@ def finite(x):
 
 
 def median(xs):
+    xs = list(xs)
     return statistics.median(xs) if xs else math.nan
 
 
 def fmt(x, digits=3):
     if x is None or (isinstance(x, float) and x != x):
         return "-"
+    if isinstance(x, bool):
+        return str(x)
     if isinstance(x, float) and abs(x) != math.inf and (abs(x) >= 1e4 or (abs(x) < 1e-3 and x != 0)):
         return "%.*e" % (digits - 1, x)
     if isinstance(x, float):
@@ -89,579 +98,1188 @@ def fmt(x, digits=3):
 def md_table(headers, rows):
     out = ["| " + " | ".join(headers) + " |", "|" + "|".join("---" for _ in headers) + "|"]
     for r in rows:
-        out.append("| " + " | ".join(fmt(c) if not isinstance(c, str) else c for c in r) + " |")
+        out.append("| " + " | ".join(c if isinstance(c, str) else fmt(c) for c in r) + " |")
     return "\n".join(out)
 
 
-class Process:
-    def __init__(self, key, header):
-        self.key = key                      # (julia, order, proc)
-        self.header = header
-        self.groups = set()
-        self.data = collections.defaultdict(lambda: collections.defaultdict(dict))   # cell -> role -> round -> value
-        self.extra = collections.defaultdict(lambda: collections.defaultdict(dict))  # cell -> role -> round -> (gc, bytes, allocs)
+def listing(rows, headers, what):
+    """A table of at most MAX_LISTED rows, with a line that says how many rows were left out."""
+    rows = list(rows)
+    out = md_table(headers, rows[:MAX_LISTED])
+    if len(rows) > MAX_LISTED:
+        out += "\n\n(%d further %s not listed)" % (len(rows) - MAX_LISTED, what)
+    return out
+
+
+def gk(g, k):
+    """The key of a step and an input index: the step rounded to 12 digits (the steps are written with repr)."""
+    return (float("%.12g" % g), k)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Reading files
+# ---------------------------------------------------------------------------------------------------------------------
+
+def read_tsv(path):
+    """(header, columns, rows) of a tab-separated file of the study; Skipped for an interrupted or malformed file."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = [l for l in fh.read().split("\n") if l != ""]
+    except OSError as e:
+        raise Skipped("unreadable: %s" % e)
+    if not lines or lines[-1] != "# complete: yes":
+        raise Skipped("no closing `# complete: yes` line (interrupted write)")
+    header, cols, rows = {}, None, []
+    for line in lines:
+        if line.startswith("#"):
+            k, _, v = line[1:].partition(":")
+            header[k.strip()] = v.strip()
+        elif cols is None:
+            cols = line.split("\t")
+        else:
+            f = line.split("\t")
+            if len(f) != len(cols):
+                raise Skipped("malformed row with %d fields instead of %d" % (len(f), len(cols)))
+            rows.append(f)
+    if cols is None:
+        raise Skipped("no column line")
+    return header, cols, rows
+
+
+def read_kv(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = [l for l in fh.read().split("\n") if l != ""]
+    except OSError as e:
+        raise Skipped("unreadable: %s" % e)
+    if not lines or lines[-1] != "complete\tyes":
+        raise Skipped("no closing `complete yes` line (interrupted write)")
+    kv = {}
+    for l in lines[:-1]:
+        k, sep, v = l.partition("\t")
+        if not sep:
+            raise Skipped("malformed line")
+        kv[k] = v
+    return kv
+
+
+class Notes:
+    """The reasons that make the verdict provisional, and the other notes."""
+
+    def __init__(self):
+        self.provisional = []
+        self.notes = []
+
+    def prov(self, text):
+        if text not in self.provisional:
+            self.provisional.append(text)
+
+    def note(self, text):
+        if text not in self.notes:
+            self.notes.append(text)
+
+    def skip(self, name, why):
+        self.prov("file %s left out: %s" % (name, why))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The manifest
+# ---------------------------------------------------------------------------------------------------------------------
+
+def parse_floats(s):
+    return [float(x) for x in s.split(",")] if s else []
+
+
+class Manifest:
+    def __init__(self, path):
+        header, cols, rows = read_tsv(path)
+        if header.get("format") != "pb1103-inputs-2":
+            raise Skipped("format %s, expected pb1103-inputs-2" % header.get("format", "none"))
+        with open(path, "rb") as fh:
+            self.sha256 = hashlib.sha256(fh.read()).hexdigest()
+        self.path, self.header = path, header
+        self.cases = collections.OrderedDict()
+        for f in rows:
+            r = dict(zip(cols, f))
+            c = self.cases.get(r["case"])
+            if c is None:
+                c = self.cases[r["case"]] = {
+                    "id": r["case"], "kind": r["kind"], "eltype": r["eltype"], "design": r["design"],
+                    "response": r["response"], "n": int(r["n"]), "p": int(r["p"]), "timed": r["timed"] == "true",
+                    "lasso": r["lasso"] == "true", "gammas": parse_floats(r["gammas"]),
+                    "acc_gammas": parse_floats(r["acc_gammas"]), "lambda_max": num(r["lambda_max"]),
+                    "sigma_max": num(r["sigma_max"]), "arrays": {}}
+            shape = [int(x) for x in r["shape"].split("x")]
+            c["arrays"][r["array"]] = {"file": r["file"], "shape": shape, "sha256": r["sha256"]}
+        for c in self.cases.values():
+            if not all(k in c["arrays"] for k in ("X", "y", "V")):
+                raise Skipped("case %s lacks one of X, y, V" % c["id"])
+            c["nv"] = c["arrays"]["V"]["shape"][1]
+
+
+def find_manifest(root, arg):
+    if arg:
+        p = os.path.join(arg, "inputs-index.tsv") if os.path.isdir(arg) else arg
+        return [p]
+    return sorted(glob.glob(os.path.join(root, "**", "inputs-index.tsv"), recursive=True))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Cells and the timing rows
+# ---------------------------------------------------------------------------------------------------------------------
+
+def canon(meas, param):
+    """The canonical parameter of a cell: the steps and penalties as numbers, so that spellings do not matter."""
+    try:
+        if meas == "first_use":
+            return ("g", float(param[2:]))
+        if meas == "warm":
+            g, kind = param[2:].split("/")
+            return ("g", float(g), kind)
+        if meas.startswith("admm_") and param.startswith("rho="):
+            r, l = param.split(",")
+            return ("rho", float(r[4:]), l[6:])
+    except (ValueError, IndexError):
+        pass
+    return param
+
+
+def expected_cells(man):
+    """The timed cells of the campaign: (case, measurement, canonical parameter) for every timed case."""
+    cells = []
+    for c in man.cases.values():
+        if c["kind"] != "main" or not c["timed"]:
+            continue
+        cells.append((c["id"], "first_use", ("g", 1.0)))
+        for g in c["gammas"]:
+            for kind in ("rand", "admm"):
+                cells.append((c["id"], "warm", ("g", g, kind)))
+        for s in ("alt2", "newstep"):
+            cells.append((c["id"], "penalty", s))
+        if c["lasso"]:
+            for rho in ADMM_RHOS:
+                for lvl in ADMM_LEVELS:
+                    cells.append((c["id"], "admm_total", ("rho", rho, lvl)))
+    return cells
+
+
+def needed_keys(case, meas, cn):
+    """The (step, input) keys whose accuracy the timing of a cell depends on."""
+    if meas == "first_use":
+        return [gk(1.0, k) for k in range(1, 5)]
+    if meas == "warm":
+        ks = range(1, 5) if cn[2] == "rand" else range(5, 9)
+        return [gk(cn[1], k) for k in ks]
+    if meas == "penalty":
+        steps = ALT2 if cn == "alt2" else NEWSTEP[case["eltype"]]
+        return [gk(g, k) for g in steps for k in range(1, 5)]
+    if meas == "admm_total":
+        return [gk(1.0 / cn[1], k) for k in range(5, 9)]
+    return []
+
+
+class Proc:
+    """One timing process (Julia version, role order, process id, BLAS threads), possibly split over several files."""
+
+    def __init__(self, key):
+        self.key = key
         self.files = []
+        self.headers = []
+        self.groups = set()
+        self.data = collections.defaultdict(lambda: collections.defaultdict(dict))
+        self.extra = collections.defaultdict(lambda: collections.defaultdict(dict))
+        self.plans, self.loads, self.workingset, self.errors = {}, collections.defaultdict(float), {}, []
+        self.duplicates = 0
 
 
 def load_timings(root, notes):
     procs = {}
     for path in sorted(glob.glob(os.path.join(root, "**", "timings-*.tsv"), recursive=True)):
-        header, rows = read_tsv(path)
-        if header.get("complete") != "yes":
-            notes.append("left out (no closing `# complete: yes`): %s" % os.path.basename(path))
+        name = os.path.basename(path)
+        try:
+            header, cols, rows = read_tsv(path)
+            if header.get("format") != "pb1103-timings-2" or cols != TIMING_COLUMNS:
+                raise Skipped("not a pb1103-timings-2 file")
+        except Skipped as e:
+            notes.skip(name, e)
             continue
-        key = (header.get("julia", "?"), header.get("order", "?"), header.get("proc", "?"))
+        key = (header.get("julia", "?"), header.get("order", "?"), header.get("proc", "?"), header.get("blas_threads", "?"))
         p = procs.get(key)
         if p is None:
-            p = procs[key] = Process(key, header)
-        p.files.append(os.path.basename(path))
+            p = procs[key] = Proc(key)
+        for f in SAME_FIELDS + IDENT_FIELDS:
+            if p.headers and p.headers[0].get(f) != header.get(f):
+                notes.prov("process %s/%s/%s (BLAS threads %s): the file %s differs from the first file in %s (%s, %s)" % (
+                    key[0], key[1], key[2], key[3], name, f, p.headers[0].get(f), header.get(f)))
+        p.files.append(name)
+        p.headers.append(header)
         p.groups.update(header.get("groups", "").split(","))
-        for r in rows:
-            cell = (r["case"], r["measurement"], r["param"])
-            rnd = int(r["round"])
-            if rnd in p.data[cell][r["role"]]:
-                notes.append("duplicate row in process %s: %s %s round %d" % (key, cell, r["role"], rnd))
-            p.data[cell][r["role"]][rnd] = num(r["value"])
-            p.extra[cell][r["role"]][rnd] = (num(r["gc_s"]), num(r["bytes"]), num(r["allocs"]))
+        for f in rows:
+            case, meas, param, rnd, _pos, role, val, gc, nbytes, nalloc = f
+            rnd = int(rnd)
+            if meas == "error":
+                p.errors.append((case, param, role, rnd))
+                continue
+            if meas == "batch_plan":
+                p.plans[(case, param)] = num(val)
+                continue
+            if meas == "loadavg_1m":
+                p.loads[(case, param)] = max(p.loads[(case, param)], num(val))
+                continue
+            if meas == "workingset":
+                p.workingset[(case, role)] = max(p.workingset.get((case, role), 0.0), num(val))
+                continue
+            cell = (case, meas, canon(meas, param))
+            slot = p.data[cell][role]
+            if rnd in slot:
+                p.duplicates += 1
+            slot[rnd] = num(val)
+            if meas in ("first_use", "alloc"):
+                p.extra[cell][role][rnd] = (num(gc), num(nbytes), num(nalloc))
+    for p in procs.values():
+        if p.duplicates:
+            notes.prov("process %s: %d duplicate rows" % (p.key, p.duplicates))
+        if p.errors:
+            notes.prov("process %s: %d recorded errors (first: %s)" % (p.key, len(p.errors), p.errors[0]))
     return procs
 
 
-def paired(p, cell, num_role, den_role):
-    a, b = p.data[cell].get(num_role, {}), p.data[cell].get(den_role, {})
-    return [a[r] / b[r] for r in sorted(set(a) & set(b)) if finite(a[r]) and finite(b[r]) and b[r] > 0]
+def ratios(d, num_role, den_role, rounds):
+    a, b = d.get(num_role, {}), d.get(den_role, {})
+    out = {}
+    for r in rounds:
+        x, y = a.get(r), b.get(r)
+        if x is not None and y is not None and finite(x) and finite(y) and y > 0:
+            out[r] = x / y
+    return out
 
 
-def judge(procs, cell, variant):
-    """The judgement of one cell for one variant over the given processes."""
-    meds, aa, lo, hi, rounds = [], [], [], [], 0
-    for p in procs:
-        rs = paired(p, cell, variant, "S")
-        if not rs:
-            continue
-        meds.append(median(rs))
-        lo.append(min(rs))
-        hi.append(max(rs))
-        rounds = max(rounds, len(rs))
-        for a, b in (("S'", "S"), (variant + "'", variant)):
-            q = paired(p, cell, a, b)
-            if q:
-                aa.append(abs(median(q) - 1))
-    if not meds:
-        return None
-    spread = max(aa) if aa else 0.0
-    if all(m < FASTER for m in meds) and 1 - max(meds) > spread:
-        verdict = "faster"
+def expected_rounds(meas):
+    return list(range(1, (EXPECTED_REPEATS if meas.startswith("admm_") else EXPECTED_ROUNDS) + 1))
+
+
+def judge(primary, version, cell, variant):
+    """The timing judgement of one cell for one variant over the six expected processes of a Julia version.
+
+    Returns a dict with the label (faster, slower, inconclusive, or unknown when any process, round or A/A pair is
+    missing), the numbers that are available, and the per-process medians, minima and maxima."""
+    meas = cell[1]
+    rounds = expected_rounds(meas)
+    gaps, per, meds, aa, allr = [], [], [], [], []
+    for o in EXPECTED_ORDERS:
+        for pid in EXPECTED_PROCS:
+            proc = primary.get((version, o, pid))
+            if proc is None:
+                gaps.append("process %s/%s absent" % (o, pid))
+                continue
+            d = proc.data.get(cell, {})
+            rr = {"V": ratios(d, variant, "S", rounds), "S": ratios(d, "S'", "S", rounds),
+                  "C": ratios(d, variant + "'", variant, rounds)}
+            for name, lab in (("V", "%s/S" % variant), ("S", "S'/S"), ("C", "%s'/%s" % (variant, variant))):
+                if len(rr[name]) != len(rounds):
+                    gaps.append("%s/%s %s: %d of %d rounds" % (o, pid, lab, len(rr[name]), len(rounds)))
+            if rr["V"]:
+                vals = list(rr["V"].values())
+                per.append((o, pid, median(vals), min(vals), max(vals)))
+                meds.append(per[-1][2])
+                allr.extend(vals)
+            for name in ("S", "C"):
+                if rr[name]:
+                    aa.append(abs(median(rr[name].values()) - 1))
+    spread = max(aa) if aa else math.nan
+    res = {"complete": not gaps, "gaps": gaps, "per": per, "meds": meds, "spread": spread, "n": len(meds),
+           "center": median(meds), "lo_med": min(meds) if meds else math.nan, "hi_med": max(meds) if meds else math.nan,
+           "lo": min(allr) if allr else math.nan, "hi": max(allr) if allr else math.nan}
+    if gaps:
+        res["label"] = "unknown"
+    elif all(m < FASTER for m in meds) and 1 - max(meds) > spread:
+        res["label"] = "faster"
     elif all(m > SLOWER for m in meds) and min(meds) - 1 > spread:
-        verdict = "slower"
+        res["label"] = "slower"
     else:
-        verdict = "inconclusive"
-    return {"n": len(meds), "meds": meds, "center": median(meds), "lo": min(lo), "hi": max(hi), "lo_med": min(meds),
-            "hi_med": max(meds), "spread": spread, "verdict": verdict, "partial": len(meds) < PROCESSES_WANTED,
-            "rounds": rounds}
+        res["label"] = "inconclusive"
+    return res
 
 
-def case_info(case):
-    """(eltype tag, design, response, size) of a case id such as f64/gauss/noisy/500x5000."""
-    f = case.split("/")
-    return f[0], f[1] if len(f) > 1 else "", f[2] if len(f) > 2 else "", f[-1]
+# ---------------------------------------------------------------------------------------------------------------------
+# The campaign: the artifacts that are accepted, the cells and the criteria
+# ---------------------------------------------------------------------------------------------------------------------
+
+def ident(h):
+    return tuple(h.get(f, "?") for f in IDENT_FIELDS)
 
 
-def param_gamma(param):
-    if param.startswith("g="):
-        try:
-            return float(param[2:].split("/")[0])
-        except ValueError:
-            return None
-    return None
+def tri_all(vals):
+    if any(v is False for v in vals):
+        return False
+    if any(v is None for v in vals):
+        return None
+    return True
 
 
-def load_accuracy(root, notes):
-    """rows[(julia, case, role)] -> list of dicts."""
-    acc = collections.defaultdict(list)
-    for path in sorted(glob.glob(os.path.join(root, "**", "accuracy-*.tsv"), recursive=True)):
-        header, rows = read_tsv(path)
-        if header.get("complete") != "yes":
-            notes.append("left out (no closing `# complete: yes`): %s" % os.path.basename(path))
-            continue
-        if header.get("inputs_match_outputs") == "false":
-            notes.append("accuracy file %s was evaluated against inputs that differ from those of the outputs" % os.path.basename(path))
-        for r in rows:
-            r["eta"], r["forward_error"] = num(r["eta"]), num(r["forward_error"])
-            r["gamma"], r["gamma_index"], r["vindex"] = float(r["gamma"]), int(r["gamma_index"]), int(r["vindex"])
-            r["passed"] = r["eta"] <= ETA_FACTOR * EPS[r["eltype"]] and r["status"] == "ok"
-            r["ratio"] = r["eta"] / EPS[r["eltype"]]
-            acc[(header.get("julia", "?"), r["case"], r["role"])].append(r)
-    return acc
+class Campaign:
+    def __init__(self, root, manifest_arg, notes):
+        self.root, self.notes = root, notes
+        self.man = None
+        self.cells = []
+        self.instance = None
+        self._cell, self._acc = {}, {}
+        self.load_manifest(manifest_arg)
+        self.load_processes()
+        self.load_accuracy()
+        self.load_aux()
+        self.pick_instance()
+        self.check_design()
 
+    # ---- the manifest
+    def load_manifest(self, arg):
+        paths = find_manifest(self.root, arg)
+        if not paths:
+            self.notes.prov("no inputs-index.tsv: the expected design is unknown")
+            return
+        mans = []
+        for p in paths:
+            try:
+                mans.append(Manifest(p))
+            except Skipped as e:
+                self.notes.skip(p, e)
+        if not mans:
+            return
+        if len({m.sha256 for m in mans}) > 1:
+            self.notes.prov("%d different inputs-index.tsv files; the first is used" % len({m.sha256 for m in mans}))
+        self.man = mans[0]
+        self.cells = expected_cells(self.man)
 
-def load_reference(root):
-    ref = {}
-    for path in sorted(glob.glob(os.path.join(root, "**", "reference-*.tsv"), recursive=True)):
-        kv = {}
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                k, _, v = line.rstrip("\n").partition("\t")
-                kv[k] = v
-        if "case" in kv:
-            ref[kv["case"]] = kv
-    return ref
+    # ---- the timing processes
+    def load_processes(self):
+        procs = load_timings(self.root, self.notes)
+        self.procs = {}
+        for key, p in procs.items():
+            digests = {h.get("inputs_index_sha256") for h in p.headers}
+            if self.man is not None and digests != {self.man.sha256}:
+                self.notes.prov("process %s left out: made from another input manifest (%s)" % (key, sorted(digests)))
+                continue
+            self.procs[key] = p
+        self.primary = {(k[0], k[1], k[2]): p for k, p in self.procs.items() if k[3] == PRIMARY_BLAS}
+        self.diag = {k: p for k, p in self.procs.items() if k[3] != PRIMARY_BLAS}
+        idents = collections.Counter(ident(h) for p in self.primary.values() for h in p.headers)
+        if len(idents) > 1:
+            self.notes.prov("the primary timing files differ in (source, harness, inputs) identity: %s" % sorted(idents))
+        self.ident = idents.most_common(1)[0][0] if idents else None
+        if self.ident and "unset" in self.ident:
+            self.notes.prov("the timing files carry an unset source or harness identity")
 
-
-def cell_accuracy_ok(acc, julia, case, variant, param, measurement):
-    """False when the variant fails accuracy at the step(s) of the cell."""
-    rows = acc.get((julia, case, variant), [])
-    if not rows:
+    def same_ident(self, h, what):
+        if self.ident is None:
+            return True
+        if ident(h)[:2] != self.ident[:2]:
+            self.notes.prov("%s left out: source/harness identity %s differs from that of the timing files %s" % (
+                what, ident(h)[:2], self.ident[:2]))
+            return False
         return True
-    if measurement == "warm":
-        g = param_gamma(param)
-        rows = [r for r in rows if g is not None and abs(r["gamma"] - g) <= 1e-9 * abs(g)]
-    elif measurement == "first_use":
-        rows = [r for r in rows if r["gamma"] == 1.0]
-    elif measurement != "penalty":
-        return True
-    return all(r["passed"] for r in rows)
-
-
-def main(root):
-    notes = []
-    procs = load_timings(root, notes)
-    acc = load_accuracy(root, notes)
-    ref = load_reference(root)
-    untimed = []
-    for path in sorted(glob.glob(os.path.join(root, "**", "admm-untimed-*.tsv"), recursive=True)):
-        header, rows = read_tsv(path)
-        for r in rows:
-            r["julia"] = os.path.basename(path)[len("admm-untimed-"):-len(".tsv")]
-        untimed += rows
-    index_rows = []
-    for path in sorted(glob.glob(os.path.join(root, "**", "outputs-index.tsv"), recursive=True)):
-        header, rows = read_tsv(path)
-        for r in rows:
-            r["julia"] = header.get("julia", "?")
-        index_rows += rows
-    out = []
-
-    def section(title, body=None):
-        out.append("\n## " + title + "\n")
-        if body:
-            out.append(body)
-
-    versions = sorted({k[0] for k in procs})
-    by_version = {v: [p for k, p in sorted(procs.items()) if k[0] == v] for v in versions}
-
-    # ---- processes
-    rows = []
-    for k, p in sorted(procs.items()):
-        h = p.header
-        rows.append([k[0], k[1], k[2], ",".join(sorted(p.groups)), h.get("rounds"), h.get("blas_threads"), h.get("cpu_model"),
-                     h.get("loadavg_start"), h.get("wall_seconds", "-")])
-    section("Processes", md_table(["julia", "order", "proc", "groups", "rounds", "blas threads", "cpu", "load at start", "wall s"], rows))
-    for what in ("source_sha", "harness_sha", "inputs_index_sha256", "cpu_model", "blas_config", "openblas", "l3_cache",
-                 "blas_threads", "check_bounds", "rounds"):
-        vals = {p.header.get(what) for p in procs.values()}
-        if len(vals) > 1:
-            notes.append("processes differ in %s: %s" % (what, sorted(map(str, vals))))
-    if procs:
-        out.append("\nsource_sha: %s; harness_sha: %s; inputs_index_sha256: %s; BLAS: %s; OpenBLAS: %s; L3: %s\n" % tuple(
-            next(iter({p.header.get(w, "?") for p in procs.values()})) for w in
-            ("source_sha", "harness_sha", "inputs_index_sha256", "blas_config", "openblas", "l3_cache")))
-
-    # ---- timing judgements
-    verdicts = {}      # (julia, case, measurement, param, variant) -> judgement
-    cells = collections.defaultdict(set)
-    for v in versions:
-        for p in by_version[v]:
-            for cell in p.data:
-                if cell[1] in TIME_MEASUREMENTS:
-                    cells[v].add(cell)
-    for v in versions:
-        for cell in sorted(cells[v]):
-            for var in VARIANTS:
-                j = judge(by_version[v], cell, var)
-                if j:
-                    j["accuracy_ok"] = cell_accuracy_ok(acc, v, cell[0], var, cell[2], cell[1])
-                    verdicts[(v, cell[0], cell[1], cell[2], var)] = j
-
-    # A/A noise floor
-    rows = []
-    for v in versions:
-        for meas in TIME_MEASUREMENTS:
-            devs = collections.defaultdict(list)
-            for cell in cells[v]:
-                if cell[1] != meas:
-                    continue
-                for p in by_version[v]:
-                    for a, b in (("S'", "S"), ("C_B'", "C_B"), ("C_D'", "C_D"), ("C_W'", "C_W")):
-                        q = paired(p, cell, a, b)
-                        if q:
-                            devs[a + "/" + b].append(abs(median(q) - 1))
-            for pair, d in sorted(devs.items()):
-                rows.append([v, meas, pair, len(d), median(d), max(d)])
-    section("A/A controls: deviation of the per-process median of the copy over its role from 1",
-            md_table(["julia", "measurement", "pair", "process-cells", "median |dev|", "max |dev|"], rows))
-
-    rows = []
-    for v in versions:
-        for meas in TIME_MEASUREMENTS:
-            for var in VARIANTS:
-                for tag in ("f64", "f32"):
-                    js = [j for (vv, case, m, par, vr), j in verdicts.items()
-                          if vv == v and m == meas and vr == var and case_info(case)[0] == tag]
-                    if not js:
-                        continue
-                    cnt = collections.Counter(j["verdict"] for j in js if j["accuracy_ok"])
-                    rows.append([v, meas, var, tag, len(js), cnt["faster"], cnt["slower"], cnt["inconclusive"],
-                                 sum(not j["accuracy_ok"] for j in js), sum(j["partial"] for j in js),
-                                 median([j["center"] for j in js])])
-    section("Timing verdicts per measurement and variant (cells; the accuracy-failed cells are left out of the counts)",
-            md_table(["julia", "measurement", "variant", "type", "cells", "faster", "slower", "inconclusive", "accuracy-failed",
-                      "partial", "median ratio V/S"], rows))
-
-    rows = []
-    for (v, case, meas, par, var), j in sorted(verdicts.items()):
-        rows.append([v, meas, case, par, var, j["n"], j["center"], j["lo_med"], j["hi_med"], j["lo"], j["hi"], j["spread"],
-                     j["verdict"] + ("" if j["accuracy_ok"] else " (accuracy failed)") + (" (partial)" if j["partial"] else "")])
-    section("Timing detail: ratios V/S per cell (median of the per-process medians; range of the per-process medians; "
-            "minimum and maximum of the per-round ratios; A/A spread)",
-            md_table(["julia", "measurement", "case", "param", "variant", "processes", "median", "min med", "max med",
-                      "min round", "max round", "A/A spread", "verdict"], rows))
-
-    # ---- first-use breakdown and absolute times
-    rows = []
-    for v in versions:
-        agg = collections.defaultdict(list)
-        for p in by_version[v]:
-            for (case, meas, par), roles in p.data.items():
-                if meas == "first_use_part":
-                    for role, d in roles.items():
-                        agg[(case, role, par)] += [x for x in d.values() if finite(x)]
-        for (case, role, par), xs in sorted(agg.items()):
-            rows.append([v, case, role, par, median(xs)])
-    section("First-use breakdown: median seconds of each setup step (primary roles)",
-            md_table(["julia", "case", "role", "step", "median s"], rows))
-    rows = []
-    for v in versions:
-        agg = collections.defaultdict(list)
-        for p in by_version[v]:
-            for (case, meas, par), roles in p.data.items():
-                if meas in ("first_use", "penalty") or (meas == "warm" and par.startswith("g=1/")):
-                    for role, d in roles.items():
-                        if role in PRIMARY:
-                            agg[(case, meas, par, role)] += [x for x in d.values() if finite(x)]
-        for (case, meas, par, role), xs in sorted(agg.items()):
-            rows.append([v, case, meas, par, role, median(xs)])
-    section("Median seconds per call of the primary roles (first use, warm at step 1, penalty patterns)",
-            md_table(["julia", "case", "measurement", "param", "role", "median s"], rows))
-
-    # ---- allocations
-    rows, nonzero = [], []
-    for v in versions:
-        agg = collections.defaultdict(list)
-        for p in by_version[v]:
-            for (case, meas, par), roles in p.extra.items():
-                if meas == "alloc":
-                    for role, d in roles.items():
-                        for (gc, b, a) in d.values():
-                            agg[(role, par)].append((b, a, case))
-        for (role, par), xs in sorted(agg.items()):
-            bad = sorted({(c, b, a) for b, a, c in xs if b != 0 or a != 0})
-            rows.append([v, role, par, len(xs), max(b for b, _, _ in xs), max(a for _, a, _ in xs), len(bad)])
-            nonzero += [[v, role, par, c, b, a] for c, b, a in bad][:5]
-    section("Warmed allocations per call (maximum over cases; the number of cases with a nonzero count)",
-            md_table(["julia", "role", "call", "samples", "max bytes", "max allocs", "cases nonzero"], rows))
-    if nonzero:
-        out.append("\nFirst nonzero cases of each role and call:\n")
-        out.append(md_table(["julia", "role", "call", "case", "bytes", "allocs"], nonzero))
 
     # ---- accuracy
-    acc_versions = sorted({k[0] for k in acc})
+    def load_accuracy(self):
+        self.acc = collections.defaultdict(dict)
+        self.acc_versions, self.acc_forward_max = set(), {}
+        for path in sorted(glob.glob(os.path.join(self.root, "**", "accuracy-*.tsv"), recursive=True)):
+            name = os.path.basename(path)
+            try:
+                header, cols, rows = read_tsv(path)
+                if header.get("format") != "pb1103-accuracy-2":
+                    raise Skipped("not a pb1103-accuracy-2 file")
+            except Skipped as e:
+                self.notes.skip(name, e)
+                continue
+            if self.man is not None and header.get("inputs_index_sha256") != self.man.sha256:
+                self.notes.prov("%s left out: evaluated against another input manifest" % name)
+                continue
+            if not self.same_ident(header, name):
+                continue
+            v = header.get("julia", "?")
+            if v in self.acc_versions:
+                self.notes.prov("two accuracy files for Julia %s" % v)
+            self.acc_versions.add(v)
+            self.acc_forward_max[v] = header.get("forward_max_n", "?")
+            for f in rows:
+                r = dict(zip(cols, f))
+                self.acc[(v, r["case"], r["role"])][gk(float(r["gamma"]), int(r["vindex"]))] = {
+                    "eta": num(r["eta"]), "fe": num(r["forward_error"]), "pass": r["pass"] == "true",
+                    "status": r["status"], "copy": r["copy_identical"], "eltype": r["eltype"], "kind": r["kind"],
+                    "gamma": float(r["gamma"]), "vindex": int(r["vindex"])}
+
+    # ---- outputs index, untimed files, references
+    def load_aux(self):
+        self.outputs, self.untimed, self.refs = {}, {}, []
+        for path in sorted(glob.glob(os.path.join(self.root, "**", "outputs-index.tsv"), recursive=True)):
+            try:
+                header, cols, rows = read_tsv(path)
+            except Skipped as e:
+                self.notes.skip(os.path.relpath(path, self.root), e)
+                continue
+            if self.man is not None and header.get("inputs_index_sha256") != self.man.sha256:
+                self.notes.prov("%s left out: made from another input manifest" % os.path.relpath(path, self.root))
+                continue
+            if not self.same_ident(header, os.path.relpath(path, self.root)):
+                continue
+            self.outputs[header.get("julia", "?")] = [dict(zip(cols, f)) for f in rows]
+        for path in sorted(glob.glob(os.path.join(self.root, "**", "admm-untimed-*.tsv"), recursive=True)):
+            name = os.path.basename(path)
+            try:
+                header, cols, rows = read_tsv(path)
+            except Skipped as e:
+                self.notes.skip(name, e)
+                continue
+            if self.man is not None and header.get("inputs_index_sha256") != self.man.sha256:
+                self.notes.prov("%s left out: made from another input manifest" % name)
+                continue
+            if not self.same_ident(header, name):
+                continue
+            self.untimed.setdefault((header.get("julia", "?"), header.get("case", "?")), []).extend(dict(zip(cols, f)) for f in rows)
+        for path in sorted(glob.glob(os.path.join(self.root, "**", "reference-*.tsv"), recursive=True)):
+            try:
+                kv = read_kv(path)
+            except Skipped as e:
+                self.notes.skip(os.path.basename(path), e)
+                continue
+            kv["_file"] = os.path.basename(path)
+            self.refs.append(kv)
+
+    # ---- the instance of section 11.1 and the design
+    def pick_instance(self):
+        if self.man is None:
+            return
+        lasso = [c for c in self.man.cases.values() if c["lasso"] and c["kind"] == "main"]
+        exact = [c for c in lasso if (c["n"], c["p"]) == INSTANCE_11_1]
+        if exact:
+            self.instance = exact[0]["id"]
+        elif lasso:
+            self.instance = max(lasso, key=lambda c: c["n"] * c["p"])["id"]
+            self.notes.prov("the instance %s stands in for the 1500x5000 instance of section 11.1" % self.instance)
+        else:
+            self.notes.prov("the manifest holds no lasso instance")
+        if not any(c["kind"] == "control" for c in self.man.cases.values()):
+            self.notes.prov("the manifest holds no #1078 controls")
+
+    def check_design(self):
+        for v in EXPECTED_VERSIONS:
+            for o in EXPECTED_ORDERS:
+                for pid in EXPECTED_PROCS:
+                    if (v, o, pid) not in self.primary:
+                        self.notes.prov("Julia %s: the process %s/%s with one BLAS thread is absent" % (v, o, pid))
+            if v not in self.acc_versions:
+                self.notes.prov("Julia %s: no accepted accuracy file" % v)
+        for k in self.primary:
+            if k[0] not in EXPECTED_VERSIONS or k[1] not in EXPECTED_ORDERS or k[2] not in EXPECTED_PROCS:
+                self.notes.prov("unexpected process %s with one BLAS thread takes no part in the criteria" % (k,))
+        if self.diag:
+            self.notes.note("diagnostic processes (BLAS threads other than %s): %s" % (PRIMARY_BLAS, sorted(self.diag)))
+
+    # ---- accuracy evidence
+    def acc_status(self, version, case_id, role, need):
+        rows = self.acc.get((version, case_id, role))
+        if not rows:
+            return "unknown"
+        missing = sum(1 for k in need if k not in rows)
+        failed = sum(1 for k in need if k in rows and not rows[k]["pass"])
+        return "fail" if failed else ("unknown" if missing else "pass")
+
+    # ---- the cells
+    def cell(self, version, cell, variant):
+        key = (version, cell, variant)
+        if key in self._cell:
+            return self._cell[key]
+        case = self.man.cases[cell[0]]
+        meas = cell[1]
+        j = judge(self.primary, version, cell, variant)
+        if meas == "admm_total":
+            j = self.admm_adjust(version, cell, variant, j)
+        need = needed_keys(case, meas, cell[2])
+        aV = self.acc_status(version, case["id"], variant, need)
+        aS = self.acc_status(version, case["id"], "S", need)
+        if aV == "fail":
+            elig = "excluded (%s fails accuracy)" % variant
+        elif aS == "fail":
+            elig = "excluded (S fails accuracy)"
+        elif aV == "pass" and aS == "pass":
+            elig = "eligible"
+        else:
+            elig = "unknown (accuracy evidence incomplete)"
+        label = j["label"] if elig == "eligible" else ("excluded" if elig.startswith("excluded") else "unknown")
+        rec = dict(j, eligibility=elig, timing_label=j["label"], label=label, acc_V=aV, acc_S=aS)
+        self._cell[key] = rec
+        return rec
+
+    def admm_adjust(self, version, cell, variant, j):
+        """Reaching the target and the end point of the timed runs of an ADMM cell."""
+        case, _, cn = cell
+        capped, invalid = set(), 0
+        for o in EXPECTED_ORDERS:
+            for pid in EXPECTED_PROCS:
+                proc = self.primary.get((version, o, pid))
+                if proc is None:
+                    continue
+                reach = proc.data.get((case, "admm_reached", cn), {})
+                for role in ("S", variant):
+                    if reach.get(role, {}).get(0) == 0:
+                        capped.add(role)
+                valid = proc.data.get((case, "admm_valid", cn), {})
+                for role in ("S", "S'", variant, variant + "'"):
+                    invalid += sum(1 for val in valid.get(role, {}).values() if val != 1)
+        j = dict(j)
+        if capped:
+            j.update(label="inconclusive", capped=sorted(capped), complete=True)
+            j["gaps"] = ["the target was not reached within the cap by %s (a lower bound)" % ", ".join(sorted(capped))]
+        elif invalid and j["label"] != "unknown":
+            j.update(label="unknown", complete=False)
+            j["gaps"] = j["gaps"] + ["%d timed runs ended outside the target" % invalid]
+        return j
+
+    # ---- reference optimum
+    def reference(self):
+        """(objective, reason): the objective of the pinned reference of the instance when it is usable."""
+        if self.instance is None or self.man is None:
+            return None, "no instance"
+        c = self.man.cases[self.instance]
+        cands = [kv for kv in self.refs if kv.get("case") == self.instance]
+        if not cands:
+            return None, "no reference file for %s" % self.instance
+        why = []
+        for kv in cands:
+            bad = []
+            if kv.get("x_sha256") != c["arrays"]["X"]["sha256"] or kv.get("y_sha256") != c["arrays"]["y"]["sha256"]:
+                bad.append("other arrays")
+            if kv.get("inputs_index_sha256") != self.man.sha256:
+                bad.append("other manifest")
+            if kv.get("converged") != "true":
+                bad.append("not converged")
+            if kv.get("julia") != REFERENCE_JULIA:
+                bad.append("Julia %s, not the pinned %s" % (kv.get("julia"), REFERENCE_JULIA))
+            if self.ident and (kv.get("source_sha"), kv.get("harness_sha")) != self.ident[:2]:
+                bad.append("other source or harness identity")
+            if not bad:
+                return num(kv.get("objective")), "ok"
+            why.append("%s: %s" % (kv["_file"], ", ".join(bad)))
+        return None, "; ".join(why)
+
+    def objective_runs(self, version, cell, role):
+        """All timed objectives of a role in an ADMM cell over the expected processes and repeats, and whether all exist."""
+        vals, complete = [], True
+        for o in EXPECTED_ORDERS:
+            for pid in EXPECTED_PROCS:
+                proc = self.primary.get((version, o, pid))
+                if proc is None:
+                    complete = False
+                    continue
+                d = proc.data.get((cell[0], "admm_objective", cell[2]), {}).get(role, {})
+                got = [d[r] for r in expected_rounds("admm_total") if r in d and finite(d[r])]
+                complete = complete and len(got) == EXPECTED_REPEATS
+                vals.extend(got)
+        return vals, complete
+
+    # ---- the criteria
+    def not_slower(self, variant, cells):
+        recs = [self.cell(v, c, variant) for v in EXPECTED_VERSIONS for c in cells]
+        if not recs:
+            return None, "no cells"
+        n_slower = sum(1 for r in recs if r["label"] == "slower")
+        n_unknown = sum(1 for r in recs if r["label"] == "unknown")
+        n_excl = sum(1 for r in recs if r["label"] == "excluded")
+        info = "%d cells: %d slower, %d unknown, %d excluded for accuracy" % (len(recs), n_slower, n_unknown, n_excl)
+        if n_slower:
+            return False, info
+        return (None if n_unknown else True), info
+
+    def all_faster(self, variant, cells):
+        recs = [self.cell(v, c, variant) for v in EXPECTED_VERSIONS for c in cells]
+        if not recs:
+            return None, "no cells"
+        n_def = sum(1 for r in recs if r["label"] in ("slower", "inconclusive", "excluded"))
+        n_unknown = sum(1 for r in recs if r["label"] == "unknown")
+        info = "%d cells: %d faster, %d slower or inconclusive or excluded, %d unknown" % (
+            len(recs), sum(1 for r in recs if r["label"] == "faster"), n_def, n_unknown)
+        if n_def:
+            return False, info
+        return (None if n_unknown else True), info
+
+    def accuracy_everywhere(self, variant):
+        """A1: V passes at every (case, step, input) of the manifest where S passes, in both Julia versions."""
+        missing, fails = 0, []
+        for v in EXPECTED_VERSIONS:
+            for c in self.man.cases.values():
+                rs, rv = self.acc.get((v, c["id"], "S"), {}), self.acc.get((v, c["id"], variant), {})
+                for g in c["acc_gammas"]:
+                    for k in range(1, c["nv"] + 1):
+                        s, r = rs.get(gk(g, k)), rv.get(gk(g, k))
+                        if s is None or r is None:
+                            missing += 1
+                        elif s["pass"] and not r["pass"]:
+                            fails.append((v, c["id"], g, k))
+        info = "%d keys without evidence, %d where %s fails and S passes" % (missing, len(fails), variant)
+        if fails:
+            return False, info + " (first: %s)" % (fails[0],)
+        return (None if missing else True), info
+
+    def instance_accuracy(self, variant):
+        """B1: V passes at the step 1 and all 8 inputs of the instance of section 11.1 in both Julia versions."""
+        if self.instance is None:
+            return None, "no instance"
+        need = [gk(1.0, k) for k in range(1, 9)]
+        st = [self.acc_status(v, self.instance, variant, need) for v in EXPECTED_VERSIONS]
+        info = "status per Julia version: %s" % ", ".join(st)
+        if "fail" in st:
+            return False, info
+        return (True if all(s == "pass" for s in st) else None), info
+
+    def gap_criterion(self, variant):
+        """A3, second part: the objective gap of V is within that of S plus 1e-8 max(1, |p*|) at rho = 1, both levels."""
+        pstar, why = self.reference()
+        if pstar is None or not finite(pstar):
+            return None, "reference unusable: %s" % why
+        ok, missing, detail = True, False, []
+        for v in EXPECTED_VERSIONS:
+            for lvl in ADMM_LEVELS:
+                cell = (self.instance, "admm_total", ("rho", 1.0, lvl))
+                s, cs = self.objective_runs(v, cell, "S")
+                x, cx = self.objective_runs(v, cell, variant)
+                if not (cs and cx):
+                    missing = True
+                    continue
+                gS, gV = max(s) - pstar, max(x) - pstar
+                detail.append("%s/%s: gap S %.3g, %s %.3g" % (v, lvl, gS, variant, gV))
+                if gV > gS + GAP_SLACK * max(1.0, abs(pstar)):
+                    ok = False
+        info = "; ".join(detail)
+        if not ok:
+            return False, info
+        return (None if missing else True), info
+
+    def completeness(self):
+        """The reasons from the cells and accuracy keys of the fixed design that lack evidence."""
+        if self.man is None:
+            return
+        bad, first, unknown_acc = collections.Counter(), {}, 0
+        for v in EXPECTED_VERSIONS:
+            for c in self.cells:
+                for var in VARIANTS:
+                    r = self.cell(v, c, var)
+                    if not r["complete"]:
+                        bad[c[1]] += 1
+                        first.setdefault(c[1], "%s %s %s %s: %s" % (v, c[0], param_text(c[2]), var, r["gaps"][0] if r["gaps"] else "?"))
+                    if r["eligibility"].startswith("unknown"):
+                        unknown_acc += 1
+        for meas, n in sorted(bad.items()):
+            self.notes.prov("%d (version, cell, variant) judgements of %s lack evidence (first: %s)" % (n, meas, first[meas]))
+        if unknown_acc:
+            self.notes.prov("%d (version, cell, variant) judgements lack accuracy evidence at the steps and inputs they use" % unknown_acc)
+        missing = 0
+        for v in EXPECTED_VERSIONS:
+            for c in self.man.cases.values():
+                for role in PRIMARY:
+                    rows = self.acc.get((v, c["id"], role), {})
+                    missing += sum(1 for g in c["acc_gammas"] for k in range(1, c["nv"] + 1) if gk(g, k) not in rows)
+        if missing:
+            self.notes.prov("%d accuracy keys (version, case, role, step, input) have no evidence" % missing)
+
+    def recommend(self):
+        out = {"variants": {}, "instance": self.instance, "provisional": list(self.notes.provisional)}
+        if self.man is None:
+            for var in VARIANTS:
+                out["variants"][var] = {"criteria": {}, "recommendation": "undetermined", "unknown": ["no manifest"]}
+            return out
+        warm = [c for c in self.cells if c[1] == "warm" and self.man.cases[c[0]]["eltype"] == "Float64"]
+        inst = self.instance
+        i11 = [(inst, "admm_total", ("rho", 1.0, l)) for l in ADMM_LEVELS] if inst else []
+        tight = [c for c in self.cells if c[1] == "admm_total" and c[2][2] == "tight"]
+        for var in VARIANTS:
+            crit = {}
+            crit["A1 passes eta wherever S passes"] = self.accuracy_everywhere(var)
+            crit["A2 not slower on the warmed prox (Float64 cells)"] = self.not_slower(var, warm)
+            crit["A3 ADMM total faster at rho = 1, both levels"] = self.all_faster(var, i11)
+            crit["A3 objective gap within S plus slack"] = self.gap_criterion(var)
+            crit["B1 passes eta at the instance, rho = 1"] = self.instance_accuracy(var)
+            crit["B3 not slower at the tight target (all instances and rho)"] = self.not_slower(var, tight)
+            vals = {k: v[0] for k, v in crit.items()}
+            A = [vals[k] for k in crit if k.startswith("A")]
+            B = [vals["B1 passes eta at the instance, rho = 1"], vals["A3 ADMM total faster at rho = 1, both levels"],
+                 vals["B3 not slower at the tight target (all instances and rho)"]]
+            if all(a is True for a in A):
+                rec = "A"
+            elif any(a is False for a in A):
+                rec = "B" if all(b is True for b in B) else ("C" if any(b is False for b in B) else "undetermined")
+            else:
+                rec = "undetermined"
+            out["variants"][var] = {"criteria": {k: {"value": v[0], "info": v[1]} for k, v in crit.items()},
+                                    "recommendation": rec, "unknown": [k for k, v in crit.items() if v[0] is None]}
+        return out
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Tables
+# ---------------------------------------------------------------------------------------------------------------------
+
+MEASUREMENTS = ("first_use", "warm", "penalty", "admm_total")
+
+
+def l3_bytes(text):
+    try:
+        t = text.strip().upper()
+        mult = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3}.get(t[-1], 1)
+        return float(t[:-1] if t[-1] in "KMG" else t) * mult
+    except (ValueError, IndexError, AttributeError):
+        return math.nan
+
+
+def param_text(cn):
+    if isinstance(cn, tuple):
+        if cn[0] == "g" and len(cn) == 2:
+            return "g=%g" % cn[1]
+        if cn[0] == "g":
+            return "g=%g/%s" % (cn[1], cn[2])
+        if cn[0] == "rho":
+            return "rho=%g,level=%s" % (cn[1], cn[2])
+    return str(cn)
+
+
+def table_processes(camp):
     rows = []
-    for v in acc_versions:
+    for k, p in sorted(camp.procs.items()):
+        h = p.headers[0]
+        rows.append([k[0], k[1], k[2], k[3], ",".join(sorted(p.groups)), h.get("rounds", "?"), h.get("cpu_vendor", "?"),
+                     h.get("cpu_model", "?"), h.get("loadavg_start", "?"), ", ".join(sorted({x.get("wall_seconds", "-") for x in p.headers}))])
+    return md_table(["julia", "order", "proc", "BLAS threads", "groups", "rounds", "CPU vendor", "CPU model", "load at start", "wall s"], rows)
+
+
+def table_aa(camp):
+    rows = []
+    for v in EXPECTED_VERSIONS:
+        for meas in MEASUREMENTS:
+            devs = collections.defaultdict(list)
+            for cell in camp.cells:
+                if cell[1] != meas:
+                    continue
+                rounds = expected_rounds(meas)
+                for o in EXPECTED_ORDERS:
+                    for pid in EXPECTED_PROCS:
+                        proc = camp.primary.get((v, o, pid))
+                        if proc is None:
+                            continue
+                        d = proc.data.get(cell, {})
+                        for a, b in (("S'", "S"), ("C_B'", "C_B"), ("C_D'", "C_D"), ("C_W'", "C_W")):
+                            r = ratios(d, a, b, rounds)
+                            if r:
+                                devs["%s/%s" % (a, b)].append(abs(median(r.values()) - 1))
+            for pair, d in sorted(devs.items()):
+                rows.append([v, meas, pair, len(d), median(d), max(d)])
+    return md_table(["julia", "measurement", "pair", "process-cells", "median |dev|", "max |dev|"], rows)
+
+
+def table_verdicts(camp):
+    rows = []
+    for v in EXPECTED_VERSIONS:
+        for meas in MEASUREMENTS:
+            for var in VARIANTS:
+                for tp in ("Float64", "Float32"):
+                    cs = [c for c in camp.cells if c[1] == meas and camp.man.cases[c[0]]["eltype"] == tp]
+                    if not cs:
+                        continue
+                    recs = [camp.cell(v, c, var) for c in cs]
+                    cnt = collections.Counter(r["label"] for r in recs)
+                    rows.append([v, meas, var, tp, len(recs), sum(1 for r in recs if r["complete"]), cnt["faster"], cnt["slower"],
+                                 cnt["inconclusive"], cnt["unknown"], cnt["excluded"], median([r["center"] for r in recs])])
+    return md_table(["julia", "measurement", "variant", "type", "cells", "complete", "faster", "slower", "inconclusive",
+                     "unknown", "excluded (accuracy)", "median ratio V/S"], rows)
+
+
+def table_detail(camp, root):
+    rows, per_rows = [], []
+    for v in EXPECTED_VERSIONS:
+        for cell in camp.cells:
+            for var in VARIANTS:
+                r = camp.cell(v, cell, var)
+                rows.append([v, cell[1], cell[0], param_text(cell[2]), var, r["n"], r["center"], r["lo_med"], r["hi_med"],
+                             r["lo"], r["hi"], r["spread"], r["label"] + ("" if r["complete"] else " (incomplete: %d gaps)" % len(r["gaps"])),
+                             r["eligibility"]])
+                for (o, pid, med, lo, hi) in r["per"]:
+                    per_rows.append([v, cell[0], cell[1], param_text(cell[2]), var, o, pid, repr(med), repr(lo), repr(hi)])
+    with open(os.path.join(root, "per-process-ratios.tsv"), "w", encoding="utf-8") as fh:
+        fh.write("julia\tcase\tmeasurement\tparam\tvariant\torder\tproc\tmedian\tmin\tmax\n")
+        for r in per_rows:
+            fh.write("\t".join(r) + "\n")
+    return md_table(["julia", "measurement", "case", "param", "variant", "processes", "median of medians", "min process median",
+                     "max process median", "min round", "max round", "A/A spread", "label", "accuracy eligibility"], rows)
+
+
+def pooled(camp, version, cell, role, field=0):
+    """The values of a role in a cell over the primary processes of a version and all rounds (field: value or extras)."""
+    vals = []
+    for (v, o, pid), p in camp.primary.items():
+        if v != version:
+            continue
+        if field == 0:
+            vals.extend(x for x in p.data.get(cell, {}).get(role, {}).values() if finite(x))
+        else:
+            vals.extend(x[field - 1] for x in p.extra.get(cell, {}).get(role, {}).values() if finite(x[field - 1]))
+    return vals
+
+
+def table_first_use(camp):
+    rows, parts, gc = [], [], []
+    for v in EXPECTED_VERSIONS:
+        for c in camp.cells:
+            if c[1] != "first_use":
+                continue
+            for role in PRIMARY:
+                t = pooled(camp, v, c, role)
+                if t:
+                    rows.append([v, c[0], role, median(t), median(pooled(camp, v, c, role, 1)), median(pooled(camp, v, c, role, 2)),
+                                 median(pooled(camp, v, c, role, 3)), len(t)])
+        names = sorted({(cell[0], cell[2]) for p in camp.primary.values() for cell in p.data if cell[1] == "first_use_part"})
+        for case, step in names:
+            for role in PRIMARY:
+                x = pooled(camp, v, (case, "first_use_part", step), role)
+                if x:
+                    parts.append([v, case, role, step, median(x)])
+    a = md_table(["julia", "case", "role", "median s", "median GC s", "median bytes", "median allocations", "samples"], rows)
+    b = md_table(["julia", "case", "role", "setup step", "median s"], parts)
+    return a, b
+
+
+def table_per_call(camp):
+    rows = []
+    for v in EXPECTED_VERSIONS:
+        for c in camp.cells:
+            if c[1] == "first_use" or c[1] == "penalty" or (c[1] == "warm" and c[2][1] == 1.0 and c[2][2] == "rand"):
+                vals = [(role, pooled(camp, v, c, role)) for role in PRIMARY]
+                if any(x for _, x in vals):
+                    rows.append([v, c[0], c[1], param_text(c[2])] + [median(x) for _, x in vals])
+    return md_table(["julia", "case", "measurement", "param"] + PRIMARY, rows)
+
+
+def table_plans(camp):
+    rows = {}
+    for (v, o, pid), p in camp.primary.items():
+        for (case, param), t in p.plans.items():
+            rows.setdefault((v, case, param), []).append(t)
+    out = []
+    for (v, case, param), ts in sorted(rows.items()):
+        kind, _, rest = param.partition("|")
+        out.append([v, case, kind, rest, median(ts), len(ts)])
+    return md_table(["julia", "case", "group", "calls per batch and batches", "slowest call s (median over processes)", "processes"], out)
+
+
+def table_alloc(camp):
+    rows, nonzero = [], []
+    for v in EXPECTED_VERSIONS:
+        agg = collections.defaultdict(lambda: [0.0, 0.0, set(), 0])
+        for (vv, o, pid), p in camp.primary.items():
+            if vv != v:
+                continue
+            for cell, roles in p.extra.items():
+                if cell[1] != "alloc":
+                    continue
+                for role, d in roles.items():
+                    for (_gc, b, a) in d.values():
+                        s = agg[(role, cell[2])]
+                        s[0], s[1], s[3] = max(s[0], b), max(s[1], a), s[3] + 1
+                        if b != 0 or a != 0:
+                            s[2].add(cell[0])
+        for (role, call), s in sorted(agg.items()):
+            rows.append([v, role, call, s[3], s[0], s[1], len(s[2])])
+            nonzero.extend([v, role, call, c] for c in sorted(s[2]))
+    a = md_table(["julia", "role", "call", "samples", "max bytes per call", "max allocations per call", "cases with a nonzero count"], rows)
+    return a + ("\n\nCases with a nonzero count:\n\n" + listing(nonzero, ["julia", "role", "call", "case"], "cases") if nonzero else "")
+
+
+def table_workingset(camp):
+    rows = []
+    for v in EXPECTED_VERSIONS:
+        cases = {}
+        for (vv, o, pid), p in camp.primary.items():
+            if vv != v:
+                continue
+            l3 = l3_bytes(p.headers[0].get("l3_cache", ""))
+            for (case, role), b in p.workingset.items():
+                e = cases.setdefault((case, role), [0.0, l3])
+                e[0] = max(e[0], b)
+        loads = {}
+        for (vv, o, pid), p in camp.primary.items():
+            if vv == v:
+                for (case, grp), la in p.loads.items():
+                    loads[case] = max(loads.get(case, 0.0), la)
+        for (case, role), (b, l3) in sorted(cases.items()):
+            if role in PRIMARY:
+                rows.append([v, case, role, b, l3, b / l3 if finite(l3) and l3 > 0 else math.nan, loads.get(case, math.nan)])
+    return md_table(["julia", "case", "role", "reachable bytes", "L3 bytes", "ratio", "max load average (1 min) during the case"], rows)
+
+
+def table_domain(camp):
+    """rho/sigma_max^2 of every (case, step) and the accuracy of each role there; the domain per design."""
+    rows, dom = [], collections.defaultdict(lambda: [0, 0, 0.0, math.inf])
+    for c in camp.man.cases.values():
+        if c["kind"] != "main":
+            continue
+        for g in c["acc_gammas"]:
+            ratio = (1.0 / g) / (c["sigma_max"] ** 2)
+            row = [c["id"], c["design"], c["eltype"], g, ratio]
+            for role in PRIMARY:
+                worst, nfail, nrows = 0.0, 0, 0
+                for v in EXPECTED_VERSIONS:
+                    for k in range(1, c["nv"] + 1):
+                        r = camp.acc.get((v, c["id"], role), {}).get(gk(g, k))
+                        if r is not None:
+                            nrows += 1
+                            worst = max(worst, r["eta"] / EPS[c["eltype"]])
+                            nfail += 0 if r["pass"] else 1
+                row.append("-" if nrows == 0 else "%s (%s)" % (fmt(worst), "fail" if nfail else "pass"))
+                if nrows and role != "S":
+                    d = dom[(c["design"], c["eltype"], role)]
+                    d[0] += 1
+                    d[1] += 1 if nfail else 0
+                    d[2] = max(d[2], ratio) if nfail else d[2]
+                    d[3] = min(d[3], ratio)
+            rows.append(row)
+    a = md_table(["case", "design", "type", "step gamma", "rho / sigma_max^2"] + ["%s max eta/eps" % r for r in PRIMARY], rows)
+    drows = [[d, t, r, v[0], v[1], v[2] if v[1] else None, v[3] if v[0] else None] for (d, t, r), v in sorted(dom.items())]
+    b = md_table(["design", "type", "variant", "(case, step) pairs with evidence", "pairs that fail", "largest rho/sigma_max^2 of a failing pair",
+                  "smallest rho/sigma_max^2 evaluated"], drows)
+    return a, b
+
+
+def table_accuracy(camp):
+    out = []
+    rows, margin, ctl_rows, fwd = [], [], [], []
+    for v in sorted(camp.acc_versions):
         for kind in ("main", "control"):
             for role in PRIMARY:
-                rs = [r for (vv, case, rl), lst in acc.items() if vv == v and rl == role for r in lst if r["kind"] == kind]
+                rs = [r for (vv, case, rl), d in camp.acc.items() if vv == v and rl == role for r in d.values() if r["kind"] == kind]
                 if rs:
-                    rows.append([v, kind, role, len(rs), sum(not r["passed"] for r in rs), max(r["ratio"] for r in rs),
-                                 median([r["ratio"] for r in rs])])
-    section("Accuracy: outputs, failures (eta > 1e3 eps) and eta/eps per role",
-            md_table(["julia", "kind", "role", "outputs", "failures", "max eta/eps", "median eta/eps"], rows))
-
-    def ratio_to_s(rs_v, rs_s):
-        s_by = {(r["gamma_index"], r["vindex"]): r["eta"] for r in rs_s}
-        q = [r["eta"] / s_by[(r["gamma_index"], r["vindex"])] for r in rs_v
-             if (r["gamma_index"], r["vindex"]) in s_by and s_by[(r["gamma_index"], r["vindex"])] > 0 and finite(r["eta"])]
-        return q
-
-    rows, margin_bad = [], []
-    for v in acc_versions:
-        for case in sorted({k[1] for k in acc if k[0] == v}):
-            rs_s = acc.get((v, case, "S"), [])
-            if not rs_s or rs_s[0]["kind"] != "main":
+                    rows.append([v, kind, role, len(rs), sum(1 for r in rs if not r["pass"]),
+                                 max(r["eta"] / EPS[r["eltype"]] for r in rs), median([r["eta"] / EPS[r["eltype"]] for r in rs])])
+        for case in camp.man.cases.values():
+            ss = camp.acc.get((v, case["id"], "S"), {})
+            if case["kind"] == "main" and ss:
+                smax = max(r["eta"] / EPS[case["eltype"]] for r in ss.values())
+                if smax > ETA_FACTOR / S_MARGIN:
+                    margin.append([v, case["id"], smax])
+        for role in PRIMARY:
+            xs = [r["fe"] for (vv, case, rl), d in camp.acc.items() if vv == v and rl == role for r in d.values() if finite(r["fe"])]
+            if xs:
+                fwd.append([v, role, camp.acc_forward_max.get(v, "?"), len(xs), median(xs), max(xs)])
+    out.append(("Accuracy: outputs, failures (eta > 1e3 eps, or a recorded failure) and eta/eps per role",
+                md_table(["julia", "kind", "role", "outputs", "failures", "max eta/eps", "median eta/eps"], rows)))
+    pc = []
+    for v in sorted(camp.acc_versions):
+        for case in camp.man.cases.values():
+            if case["kind"] != "main":
                 continue
-            smax = max(r["ratio"] for r in rs_s)
-            if smax > ETA_FACTOR / S_MARGIN:
-                margin_bad.append([v, case, smax])
-            row = [v, case, smax]
+            ss = camp.acc.get((v, case["id"], "S"), {})
+            if not ss:
+                continue
+            row = [v, case["id"], max(r["eta"] / EPS[case["eltype"]] for r in ss.values())]
             for var in VARIANTS:
-                rv = acc.get((v, case, var), [])
-                q = ratio_to_s(rv, rs_s)
-                row += [max((r["ratio"] for r in rv), default=math.nan), sum(not r["passed"] for r in rv), max(q, default=math.nan)]
-            rows.append(row)
+                rv = camp.acc.get((v, case["id"], var), {})
+                if not rv:
+                    row += [math.nan, "-", math.nan]
+                    continue
+                ratio = [rv[k]["eta"] / ss[k]["eta"] for k in rv if k in ss and ss[k]["eta"] > 0 and finite(rv[k]["eta"])]
+                row += [max(r["eta"] / EPS[case["eltype"]] for r in rv.values()), sum(1 for r in rv.values() if not r["pass"]),
+                        max(ratio) if ratio else math.nan]
+            pc.append(row)
     heads = ["julia", "case", "S max eta/eps"]
     for var in VARIANTS:
-        heads += [var + " max eta/eps", var + " failures", var + " max eta/eta_S"]
-    section("Accuracy per main case (all outputs: steps by inputs)", md_table(heads, rows))
-    section("Margin of S under the threshold (the plan asks for a factor %g in every main case)" % S_MARGIN,
-            md_table(["julia", "case", "S max eta/eps"], margin_bad) if margin_bad else "S has at least a factor %g margin in every main case evaluated." % S_MARGIN)
-
-    controls = []
+        heads += ["%s max eta/eps" % var, "%s failures" % var, "%s max eta/eta_S" % var]
+    out.append(("Accuracy per main case (all steps by inputs)", listing(pc, heads, "cases")))
+    out.append(("Margin of S under the threshold: main cases where S exceeds eta/eps = %g (a factor %g below 1e3)" % (ETA_FACTOR / S_MARGIN, S_MARGIN),
+                md_table(["julia", "case", "S max eta/eps"], margin) if margin else
+                "No main case with accuracy evidence has an S output above eta/eps = %g (cases without evidence are not covered)." % (ETA_FACTOR / S_MARGIN)))
     reduces = collections.Counter()
-    s_fails = collections.Counter()
-    for v in acc_versions:
-        for case in sorted({k[1] for k in acc if k[0] == v}):
-            rs_s = acc.get((v, case, "S"), [])
-            if not rs_s or rs_s[0]["kind"] != "control":
+    sfail = collections.Counter()
+    for v in sorted(camp.acc_versions):
+        for case in camp.man.cases.values():
+            if case["kind"] != "control":
                 continue
-            r_s = rs_s[0]
-            row = [v, case, r_s["ratio"], "fail" if not r_s["passed"] else "pass"]
+            rs = camp.acc.get((v, case["id"], "S"), {})
+            if not rs:
+                continue
+            r_s = next(iter(rs.values()))
+            row = [v, case["id"], r_s["eta"] / EPS[case["eltype"]], "pass" if r_s["pass"] else "fail"]
+            if not r_s["pass"]:
+                sfail[v] += 1
             for var in VARIANTS:
-                rv = acc.get((v, case, var), [])
+                rv = camp.acc.get((v, case["id"], var), {})
                 if rv:
-                    row += [rv[0]["ratio"], "fail" if not rv[0]["passed"] else "pass"]
-                    if not r_s["passed"]:
-                        reduces[(v, var)] += rv[0]["eta"] < r_s["eta"]
+                    r = next(iter(rv.values()))
+                    row += [r["eta"] / EPS[case["eltype"]], "pass" if r["pass"] else "fail"]
+                    if not r_s["pass"] and r["eta"] < r_s["eta"]:
+                        reduces[(v, var)] += 1
                 else:
                     row += [math.nan, "-"]
-            if not r_s["passed"]:
-                s_fails[v] += 1
-            controls.append(row)
+            ctl_rows.append(row)
     heads = ["julia", "control", "S eta/eps", "S"]
     for var in VARIANTS:
-        heads += [var + " eta/eps", var]
-    section("Accuracy controls from #1078 (eta/eps and pass/fail)", md_table(heads, controls))
-    rows = [[v, var, reduces[(v, var)], s_fails[v]] for v in acc_versions for var in VARIANTS]
-    section("#1078: controls where S fails and the variant has a smaller eta than S (it does not by itself pass)",
-            md_table(["julia", "variant", "controls with eta_V < eta_S", "controls where S fails"], rows))
-    fwd = []
-    for v in acc_versions:
-        for role in PRIMARY:
-            xs = [r["forward_error"] for (vv, case, rl), lst in acc.items() if vv == v and rl == role for r in lst
-                  if finite(r["forward_error"])]
-            if xs:
-                fwd.append([v, role, len(xs), median(xs), max(xs)])
-    section("Forward error against the 128-bit dual solution (n <= 500; diagnostic)",
-            md_table(["julia", "role", "outputs", "median", "max"], fwd))
-    copies_bad = [[r["julia"], r["case"], r["role"], r["status"], r["copy_identical"]] for r in index_rows
-                  if r["status"] != "ok" or r["copy_identical"] != "true"]
-    section("Outputs that are marked as an error or that differ from the A/A copy of their role",
-            md_table(["julia", "case", "role", "status", "copy identical"], copies_bad[:40]) if copies_bad else "none")
+        heads += ["%s eta/eps" % var, var]
+    out.append(("Accuracy controls from #1078 (eta/eps and pass/fail)", listing(ctl_rows, heads, "controls")))
+    out.append(("#1078: controls where S fails and the variant has a smaller eta than S (that does not by itself pass)",
+                md_table(["julia", "variant", "controls with eta_V < eta_S", "controls where S fails"],
+                         [[v, var, reduces[(v, var)], sfail[v]] for v in sorted(camp.acc_versions) for var in VARIANTS])))
+    out.append(("Forward error against the 128-bit dual solution (cases with n up to the recorded limit; a diagnostic, relative to the norm of the solution, absolute when it is 0)",
+                md_table(["julia", "role", "n limit", "outputs", "median", "max"], fwd)))
+    return out
 
-    # ---- ADMM
-    admm_rows, admm_ref_rows = [], []
-    for c, kv in sorted(ref.items()):
-        admm_ref_rows.append([c, kv.get("julia"), kv.get("iterations"), kv.get("converged"), kv.get("stationarity"), kv.get("objective")])
-    section("Reference optimum (S-ADMM at rho = 1 to stationarity 1e-12 max(1, |X'y|inf))",
-            md_table(["case", "julia", "iterations", "converged", "stationarity", "objective"], admm_ref_rows))
-    kstar = {}
-    for r in untimed:
-        if r["record"] in ("k_boyd", "k_tight"):
-            kstar[(r["julia"], r["case"], r["rho"], r["role"], r["record"])] = int(float(r["k"]))
+
+def table_outputs(camp):
+    if not camp.outputs:
+        return "Unavailable: no outputs-index.tsv was accepted."
+    bad = []
+    for v, rows in sorted(camp.outputs.items()):
+        for r in rows:
+            if r["nfail"] != "0" or r["copy_identical"] != "true":
+                bad.append([v, r["case"], r["role"], r["nfail"], r["copy_identical"]])
+    if not bad:
+        return "Observed in %d Julia version(s): no output with a recorded failure, and every A/A copy bitwise identical to its role." % len(camp.outputs)
+    return listing(bad, ["julia", "case", "role", "recorded failures", "copy bitwise identical"], "outputs")
+
+
+def table_admm(camp):
+    out = []
+    pstar, why = camp.reference()
+    rrows = []
+    for kv in camp.refs:
+        rrows.append([kv.get("case"), kv.get("julia"), kv.get("iterations"), kv.get("converged"), kv.get("stationarity"),
+                      kv.get("objective"), kv.get("cap"), kv.get("_file")])
+    out.append(("Reference optima (S-ADMM at rho = 1 to stationarity 1e-12 max(1, |X'y|inf)); usable for the instance of section 11.1: %s" %
+                ("yes, objective %s" % fmt(pstar) if pstar is not None else "no (%s)" % why),
+                md_table(["case", "julia", "iterations", "converged", "stationarity", "objective", "cap", "file"], rrows)))
+    lv = []
+    traj = []
+    for (v, case), rows in sorted(camp.untimed.items()):
+        for r in rows:
+            if r["record"] == "level":
+                lv.append([v, case, r["rho"], r["role"], r["level"], r["reached"], r["k"], r["cap"], num(r["r_norm"]), num(r["s_norm"]),
+                           num(r["stationarity"]), num(r["objective"])])
+            elif r["record"] == "trajectory" and r["role"] == "S":
+                traj.append([v, case, r["rho"], r["k"], num(r["r_norm"]), num(r["s_norm"]), num(r["stationarity"]), num(r["objective"])])
+            elif r["record"] == "error":
+                lv.append([v, case, r["rho"], r["role"], "error", "false", "0", r["cap"], math.nan, math.nan, math.nan, math.nan])
+    out.append(("ADMM stopping records of the untimed pass: whether the target was reached, the iteration count k (the cap run when not reached) and the measures at k",
+                listing(lv, ["julia", "case", "rho", "role", "level", "reached", "k", "cap", "r", "s", "stationarity", "objective"], "records")))
+    out.append(("ADMM trajectory of S at the checkpoints", listing(traj, ["julia", "case", "rho", "k", "r", "s", "stationarity", "objective"], "rows")))
+    rows, orows = [], []
+    for v in EXPECTED_VERSIONS:
+        for cell in [c for c in camp.cells if c[1] == "admm_total"]:
+            for var in VARIANTS:
+                r = camp.cell(v, cell, var)
+                f = judge(camp.primary, v, (cell[0], "admm_factor", cell[2]), var)
+                it = judge(camp.primary, v, (cell[0], "admm_iter", cell[2]), var)
+                rows.append([v, cell[0], param_text(cell[2]), var, r["center"], r["label"] + ("" if r["complete"] else " (incomplete)"), f["center"], it["center"], r["n"],
+                             "; ".join(r.get("gaps", [])[:2])])
+    out.append(("ADMM: total time ratio V/S per instance, rho and stopping level (and the ratios of the factorization and of the iterations)",
+                listing(rows, ["julia", "case", "param", "variant", "total V/S", "label", "factor V/S", "iterations V/S", "processes", "gaps"], "rows")))
+    for v in EXPECTED_VERSIONS:
+        for cell in [c for c in camp.cells if c[1] == "admm_total"]:
+            for role in PRIMARY:
+                objs, _ = camp.objective_runs(v, cell, role)
+                if objs:
+                    st = pooled(camp, v, (cell[0], "admm_stationarity", cell[2]), role)
+                    orows.append([v, cell[0], param_text(cell[2]), role, len(objs), median(objs), (max(objs) - pstar) if pstar is not None else math.nan,
+                                  median(st)])
+    out.append(("ADMM: the objective of the timed runs (median), its largest gap to the usable reference (nan without one) and the median final stationarity",
+                listing(orows, ["julia", "case", "param", "role", "runs", "median objective", "max gap", "median stationarity"], "rows")))
+    return out
+
+
+def table_diag(camp):
     rows = []
-    for (j, case, rho, role, rec), k in sorted(kstar.items()):
-        rows.append([j, case, rho, role, rec, k if k else "cap"])
-    section("ADMM iteration counts of the untimed pass (cap = not reached within the cap)",
-            md_table(["julia", "case", "rho", "role", "level", "iterations"], rows))
-    admm_cells = sorted({(v, c) for v in versions for c in cells[v] if c[1] == "admm_total"})
-    rows = []
-    for v, cell in admm_cells:
-        case, _, par = cell
-        for var in VARIANTS:
-            j = verdicts.get((v, case, "admm_total", par, var))
-            if not j:
+    for key, p in sorted(camp.diag.items()):
+        for cell, roles in sorted(p.data.items(), key=lambda x: str(x[0])):
+            if cell[1] not in ("first_use", "warm", "penalty"):
                 continue
-            fac = judge(by_version[v], (case, "admm_factor", par), var)
-            itr = judge(by_version[v], (case, "admm_iter", par), var)
-            rows.append([v, case, par, var, j["center"], j["verdict"], fac["center"] if fac else None, itr["center"] if itr else None,
-                         j["n"]])
-    section("ADMM: total time ratio V/S per instance, rho and stopping level (and the ratios of the factorization and of the iterations)",
-            md_table(["julia", "case", "param", "variant", "total V/S", "verdict", "factor V/S", "iterations V/S", "processes"], rows))
-    gap_rows = []
-    gaps = {}
-    for v in versions:
-        for p in by_version[v]:
-            for (case, meas, par), roles in p.data.items():
-                if meas in ("admm_gap", "admm_objective", "admm_stationarity"):
-                    for role, d in roles.items():
-                        gaps.setdefault((v, case, par, role, meas), []).extend(x for x in d.values() if finite(x))
-    for (v, case, par, role, meas), xs in sorted(gaps.items()):
-        if meas == "admm_gap" and role in PRIMARY:
-            st = gaps.get((v, case, par, role, "admm_stationarity"), [])
-            gap_rows.append([v, case, par, role, len(xs), max(xs), median(st) if st else None])
-    section("ADMM: objective gap to the reference (maximum over runs) and median final stationarity",
-            md_table(["julia", "case", "param", "role", "runs", "max gap", "median stationarity"], gap_rows))
-    cap_rows = []
-    for v in versions:
-        for p in by_version[v]:
-            for (case, meas, par), roles in p.data.items():
-                if meas == "admm_capped":
-                    for role, d in roles.items():
-                        if any(x == 1 for x in d.values()):
-                            cap_rows.append((v, case, par, role))
-    section("ADMM cells where a role reached the iteration cap (timed runs skipped, inconclusive)",
-            md_table(["julia", "case", "param", "role"], sorted(set(cap_rows))) if cap_rows else "none")
+            for var in VARIANTS:
+                r = ratios(roles, var, "S", expected_rounds(cell[1]))
+                if r:
+                    rows.append([key[0], key[1], key[2], key[3], cell[0], cell[1], param_text(cell[2]), var, median(r.values()), min(r.values()), max(r.values())])
+    return listing(rows, ["julia", "order", "proc", "BLAS threads", "case", "measurement", "param", "variant", "median V/S", "min", "max"], "rows")
 
-    # ---- criteria
-    verdict = recommend(versions, by_version, verdicts, acc, acc_versions, ref, notes)
+
+def format_verdict(v):
+    lines = []
+    prov = v["provisional"]
+    if prov:
+        lines.append("**Provisional.** The evidence is incomplete or inconsistent:\n")
+        lines.extend("- " + t for t in prov[:MAX_LISTED])
+        if len(prov) > MAX_LISTED:
+            lines.append("- (%d further reasons not listed)" % (len(prov) - MAX_LISTED))
+        lines.append("")
+    lines.append("Instance of section 11.1: %s\n" % v["instance"])
+    rows = []
+    for var, d in v["variants"].items():
+        for name, c in d["criteria"].items():
+            rows.append([var, name, {True: "True", False: "False", None: "unknown"}[c["value"]], c["info"]])
+        rows.append([var, "**recommendation**", "(%s)%s" % (d["recommendation"], " provisional" if prov else ""),
+                     "unknown criteria: %s" % ", ".join(d["unknown"]) if d["unknown"] else ""])
+    lines.append(md_table(["variant", "criterion", "value", "evidence"], rows))
+    lines.append("\n(A) propose a PB fixed-penalty backend: A1, A2 and A3 all true. (B) solver-side factorization only: not (A) because a "
+                 "criterion of (A) is false, and B1, the ADMM speed criterion and B3 true. (C) no change when a criterion of (B) is false. "
+                 "A criterion with missing evidence is unknown and decides neither way. The recommendation does not close #1078; see the "
+                 "table of controls for the residuals.")
+    return "\n".join(lines)
+
+
+def main(argv):
+    root = argv[1]
+    notes = Notes()
+    camp = Campaign(root, argv[2] if len(argv) > 2 else None, notes)
+    out = []
+
+    def section(title, body):
+        out.append("\n## %s\n\n%s\n" % (title, body))
+
+    section("Processes", table_processes(camp))
+    if camp.man is None:
+        section("Design", "No manifest: no table of cells can be built.")
+    else:
+        section("A/A controls: deviation of the per-process median of the copy over its role from 1", table_aa(camp))
+        section("Timing labels per measurement and variant (cells; excluded = fails accuracy at the steps and inputs it uses)", table_verdicts(camp))
+        section("Timing detail: ratios V/S per cell (median of the per-process medians; range of the per-process medians; minimum and "
+                "maximum of the per-round ratios; A/A spread); the per-process values are in per-process-ratios.tsv",
+                table_detail(camp, root))
+        a, b = table_first_use(camp)
+        section("First use: median seconds, GC seconds, bytes and allocations of the primary roles", a)
+        section("First-use breakdown: median seconds of each setup step (primary roles)", b)
+        section("Median seconds per call of the primary roles (first use, warm at step 1 on random inputs, penalty schedules)", table_per_call(camp))
+        section("Batch plans: calls per batch and batches, from the calibration of each case", table_plans(camp))
+        section("Warmed allocations per call (maximum over cases; cases with a nonzero count)", table_alloc(camp))
+        section("Working set (reachable bytes of each object) against the L3 size, and the load average during each case", table_workingset(camp))
+        a, b = table_domain(camp)
+        section("rho / sigma_max^2 of each case and step, with the accuracy of each role there (worst over both Julia versions and the 8 inputs)", a)
+        section("Accuracy domain per design: the failing pairs of each variant and the range of rho / sigma_max^2", b)
+        for title, body in table_accuracy(camp):
+            section(title, body)
+        section("Outputs with a recorded failure or whose A/A copy differs bitwise", table_outputs(camp))
+        for title, body in table_admm(camp):
+            section(title, body)
+        if camp.diag:
+            section("Diagnostic processes (BLAS threads other than %s): ratios V/S per cell; they take no part in the criteria" % PRIMARY_BLAS, table_diag(camp))
+    camp.completeness()
+    verdict = camp.recommend()
+    for var, d in verdict["variants"].items():
+        for k in d["unknown"]:
+            notes.prov("%s: the criterion %s is unknown" % (var, k))
+    verdict["provisional"] = list(notes.provisional)
+    verdict["is_provisional"] = bool(notes.provisional)
     section("Criteria and recommendation", format_verdict(verdict))
-    section("Notes", "\n".join("- " + n for n in notes) if notes else "none")
-
+    section("Notes", "\n".join("- " + n for n in notes.notes) if notes.notes else "none")
     text = "# Summary of %s\n%s\n" % (os.path.basename(os.path.abspath(root)), "\n".join(out))
     print(text)
     with open(os.path.join(root, "tables.md"), "w", encoding="utf-8") as fh:
         fh.write(text)
     with open(os.path.join(root, "verdict.json"), "w", encoding="utf-8") as fh:
-        json.dump(verdict, fh, indent=2, sort_keys=True)
+        json.dump(verdict, fh, indent=2, sort_keys=True, default=str)
     return 0
 
 
-def instance_11_1(verdicts, versions):
-    """The Boyd 11.1 instance: the f64 case with n = 1500, p = 5000 that has ADMM cells (else the largest instance)."""
-    cases = sorted({k[1] for k in verdicts if k[2] == "admm_total"})
-    pick = [c for c in cases if c.endswith(SECTION_11_1)]
-    if pick:
-        return pick[0], True
-    if not cases:
-        return None, False
-
-    def size(c):
-        n, _, p = case_info(c)[3].partition("x")
-        return int(n) * int(p)
-    return max(cases, key=size), False
-
-
-def recommend(versions, by_version, verdicts, acc, acc_versions, ref, notes):
-    """Applies the pre-registered criteria of the plan to each variant over the Julia versions present."""
-    result = {"variants": {}, "provisional": [], "versions": versions}
-    inst, exact = instance_11_1(verdicts, versions)
-    result["section_11_1_instance"] = inst
-    if inst is None:
-        result["provisional"].append("no ADMM cells")
-    elif not exact:
-        result["provisional"].append("the instance %s stands in for the 1500x5000 instance of section 11.1" % inst)
-    partial_cells = sorted({k[:4] for k, j in verdicts.items() if j["partial"]})
-    if partial_cells:
-        result["provisional"].append("%d cells have fewer than %d processes" % (len(partial_cells), PROCESSES_WANTED))
-    missing = sorted({k[1] for k in verdicts} - {k[1] for k in acc})
-    if missing:
-        result["provisional"].append("no accuracy outputs for %d timed cases (first: %s)" % (len(missing), missing[0]))
-    if acc_versions and not any(rows[0]["kind"] == "control" for rows in acc.values() if rows):
-        result["provisional"].append("no outputs of the #1078 controls")
-    for var in VARIANTS:
-        c = {}
-        # (A1) passes eta in every case where S passes
-        a1, why1 = True, []
-        if not acc_versions:
-            a1, why1 = None, ["no accuracy data"]
-        for v in acc_versions:
-            s_pass = {}
-            for (vv, case, role), rows in acc.items():
-                if vv == v and role == "S":
-                    for r in rows:
-                        s_pass[(case, r["gamma_index"], r["vindex"])] = r["passed"]
-            for (vv, case, role), rows in acc.items():
-                if vv == v and role == var:
-                    for r in rows:
-                        if s_pass.get((case, r["gamma_index"], r["vindex"])) and not r["passed"]:
-                            a1 = False
-                            why1.append("%s fails where S passes: %s step %d input %d (eta/eps %.3g) on %s" % (
-                                var, case, r["gamma_index"], r["vindex"], r["ratio"], v))
-        c["A1_passes_eta_where_S_passes"] = {"value": a1, "why": why1[:10], "count": len(why1)}
-        # (A2) not slower on warmed prox in any primary case (float64, one BLAS thread)
-        slower, cells_n = [], 0
-        for (v, case, meas, par, vr), j in verdicts.items():
-            if vr == var and meas == "warm" and case_info(case)[0] == "f64" and j["accuracy_ok"]:
-                cells_n += 1
-                if j["verdict"] == "slower":
-                    slower.append("%s %s %s" % (v, case, par))
-        c["A2_not_slower_on_warm_prox"] = {"value": (not slower) if cells_n else None, "cells": cells_n, "slower": slower[:10],
-                                           "count": len(slower)}
-        # ADMM at the 11.1 instance, rho = 1
-        admm = {}
-        for v in versions:
-            for level in ("boyd", "tight"):
-                par = "rho=1.0,level=%s" % level
-                j = verdicts.get((v, inst, "admm_total", par, var)) if inst else None
-                gap_ok = None
-                if j:
-                    xs = {}
-                    for role in ("S", var):
-                        g = []
-                        for p in by_version[v]:
-                            g += [x for x in p.data[(inst, "admm_gap", par)].get(role, {}).values() if finite(x)]
-                        xs[role] = max(g) if g else None
-                    pstar = num(ref.get(inst, {}).get("objective", "nan"))
-                    if xs["S"] is not None and xs[var] is not None and finite(pstar):
-                        gap_ok = xs[var] <= xs["S"] + GAP_SLACK * max(1.0, abs(pstar))
-                admm[(v, level)] = {"verdict": j["verdict"] if j else None, "gap_ok": gap_ok,
-                                    "partial": j["partial"] if j else None}
-        faster_both = bool(admm) and all(a["verdict"] == "faster" for a in admm.values())
-        gaps_ok = bool(admm) and all(a["gap_ok"] for a in admm.values())
-        c["A3_admm_faster_at_both_levels"] = {"value": faster_both if admm and all(a["verdict"] for a in admm.values()) else None,
-                                              "detail": {"%s/%s" % k: a for k, a in admm.items()}}
-        c["A3_objective_gap_within_S_plus_slack"] = {"value": gaps_ok if admm and all(a["gap_ok"] is not None for a in admm.values()) else None}
-        # (B1) passes eta at the 11.1 inputs at rho = 1, i.e. step 1 of the instance
-        b1 = None
-        if inst and acc_versions:
-            b1 = True
-            for v in acc_versions:
-                rows = [r for r in acc.get((v, inst, var), []) if r["gamma"] == 1.0]
-                if not rows:
-                    b1 = None if b1 else b1
-                elif not all(r["passed"] for r in rows):
-                    b1 = False
-        c["B1_passes_eta_at_the_instance_at_rho_1"] = {"value": b1}
-        # (B3) not slower at the tight target (any instance and rho)
-        tight_slower = [(v, case, par) for (v, case, meas, par, vr), j in verdicts.items()
-                        if vr == var and meas == "admm_total" and par.endswith("level=tight") and j["verdict"] == "slower"]
-        tight_cells = [1 for (v, case, meas, par, vr) in verdicts if vr == var and meas == "admm_total" and par.endswith("level=tight")]
-        c["B3_not_slower_at_the_tight_target"] = {"value": (not tight_slower) if tight_cells else None, "slower": tight_slower[:10]}
-        A = [c["A1_passes_eta_where_S_passes"]["value"], c["A2_not_slower_on_warm_prox"]["value"],
-             c["A3_admm_faster_at_both_levels"]["value"], c["A3_objective_gap_within_S_plus_slack"]["value"]]
-        B = [b1, c["A3_admm_faster_at_both_levels"]["value"], c["B3_not_slower_at_the_tight_target"]["value"]]
-        unknown = [name for name, val in c.items() if val.get("value") is None]
-        if all(x is True for x in A):
-            rec = "A"
-        elif any(x is False for x in A):
-            rec = "B" if all(x is True for x in B) else ("C" if any(x is False for x in B) else "undetermined")
-        else:
-            rec = "undetermined"
-        partial = [k for k, j in verdicts.items() if k[4] == var and j["partial"] and (k[2] == "admm_total" or k[2] == "warm")]
-        result["variants"][var] = {"criteria": {k: v for k, v in c.items()}, "recommendation": rec, "unknown_criteria": unknown,
-                                   "partial_cells": len(partial)}
-    return result
-
-
-def format_verdict(verdict):
-    lines = []
-    if verdict["provisional"]:
-        lines.append("Provisional: " + "; ".join(verdict["provisional"]) + ".\n")
-    lines.append("Instance of section 11.1: %s\n" % verdict.get("section_11_1_instance"))
-    rows = []
-    for var, d in verdict["variants"].items():
-        for name, val in d["criteria"].items():
-            rows.append([var, name, str(val.get("value")), ""])
-        rows.append([var, "**recommendation**", "(%s)" % d["recommendation"],
-                     "unknown: " + ", ".join(d["unknown_criteria"]) if d["unknown_criteria"] else ""])
-        if d["partial_cells"]:
-            rows.append([var, "cells with fewer than %d processes (warm, admm)" % PROCESSES_WANTED, str(d["partial_cells"]), ""])
-    lines.append(md_table(["variant", "criterion", "value", "note"], rows))
-    lines.append("\n(A) propose a PB fixed-penalty backend: A1, A2, A3 all true. (B) solver-side factorization only: not (A), "
-                 "and B1, A3 (faster at both levels) and B3 true. (C) no change otherwise. The recommendation does not close "
-                 "#1078; see the table of controls for the residuals.")
-    return "\n".join(lines)
-
-
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or not os.path.isdir(sys.argv[1]):
-        sys.exit("usage: python3 -I summarize.py <output dir>")
-    sys.exit(main(sys.argv[1]))
+    if len(sys.argv) not in (2, 3) or not os.path.isdir(sys.argv[1]):
+        sys.exit("usage: python3 -I summarize.py <output dir> [<inputs dir or inputs-index.tsv>]")
+    sys.exit(main(sys.argv))

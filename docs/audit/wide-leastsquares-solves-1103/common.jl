@@ -18,6 +18,18 @@ env_string(name, default) = get(ENV, name, default)
 env_int(name, default) = parse(Int, get(ENV, name, string(default)))
 env_flag(name) = get(ENV, name, "0") == "1"
 
+# A commit identity from the environment: 7 to 40 lowercase hex digits, "unset" when absent and not required. The
+# string is a label that the caller supplies; no check can compare it with the files in a copy that has no .git.
+function env_sha(name; required::Bool)
+    s = get(ENV, name, "")
+    if isempty(s)
+        required && error("$name must name a commit (7 to 40 lowercase hex digits)")
+        return "unset"
+    end
+    occursin(r"^[0-9a-f]{7,40}$", s) || error("$name must be 7 to 40 lowercase hex digits, got $(repr(s))")
+    s
+end
+
 ###########################################################################################################
 # Package source modules and the Cholesky prototypes
 ###########################################################################################################
@@ -27,15 +39,19 @@ module PkgSControl end
 module Proto end
 module ProtoControl end
 
-# The three observation-space Cholesky prototypes, with ρ = 1/γ as in LeastSquaresLoss.
+# The three observation-space Cholesky prototypes. With γT = T(γ) and ρ = inv(γT) as in LeastSquaresLoss, the shift
+# I + XX'/ρ is formed with the scalar inv(ρ) in the lower triangle, as lasso.m forms 1/ρ once, and all three use
+# the same shift:
 #   CB (Boyd et al., lasso.m, fat branch): caches X'y and the factor L of I + XX'/ρ;
 #       q = X'y + ρv, β = q/ρ - X'((I + XX'/ρ) \ Xq)/ρ².
-#   CD (residual form): factor of I + γXX'; a = (I + γXX') \ (y - Xv), β = v + γX'a.
-#   CW (whitened form): LL' = I + γXX', W = L⁻¹X, c = L⁻¹y; β = v + γW'(c - Wv).
-# The solves use BLAS and LAPACK calls on preallocated buffers; prox!(β, c, v) allocates nothing in the warmed
-# state when its element types agree. refactor!(c, γ) re-shifts and refactors from the cached XX' (CW also
-# recomputes W and c). The 4-argument prox! checks that γ is the step of the current factorization.
-# build_parts returns the object and the seconds of each setup step.
+#   CD (residual form): a = (I + XX'/ρ) \ (y - Xv), β = v + X'a/ρ.
+#   CW (whitened form): LL' = I + XX'/ρ, W = L⁻¹X, c = L⁻¹y; β = v + W'(c - Wv)/ρ.
+# The solves use BLAS and LAPACK calls on preallocated buffers. For Float32 or Float64 data and a Float32 or Float64
+# step, the warmed prox!(β, c, v) of a factorized object allocated no bytes in the probes of harness.jl. refactor!(c, γ)
+# re-shifts and refactors from the cached XX' (CW also recomputes W and c). The 4-argument prox! checks that γ
+# converts to the step of the current factorization.
+# The constructors are the timed setup. breakdown(Type, X, y, γ) runs the same kernels (check_design, alloc, gram!,
+# rhs!, factor!, whiten!) with a time_ns() reading between them and returns the object and the seconds of each step.
 const PROTOTYPE_SOURCE = quote
     using LinearAlgebra
     using LinearAlgebra: BLAS, LAPACK
@@ -49,9 +65,13 @@ const PROTOTYPE_SOURCE = quote
         nothing
     end
 
-    function check_step(γ)
-        (isfinite(γ) && γ > 0) || throw(DomainError(γ, "the step must be finite and positive"))
-        nothing
+    # the step converted to T and ρ = inv(T(γ)), both finite and positive
+    function penalty_of(::Type{T}, γ::Real) where {T<:AbstractFloat}
+        γT = convert(T, γ)
+        ρ = inv(γT)
+        (isfinite(γT) && γT > 0 && isfinite(ρ) && ρ > 0) ||
+            throw(DomainError(γ, "the step must convert to a finite positive $T with a finite positive reciprocal"))
+        γT, ρ
     end
 
     # the lower triangle of XX'
@@ -60,22 +80,12 @@ const PROTOTYPE_SOURCE = quote
         XXt
     end
 
-    # L = I + c XX' (shift_mul!) or I + XX'/ρ (shift_div!) in the lower triangle
+    # L = I + c XX' in the lower triangle
     function shift_mul!(L::Matrix{T}, XXt::Matrix{T}, c::T) where {T}
         n = size(L, 1)
         @inbounds for j in 1:n
             for i in j:n
                 L[i, j] = c * XXt[i, j]
-            end
-            L[j, j] += one(T)
-        end
-        L
-    end
-    function shift_div!(L::Matrix{T}, XXt::Matrix{T}, ρ::T) where {T}
-        n = size(L, 1)
-        @inbounds for j in 1:n
-            for i in j:n
-                L[i, j] = XXt[i, j] / ρ
             end
             L[j, j] += one(T)
         end
@@ -106,33 +116,42 @@ const PROTOTYPE_SOURCE = quote
         q::Vector{T}
         γ::T
         ρ::T
+        invρ::T
         ρ2::T
     end
+    function alloc(::Type{CB}, X::Matrix{T}, y::Vector{T}) where {T<:AbstractFloat}
+        n, p = size(X)
+        CB{T}(X, y, Vector{T}(undef, p), Matrix{T}(undef, n, n), Matrix{T}(undef, n, n), Vector{T}(undef, n),
+              Vector{T}(undef, p), zero(T), zero(T), zero(T), zero(T))
+    end
+    rhs!(c::CB{T}) where {T} = (BLAS.gemv!('T', one(T), c.X, c.y, zero(T), c.Xty); c)
     function factor!(c::CB{T}, γ::Real) where {T}
-        check_step(γ)
-        c.γ = convert(T, γ)
-        c.ρ = inv(c.γ)
-        c.ρ2 = c.ρ * c.ρ
-        cholesky_lower!(shift_div!(c.L, c.XXt, c.ρ))
+        γT, ρ = penalty_of(T, γ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
+        c.γ, c.ρ, c.invρ, c.ρ2 = γT, ρ, inv(ρ), ρ * ρ
         c
     end
     refactor!(c::CB, γ::Real) = factor!(c, γ)
-    function build_parts(::Type{CB}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+    function CB(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+        check_design(X, y)
+        c = alloc(CB, X, y)
+        gram!(c.XXt, X)
+        rhs!(c)
+        factor!(c, γ)
+    end
+    function breakdown(::Type{CB}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
         t0 = time_ns()
         check_design(X, y)
-        n, p = size(X)
-        c = CB{T}(X, y, Vector{T}(undef, p), Matrix{T}(undef, n, n), Matrix{T}(undef, n, n),
-                  Vector{T}(undef, n), Vector{T}(undef, p), zero(T), zero(T), zero(T))
+        c = alloc(CB, X, y)
         t1 = time_ns()
         gram!(c.XXt, X)
         t2 = time_ns()
-        BLAS.gemv!('T', one(T), X, y, zero(T), c.Xty)
+        rhs!(c)
         t3 = time_ns()
         factor!(c, γ)
         t4 = time_ns()
         c, (; check_alloc = (t1 - t0) * 1e-9, gram = (t2 - t1) * 1e-9, rhs = (t3 - t2) * 1e-9, factor = (t4 - t3) * 1e-9)
     end
-    CB(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat} = build_parts(CB, X, y, γ)[1]
     function prox!(β::Vector{T}, c::CB{T}, v::Vector{T}) where {T}
         q, a, ρ, ρ2 = c.q, c.a, c.ρ, c.ρ2
         @. q = c.Xty + ρ * v
@@ -153,19 +172,30 @@ const PROTOTYPE_SOURCE = quote
         L::Matrix{T}
         r::Vector{T}
         γ::T
+        ρ::T
+        invρ::T
+    end
+    function alloc(::Type{CD}, X::Matrix{T}, y::Vector{T}) where {T<:AbstractFloat}
+        n = size(X, 1)
+        CD{T}(X, y, Matrix{T}(undef, n, n), Matrix{T}(undef, n, n), Vector{T}(undef, n), zero(T), zero(T), zero(T))
     end
     function factor!(c::CD{T}, γ::Real) where {T}
-        check_step(γ)
-        c.γ = convert(T, γ)
-        cholesky_lower!(shift_mul!(c.L, c.XXt, c.γ))
+        γT, ρ = penalty_of(T, γ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
+        c.γ, c.ρ, c.invρ = γT, ρ, inv(ρ)
         c
     end
     refactor!(c::CD, γ::Real) = factor!(c, γ)
-    function build_parts(::Type{CD}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+    function CD(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+        check_design(X, y)
+        c = alloc(CD, X, y)
+        gram!(c.XXt, X)
+        factor!(c, γ)
+    end
+    function breakdown(::Type{CD}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
         t0 = time_ns()
         check_design(X, y)
-        n = size(X, 1)
-        c = CD{T}(X, y, Matrix{T}(undef, n, n), Matrix{T}(undef, n, n), Vector{T}(undef, n), zero(T))
+        c = alloc(CD, X, y)
         t1 = time_ns()
         gram!(c.XXt, X)
         t2 = time_ns()
@@ -173,14 +203,13 @@ const PROTOTYPE_SOURCE = quote
         t3 = time_ns()
         c, (; check_alloc = (t1 - t0) * 1e-9, gram = (t2 - t1) * 1e-9, factor = (t3 - t2) * 1e-9)
     end
-    CD(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat} = build_parts(CD, X, y, γ)[1]
     function prox!(β::Vector{T}, c::CD{T}, v::Vector{T}) where {T}
         r = c.r
         copyto!(r, c.y)
         BLAS.gemv!('N', -one(T), c.X, v, one(T), r)
         solve_factor!(c.L, r)
         β === v || copyto!(β, v)
-        BLAS.gemv!('T', c.γ, c.X, r, one(T), β)
+        BLAS.gemv!('T', c.invρ, c.X, r, one(T), β)
         β
     end
     prox!(β::Vector{T}, c::CD{T}, v::Vector{T}, γ::Real) where {T} =
@@ -196,14 +225,21 @@ const PROTOTYPE_SOURCE = quote
         c::Vector{T}
         r::Vector{T}
         γ::T
+        ρ::T
+        invρ::T
+    end
+    function alloc(::Type{CW}, X::Matrix{T}, y::Vector{T}) where {T<:AbstractFloat}
+        n, p = size(X)
+        CW{T}(X, y, Matrix{T}(undef, n, n), Matrix{T}(undef, n, n), Matrix{T}(undef, n, p), Vector{T}(undef, n),
+              Vector{T}(undef, n), zero(T), zero(T), zero(T))
     end
     function factor!(c::CW{T}, γ::Real) where {T}
-        check_step(γ)
-        c.γ = convert(T, γ)
-        cholesky_lower!(shift_mul!(c.L, c.XXt, c.γ))
+        γT, ρ = penalty_of(T, γ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
+        c.γ, c.ρ, c.invρ = γT, ρ, inv(ρ)
         c
     end
-    # W = L⁻¹X and c = L⁻¹y
+    # W = L⁻¹X (a copy of X and trsm) and c = L⁻¹y (a copy of y and a triangular solve)
     function whiten!(c::CW{T}) where {T}
         copyto!(c.W, c.X)
         BLAS.trsm!('L', 'L', 'N', 'N', one(T), c.L, c.W)
@@ -212,12 +248,17 @@ const PROTOTYPE_SOURCE = quote
         c
     end
     refactor!(c::CW, γ::Real) = whiten!(factor!(c, γ))
-    function build_parts(::Type{CW}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+    function CW(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
+        check_design(X, y)
+        c = alloc(CW, X, y)
+        gram!(c.XXt, X)
+        factor!(c, γ)
+        whiten!(c)
+    end
+    function breakdown(::Type{CW}, X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat}
         t0 = time_ns()
         check_design(X, y)
-        n, p = size(X)
-        c = CW{T}(X, y, Matrix{T}(undef, n, n), Matrix{T}(undef, n, n), Matrix{T}(undef, n, p), Vector{T}(undef, n),
-                  Vector{T}(undef, n), zero(T))
+        c = alloc(CW, X, y)
         t1 = time_ns()
         gram!(c.XXt, X)
         t2 = time_ns()
@@ -227,13 +268,12 @@ const PROTOTYPE_SOURCE = quote
         t4 = time_ns()
         c, (; check_alloc = (t1 - t0) * 1e-9, gram = (t2 - t1) * 1e-9, factor = (t3 - t2) * 1e-9, whiten = (t4 - t3) * 1e-9)
     end
-    CW(X::Matrix{T}, y::Vector{T}, γ::Real) where {T<:AbstractFloat} = build_parts(CW, X, y, γ)[1]
     function prox!(β::Vector{T}, c::CW{T}, v::Vector{T}) where {T}
         r = c.r
         copyto!(r, c.c)
         BLAS.gemv!('N', -one(T), c.W, v, one(T), r)
         β === v || copyto!(β, v)
-        BLAS.gemv!('T', c.γ, c.W, r, one(T), β)
+        BLAS.gemv!('T', c.invρ, c.W, r, one(T), β)
         β
     end
     prox!(β::Vector{T}, c::CW{T}, v::Vector{T}, γ::Real) where {T} =
@@ -306,7 +346,11 @@ round_order(roles, r::Integer) = isodd(r) ? roles : reverse(roles)
 # The manifest of the binary inputs
 ###########################################################################################################
 
-struct Case
+const ArrayInfo = NamedTuple{(:file, :shape, :sha256, :note), Tuple{String,Vector{Int},String,String}}
+
+# gammas: the steps of the timing groups; acc_gammas: the steps whose prox outputs are evaluated (a superset of gammas);
+# sigma_max: the largest singular value of the stored X, computed from its Float64 values
+Base.@kwdef struct Case
     id::String
     kind::Symbol            # :main or :control
     T::DataType
@@ -318,8 +362,10 @@ struct Case
     timed::Bool
     lasso::Bool
     gammas::Vector{Float64}
+    acc_gammas::Vector{Float64}
     lambda_max::Float64
-    arrays::Dict{String,NamedTuple{(:file, :shape, :sha256, :note), Tuple{String,Vector{Int},String,String}}}
+    sigma_max::Float64
+    arrays::Dict{String,ArrayInfo}
 end
 
 struct Manifest
@@ -330,21 +376,30 @@ struct Manifest
 end
 
 const ELTYPES = Dict("Float64" => Float64, "Float32" => Float32)
+const MANIFEST_FORMAT = "pb1103-inputs-2"
 const MANIFEST_COLUMNS = ["case", "kind", "eltype", "design", "response", "n", "p", "seed", "timed", "lasso", "gammas",
-                          "lambda_max", "array", "file", "shape", "sha256", "note"]
+                          "acc_gammas", "lambda_max", "sigma_max", "array", "file", "shape", "sha256", "note"]
 
-file_sha256(path) = bytes2hex(open(sha256, path))
+file_sha256(path) = bytes2hex(sha256(read(path)))
 case_file(id) = replace(id, '/' => '_', '=' => '-', '+' => 'p')
+parse_floats(s) = isempty(s) ? Float64[] : parse.(Float64, split(s, ','))
 
-function load_manifest(dir::AbstractString)
-    path = joinpath(dir, "inputs-index.tsv")
-    isfile(path) || error("no inputs-index.tsv in $dir")
+function partition_at(s::AbstractString, sep::AbstractString)
+    r = findfirst(sep, s)
+    r === nothing ? (s, "", "") : (s[1:first(r)-1], sep, s[last(r)+1:end])
+end
+
+# The rows of a tab-separated file of this study: the `# key: value` header, the column names and the rows as
+# dictionaries. A file without the closing line `# complete: yes` is an interrupted write and is rejected.
+function read_tsv(path::AbstractString)
+    isfile(path) || error("missing file $path")
+    lines = readlines(path)
+    filter!(!isempty, lines)
+    !isempty(lines) && lines[end] == "# complete: yes" || error("$path is incomplete (no closing `# complete: yes` line)")
     header = Dict{String,String}()
     cols = nothing
-    order = String[]
-    byid = Dict{String,Vector{Dict{String,String}}}()
-    for line in eachline(path)
-        isempty(line) && continue
+    rows = Vector{Dict{String,String}}()
+    for line in lines
         if startswith(line, "#")
             k, _, v = partition_at(line[2:end], ":")
             header[strip(k)] = strip(v)
@@ -352,50 +407,73 @@ function load_manifest(dir::AbstractString)
             cols = String.(split(line, '\t'))
         else
             f = String.(split(line, '\t'))
-            length(f) == length(cols) || error("malformed row in inputs-index.tsv: $line")
-            row = Dict(zip(cols, f))
-            haskey(byid, row["case"]) || (push!(order, row["case"]); byid[row["case"]] = Dict{String,String}[])
-            push!(byid[row["case"]], row)
+            length(f) == length(cols) || error("$path: malformed row $(repr(line))")
+            push!(rows, Dict(zip(cols, f)))
         end
+    end
+    header, cols === nothing ? String[] : cols, rows
+end
+
+function load_manifest(dir::AbstractString)
+    path = joinpath(dir, "inputs-index.tsv")
+    header, cols, rows = read_tsv(path)
+    get(header, "format", "") == MANIFEST_FORMAT || error("$path: format $(get(header, "format", "none")), expected $MANIFEST_FORMAT")
+    cols == MANIFEST_COLUMNS || error("$path: unexpected columns")
+    order = String[]
+    byid = Dict{String,Vector{Dict{String,String}}}()
+    for row in rows
+        haskey(byid, row["case"]) || (push!(order, row["case"]); byid[row["case"]] = Dict{String,String}[])
+        push!(byid[row["case"]], row)
     end
     cases = Case[]
     for id in order
-        rows = byid[id]
-        r = rows[1]
-        arrays = Dict{String,NamedTuple{(:file, :shape, :sha256, :note), Tuple{String,Vector{Int},String,String}}}()
-        for q in rows
+        rs = byid[id]
+        r = rs[1]
+        arrays = Dict{String,ArrayInfo}()
+        for q in rs
+            haskey(arrays, q["array"]) && error("$path: duplicate array $(q["array"]) of case $id")
             arrays[q["array"]] = (file = q["file"], shape = parse.(Int, split(q["shape"], 'x')), sha256 = q["sha256"],
                                   note = q["note"])
         end
-        γs = isempty(r["gammas"]) ? Float64[] : parse.(Float64, split(r["gammas"], ','))
-        push!(cases, Case(id, Symbol(r["kind"]), ELTYPES[r["eltype"]], r["design"], r["response"], parse(Int, r["n"]),
-                          parse(Int, r["p"]), parse(Int, r["seed"]), r["timed"] == "true", r["lasso"] == "true", γs,
-                          isempty(r["lambda_max"]) ? NaN : parse(Float64, r["lambda_max"]), arrays))
+        all(k -> haskey(arrays, k), ("X", "y", "V")) || error("$path: case $id lacks one of X, y, V")
+        haskey(ELTYPES, r["eltype"]) || error("$path: unknown element type $(r["eltype"])")
+        n, p = parse(Int, r["n"]), parse(Int, r["p"])
+        arrays["X"].shape == [n, p] && arrays["y"].shape == [n] && length(arrays["V"].shape) == 2 && arrays["V"].shape[1] == p ||
+            error("$path: shapes of case $id disagree with n and p")
+        γs, aγs = parse_floats(r["gammas"]), parse_floats(r["acc_gammas"])
+        all(g -> g in aγs, γs) || error("$path: gammas of case $id are not among acc_gammas")
+        push!(cases, Case(id = id, kind = Symbol(r["kind"]), T = ELTYPES[r["eltype"]], design = r["design"], response = r["response"],
+                          n = n, p = p, seed = parse(Int, r["seed"]), timed = r["timed"] == "true", lasso = r["lasso"] == "true",
+                          gammas = γs, acc_gammas = aγs, lambda_max = isempty(r["lambda_max"]) ? NaN : parse(Float64, r["lambda_max"]),
+                          sigma_max = parse(Float64, r["sigma_max"]), arrays = arrays))
     end
     Manifest(String(dir), header, cases, file_sha256(path))
 end
 
-function partition_at(s::AbstractString, sep::AbstractString)
-    r = findfirst(sep, s)
-    r === nothing ? (s, "", "") : (s[1:first(r)-1], sep, s[last(r)+1:end])
-end
-
-const VERIFIED_FILES = Dict{String,Bool}()
-
-# The array `name` of a case, read after its file has been checked against the SHA-256 of the manifest (once per
-# process and file). A mismatch or a size that differs from the manifest stops the process.
+# The array `name` of a case. The bytes of the file are read once, hashed, compared with the SHA-256 of the manifest
+# and decoded from the same buffer, so that the array is the one that was verified. A mismatch or a size that differs
+# from the manifest stops the process.
 function read_input(m::Manifest, c::Case, name::AbstractString)
     a = c.arrays[name]
     path = joinpath(m.dir, a.file)
     isfile(path) || error("missing input file $(a.file)")
-    if !haskey(VERIFIED_FILES, path)
-        got = file_sha256(path)
-        got == a.sha256 || error("SHA-256 mismatch for $(a.file): manifest $(a.sha256), file $got")
-        VERIFIED_FILES[path] = true
-    end
-    filesize(path) == prod(a.shape) * sizeof(c.T) || error("size of $(a.file) differs from its shape $(a.shape)")
+    bytes = read(path)
+    got = bytes2hex(sha256(bytes))
+    got == a.sha256 || error("SHA-256 mismatch for $(a.file): manifest $(a.sha256), file $got")
+    length(bytes) == prod(a.shape) * sizeof(c.T) || error("size of $(a.file) differs from its shape $(a.shape)")
     A = Array{c.T}(undef, a.shape...)
-    read!(path, A)
+    read!(IOBuffer(bytes), A)
+    A
+end
+
+# The array of bytes read from a file after a check against an expected SHA-256 and byte count, decoded as type T.
+function read_verified(path::AbstractString, expected_sha::AbstractString, ::Type{T}, shape) where {T}
+    bytes = read(path)
+    got = bytes2hex(sha256(bytes))
+    got == expected_sha || error("SHA-256 mismatch for $(basename(path)): expected $expected_sha, file $got")
+    length(bytes) == prod(shape) * sizeof(T) || error("size of $(basename(path)) differs from shape $shape")
+    A = Array{T}(undef, shape...)
+    read!(IOBuffer(bytes), A)
     A
 end
 
@@ -508,9 +586,25 @@ end
 
 const ADMM_CHECKPOINTS = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000)
 
-# An untimed run of one role: the iteration counts of Boyd's rule and of the stationarity target
-# tight_tol·scale (0 when not reached within cap), and the trajectory at the checkpoints and at those counts as
-# rows (k, r, s, stationarity, objective). The run stops when both are reached or at cap.
+# k iterations of admm_step! on the work arrays, with Boyd's residual norms and tolerances evaluated after each
+# iteration. The number of iterations that meet the rule is returned (the caller consumes it); it does not stop the
+# loop. The sums of the last iteration are returned too.
+function admm_loop!(w::AdmmWork{T}, px::P, obj, γ::T, κ::T, ρ::Real, k::Int; εabs = 1e-4, εrel = 1e-2) where {T,P}
+    p = length(w.x)
+    flags = 0
+    last = (0.0, 0.0, 0.0, 0.0, 0.0)
+    for _ in 1:k
+        last = admm_step!(w, px, obj, γ, κ)
+        flags += boyd_converged(p, ρ, last; εabs, εrel)
+    end
+    flags, last
+end
+
+# An untimed run of one role for at most cap iterations (exactly cap when a target is not reached). It records, for
+# Boyd's rule and for the stationarity target tight_tol·scale, whether the target was reached, the iteration count k
+# (the first iteration that meets the target, or the number of iterations run when it was not reached) and the
+# measures (r, s, stationarity, objective) at that iteration, and the trajectory at the checkpoints and at the
+# iterations that reached a target. The run stops when both targets are reached.
 function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; tight_tol::Real, scale::Real, cap::Int,
                       εabs = 1e-4, εrel = 1e-2) where {T}
     n, p = size(X)
@@ -518,27 +612,33 @@ function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; t
     obj = role.ctor(X, y, γ)
     role.prepare(obj)
     w = AdmmWork(T, n, p)
-    k_boyd = 0
-    k_tight = 0
+    boyd = tight = nothing
     rows = NTuple{5,Float64}[]
-    final = (0.0, 0.0)
+    ran = 0
+    last = (NaN, NaN, NaN, NaN)
     for k in 1:cap
         t = admm_step!(w, role.px, obj, γ, κ)
         res, objective = lasso_measures!(w, X, y, λ)
-        final = (res, objective)
-        boyd = k_boyd == 0 && boyd_converged(p, ρ, t; εabs, εrel)
-        boyd && (k_boyd = k)
-        tight = k_tight == 0 && res <= tight_tol * scale
-        tight && (k_tight = k)
-        if boyd || tight || k in ADMM_CHECKPOINTS
-            push!(rows, (Float64(k), sqrt(t[1]), ρ * sqrt(t[2]), res, objective))
+        ran = k
+        last = (sqrt(t[1]), ρ * sqrt(t[2]), res, objective)
+        hit = false
+        if boyd === nothing && boyd_converged(p, ρ, t; εabs, εrel)
+            boyd = (k, last)
+            hit = true
         end
-        k_tight != 0 && k_boyd != 0 && break
+        if tight === nothing && res <= tight_tol * scale
+            tight = (k, last)
+            hit = true
+        end
+        (hit || k in ADMM_CHECKPOINTS) && push!(rows, (Float64(k), last...))
+        boyd !== nothing && tight !== nothing && break
     end
-    (; k_boyd, k_tight, rows, final_stationarity = final[1], final_objective = final[2])
+    level(x) = x === nothing ? (; reached = false, k = ran, measures = last) : (; reached = true, k = x[1], measures = x[2])
+    (; boyd = level(boyd), tight = level(tight), ran, rows)
 end
 
-# S-ADMM to the stationarity tol·scale, checked every `every` iterations, for the reference optimum.
+# S-ADMM to the stationarity tol·scale, checked every `every` iterations and at the cap, for the reference optimum.
+# At most cap iterations run.
 function admm_reference(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; tol::Real, scale::Real, cap::Int,
                         every::Int = 10) where {T}
     n, p = size(X)
@@ -549,10 +649,11 @@ function admm_reference(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real;
     res, objective, k = Inf, Inf, 0
     converged = false
     while k < cap
-        for _ in 1:every
+        steps = min(every, cap - k)
+        for _ in 1:steps
             admm_step!(w, role.px, obj, γ, κ)
         end
-        k += every
+        k += steps
         res, objective = lasso_measures!(w, X, y, λ)
         if res <= tol * scale
             converged = true

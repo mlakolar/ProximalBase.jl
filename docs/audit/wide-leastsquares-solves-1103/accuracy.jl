@@ -1,22 +1,30 @@
 # Accuracy evaluator of the wide least-squares study (#1103). It reads the prox outputs that harness.jl wrote for
-# the primary roles (group outputs) and the inputs of generate.jl, checks each file against its SHA-256 and
-# evaluates, independently of the implementations and in BigFloat, from X, y, v and γ of each case:
+# the primary roles (group outputs) and the inputs of generate.jl, checks the bytes of each file against its SHA-256,
+# and evaluates, independently of the implementations and in BigFloat, from X, y, v and γ of each case:
 #   eta             the stationarity residual
 #                   ‖X'(Xβ - y) + ρ(β - v)‖∞ / (‖X'‖∞‖Xβ‖∞ + ‖X'y‖∞ + ρ(‖β‖∞ + ‖v‖∞)), ρ = 1/big(T(γ)), 256 bits,
+#   pass            η ≤ 1e3·eps(T), decided in BigFloat before η is rounded to Float64 for the file,
 #   forward_error   for n ≤ PB_FORWARD_MAX_N (default 500): ‖β - β*‖∞/‖β*‖∞ against the solution
-#                   β* = v + X'a* of the dual system (XX' + ρI)a* = y - Xv in 128-bit BigFloat (Cholesky).
-# A role whose outputs are marked as an error or hold a nonfinite entry has η = Inf. The pass threshold
-# η ≤ 1e3·eps(T) is applied by summarize.py, which reads the rows written here.
+#                   β* = v + X'a* of the dual system (XX' + ρI)a* = y - Xv in 128-bit BigFloat (Cholesky); the
+#                   absolute error ‖β - β*‖∞ when β* = 0. A diagnostic; it is not tested.
+# An output with a nonfinite entry, or that the harness recorded as a failure (outputs-failures.tsv), has η = Inf,
+# forward_error = Inf and pass = false, with the status of the failure.
 #
-#   PB_INPUTS=<inputs dir> PB_OUTPUTS=<the outputs-<julia> dir of harness.jl> [PB_FILTER=<regex on case ids>] \
-#   [PB_ACC_TAG=all] [PB_FORWARD_MAX_N=500] julia --threads=1 --project=. docs/audit/wide-leastsquares-solves-1103/accuracy.jl
+#   PB_INPUTS=<inputs dir> PB_OUTPUTS=<the outputs-<julia> dir of harness.jl> PB_HARNESS_SHA=<sha> \
+#   [PB_FILTER=<regex on case ids>] [PB_ACC_TAG=all] [PB_FORWARD_MAX_N=500] \
+#   julia --threads=1 --project=. docs/audit/wide-leastsquares-solves-1103/accuracy.jl
 #
-# The result is accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines and one row per
-# (case, role, step, input). With PB_CHECK_ONLY=1 the script first checks its column sweeps against the dense
-# BigFloat evaluation eta_exact and a dense dual solve on a small random problem, with and without the in-place
-# operation, and prints the cost of a multiply-add; it then evaluates PB_OUTPUTS when that is set.
-# The sweeps use the MPFR fused multiply-add (a ccall into libmpfr) when it works and plain BigFloat arithmetic
-# otherwise; PB_ACC_NOINPLACE=1 selects the plain arithmetic.
+# The inputs must be the manifest that the outputs were made from (the SHA-256 of inputs-index.tsv recorded in the outputs
+# index), and the element type, steps and number of inputs of each output file must agree with it; a mismatch stops the
+# run before any scoring. PB_HARNESS_SHA must equal the harness identity of the outputs unless both are unset (PB_CHECK_ONLY).
+# The result is accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and
+# input identities of the outputs), one row per (case, role, step, input), and the closing line `# complete: yes`.
+# With PB_CHECK_ONLY=1 the script first checks its column sweeps against the dense BigFloat evaluation eta_exact and a dense
+# dual solve on a small random problem, with and without the in-place operation, and the in-place operation against
+# Base.fma under a scoped rounding mode, and prints the effective cost of the whole η evaluation per multiply-add of its
+# two main sweeps; it then evaluates PB_OUTPUTS when that is set. The sweeps use the MPFR fused multiply-add (a ccall into
+# libmpfr, with the rounding mode in effect) when it works and plain BigFloat arithmetic otherwise; PB_ACC_NOINPLACE=1
+# selects the plain arithmetic.
 ENV["PB_LOAD_PACKAGE"] = "0"
 include(joinpath(@__DIR__, "common.jl"))
 
@@ -25,7 +33,7 @@ const INPLACE = Ref(false)
 # acc := acc + x*y by one MPFR fused multiply-add into acc (the result has the precision of acc)
 @inline function mpfr_fma!(acc::BigFloat, x::BigFloat, y::BigFloat)
     ccall((:mpfr_fma, Base.MPFR.libmpfr), Int32, (Ref{BigFloat}, Ref{BigFloat}, Ref{BigFloat}, Ref{BigFloat},
-          Base.MPFR.MPFRRoundingMode), acc, x, y, acc, Base.MPFR.ROUNDING_MODE[])
+          Base.MPFR.MPFRRoundingMode), acc, x, y, acc, Base.MPFR.rounding_raw(BigFloat))
     acc
 end
 try
@@ -38,15 +46,18 @@ env_flag("PB_ACC_NOINPLACE") && (INPLACE[] = false)
 # acc + x*y; with the in-place option the result is acc itself (one rounding instead of two)
 @inline acc_mul(acc::BigFloat, x::BigFloat, y::BigFloat, tmp::BigFloat) = INPLACE[] ? mpfr_fma!(acc, x, y) : acc + x * y
 
-# η of the columns of B (p × N): column m is an output for the step γs[γidx[m]] and the input V[:, vidx[m]]
+# η of the columns of B (p × N) and whether η ≤ 1e3·eps(T) (decided in BigFloat): column m is an output for the step
+# γs[γidx[m]] and the input V[:, vidx[m]]; a column with skip[m] or with a nonfinite entry has η = Inf and fails
 function eta_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T}, γs::Vector{T}, γidx::Vector{Int},
-                     vidx::Vector{Int}; prec::Int = 256) where {T<:AbstractFloat}
+                     vidx::Vector{Int}; skip::AbstractVector{Bool} = falses(size(B, 2)), prec::Int = 256) where {T<:AbstractFloat}
     n, p = size(X)
     N = size(B, 2)
-    finite = [all(isfinite, view(B, :, m)) for m in 1:N]
+    finite = [!skip[m] && all(isfinite, view(B, :, m)) for m in 1:N]
     η = fill(Inf, N)
+    pass = fill(false, N)
     setprecision(BigFloat, prec) do
         ρs = [1 / big(γs[γidx[m]]) for m in 1:N]
+        thr = big(1000) * big(eps(T))
         R = [BigFloat(0) for i in 1:n, m in 1:N]
         xcol = [BigFloat(0) for i in 1:n]
         tmp = BigFloat(0)
@@ -98,17 +109,20 @@ function eta_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T}, γs
             binf, vinf = BigFloat(maximum(abs, view(B, :, m))), BigFloat(maximum(abs, view(V, :, vidx[m])))
             den = Xt_inf * xβinf[m] + Xty_inf + ρs[m] * (binf + vinf)
             η[m] = Float64(iszero(den) ? (iszero(num[m]) ? BigFloat(0) : BigFloat(Inf)) : num[m] / den)
+            pass[m] = iszero(den) ? iszero(num[m]) : num[m] <= thr * den
         end
     end
-    η
+    η, pass
 end
 
-# the forward errors of the columns of B against the 128-bit solution of the dual system (columns as in eta_columns)
+# the forward errors of the columns of B against the 128-bit solution of the dual system (columns as in eta_columns):
+# relative to ‖β*‖∞, absolute when β* = 0; Inf for a skipped or nonfinite column
 function forward_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T}, γs::Vector{T}, γidx::Vector{Int},
-                         vidx::Vector{Int}; prec::Int = 128) where {T<:AbstractFloat}
+                         vidx::Vector{Int}; skip::AbstractVector{Bool} = falses(size(B, 2)), prec::Int = 128) where {T<:AbstractFloat}
     n, p = size(X)
     N = size(B, 2)
     err = fill(Inf, N)
+    any(m -> !skip[m] && all(isfinite, view(B, :, m)), 1:N) || return err
     setprecision(BigFloat, prec) do
         yb = BigFloat.(y)
         xcol = [BigFloat(0) for i in 1:n]
@@ -163,7 +177,7 @@ function forward_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T},
                 end
                 βinf = maximum(abs, β)
                 for m in cols
-                    all(isfinite, view(B, :, m)) || continue
+                    (skip[m] || !all(isfinite, view(B, :, m))) && continue
                     d = maximum(abs(BigFloat(B[j, m]) - β[j]) for j in 1:p)
                     err[m] = Float64(iszero(βinf) ? d : d / βinf)
                 end
@@ -173,74 +187,69 @@ function forward_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T},
     err
 end
 
-function read_outputs_index(dir::String)
-    path = joinpath(dir, "outputs-index.tsv")
-    isfile(path) || error("no outputs-index.tsv in $dir")
-    header = Dict{String,String}()
-    cols = nothing
-    rows = Vector{Dict{String,String}}()
-    for line in eachline(path)
-        isempty(line) && continue
-        if startswith(line, "#")
-            k, _, v = partition_at(line[2:end], ":")
-            header[strip(k)] = strip(v)
-        elseif cols === nothing
-            cols = String.(split(line, '\t'))
-        else
-            push!(rows, Dict(zip(cols, String.(split(line, '\t')))))
-        end
-    end
-    header, rows
-end
-
 function evaluate(m::Manifest, outdir::String)
-    header, rows = read_outputs_index(outdir)
+    header, _, rows = read_tsv(joinpath(outdir, "outputs-index.tsv"))
+    fheader, _, frows = read_tsv(joinpath(outdir, "outputs-failures.tsv"))
+    get(header, "inputs_index_sha256", "") == m.sha256 ||
+        error("the outputs were made from the manifest $(get(header, "inputs_index_sha256", "?")), not from $(m.sha256)")
+    for k in ("source_sha", "harness_sha", "inputs_index_sha256", "julia")
+        get(fheader, k, "") == get(header, k, "?") || error("outputs-failures.tsv and outputs-index.tsv differ in $k")
+    end
+    out_harness = get(header, "harness_sha", "unset")
+    env_harness = env_sha("PB_HARNESS_SHA"; required = !env_flag("PB_CHECK_ONLY"))
+    env_harness == out_harness || error("PB_HARNESS_SHA $env_harness differs from the harness identity $out_harness of the outputs")
     rx = Regex(env_string("PB_FILTER", ""))
     fwd_max = env_int("PB_FORWARD_MAX_N", 500)
     tag = env_string("PB_ACC_TAG", "all")
     byid = Dict(c.id => c for c in m.cases)
     ids = unique([r["case"] for r in rows])
+    for id in ids
+        haskey(byid, id) || error("the outputs hold the case $id, which the manifest does not")
+    end
+    failures = Dict{Tuple{String,String,Int,Int},String}((f["case"], f["role"], parse(Int, f["gamma_index"]), parse(Int, f["vindex"])) =>
+                                                          f["message"] for f in frows)
     open(joinpath(outdir, "accuracy-$tag.tsv"), "w") do io
-        for (k, v) in [("format", "pb1103-accuracy-1"), ("julia", get(header, "julia", "unknown")),
+        for (k, v) in [("format", "pb1103-accuracy-2"), ("julia", get(header, "julia", "unknown")),
                        ("outputs_order", get(header, "order", "unknown")), ("source_sha", get(header, "source_sha", "unset")),
-                       ("harness_sha", get(header, "harness_sha", "unset")), ("inputs_index_sha256", m.sha256),
-                       ("inputs_match_outputs", get(header, "inputs_index_sha256", "unknown") == m.sha256),
-                       ("filter", rx.pattern), ("forward_max_n", fwd_max), ("inplace_bigfloat", INPLACE[]),
-                       ("eta_precision_bits", 256), ("forward_precision_bits", 128),
-                       ("started_utc", Dates.format(now(UTC), "yyyy-mm-ddTHH:MM:SSZ"))]
+                       ("harness_sha", out_harness), ("inputs_index_sha256", m.sha256), ("filter", rx.pattern),
+                       ("forward_max_n", fwd_max), ("inplace_bigfloat", INPLACE[]), ("eta_precision_bits", 256),
+                       ("forward_precision_bits", 128), ("started_utc", Dates.format(now(UTC), "yyyy-mm-ddTHH:MM:SSZ"))]
             println(io, "# ", k, ": ", v)
         end
-        println(io, join(["case", "eltype", "kind", "role", "gamma_index", "gamma", "vindex", "eta", "forward_error", "status", "copy_identical"], '\t'))
+        println(io, join(["case", "eltype", "kind", "role", "gamma_index", "gamma", "vindex", "eta", "forward_error", "pass", "status",
+                          "copy_identical"], '\t'))
         for id in ids
             occursin(rx, id) || continue
             c = byid[id]
             t0 = time()
             X, y, V = read_input(m, c, "X"), read_input(m, c, "y"), read_input(m, c, "V")
             T = c.T
-            γs = T.(c.gammas)
+            γs = T.(c.acc_gammas)
             K = size(V, 2)
             crow = [r for r in rows if r["case"] == id]
-            Bs, γidx, vidx, labels = Matrix{T}[], Int[], Int[], Tuple{String,String,String}[]
+            Bs, γidx, vidx, labels, skip = Matrix{T}[], Int[], Int[], Tuple{String,String,String}[], Bool[]
             for r in crow
-                path = joinpath(outdir, r["file"])
-                file_sha256(path) == r["sha256"] || error("SHA-256 mismatch for $(r["file"])")
+                r["eltype"] == string(T) || error("output $(r["file"]) is $(r["eltype"]); the case $id is $T")
+                r["acc_gammas"] == join(repr.(c.acc_gammas), ",") || error("output $(r["file"]) has other steps than the manifest")
+                parse(Int, r["nv"]) == K || error("output $(r["file"]) has another number of inputs than the manifest")
                 shape = parse.(Int, split(r["shape"], 'x'))
-                B = Array{T}(undef, shape...)
-                read!(path, B)
-                size(B) == (c.p, K * length(γs)) || error("output $(r["file"]) has the wrong shape")
+                shape == [c.p, K * length(γs)] || error("output $(r["file"]) has the wrong shape")
+                B = read_verified(joinpath(outdir, r["file"]), r["sha256"], T, shape)
                 push!(Bs, B)
                 for gi in eachindex(γs), k in 1:K
+                    msg = get(failures, (id, r["role"], gi, k), nothing)
                     push!(γidx, gi)
                     push!(vidx, k)
-                    push!(labels, (r["role"], r["status"], r["copy_identical"]))
+                    push!(skip, msg !== nothing)
+                    push!(labels, (r["role"], msg === nothing ? "ok" : "error: " * msg, r["copy_identical"]))
                 end
             end
             Ball = reduce(hcat, Bs)
-            η = eta_columns(X, y, V, Ball, γs, γidx, vidx)
-            fe = c.n <= fwd_max ? forward_columns(X, y, V, Ball, γs, γidx, vidx) : fill(NaN, length(η))
+            η, pass = eta_columns(X, y, V, Ball, γs, γidx, vidx; skip = skip)
+            fe = c.n <= fwd_max ? forward_columns(X, y, V, Ball, γs, γidx, vidx; skip = skip) : fill(NaN, length(η))
             for m in eachindex(η)
-                println(io, join([id, c.T === Float64 ? "Float64" : "Float32", c.kind, labels[m][1], γidx[m], repr(c.gammas[γidx[m]]),
-                                  vidx[m], η[m], fe[m], labels[m][2], labels[m][3]], '\t'))
+                println(io, join([id, string(T), c.kind, labels[m][1], γidx[m], repr(c.acc_gammas[γidx[m]]), vidx[m], η[m], fe[m],
+                                  pass[m], labels[m][2], labels[m][3]], '\t'))
             end
             flush(io)
             println("evaluated ", id, " (", length(η), " outputs, ", round(time() - t0; digits = 1), " s)")
@@ -249,9 +258,24 @@ function evaluate(m::Manifest, outdir::String)
     end
 end
 
+# the in-place multiply-add against Base.fma at 3 bits under the scoped rounding mode RoundUp
+function check_rounding_scope()
+    INPLACE[] || return
+    setprecision(BigFloat, 3) do
+        setrounding(BigFloat, RoundUp) do
+            a, x, y = BigFloat(0.125), BigFloat(1), BigFloat(1)
+            ref = fma(x, y, a)
+            got = mpfr_fma!(BigFloat(a), x, y)
+            got == ref || error("the in-place multiply-add ignores the scoped rounding mode: $got against $ref")
+            ref == BigFloat(1.25) || error("the scoped rounding check expects 1.25 from fma, got $ref")
+        end
+    end
+end
+
 # column sweeps against the dense evaluations on a small random problem, with and without in-place operations
 function self_check()
     println("== accuracy.jl self-check; in-place MPFR multiply-add available: ", INPLACE[])
+    check_rounding_scope()
     saved = INPLACE[]
     for T in (Float64, Float32), inplace in unique([saved, false])
         INPLACE[] = inplace
@@ -261,7 +285,7 @@ function self_check()
         y = randn(rng, T, n)
         V = randn(rng, T, p, 2)
         γs = T[1e-3, 1.0, 1e3]
-        B = zeros(T, p, 6)
+        B = zeros(T, p, 8)
         γidx, vidx = Int[], Int[]
         for gi in 1:3, k in 1:2
             ρ = inv(γs[gi])
@@ -271,15 +295,23 @@ function self_check()
             push!(γidx, gi)
             push!(vidx, k)
         end
-        B[:, 6] .= T(NaN)
-        η = eta_columns(X, y, V, B, γs, γidx, vidx)
-        for m in 1:5
+        B[:, 7] .= T(NaN)                             # a nonfinite output
+        push!(γidx, 3); push!(vidx, 1)
+        ρ1 = inv(γs[2])
+        B[:, 8] = (X' * X + ρ1 * I) \ (X' * y + ρ1 * V[:, 1])   # an accurate output at γ = 1
+        push!(γidx, 2); push!(vidx, 1)
+        η, pass = eta_columns(X, y, V, B, γs, γidx, vidx)
+        for m in (1:6..., 8)
             ref = eta_exact(X, y, V[:, vidx[m]], γs[γidx[m]], B[:, m])
             abs(η[m] - ref) <= 1e-12 * ref || error("eta_columns differs from eta_exact: $(η[m]) against $ref (T $T, in place $inplace)")
+            pass[m] == (ref <= 1e3 * eps(T)) || error("the pass flag of column $m disagrees with the threshold")
         end
-        isinf(η[6]) || error("a nonfinite output must have η = Inf")
+        all(!, pass[1:7]) && pass[8] || error("the pass flags are wrong: $pass")
+        isinf(η[7]) || error("a nonfinite output must have η = Inf")
+        η2, pass2 = eta_columns(X, y, V, B, γs, γidx, vidx; skip = [m == 8 for m in 1:8])
+        isinf(η2[8]) && !pass2[8] && η2[1] == η[1] || error("a skipped column must have η = Inf and fail")
         fe = forward_columns(X, y, V, B, γs, γidx, vidx)
-        for m in 1:5
+        for m in (1:5..., 8)
             setprecision(BigFloat, 128) do
                 Xb, yb, Vb = BigFloat.(X), BigFloat.(y), BigFloat.(V)
                 ρ = 1 / big(γs[γidx[m]])
@@ -290,7 +322,7 @@ function self_check()
                 abs(fe[m] - ref) <= 1e-9 * ref || error("forward_columns differs from the dense solve: $(fe[m]) against $ref")
             end
         end
-        println(T, ", in place ", inplace, ": η and forward errors agree with the dense BigFloat evaluation")
+        println(T, ", in place ", inplace, ": η, the pass flags and the forward errors agree with the dense BigFloat evaluation")
     end
     INPLACE[] = saved
     rng = MersenneTwister(8)
@@ -298,7 +330,8 @@ function self_check()
     B = randn(rng, 400, 8)
     eta_columns(X, y, V, B[:, 1:1], [1.0], [1], [1])
     t = @elapsed eta_columns(X, y, V, B, [1.0, 2.0, 3.0, 4.0], repeat([1, 2, 3, 4], 2), repeat([1, 2], 4))
-    println("eta_columns: ", round(t / (2 * 100 * 400 * 8) * 1e9; digits = 1), " ns per multiply-add (in place ", INPLACE[], ")")
+    println("eta_columns: effective ", round(t / (2 * 100 * 400 * 8) * 1e9; digits = 1),
+            " ns per multiply-add of its two main sweeps, for the whole evaluation (in place ", INPLACE[], ")")
     println("accuracy.jl self-check passed")
 end
 

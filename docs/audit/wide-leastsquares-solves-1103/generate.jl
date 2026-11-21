@@ -1,19 +1,24 @@
 # Writes the inputs of the wide least-squares study (#1103) as little-endian binary arrays with a manifest
-# (inputs-index.tsv) that lists the case, element type, shape and SHA-256 of each array. The harness and the
-# accuracy evaluator check each file against the manifest before use.
+# (inputs-index.tsv) that lists the case, element type, design, response, shape, SHA-256 and largest singular value
+# of each case. The harness and the accuracy evaluator check each file against the manifest before use.
 #
-#   PB_INPUTS=<dir> [PB_PROFILE=full|small] [PB_FILTER=<regex on case ids>] [PB_CHECK_ONLY=1] \
-#   julia --threads=1 --project=. docs/audit/wide-leastsquares-solves-1103/generate.jl
+#   PB_INPUTS=<dir> PB_SOURCE_SHA=<sha> PB_HARNESS_SHA=<sha> [PB_PROFILE=full|small] [PB_FILTER=<regex on case ids>] \
+#   [PB_CHECK_ONLY=1] julia --threads=1 --project=. docs/audit/wide-leastsquares-solves-1103/generate.jl
 #
 # Profile full holds the aspect ratios n×p of the study, profile small (the default with PB_CHECK_ONLY=1) three
 # small ones. PB_FILTER keeps the cases whose id matches. The main cases are the three designs (Gaussian, rank n/2,
-# duplicated rows) in Float64 and Float32, each with its responses, and the accuracy controls built from the
+# duplicated rows) in Float64 and Float32, each with its responses; the accuracy controls are built from the
 # reproducer of #1078. The inconsistent responses of the rank-deficient designs are for the accuracy evaluation
 # only (the timed flag of the manifest is false), and only the Float64 Gaussian cases of the lasso sizes are ADMM
-# instances. The arrays are generated in Float64 from the seed of the design and size; the Float32 cases hold the
-# rounded arrays and their own ADMM iterates. The streams of a Random generator can differ
-# between Julia versions, so the files, not the seeds, define the inputs; regenerating with another version can
-# give other hashes. With PB_CHECK_ONLY=1 the script also reloads the manifest and checks the arrays.
+# instances. The main X, the responses and the random proximal inputs are generated in Float64 from the seed of
+# the design and size and cast to Float32 for the Float32 cases, which have their own ADMM iterates; the controls
+# are deterministic. In the rank-n/2 designs X is a product of rounded Gaussian factors and y = Xβ* is computed in
+# rounded arithmetic, so the rank and the consistency of the stored arrays hold to the tolerances of the validator
+# (not exactly); the duplicated rows are exactly equal. The streams of a Random generator can differ between Julia
+# versions, so the files, not the seeds, define the inputs, and regenerating with another version can give other
+# hashes. The columns acc_gammas (the steps whose prox outputs are evaluated for accuracy) extend the timing steps
+# by the ADMM steps 0.1 and 10 for the lasso instances. With PB_CHECK_ONLY=1 the script also reloads the manifest and
+# checks the arrays.
 include(joinpath(@__DIR__, "common.jl"))
 
 const PROFILES = Dict(
@@ -23,10 +28,11 @@ const PROFILES = Dict(
 const DESIGNS = ("gauss", "rankhalf", "duprows")
 const ADMM_ITERATES = (1, 5, 20, 100)          # v = z - u after these iteration counts, at ρ = 1
 const NOISE_SD = sqrt(1e-3)
-const NONZERO_COUNT = 100                      # the expected number of nonzeros of the sparse β*
+const NONZERO_COUNT = 100                      # β* has a nonzero entry with probability min(1, NONZERO_COUNT/p)
 
 step_grid(::Type{Float64}) = [1e-3, 1.0, 1e3, 1e6]
 step_grid(::Type{Float32}) = [1e-3, 1.0, 1e3]
+const ADMM_STEPS = [0.1, 10.0]                  # 1/ρ for the ADMM penalties ρ = 10 and 0.1 (ρ = 1 is in the grid)
 type_tag(::Type{Float64}) = "f64"
 type_tag(::Type{Float32}) = "f32"
 
@@ -49,7 +55,7 @@ function build_design(design::String, n::Int, p::Int, seed::Int)
         c = view(X, :, j)
         c ./= norm(c)
     end
-    βstar = [rand(rng) < NONZERO_COUNT / p ? randn(rng) : 0.0 for _ in 1:p]
+    βstar = [rand(rng) < NONZERO_COUNT / p ? randn(rng) : 0.0 for _ in 1:p]   # every entry for p ≤ NONZERO_COUNT
     noise = NOISE_SD .* randn(rng, n)
     Vrand = randn(rng, p, 4)
     X, βstar, noise, Vrand
@@ -107,10 +113,13 @@ end
 
 function manifest_row(io, c; array, file, shape, sha, note)
     gam = join(repr.(c.gammas), ",")
+    agam = join(repr.(c.acc_gammas), ",")
     lam = isnan(c.lambda_max) ? "" : repr(c.lambda_max)
     println(io, join([c.id, c.kind, c.T === Float64 ? "Float64" : "Float32", c.design, c.response, c.n, c.p, c.seed,
-                      c.timed, c.lasso, gam, lam, array, file, join(shape, 'x'), sha, note], '\t'))
+                      c.timed, c.lasso, gam, agam, lam, repr(c.sigma_max), array, file, join(shape, 'x'), sha, note], '\t'))
 end
+
+sigma_max_of(X) = svdvals(Float64.(X))[1]
 
 function generate(dir::String, profile::String, rx::Regex)
     prof = PROFILES[profile]
@@ -129,6 +138,7 @@ function generate(dir::String, profile::String, rx::Regex)
             xfile = "X-$design-$(n)x$p.$tag"
             write_array(dir, xfile, X)
             xsha = file_sha256(joinpath(dir, xfile))
+            σmax = sigma_max_of(X)
             for (resp, y64) in wanted
                 id = "$tag/$design/$resp/$(n)x$p"
                 y = Vector{T}(y64)
@@ -136,8 +146,12 @@ function generate(dir::String, profile::String, rx::Regex)
                 λ = T(0.1 * lmax)
                 iterates = admm_record(S, X, y, λ, 1.0, ADMM_ITERATES)
                 V = hcat(Matrix{T}(Vrand), reduce(hcat, iterates))
-                c = Case(id, :main, T, design, resp, n, p, seed, resp != "inconsistent", T === Float64 && design == "gauss" && (n, p) in prof.lasso,
-                         step_grid(T), lmax, Dict{String,NamedTuple{(:file, :shape, :sha256, :note), Tuple{String,Vector{Int},String,String}}}())
+                is_lasso = T === Float64 && design == "gauss" && (n, p) in prof.lasso
+                γs = step_grid(T)
+                c = Case(id = id, kind = :main, T = T, design = design, response = resp, n = n, p = p, seed = seed,
+                         timed = resp != "inconsistent", lasso = is_lasso, gammas = γs,
+                         acc_gammas = is_lasso ? sort(unique(vcat(γs, ADMM_STEPS))) : γs, lambda_max = lmax, sigma_max = σmax,
+                         arrays = Dict{String,ArrayInfo}())
                 yfile, vfile = "y-$design-$resp-$(n)x$p.$tag", "V-$design-$resp-$(n)x$p.$tag"
                 write_array(dir, yfile, y)
                 write_array(dir, vfile, V)
@@ -155,8 +169,9 @@ function generate(dir::String, profile::String, rx::Regex)
         base = case_file(ctl.id)
         tag = type_tag(T)
         n, p = size(ctl.X)
-        c = Case(ctl.id, :control, T, ctl.design, "control", n, p, 0, false, false, [ctl.γ], NaN,
-                 Dict{String,NamedTuple{(:file, :shape, :sha256, :note), Tuple{String,Vector{Int},String,String}}}())
+        c = Case(id = ctl.id, kind = :control, T = T, design = ctl.design, response = "control", n = n, p = p, seed = 0,
+                 timed = false, lasso = false, gammas = [ctl.γ], acc_gammas = [ctl.γ], lambda_max = NaN,
+                 sigma_max = sigma_max_of(ctl.X), arrays = Dict{String,ArrayInfo}())
         files = Dict(a => "$base-$a.$tag" for a in ("X", "y", "V"))
         for (a, A) in (("X", ctl.X), ("y", ctl.y), ("V", ctl.V))
             write_array(dir, files[a], A)
@@ -166,17 +181,19 @@ function generate(dir::String, profile::String, rx::Regex)
                                       ("V", files["V"], [p, 1], file_sha256(joinpath(dir, files["V"])), "columns=control")]))
     end
     open(joinpath(dir, "inputs-index.tsv"), "w") do io
+        println(io, "# format: ", MANIFEST_FORMAT)
         println(io, "# generator: generate.jl")
         println(io, "# julia: ", VERSION)
         println(io, "# profile: ", profile)
         println(io, "# filter: ", rx.pattern)
         println(io, "# created_utc: ", Dates.format(now(UTC), "yyyy-mm-ddTHH:MM:SSZ"))
-        println(io, "# source_sha: ", get(ENV, "PB_SOURCE_SHA", "unset"))
-        println(io, "# harness_sha: ", get(ENV, "PB_HARNESS_SHA", "unset"))
+        println(io, "# source_sha: ", SOURCE_SHA)
+        println(io, "# harness_sha: ", HARNESS_SHA)
         println(io, join(MANIFEST_COLUMNS, '\t'))
         for r in rows, (a, f, shp, sha, note) in r.arrays
             manifest_row(io, r.c; array = a, file = f, shape = shp, sha = sha, note = note)
         end
+        println(io, "# complete: yes")
     end
     length(rows)
 end
@@ -191,16 +208,24 @@ function validate(dir::String)
         T = c.T
         size(X) == (c.n, c.p) && length(y) == c.n && size(V, 1) == c.p || error("shape mismatch in $(c.id)")
         all(isfinite, X) && all(isfinite, y) && all(isfinite, V) || error("nonfinite input in $(c.id)")
+        isfinite(c.sigma_max) && c.sigma_max > 0 || error("sigma_max of $(c.id) is not positive and finite")
         if c.kind === :control
-            size(V, 2) == 1 && length(c.gammas) == 1 || error("control $(c.id) needs one input and one step")
+            size(V, 2) == 1 && length(c.gammas) == 1 && c.acc_gammas == c.gammas ||
+                error("control $(c.id) needs one input and one step")
             ncontrol += 1
             continue
         end
         nmain += 1
         size(V, 2) == 8 && c.gammas == step_grid(T) || error("main case $(c.id) needs 8 inputs and the step grid")
+        c.acc_gammas == (c.lasso ? sort(unique(vcat(c.gammas, ADMM_STEPS))) : c.gammas) || error("acc_gammas of $(c.id)")
+        σ = sigma_max_of(X)
+        abs(σ - c.sigma_max) <= 1e-9 * σ || error("sigma_max of $(c.id) disagrees with the stored X")
         tol = T === Float64 ? 1e-12 : 1e-5
         maximum(abs.(norm.(eachcol(Float64.(X))) .- 1)) <= tol || error("columns of $(c.id) are not unit-norm")
         any(!iszero, V[:, 5]) || error("the first ADMM iterate of $(c.id) is zero")
+        for cols in (1:4, 5:8), i in cols, j in cols
+            i < j && V[:, i] == V[:, j] && error("inputs $i and $j of $(c.id) are equal")
+        end
         if c.design == "duprows"
             h = c.n ÷ 2
             X[1:h, :] == X[h+1:end, :] || error("rows of $(c.id) are not duplicated")
@@ -220,6 +245,9 @@ function validate(dir::String)
     println("validated ", nmain, " main cases and ", ncontrol, " controls; manifest SHA-256 ", m.sha256)
     m
 end
+
+const SOURCE_SHA = env_sha("PB_SOURCE_SHA"; required = !env_flag("PB_CHECK_ONLY"))
+const HARNESS_SHA = env_sha("PB_HARNESS_SHA"; required = !env_flag("PB_CHECK_ONLY"))
 
 function main()
     dir = get(ENV, "PB_INPUTS", "")

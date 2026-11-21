@@ -1,30 +1,50 @@
 # Paired timing harness of the wide least-squares study (#1103). One process loads the package source twice (roles S
 # and S', the A/A control) and the Cholesky prototypes twice (C_B, C_D, C_W and their copies C_B', C_D', C_W'), reads
 # the inputs written by generate.jl and times the roles against each other. The measurement groups are
-#   first_use       construction, factorization and first prox on a fresh object (one sample per role and round),
-#                   and the time of each setup step of the primary roles (first_use_part)
-#   warm            the warmed prox, minimum over batches of calls, at each step of the case and for two kinds of inputs
-#   penalty         the step changes between calls, alternating between two steps or cycling through 16 (S: the prox only;
-#                   C: refactorization from the cached XX', then the prox)
+#   first_use       construction, factorization and first prox on a fresh object (one sample per role and round, with
+#                   the input rotating by round), and the seconds of the setup steps of the primary roles (first_use_part)
+#   warm            the warmed prox, minimum over batches of calls, at each timing step of the case and for two kinds of
+#                   inputs (random, ADMM iterates)
+#   penalty         the step changes on every call, along a schedule that alternates between two steps (alt2) or cycles
+#                   through the registered steps (newstep) (S: the prox only; C: refactorization from the cached XX',
+#                   then the prox)
 #   alloc           warmed bytes of the prox and of the step change, and the reachable bytes of each object
-#   admm_reference  S-ADMM to stationarity 1e-12·max(1, ‖X'y‖∞) on each lasso instance (the reference optimum)
-#   admm_untimed    the iteration counts of each role for the two stopping levels, with the trajectory
-#   admm            timed ADMM runs of those iteration counts, with the objective, its gap to the reference
-#                   and the stationarity at the end of each run
-#   outputs         the prox outputs of the primary roles from an untimed call, for accuracy.jl
+#   admm_reference  S-ADMM to stationarity 1e-12·max(1, ‖X'y‖∞) on each lasso instance (the reference optimum), to be
+#                   generated once on the pinned Julia version
+#   admm_untimed    for each role, whether Boyd's rule and the stationarity target 1e-8·max(1, ‖X'y‖∞) are reached
+#                   within PB_ADMM_CAP iterations, the iteration counts and the trajectory
+#   admm            timed ADMM runs of those iteration counts, with the objective and the stationarity at the end of
+#                   each run
+#   outputs         the prox outputs of the primary roles from an untimed call, for accuracy.jl, with the #1078 controls
 #
-#   PB_INPUTS=<inputs dir> PB_OUTPUT=<output dir> [PB_ORDER=S_first|C_first] [PB_ROUNDS=21] [PB_PROC=1] \
+# Pairing. Within a (case, cell) all roles run batches of the same number of calls, from the same state, along the
+# same sequence of steps and inputs: a batch is a complete cycle (a multiple of the number of inputs and, for the
+# penalty groups, of the length of the step schedule) and restarts at the first input and the first step of the cycle.
+# All roles take the minimum over the same number of batches. The roles are timed in a fixed order within a round and
+# the order is reversed in even rounds (PB_ORDER selects the order of odd rounds). The number of calls per batch is
+# chosen from one calibration per case on a complete cycle at γ = 1 (warm) or on the step schedule (penalty): the
+# smallest multiple of the cycle with at least 30 calls and about 20 ms of calls (warm) or about 50 ms (penalty) for
+# the slowest primary role, at most 3000 calls, and one cycle with one batch when that role needs 0.1 s or more per
+# call. The calibration and the cap are recorded in the rows `batch_plan`.
+#
+#   PB_INPUTS=<inputs dir> PB_OUTPUT=<output dir> PB_SOURCE_SHA=<sha> PB_HARNESS_SHA=<sha> \
+#   [PB_ORDER=S_first|C_first] [PB_ROUNDS=21] [PB_PROC=1] \
 #   [PB_GROUP=first_use,warm,penalty,alloc,admm] [PB_FILTER=<regex on case ids>] [PB_BLAS_THREADS=1] \
-#   [PB_BATCHES=3] [PB_ADMM_REPEATS=5] [PB_ADMM_CAP=20000] [PB_REFERENCE_CAP=100000] [PB_REFERENCE=<dir of the reference optimum and the iteration counts>] \
-#   [PB_SOURCE=<root of the package tree>] [PB_SOURCE_SHA=<sha>] [PB_HARNESS_SHA=<sha>] \
+#   [PB_BATCHES=3] [PB_ADMM_REPEATS=5] [PB_ADMM_CAP=20000] [PB_REFERENCE_CAP=100000] \
+#   [PB_REFERENCE=<dir of the reference optimum and the iteration counts>] [PB_SOURCE=<root of the package tree>] \
 #   julia --threads=1 --check-bounds=no --project=. docs/audit/wide-leastsquares-solves-1103/harness.jl
 #
-# PB_CHECK_ONLY=1 first checks the prototypes against S on a small full-rank case (the stationarity residual of
-# each in BigFloat, the warmed allocations, the finiteness error), then, when PB_INPUTS is set, runs each group of
-# PB_GROUP (default: all) on the smallest case of each element type with 2 rounds, 2 ADMM repeats and the output in
-# PB_OUTPUT or a temporary directory. The output is one tab-separated file per process, timings-<julia>-<order>-<proc>-<groups>.tsv,
-# with a header of `# key: value` lines and one row per (case, measurement, param, round, role). Times are seconds
-# per call (the minimum over the batches of the round for warm), bytes and allocations per call.
+# PB_SOURCE_SHA and PB_HARNESS_SHA (7 to 40 lowercase hex digits) are required outside PB_CHECK_ONLY and are written to
+# every artifact. PB_CHECK_ONLY=1 first checks the prototypes against S on a small full-rank case (the stationarity
+# residual of each in BigFloat, the warmed allocations, the finiteness error, the construction path against the
+# breakdown path), then, when PB_INPUTS is set, runs each group of PB_GROUP (default: all) on the smallest case of
+# each element type (a group whose filter selects no case is skipped) with the defaults of 2 rounds and 2 ADMM
+# repeats, which PB_ROUNDS and PB_ADMM_REPEATS override, and the output in PB_OUTPUT or a temporary directory. A
+# timing group writes one tab-separated file per process, timings-<julia>-<order>-<proc>-<groups>.tsv, with a header of
+# `# key: value` lines, one row per (case, measurement, param, round, position, role) and the closing line
+# `# complete: yes`. Times are seconds per call (the minimum over the batches of the round, per call, for warm and
+# penalty); bytes and allocations are per call. A failure of one sample is recorded as a row `error` and the harness
+# continues with the other samples; PB_CHECK_ONLY stops at the first failure.
 include(joinpath(@__DIR__, "common.jl"))
 
 Threads.nthreads() == 1 || error("one Julia thread is required (--threads=1)")
@@ -37,9 +57,14 @@ const ADMM_CAP = env_int("PB_ADMM_CAP", 20000)
 const REFERENCE_CAP = env_int("PB_REFERENCE_CAP", 100000)
 const PROC = env_string("PB_PROC", "1")
 const BLAS_THREADS = env_int("PB_BLAS_THREADS", 1)
+const SOURCE_SHA = env_sha("PB_SOURCE_SHA"; required = !CHECK_ONLY)
+const HARNESS_SHA = env_sha("PB_HARNESS_SHA"; required = !CHECK_ONLY)
+const REFERENCE_JULIA = v"1.13.4"       # the Julia version that generates the reference optima
 const ADMM_RHOS = (0.1, 1.0, 10.0)
+const ADMM_LEVELS = ("boyd", "tight")
 const ADMM_TIGHT = 1e-8
 const REFERENCE_TOL = 1e-12
+const BATCH_CALL_CAP = 3000
 const ALL_GROUPS = ["outputs", "first_use", "warm", "penalty", "alloc", "admm_reference", "admm_untimed", "admm"]
 const TIMED_GROUPS = ["first_use", "warm", "penalty", "alloc", "admm"]
 const GROUPS = String.(split(env_string("PB_GROUP", CHECK_ONLY ? join(ALL_GROUPS, ",") : join(TIMED_GROUPS, ",")), ','))
@@ -65,7 +90,8 @@ end
 # bytes allocated by a warmed call (a function barrier keeps the closure concrete)
 warmed_bytes(op::F) where {F} = (op(); op(); @allocated op())
 
-# m prox calls cycling through the inputs vs
+# m prox calls cycling through the inputs vs, starting at vs[1]; m is a multiple of length(vs), so that each batch
+# is a set of complete cycles
 struct WarmBatch{P,O,B,Vs,G}
     px::P
     obj::O
@@ -73,6 +99,10 @@ struct WarmBatch{P,O,B,Vs,G}
     vs::Vs
     γ::G
     m::Int
+    function WarmBatch(px::P, obj::O, β::B, vs::Vs, γ::G, m::Int) where {P,O,B,Vs,G}
+        m > 0 && m % length(vs) == 0 || error("a warm batch holds complete cycles of the inputs")
+        new{P,O,B,Vs,G}(px, obj, β, vs, γ, m)
+    end
 end
 function (b::WarmBatch)()
     K = length(b.vs)
@@ -82,9 +112,10 @@ function (b::WarmBatch)()
     nothing
 end
 
-# m calls, each with the next step of gs (cycled) followed by the prox; the step and input positions continue from
-# the counter, which a caller can share between the batches of one role: for a gs with at least two different steps,
-# consecutive calls then differ in step also when a batch holds one call
+# m calls, each with the next step of the schedule gs (cycled) followed by the prox on the next input, starting at
+# gs[1] and vs[1] from an object at the last step of the schedule. m is a multiple of the schedule length and of the
+# number of inputs, so each batch ends at the last step again; the schedule has no equal consecutive steps (also from
+# its last step to its first), so that every call changes the step.
 struct PenaltyBatch{P,R,O,B,Vs,Gs}
     px::P
     refactor::R
@@ -93,19 +124,27 @@ struct PenaltyBatch{P,R,O,B,Vs,Gs}
     vs::Vs
     gs::Gs
     m::Int
-    counter::Base.RefValue{Int}
+    function PenaltyBatch(px::P, refactor::R, obj::O, β::B, vs::Vs, gs::Gs, m::Int) where {P,R,O,B,Vs,Gs}
+        L, K = length(gs), length(vs)
+        m > 0 && m % L == 0 && m % K == 0 || error("a penalty batch holds complete cycles of the steps and the inputs")
+        L >= 2 && all(gs[i] != gs[mod1(i + 1, L)] for i in 1:L) || error("the step schedule repeats a step")
+        new{P,R,O,B,Vs,Gs}(px, refactor, obj, β, vs, gs, m)
+    end
 end
-PenaltyBatch(px, refactor, obj, β, vs, gs, m::Int) = PenaltyBatch(px, refactor, obj, β, vs, gs, m, Ref(0))
 function (b::PenaltyBatch)()
     K, G = length(b.vs), length(b.gs)
-    @inbounds for _ in 1:b.m
-        k = (b.counter[] += 1)
-        γ = b.gs[mod1(k, G)]
+    @inbounds for i in 1:b.m
+        γ = b.gs[mod1(i, G)]
         b.refactor(b.obj, γ)
-        b.px(b.β, b.obj, b.vs[mod1(k, K)], γ)
+        b.px(b.β, b.obj, b.vs[mod1(i, K)], γ)
     end
     nothing
 end
+
+# the registered step schedules of the penalty groups (steps of the registered grid, so that each has accuracy
+# evidence): alternating between two steps, and cycling through the registered steps
+penalty_schedules(::Type{T}) where {T} =
+    (("alt2", T[1, 1e3]), ("newstep", T === Float64 ? T[1e-3, 1e3, 1, 1e6] : T[1e-3, 1e3, 1]))
 
 # the first use of a role: construction and the first prox
 struct FirstUse{R,A,B,C,D,G}
@@ -123,10 +162,11 @@ function (f::FirstUse)()
 end
 first_use_sample(role, X, y, β, v, γ) = (GC.gc(); timed_sample(FirstUse(role, X, y, β, v, γ)))
 
-# seconds of the setup steps of S: the copy with the finiteness check, svd, the materialized V and Diagonal(s)U'y
-# (the sink keeps the results of the steps alive)
+# Seconds of the setup steps of S, reconstructed from the steps of the cached SVD of LeastSquaresLoss: the copy with the
+# finiteness check (copy_check), svd, the materialized V (V) and s², U'y scaled by s and the allocation of the work
+# vector (UtY_s2_w). The loss constructor and the lazy bookkeeping are not included. The sink keeps the results alive.
 const SINK = Ref(0.0)
-function s_parts(X::Matrix{T}, y::Vector{T}) where {T}
+function s_breakdown(X::Matrix{T}, y::Vector{T}) where {T}
     t0 = time_ns()
     A = Matrix{T}(X)
     all(isfinite, A) || error("nonfinite design")
@@ -135,27 +175,33 @@ function s_parts(X::Matrix{T}, y::Vector{T}) where {T}
     t2 = time_ns()
     V = Matrix{T}(F.V)
     t3 = time_ns()
+    s2 = F.S .^ 2
     sUtY = Vector{T}(transpose(F.U) * y)
     sUtY .*= F.S
-    s2 = F.S .^ 2
+    w = Vector{T}(undef, length(s2))
     t4 = time_ns()
-    SINK[] += Float64(V[1]) + Float64(sUtY[1]) + Float64(s2[1])
-    (; copy_check = (t1 - t0) * 1e-9, svd = (t2 - t1) * 1e-9, V = (t3 - t2) * 1e-9, UtY = (t4 - t3) * 1e-9)
+    SINK[] += Float64(V[1]) + Float64(sUtY[1]) + Float64(s2[1]) + Float64(length(w))
+    (; copy_check = (t1 - t0) * 1e-9, svd = (t2 - t1) * 1e-9, V = (t3 - t2) * 1e-9, UtY_s2_w = (t4 - t3) * 1e-9)
 end
 function breakdown_sample(role::Role{C}, X, y, γ) where {C<:SCtor}
     GC.gc()
-    s_parts(X, y)
+    s_breakdown(X, y)
 end
 function breakdown_sample(role::Role{C}, X, y, γ) where {C<:PCtor}
     L = C.parameters[1]
-    bp = getfield(parentmodule(L), :build_parts)
     GC.gc()
-    bp(L, X, y, γ)[2]
+    getfield(parentmodule(L), :breakdown)(L, X, y, γ)[2]
 end
 
-# calls per batch for a call of t seconds: one call when t is at least 0.1 s, otherwise about `target` seconds of calls
-# and at least min_calls (30 for the warmed prox; the penalty groups use 1 and 0.05 s)
-batch_calls(t; min_calls = 30, target = 0.02) = t < 0.1 ? clamp(ceil(Int, target / t), min_calls, 3000) : 1
+# The calls per batch and the number of batches for a role set whose slowest primary role needs t_max seconds per
+# call: the smallest multiple of `cycle` calls with at least min_calls calls and about `target` seconds of calls, at
+# most BATCH_CALL_CAP calls; one cycle and one batch when t_max is at least 0.1 s.
+function plan_batches(t_max, cycle::Int; min_calls::Int, target::Float64)
+    t_max >= 0.1 && return cycle, 1
+    cap = cycle * max(1, BATCH_CALL_CAP ÷ cycle)
+    calls = max(min_calls, t_max > 0 ? ceil(Int, target / t_max) : min_calls)
+    clamp(cycle * cld(calls, cycle), cycle, cap), BATCHES
+end
 
 # the minimum over nb batches of calls
 function best_batch(make, nb::Int)
@@ -168,6 +214,12 @@ function best_batch(make, nb::Int)
 end
 
 round_indices(n, r) = isodd(r) ? (1:n) : (n:-1:1)
+
+uint_of(::Type{Float64}) = UInt64
+uint_of(::Type{Float32}) = UInt32
+# equal as bit patterns (NaNs of different payloads differ)
+bits_equal(a::AbstractArray{T}, b::AbstractArray{T}) where {T<:AbstractFloat} =
+    size(a) == size(b) && reinterpret(uint_of(T), a) == reinterpret(uint_of(T), b)
 
 ###########################################################################################################
 # Output of the rows
@@ -183,8 +235,40 @@ function emit(w::Writer, case, measurement, param, round, position, role, value;
     w.rows += 1
 end
 
+oneline(s) = replace(string(s), r"[\t\r\n]+" => " ")
+errmsg(e) = oneline(first(split(sprint(showerror, e), '\n')))
+
+# f() or, when it throws, `nothing` after an `error` row for the cell (the measurement, param and message in the
+# param field); PB_CHECK_ONLY rethrows
+function guarded(f, w::Writer, case, measurement, param, round, position, role)
+    try
+        return f()
+    catch e
+        CHECK_ONLY && rethrow()
+        emit(w, case, "error", string(measurement, "|", param, "|", errmsg(e)), round, position, role, NaN)
+        return nothing
+    end
+end
+
+# the load average of the first minute, or nothing when /proc/loadavg cannot be read
+function loadavg1()
+    try
+        parse(Float64, split(read("/proc/loadavg", String))[1])
+    catch
+        nothing
+    end
+end
 loadavg() = try join(split(read("/proc/loadavg", String))[1:3], " ") catch; "unavailable" end
 cpu_model() = try Sys.cpu_info()[1].model catch; "unknown" end
+function cpu_vendor()
+    try
+        for line in eachline("/proc/cpuinfo")
+            startswith(line, "vendor_id") && return strip(split(line, ':'; limit = 2)[2])
+        end
+    catch
+    end
+    "unknown"
+end
 function l3_cache()
     try
         for i in 0:8
@@ -210,20 +294,24 @@ function openblas_config()
     end
     "unavailable"
 end
-oneline(s) = replace(string(s), r"[\t\r\n]+" => " ")
 
-function write_header(io, groups, inputs_sha)
-    for (k, v) in [("format", "pb1103-timings-1"), ("julia", string(VERSION)), ("order", ORDER), ("proc", PROC),
-                   ("groups", join(groups, ",")), ("rounds", ROUNDS), ("batches", BATCHES), ("admm_repeats", ADMM_REPEATS),
-                   ("admm_cap", ADMM_CAP), ("threads", Threads.nthreads()), ("blas_threads", BLAS.get_num_threads()),
-                   ("blas_config", oneline(BLAS.get_config())), ("openblas", openblas_config()),
-                   ("cpu_model", cpu_model()), ("cpu_name", Sys.CPU_NAME), ("cpu_threads", Sys.CPU_THREADS),
-                   ("l3_cache", l3_cache()), ("check_bounds", Base.JLOptions().check_bounds), ("hostname", gethostname()),
-                   ("loadavg_start", loadavg()), ("source_sha", get(ENV, "PB_SOURCE_SHA", "unset")),
-                   ("harness_sha", get(ENV, "PB_HARNESS_SHA", "unset")), ("inputs_index_sha256", inputs_sha),
+function provenance_header(io, kind, inputs_sha; extra = ())
+    for (k, v) in [("format", kind), ("julia", string(VERSION)), ("order", ORDER), ("proc", PROC),
+                   ("source_sha", SOURCE_SHA), ("harness_sha", HARNESS_SHA), ("inputs_index_sha256", inputs_sha), extra...,
                    ("started_utc", Dates.format(now(UTC), "yyyy-mm-ddTHH:MM:SSZ"))]
         println(io, "# ", k, ": ", v)
     end
+end
+
+function write_header(io, groups, inputs_sha)
+    provenance_header(io, "pb1103-timings-2", inputs_sha;
+                      extra = [("groups", join(groups, ",")), ("rounds", ROUNDS), ("batches", BATCHES),
+                               ("admm_repeats", ADMM_REPEATS), ("admm_cap", ADMM_CAP), ("threads", Threads.nthreads()),
+                               ("blas_threads", BLAS.get_num_threads()), ("blas_config", oneline(BLAS.get_config())),
+                               ("openblas", openblas_config()), ("cpu_vendor", cpu_vendor()), ("cpu_model", cpu_model()),
+                               ("cpu_name", Sys.CPU_NAME), ("cpu_threads", Sys.CPU_THREADS), ("l3_cache", l3_cache()),
+                               ("check_bounds", Base.JLOptions().check_bounds), ("hostname", gethostname()),
+                               ("loadavg_start", loadavg())])
     println(io, join(["case", "measurement", "param", "round", "position", "role", "value", "gc_s", "bytes", "allocs"], '\t'))
 end
 
@@ -231,35 +319,67 @@ end
 # Cases
 ###########################################################################################################
 
+# the arrays of a case; the four random inputs and the four ADMM iterates of a main case are each four different
+# vectors, which the batches cycle through
 function case_data(m::Manifest, c::Case)
     X, y, V = read_input(m, c, "X"), read_input(m, c, "y"), read_input(m, c, "V")
     vs = [V[:, k] for k in 1:size(V, 2)]
+    if c.kind === :main
+        length(vs) == 8 || error("a main case holds 8 proximal inputs")
+        for grp in (1:4, 5:8), i in grp, j in grp
+            i < j && isequal(vs[i], vs[j]) && error("the inputs $i and $j of $(c.id) are equal")
+        end
+    end
     (; X, y, vs, rand = vs[1:min(4, length(vs))], admm = length(vs) >= 8 ? vs[5:8] : vs, β = zeros(c.T, c.p))
 end
 
-# the objects of the roles of a case at the step γ, factorized and called once
-function make_objects(roles, d, γ)
-    Any[(obj = r.ctor(d.X, d.y, γ); r.prepare(obj); r.px(d.β, obj, d.vs[1], γ); obj) for r in roles]
+# the object of a role of a case at the step γ, factorized and called once
+function make_object(role, d, γ)
+    obj = role.ctor(d.X, d.y, γ)
+    role.prepare(obj)
+    role.px(d.β, obj, d.vs[1], γ)
+    obj
+end
+# the objects of the roles; nothing for a role whose setup failed
+function make_objects(roles, d, γ, w, c, group)
+    Any[guarded(() -> make_object(r, d, γ), w, c.id, group, "setup", 0, i, r.name) for (i, r) in enumerate(roles)]
+end
+# a fresh object after a failure of the role (nothing again if the construction fails too)
+function rebuild!(objs, idx, role, d, γ, w, c, group)
+    objs[idx] = guarded(() -> make_object(role, d, γ), w, c.id, group, "rebuild", 0, idx, role.name)
+    nothing
 end
 
-# batch sizes of the families (see batch_calls) and the seconds of one call of each primary role
-function calibrate(make_op, roles, objs; kw...)
-    ms = Dict{String,Int}()
-    ts = Dict{String,Float64}()
+# the largest over the primary roles of the seconds per call of a complete cycle of ncalls calls (the best of two)
+function slowest_call(make_cycle, roles, objs, ncalls)
+    tmax = 0.0
     for (r, o) in zip(roles, objs)
-        r.control && continue
-        op = make_op(r, o, 1)
-        t = min(timed_sample(op).time, timed_sample(op).time, timed_sample(op).time)
-        ms[r.family] = batch_calls(t; kw...)
-        ts[r.family] = t
+        (r.control || o === nothing) && continue
+        op = make_cycle(r, o)
+        tmax = max(tmax, min(timed_sample(op).time, timed_sample(op).time) / ncalls)
     end
-    ms, ts
+    tmax
 end
 
+function emit_load(w::Writer, c::Case, group)
+    la = loadavg1()
+    la === nothing || emit(w, c.id, "loadavg_1m", group, 0, 0, "-", la)
+end
+# the load average and the reachable bytes of the objects of the roles (the working set to compare with the L3 size)
+function emit_context(w::Writer, c::Case, roles, objs, group)
+    emit_load(w, c, group)
+    for (i, (r, o)) in enumerate(zip(roles, objs))
+        o === nothing || emit(w, c.id, "workingset", "reachable_bytes", 0, i, r.name, Base.summarysize(o))
+    end
+end
+
+# the cases of a group: the timed main cases for the prox timing groups, the Gaussian Float64 lasso instances for the
+# ADMM groups and the main cases with the controls for outputs, all selected by PB_FILTER; with PB_CHECK_ONLY the
+# smallest case of each element type (the first two controls for outputs)
 function select_for(m::Manifest, group::AbstractString)
-    cs = if group in ("first_use", "warm", "penalty")
+    cs = if group in ("first_use", "warm", "penalty", "alloc")
         select_cases(m; kind = :main, timed = true)
-    elseif group in ("alloc", "outputs")
+    elseif group == "outputs"
         select_cases(m; kind = :main)
     else
         select_cases(m; kind = :main, lasso = true, T = Float64)
@@ -267,6 +387,11 @@ function select_for(m::Manifest, group::AbstractString)
     sort!(cs; by = c -> (c.n * c.p, c.id))
     if CHECK_ONLY
         cs = [first(filter(c -> c.T === T, cs)) for T in (Float64, Float32) if any(c -> c.T === T, cs)]
+    end
+    if group == "outputs"
+        ctl = select_cases(m; kind = :control)
+        CHECK_ONLY && (ctl = ctl[1:min(2, length(ctl))])
+        cs = vcat(cs, ctl)
     end
     cs
 end
@@ -278,16 +403,22 @@ end
 function run_first_use(w::Writer, roles, c::Case, d)
     γ = one(c.T)
     prim = [r for r in roles if !r.control]
+    K = length(d.rand)
+    emit_load(w, c, "first_use")
     for round in 1:ROUNDS
+        v = d.rand[mod1(round, K)]
         for (pos, idx) in enumerate(round_indices(length(roles), round))
             role = roles[idx]
-            s = first_use_sample(role, d.X, d.y, d.β, d.vs[1], γ)
+            s = guarded(() -> first_use_sample(role, d.X, d.y, d.β, v, γ), w, c.id, "first_use", "g=1", round, pos, role.name)
+            s === nothing && continue
             emit(w, c.id, "first_use", "g=1", round, pos, role.name, s.time; gc = s.gc, bytes = s.bytes, allocs = s.allocs)
         end
         for (pos, idx) in enumerate(round_indices(length(prim), round))
             role = prim[idx]
-            for (k, v) in pairs(breakdown_sample(role, d.X, d.y, γ))
-                emit(w, c.id, "first_use_part", string(k), round, pos, role.name, v)
+            parts = guarded(() -> breakdown_sample(role, d.X, d.y, γ), w, c.id, "first_use_part", "g=1", round, pos, role.name)
+            parts === nothing && continue
+            for (k, val) in pairs(parts)
+                emit(w, c.id, "first_use_part", string(k), round, pos, role.name, val)
             end
         end
     end
@@ -295,43 +426,81 @@ end
 
 function run_warm(w::Writer, roles, c::Case, d)
     T = c.T
-    objs = make_objects(roles, d, one(T))
-    ms, _ = calibrate((r, o, m) -> WarmBatch(r.px, o, d.β, d.rand, one(T), m), roles, objs)
-    for g in c.gammas, (vkind, vs) in (("rand", d.rand), ("admm", d.admm))
+    K = length(d.rand)
+    objs = make_objects(roles, d, one(T), w, c, "warm")
+    emit_context(w, c, roles, objs, "warm")
+    tmax = slowest_call((r, o) -> WarmBatch(r.px, o, d.β, d.rand, one(T), K), roles, objs, K)
+    m, nb = plan_batches(tmax, K; min_calls = 30, target = 0.02)
+    emit(w, c.id, "batch_plan", "warm|calls=$m|batches=$nb", 0, 0, "-", tmax)
+    for g in c.gammas
         γ = T(g)
-        for (r, o) in zip(roles, objs)
-            r.refactor(o, γ)
+        # bring every object to the step; a role without an object (or whose refactor failed) gets a fresh one
+        for (idx, role) in enumerate(roles)
+            if objs[idx] === nothing
+                rebuild!(objs, idx, role, d, γ, w, c, "warm")
+                continue
+            end
+            ok = guarded(() -> (role.refactor(objs[idx], γ); true), w, c.id, "warm", "refactor|g=$(repr(g))", 0, idx, role.name)
+            ok === nothing && rebuild!(objs, idx, role, d, γ, w, c, "warm")
         end
-        param = @sprintf("g=%g/%s", g, vkind)
-        for round in 1:ROUNDS
-            for (pos, idx) in enumerate(round_indices(length(roles), round))
-                role, obj = roles[idx], objs[idx]
-                mm = ms[role.family]
-                s = best_batch(() -> WarmBatch(role.px, obj, d.β, vs, γ, mm), BATCHES)
-                emit(w, c.id, "warm", param, round, pos, role.name, s.time / mm; gc = s.gc / mm, bytes = s.bytes / mm,
-                     allocs = s.allocs / mm)
+        for (vkind, vs) in (("rand", d.rand), ("admm", d.admm))
+            param = "g=$(repr(g))/$vkind"
+            for round in 1:ROUNDS
+                for (pos, idx) in enumerate(round_indices(length(roles), round))
+                    role, obj = roles[idx], objs[idx]
+                    if obj === nothing
+                        emit(w, c.id, "error", "warm|$param|no object", round, pos, role.name, NaN)
+                        continue
+                    end
+                    s = guarded(() -> best_batch(() -> WarmBatch(role.px, obj, d.β, vs, γ, m), nb), w, c.id, "warm", param, round,
+                                pos, role.name)
+                    if s === nothing
+                        rebuild!(objs, idx, role, d, γ, w, c, "warm")
+                        continue
+                    end
+                    emit(w, c.id, "warm", param, round, pos, role.name, s.time / m; gc = s.gc / m, bytes = s.bytes / m,
+                         allocs = s.allocs / m)
+                end
             end
         end
     end
 end
 
-const NEWSTEP_GRID = [10.0^(-3 + 6 * k / 15) for k in 0:15]
 function run_penalty(w::Writer, roles, c::Case, d)
     T = c.T
-    objs = make_objects(roles, d, one(T))
-    patterns = (("alt2", T[1, 1e3]), ("newstep", T.(NEWSTEP_GRID)))
-    ms, ts = calibrate((r, o, m) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, T[2], m), roles, objs;
-                       min_calls = 1, target = 0.05)
-    for (pname, gs) in patterns
-        counters = [Ref(0) for _ in roles]
+    K = length(d.rand)
+    objs = make_objects(roles, d, one(T), w, c, "penalty")
+    emit_context(w, c, roles, objs, "penalty")
+    for (pname, gs) in penalty_schedules(T)
+        cycle = lcm(length(gs), K)
+        last_step = gs[end]
+        # every role starts each batch from the last step of the schedule
+        for (idx, role) in enumerate(roles)
+            if objs[idx] === nothing
+                rebuild!(objs, idx, role, d, last_step, w, c, "penalty")
+                continue
+            end
+            ok = guarded(() -> (role.refactor(objs[idx], last_step); true), w, c.id, "penalty", "reset|$pname", 0, idx, role.name)
+            ok === nothing && rebuild!(objs, idx, role, d, last_step, w, c, "penalty")
+        end
+        tmax = slowest_call((r, o) -> PenaltyBatch(r.px, r.refactor, o, d.β, d.rand, gs, cycle), roles, objs, cycle)
+        m, nb = plan_batches(tmax, cycle; min_calls = 1, target = 0.05)
+        emit(w, c.id, "batch_plan", "penalty:$pname|calls=$m|batches=$nb", 0, 0, "-", tmax)
         for round in 1:ROUNDS
             for (pos, idx) in enumerate(round_indices(length(roles), round))
-                role, obj, counter = roles[idx], objs[idx], counters[idx]
-                mm = ms[role.family]
-                nb = ts[role.family] >= 0.1 ? 1 : BATCHES
-                s = best_batch(() -> PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, gs, mm, counter), nb)
-                emit(w, c.id, "penalty", pname, round, pos, role.name, s.time / mm; gc = s.gc / mm, bytes = s.bytes / mm,
-                     allocs = s.allocs / mm)
+                role, obj = roles[idx], objs[idx]
+                if obj === nothing
+                    emit(w, c.id, "error", "penalty|$pname|no object", round, pos, role.name, NaN)
+                    continue
+                end
+                s = guarded(() -> best_batch(() -> PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, gs, m), nb), w, c.id,
+                            "penalty", pname, round, pos, role.name)
+                if s === nothing
+                    rebuild!(objs, idx, role, d, last_step, w, c, "penalty")
+                    continue
+                end
+                emit(w, c.id, "penalty", pname, round, pos, role.name, s.time / m; gc = s.gc / m, bytes = s.bytes / m,
+                     allocs = s.allocs / m)
             end
         end
     end
@@ -340,191 +509,224 @@ end
 function run_alloc(w::Writer, roles, c::Case, d)
     T = c.T
     γ = one(T)
-    emit(w, c.id, "loadavg_1m", "-", 0, 0, "-", parse(Float64, split(loadavg())[1]))
+    K = length(d.rand)
+    emit_load(w, c, "alloc")
+    gs = penalty_schedules(T)[1][2]
+    cycle = lcm(length(gs), K)
     for (pos, role) in enumerate(roles)
-        obj = role.ctor(d.X, d.y, γ)
-        role.prepare(obj)
-        op = WarmBatch(role.px, obj, d.β, d.rand, γ, 1)
-        b = warmed_bytes(op)
-        s = timed_sample(op)
-        emit(w, c.id, "alloc", "prox", 1, pos, role.name, NaN; bytes = b, allocs = s.allocs)
-        op2 = PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, T[2], 1)
-        b2 = warmed_bytes(op2)
-        s2 = timed_sample(op2)
-        emit(w, c.id, "alloc", "refactor_prox", 1, pos, role.name, NaN; bytes = b2, allocs = s2.allocs)
-        emit(w, c.id, "workingset", "reachable_bytes", 1, pos, role.name, Base.summarysize(obj))
+        r = guarded(w, c.id, "alloc", "-", 0, pos, role.name) do
+            obj = make_object(role, d, γ)
+            op = WarmBatch(role.px, obj, d.β, d.rand, γ, K)
+            b, a = warmed_bytes(op), timed_sample(op).allocs
+            role.refactor(obj, gs[end])
+            op2 = PenaltyBatch(role.px, role.refactor, obj, d.β, d.rand, gs, cycle)
+            b2, a2 = warmed_bytes(op2), timed_sample(op2).allocs
+            (b, a, b2, a2, Base.summarysize(obj))
+        end
+        r === nothing && continue
+        emit(w, c.id, "alloc", "prox", 1, pos, role.name, NaN; bytes = r[1] / K, allocs = r[2] / K)
+        emit(w, c.id, "alloc", "refactor_prox", 1, pos, role.name, NaN; bytes = r[3] / cycle, allocs = r[4] / cycle)
+        emit(w, c.id, "workingset", "reachable_bytes", 1, pos, role.name, r[5])
     end
 end
 
-# the outputs of one role for every step of the case and every input, as a p × (inputs · steps) array
+# The outputs of one role for every step in acc_gammas and every input, as a p × (inputs · steps) array (column
+# (gi - 1)·K + k for step gi and input k), and the failures (gi, k, message). A failed refactor or prox is recorded
+# for that step and input, and the object is rebuilt before the next attempt; columns that failed stay NaN.
 function compute_outputs(role, c::Case, d)
     T = c.T
-    γs = T.(c.gammas)
+    γs = T.(c.acc_gammas)
     K = length(d.vs)
     B = fill(T(NaN), c.p, K * length(γs))
-    status = "ok"
-    try
-        obj = role.ctor(d.X, d.y, γs[1])
-        role.prepare(obj)
-        for (gi, γ) in enumerate(γs)
-            role.refactor(obj, γ)
+    fails = Tuple{Int,Int,String}[]
+    obj = nothing
+    for (gi, γ) in enumerate(γs)
+        try
+            if obj === nothing
+                obj = role.ctor(d.X, d.y, γ)
+                role.prepare(obj)
+            else
+                role.refactor(obj, γ)
+            end
+        catch e
+            obj = nothing
             for k in 1:K
+                push!(fails, (gi, k, errmsg(e)))
+            end
+            continue
+        end
+        for k in 1:K
+            try
+                if obj === nothing
+                    obj = role.ctor(d.X, d.y, γ)
+                    role.prepare(obj)
+                end
                 role.px(d.β, obj, d.vs[k], γ)
                 B[:, (gi - 1) * K + k] .= d.β
+            catch e
+                obj = nothing
+                push!(fails, (gi, k, errmsg(e)))
             end
         end
-    catch e
-        status = "error: " * oneline(first(split(sprint(showerror, e), '\n')))
     end
-    B, status
+    B, fails
 end
 
 function run_outputs(roles, m::Manifest, cases, dir::String)
     mkpath(dir)
     prim = [r for r in roles if !r.control]
     copies = Dict(r.family => r for r in roles if r.control)
-    path = joinpath(dir, "outputs-index.tsv")
-    open(path, "w") do io
-        println(io, "# julia: ", VERSION)
-        println(io, "# order: ", ORDER)
-        println(io, "# source_sha: ", get(ENV, "PB_SOURCE_SHA", "unset"))
-        println(io, "# harness_sha: ", get(ENV, "PB_HARNESS_SHA", "unset"))
-        println(io, "# inputs_index_sha256: ", m.sha256)
-        println(io, join(["case", "role", "file", "eltype", "shape", "sha256", "status", "copy_identical", "gammas", "nv"], '\t'))
-        for c in cases
-            d = case_data(m, c)
-            K = length(d.vs)
-            for role in prim
-                B, status = compute_outputs(role, c, d)
-                B2, status2 = compute_outputs(copies[role.family], c, d)
-                identical = status == "ok" && status2 == "ok" && isequal(B, B2)
-                file = "out-" * case_file(c.id) * "-" * replace(role.name, "'" => "p") * (c.T === Float64 ? ".f64" : ".f32")
-                open(joinpath(dir, file), "w") do f
-                    write(f, B)
+    open(joinpath(dir, "outputs-index.tsv"), "w") do io
+        open(joinpath(dir, "outputs-failures.tsv"), "w") do fio
+            provenance_header(io, "pb1103-outputs-2", m.sha256)
+            provenance_header(fio, "pb1103-outputs-failures-1", m.sha256)
+            println(io, join(["case", "role", "file", "eltype", "shape", "sha256", "nfail", "copy_identical", "acc_gammas", "nv"], '\t'))
+            println(fio, join(["case", "role", "gamma_index", "vindex", "message"], '\t'))
+            for c in cases
+                d = case_data(m, c)
+                K = length(d.vs)
+                for role in prim
+                    B, fails = compute_outputs(role, c, d)
+                    B2, fails2 = compute_outputs(copies[role.family], c, d)
+                    identical = bits_equal(B, B2) && Set((f[1], f[2]) for f in fails) == Set((f[1], f[2]) for f in fails2)
+                    file = "out-" * case_file(c.id) * "-" * replace(role.name, "'" => "p") * (c.T === Float64 ? ".f64" : ".f32")
+                    open(joinpath(dir, file), "w") do f
+                        write(f, B)
+                    end
+                    println(io, join([c.id, role.name, file, c.T === Float64 ? "Float64" : "Float32", string(c.p, "x", size(B, 2)),
+                                      file_sha256(joinpath(dir, file)), length(fails), identical, join(repr.(c.acc_gammas), ","),
+                                      K], '\t'))
+                    for (gi, k, msg) in fails
+                        println(fio, join([c.id, role.name, gi, k, msg], '\t'))
+                    end
+                    flush(io); flush(fio)
                 end
-                println(io, join([c.id, role.name, file, c.T === Float64 ? "Float64" : "Float32",
-                                  string(c.p, "x", size(B, 2)), file_sha256(joinpath(dir, file)), status, identical,
-                                  join(repr.(c.gammas), ","), K], '\t'))
-                flush(io)
+                println("outputs written for ", c.id)
             end
-            println("outputs written for ", c.id)
+            println(io, "# complete: yes")
+            println(fio, "# complete: yes")
         end
     end
 end
 
-reference_path(dir, c::Case) = joinpath(dir, "reference-" * case_file(c.id) * ".tsv")
+###########################################################################################################
+# ADMM
+###########################################################################################################
 
+# the reference file of a lasso instance: named by the instance and the first 12 hex digits of the digests of X and y
+function reference_path(dir, c::Case)
+    x, y = c.arrays["X"].sha256, c.arrays["y"].sha256
+    joinpath(dir, "reference-" * case_file(c.id) * "-" * x[1:12] * "-" * y[1:12] * ".tsv")
+end
+
+function write_kv(path, pairs)
+    open(path, "w") do io
+        for (k, v) in pairs
+            println(io, k, '\t', v)
+        end
+        println(io, "complete\tyes")
+    end
+end
+
+# One pinned reference per instance: S-ADMM at ρ = 1 to the stationarity 1e-12·max(1, ‖X'y‖∞), at most
+# PB_REFERENCE_CAP iterations, generated on the pinned Julia version. The file records the provenance, the digests
+# of X and y, whether the run converged and the objective; summarize.py uses it only when it converged.
 function run_admm_reference(m::Manifest, cases, roles, dir::String)
+    CHECK_ONLY || VERSION == REFERENCE_JULIA || error("reference optima are generated on Julia $REFERENCE_JULIA (this is $VERSION)")
     mkpath(dir)
     S = first(r for r in roles if r.name == "S")
     for c in cases
         d = case_data(m, c)
         λ = c.T(0.1 * c.lambda_max)
+        scale = max(1.0, c.lambda_max)
         t0 = time()
-        r = admm_reference(S, d.X, d.y, λ, 1.0; tol = REFERENCE_TOL, scale = max(1.0, c.lambda_max), cap = REFERENCE_CAP)
-        zfile = "reference-" * case_file(c.id) * "-z.f64"
-        open(joinpath(dir, zfile), "w") do f
-            write(f, r.z)
-        end
-        open(reference_path(dir, c), "w") do io
-            for (k, v) in [("case", c.id), ("julia", VERSION), ("rho", 1.0), ("tol_times_scale", REFERENCE_TOL * max(1.0, c.lambda_max)),
-                           ("cap", REFERENCE_CAP), ("iterations", r.iterations), ("converged", r.converged),
-                           ("stationarity", r.stationarity), ("objective", repr(r.objective)), ("lambda", Float64(λ)),
-                           ("lambda_max", c.lambda_max), ("z_file", zfile), ("z_sha256", file_sha256(joinpath(dir, zfile)))]
-                println(io, k, '\t', v)
-            end
-        end
+        r = admm_reference(S, d.X, d.y, λ, 1.0; tol = REFERENCE_TOL, scale = scale, cap = REFERENCE_CAP)
+        path = reference_path(dir, c)
+        zfile = replace(basename(path), ".tsv" => "-z.f64")
+        write(joinpath(dir, zfile), Float64.(r.z))
+        write_kv(path, [("format", "pb1103-reference-1"), ("case", c.id), ("julia", VERSION), ("source_sha", SOURCE_SHA),
+                        ("harness_sha", HARNESS_SHA), ("inputs_index_sha256", m.sha256), ("x_sha256", c.arrays["X"].sha256),
+                        ("y_sha256", c.arrays["y"].sha256), ("rho", 1.0), ("tol", REFERENCE_TOL), ("scale", scale),
+                        ("cap", REFERENCE_CAP), ("iterations", r.iterations), ("converged", r.converged),
+                        ("stationarity", r.stationarity), ("objective", repr(r.objective)), ("lambda", Float64(λ)),
+                        ("lambda_max", c.lambda_max), ("z_file", zfile), ("z_sha256", file_sha256(joinpath(dir, zfile)))])
         println("reference for ", c.id, ": ", r.iterations, " iterations, converged ", r.converged, ", stationarity ",
                 r.stationarity, ", objective ", r.objective, " (", round(time() - t0; digits = 1), " s)")
     end
 end
 
-function read_kv(path)
-    Dict(String(k) => String(v) for (k, v) in (split(line, '\t'; limit = 2) for line in eachline(path) if !isempty(line)))
-end
+untimed_path(dir, c::Case) = joinpath(dir, "admm-untimed-$(VERSION)-$(case_file(c.id)).tsv")
+
+# the columns of the untimed file: record is trajectory (level and reached are -), level (one row per level) or error
+const UNTIMED_COLUMNS = ["case", "rho", "role", "record", "level", "reached", "k", "cap", "r_norm", "s_norm", "stationarity",
+                         "objective", "note"]
 
 function run_admm_untimed(m::Manifest, cases, roles, dir::String)
     mkpath(dir)
-    path = joinpath(dir, "admm-untimed-$(VERSION).tsv")
-    fresh = !isfile(path)
     prim = [r for r in roles if !r.control]
-    open(path, "a") do io
-        fresh && println(io, join(["case", "rho", "role", "record", "k", "r_norm", "s_norm", "stationarity", "objective"], '\t'))
-        for c in cases
-            d = case_data(m, c)
-            λ = c.T(0.1 * c.lambda_max)
-            scale = max(1.0, c.lambda_max)
+    for c in cases
+        d = case_data(m, c)
+        λ = c.T(0.1 * c.lambda_max)
+        scale = max(1.0, c.lambda_max)
+        open(untimed_path(dir, c), "w") do io
+            provenance_header(io, "pb1103-admm-untimed-1", m.sha256;
+                              extra = [("case", c.id), ("x_sha256", c.arrays["X"].sha256), ("y_sha256", c.arrays["y"].sha256),
+                                       ("admm_cap", ADMM_CAP), ("tight_tol", ADMM_TIGHT), ("scale", scale)])
+            println(io, join(UNTIMED_COLUMNS, '\t'))
             for ρ in ADMM_RHOS, role in prim
                 t0 = time()
-                r = admm_untimed(role, d.X, d.y, λ, ρ; tight_tol = ADMM_TIGHT, scale, cap = ADMM_CAP)
-                for row in r.rows
-                    @printf(io, "%s\t%s\t%s\ttrajectory\t%d\t%.10g\t%.10g\t%.10g\t%.12g\n", c.id, ρ, role.name, Int(row[1]), row[2], row[3], row[4], row[5])
+                try
+                    r = admm_untimed(role, d.X, d.y, λ, ρ; tight_tol = ADMM_TIGHT, scale = scale, cap = ADMM_CAP)
+                    for row in r.rows
+                        @printf(io, "%s\t%s\t%s\ttrajectory\t-\t-\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ, role.name,
+                                Int(row[1]), ADMM_CAP, row[2], row[3], row[4], row[5])
+                    end
+                    for (lvl, x) in (("boyd", r.boyd), ("tight", r.tight))
+                        @printf(io, "%s\t%s\t%s\tlevel\t%s\t%s\t%d\t%d\t%.10g\t%.10g\t%.10g\t%.12g\t\n", c.id, ρ, role.name, lvl,
+                                x.reached, x.k, ADMM_CAP, x.measures...)
+                    end
+                    println("admm_untimed ", c.id, " rho=", ρ, " ", role.name, ": boyd ", r.boyd.reached, " k ", r.boyd.k,
+                            "; tight ", r.tight.reached, " k ", r.tight.k, " (", round(time() - t0; digits = 1), " s)")
+                catch e
+                    CHECK_ONLY && rethrow()
+                    println(io, join([c.id, ρ, role.name, "error", "-", "-", 0, ADMM_CAP, "NaN", "NaN", "NaN", "NaN", errmsg(e)], '\t'))
                 end
-                @printf(io, "%s\t%s\t%s\tk_boyd\t%d\tNaN\tNaN\tNaN\tNaN\n", c.id, ρ, role.name, r.k_boyd)
-                @printf(io, "%s\t%s\t%s\tk_tight\t%d\tNaN\tNaN\t%.10g\t%.12g\n", c.id, ρ, role.name, r.k_tight, r.final_stationarity, r.final_objective)
                 flush(io)
-                println("admm_untimed ", c.id, " rho=", ρ, " ", role.name, ": k_boyd ", r.k_boyd, " k_tight ", r.k_tight,
-                        " (", round(time() - t0; digits = 1), " s)")
             end
+            println(io, "# complete: yes")
         end
     end
 end
 
-# the iteration counts of the untimed pass: (case, ρ, role) => (k_boyd, k_tight), the last record of a file
-function load_kstar(dir::String)
-    path = joinpath(dir, "admm-untimed-$(VERSION).tsv")
-    isfile(path) || error("missing $path: run the admm_untimed group first")
-    out = Dict{Tuple{String,String,String},Dict{String,Int}}()
-    lines = readlines(path)
-    for line in lines[2:end]
-        f = split(line, '\t')
-        f[4] in ("k_boyd", "k_tight") || continue
-        get!(out, (String(f[1]), String(f[2]), String(f[3])), Dict{String,Int}())[String(f[4])] = parse(Int, f[5])
+# The untimed results of an instance for this Julia version: (rho, role, level) => (reached, k). The file must be
+# complete and belong to this manifest, instance, Julia version and source; a role whose run failed is not reached.
+function load_kstar(dir::String, m::Manifest, c::Case)
+    path = untimed_path(dir, c)
+    header, _, rows = read_tsv(path)
+    get(header, "inputs_index_sha256", "") == m.sha256 || error("$path was made from another input manifest")
+    get(header, "x_sha256", "") == c.arrays["X"].sha256 && get(header, "y_sha256", "") == c.arrays["y"].sha256 ||
+        error("$path was made from other arrays of $(c.id)")
+    get(header, "julia", "") == string(VERSION) || error("$path was made with Julia $(get(header, "julia", "?"))")
+    get(header, "source_sha", "") == SOURCE_SHA || error("$path was made from source $(get(header, "source_sha", "?"))")
+    out = Dict{Tuple{String,String,String},NamedTuple{(:reached, :k),Tuple{Bool,Int}}}()
+    for r in rows
+        if r["record"] == "level"
+            out[(r["rho"], r["role"], r["level"])] = (reached = r["reached"] == "true", k = parse(Int, r["k"]))
+        elseif r["record"] == "error"
+            for lvl in ADMM_LEVELS
+                out[(r["rho"], r["role"], lvl)] = (reached = false, k = 0)
+            end
+        end
     end
     out
 end
 
-function run_admm(w::Writer, roles, c::Case, d, kstar, refdir::String)
-    X, y = d.X, d.y
-    λ = c.T(0.1 * c.lambda_max)
-    rpath = reference_path(refdir, c)
-    pstar = isfile(rpath) ? parse(Float64, read_kv(rpath)["objective"]) : NaN
-    isfile(rpath) || @warn "no reference optimum for $(c.id); the objective gaps are NaN"
-    wk = AdmmWork(c.T, size(X, 1), size(X, 2))
-    prim = [r for r in roles if !r.control]
-    for ρ in ADMM_RHOS
-        ks = Dict(r.family => kstar[(c.id, string(ρ), r.name)] for r in prim)
-        for level in ("boyd", "tight")
-            counts = Dict(fam => level == "boyd" ? k["k_boyd"] : k["k_tight"] for (fam, k) in ks)
-            param = "rho=$(ρ),level=$(level)"
-            for r in prim
-                emit(w, c.id, "admm_iters", param, 0, 0, r.name, counts[r.family])
-            end
-            if any(==(0), values(counts))
-                for r in prim
-                    emit(w, c.id, "admm_capped", param, 0, 0, r.name, counts[r.family] == 0 ? 1 : 0)
-                end
-                continue
-            end
-            for rep in 1:ADMM_REPEATS
-                for (pos, idx) in enumerate(round_indices(length(roles), rep))
-                    role = roles[idx]
-                    t = admm_timed(role, X, y, λ, ρ, counts[role.family], wk)
-                    res, objective = lasso_measures!(wk, X, y, λ)
-                    emit(w, c.id, "admm_total", param, rep, pos, role.name, t.t_factor + t.t_iter)
-                    emit(w, c.id, "admm_factor", param, rep, pos, role.name, t.t_factor)
-                    emit(w, c.id, "admm_iter", param, rep, pos, role.name, t.t_iter)
-                    emit(w, c.id, "admm_objective", param, rep, pos, role.name, objective)
-                    emit(w, c.id, "admm_gap", param, rep, pos, role.name, objective - pstar)
-                    emit(w, c.id, "admm_stationarity", param, rep, pos, role.name, res)
-                end
-            end
-        end
-    end
-end
-
-# one timed ADMM run of kstar iterations on the work arrays wk: the construction and factorization, then the loop
-function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, kstar::Int, wk::AdmmWork{T}) where {T}
+# One timed ADMM run of k iterations on the work arrays: the construction and factorization, then the loop with
+# Boyd's residual norms and tolerances evaluated after each iteration (consumed through SINK, not used to stop the
+# loop). The stationarity and objective are evaluated after the timed interval; valid says whether the endpoint
+# meets the target of the level (Boyd's rule on the last iteration, or the stationarity target).
+function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, k::Int, wk::AdmmWork{T}, level::String,
+                    scale::Real) where {T}
     γ, κ = inv(T(ρ)), λ / T(ρ)
     reset!(wk)
     GC.gc()
@@ -532,11 +734,47 @@ function admm_timed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real, kst
     obj = role.ctor(X, y, γ)
     role.prepare(obj)
     t1 = time_ns()
-    for _ in 1:kstar
-        admm_step!(wk, role.px, obj, γ, κ)
-    end
+    flags, last = admm_loop!(wk, role.px, obj, γ, κ, ρ, k)
     t2 = time_ns()
-    (; t_factor = (t1 - t0) * 1e-9, t_iter = (t2 - t1) * 1e-9)
+    SINK[] += flags
+    res, objective = lasso_measures!(wk, X, y, λ)
+    valid = level == "boyd" ? boyd_converged(size(X, 2), ρ, last) : res <= ADMM_TIGHT * scale
+    (; t_factor = (t1 - t0) * 1e-9, t_iter = (t2 - t1) * 1e-9, res, objective, valid)
+end
+
+function run_admm(w::Writer, roles, c::Case, d, kstar)
+    X, y = d.X, d.y
+    λ = c.T(0.1 * c.lambda_max)
+    scale = max(1.0, c.lambda_max)
+    wk = AdmmWork(c.T, size(X, 1), size(X, 2))
+    prim = [r for r in roles if !r.control]
+    emit_load(w, c, "admm")
+    for ρ in ADMM_RHOS, level in ADMM_LEVELS
+        param = "rho=$(ρ),level=$(level)"
+        info = Dict(r.family => get(kstar, (string(ρ), r.name, level), (reached = false, k = 0)) for r in prim)
+        for r in prim
+            emit(w, c.id, "admm_iters", param, 0, 0, r.name, info[r.family].k)
+            emit(w, c.id, "admm_reached", param, 0, 0, r.name, info[r.family].reached ? 1 : 0)
+        end
+        # only the roles of the families that reached the target are timed; the comparisons that involve the others
+        # are inconclusive (a lower bound)
+        active = [r for r in roles if info[r.family].reached]
+        isempty(active) && continue
+        for rep in 1:ADMM_REPEATS
+            for (pos, idx) in enumerate(round_indices(length(active), rep))
+                role = active[idx]
+                t = guarded(() -> admm_timed(role, X, y, λ, ρ, info[role.family].k, wk, level, scale), w, c.id, "admm", param,
+                            rep, pos, role.name)
+                t === nothing && continue
+                emit(w, c.id, "admm_total", param, rep, pos, role.name, t.t_factor + t.t_iter)
+                emit(w, c.id, "admm_factor", param, rep, pos, role.name, t.t_factor)
+                emit(w, c.id, "admm_iter", param, rep, pos, role.name, t.t_iter)
+                emit(w, c.id, "admm_objective", param, rep, pos, role.name, t.objective)
+                emit(w, c.id, "admm_stationarity", param, rep, pos, role.name, t.res)
+                emit(w, c.id, "admm_valid", param, rep, pos, role.name, t.valid ? 1 : 0)
+            end
+        end
+    end
 end
 
 ###########################################################################################################
@@ -545,8 +783,9 @@ end
 
 # The prototypes against S on a small full-rank case in each element type: the stationarity residual of every role
 # (BigFloat; the 1e3 eps threshold is tested at the steps γ ≤ 1, the residual at γ = 1e3 is reported but not tested,
-# since the plan expects C_B to lose accuracy at large steps), the A/A copies, the refactorization, the warmed
-# allocations and the finiteness error.
+# since the plan expects C_B to lose accuracy at large steps), the A/A copies, the refactorization against a fresh
+# object (bitwise), the construction path against the breakdown path (bitwise), the penalty ρ = inv(T(γ)), the
+# warmed allocations and the finiteness error.
 function check_prototypes(roles)
     println("== prototypes against S on a small full-rank case (η in BigFloat; failure above 1e3 eps for γ ≤ 1)")
     failed = String[]
@@ -580,13 +819,15 @@ function check_prototypes(roles)
         for r in roles
             diff = maximum(norm(outs[(r.name, gi, vi)] - outs[("S", gi, vi)], Inf) / norm(outs[("S", gi, vi)], Inf)
                            for gi in eachindex(γs), vi in eachindex(vs))
-            ident = r.control ? all(isequal(outs[(r.name, gi, vi)], outs[(replace(r.name, "'" => ""), gi, vi)]) for gi in eachindex(γs), vi in eachindex(vs)) : missing
+            ident = r.control ? all(bits_equal(outs[(r.name, gi, vi)], outs[(replace(r.name, "'" => ""), gi, vi)])
+                                    for gi in eachindex(γs), vi in eachindex(vs)) : missing
             @printf("%-8s %-8s  max η/eps %9.3g (γ ≤ 1)  %9.3g (γ = 1e3, reported only)   max rel diff to S %9.3g   copy identical to its role: %s\n",
                     string(T), r.name, ηmax[r.name] / eps(T), ηlarge[r.name] / eps(T), diff, ident)
             ηmax[r.name] <= thr || push!(failed, "$(r.name) $T η/eps = $(ηmax[r.name] / eps(T))")
             ismissing(ident) || ident || push!(failed, "$(r.name) $T differs from its role")
         end
-        # refactorization against a fresh object, the finiteness error and the warmed allocations
+        # refactorization against a fresh object, the construction path against the breakdown path, the penalty,
+        # the finiteness error and the warmed allocations
         for r in roles
             obj = r.ctor(X, y, γs[1])
             r.prepare(obj)
@@ -597,8 +838,18 @@ function check_prototypes(roles)
             r.prepare(fresh)
             b2 = zeros(T, p)
             r.px(b2, fresh, vs[1], γs[3])
-            same = isequal(b1, b2)
-            same || r.family == "S" || println("  note: ", r.name, " after refactor! differs from a fresh object by ", norm(b1 - b2, Inf))
+            same = bits_equal(b1, b2)
+            same || push!(failed, "$(r.name) $T: the output after refactor! differs from that of a fresh object")
+            if r.ctor isa PCtor
+                L = typeof(r.ctor).parameters[1]
+                bobj, _ = getfield(parentmodule(L), :breakdown)(L, X, y, γs[3])
+                b3 = zeros(T, p)
+                r.px(b3, bobj, vs[1], γs[3])
+                bits_equal(b3, b2) || push!(failed, "$(r.name) $T: the breakdown path builds another object than the constructor")
+                ρ = inv(T(γs[3]))
+                (getfield(fresh, :ρ) == ρ && getfield(fresh, :invρ) == inv(ρ)) ||
+                    push!(failed, "$(r.name) $T: the penalty is not ρ = inv(T(γ))")
+            end
             bad = copy(X)
             bad[3, 4] = T(NaN)
             msg = try
@@ -607,9 +858,11 @@ function check_prototypes(roles)
                 e isa ArgumentError ? e.msg : "other error: " * oneline(sprint(showerror, e))
             end
             msg == Proto.FINITE_MESSAGE || push!(failed, "$(r.name) finiteness error: $msg")
-            op = WarmBatch(r.px, obj, β, vs, γs[3], 1)
+            op = WarmBatch(r.px, obj, β, vs, γs[3], length(vs))
             b = warmed_bytes(op)
-            op2 = PenaltyBatch(r.px, r.refactor, obj, β, vs, T[2], 1)
+            gs = penalty_schedules(T)[1][2]
+            r.refactor(obj, gs[end])
+            op2 = PenaltyBatch(r.px, r.refactor, obj, β, vs, gs, lcm(length(gs), length(vs)))
             b2a = warmed_bytes(op2)
             @printf("%-8s %-8s  warmed bytes: prox %d, refactor and prox %d; refactor bitwise equal to a fresh object: %s\n",
                     string(T), r.name, b, b2a, same)
@@ -625,8 +878,10 @@ function check_prototypes(roles)
     println("prototype checks passed")
 end
 
-# calls the setup, prox, refactor, allocation-probe and ADMM routines of each role once per element type on small
-# random data, so that their compilation happens before the timed samples
+# Calls the setup, prox, refactor, allocation-probe and ADMM routines of each role on small random data, for both
+# element types except the ADMM routines (Float64 only, the type of the ADMM groups), so that their compilation
+# happens before the timed samples. First use is later timed in a warmed process: the native libraries keep state
+# that the first calls initialized.
 function warm_up(roles)
     for T in (Float32, Float64)
         n, p = 12, 40
@@ -640,12 +895,14 @@ function warm_up(roles)
             obj = r.ctor(X, y, one(T))
             r.prepare(obj)
             r.px(β, obj, vs[1], one(T))
-            timed_sample(WarmBatch(r.px, obj, β, vs, one(T), 5))
-            r.refactor(obj, T(2))
-            timed_sample(PenaltyBatch(r.px, r.refactor, obj, β, vs, T[1, 2], 5))
-            r.refactor(obj, T(2))
-            warmed_bytes(WarmBatch(r.px, obj, β, vs, T(2), 1))
-            warmed_bytes(PenaltyBatch(r.px, r.refactor, obj, β, vs, T[2], 1))
+            timed_sample(WarmBatch(r.px, obj, β, vs, one(T), 4))
+            warmed_bytes(WarmBatch(r.px, obj, β, vs, one(T), 4))
+            for (_, sched) in penalty_schedules(T)
+                cycle = lcm(length(sched), 4)
+                r.refactor(obj, sched[end])
+                timed_sample(PenaltyBatch(r.px, r.refactor, obj, β, vs, sched, cycle))
+                warmed_bytes(PenaltyBatch(r.px, r.refactor, obj, β, vs, sched, cycle))
+            end
             r.control || breakdown_sample(r, X, y, one(T))
             Base.summarysize(obj)
         end
@@ -655,11 +912,9 @@ function warm_up(roles)
     wk = AdmmWork(Float64, 12, 40)
     for r in roles
         admm_untimed(r, X, y, 0.1, 1.0; tight_tol = 1e-3, scale = 1.0, cap = 50)
-        admm_timed(r, X, y, 0.1, 1.0, 5, wk)
-        lasso_measures!(wk, X, y, 0.1)
-    end
-    for r in roles
-        admm_reference(r, X, y, 0.1, 1.0; tol = 1e-3, scale = 1.0, cap = 50)
+        admm_timed(r, X, y, 0.1, 1.0, 5, wk, "boyd", 1.0)
+        admm_timed(r, X, y, 0.1, 1.0, 5, wk, "tight", 1.0)
+        admm_reference(r, X, y, 0.1, 1.0; tol = 1e-3, scale = 1.0, cap = 11)
     end
     nothing
 end
@@ -675,7 +930,7 @@ function main()
     CHECK_ONLY && check_prototypes(roles)
     t0 = time()
     warm_up(roles)
-    println("warm-up (compilation of every role): ", round(time() - t0; digits = 1), " s")
+    println("warm-up (compilation of the roles): ", round(time() - t0; digits = 1), " s")
     inputs = env_string("PB_INPUTS", "")
     if isempty(inputs)
         CHECK_ONLY || error("PB_INPUTS names the directory written by generate.jl")
@@ -707,15 +962,12 @@ function main()
         isempty(cases) && (println("group ", g, ": no case selected"); continue)
         g0, r0 = time(), writer === nothing ? 0 : writer.rows
         if g == "outputs"
-            ctl = select_cases(m; kind = :control)
-            CHECK_ONLY && (ctl = ctl[1:min(2, length(ctl))])
-            run_outputs(roles, m, vcat(cases, ctl), joinpath(outdir, "outputs-$(VERSION)"))
+            run_outputs(roles, m, cases, joinpath(outdir, "outputs-$(VERSION)"))
         elseif g == "admm_reference"
             run_admm_reference(m, cases, roles, refdir)
         elseif g == "admm_untimed"
             run_admm_untimed(m, cases, roles, refdir)
         else
-            kstar = g == "admm" ? load_kstar(refdir) : nothing
             for c in cases
                 println("group ", g, ": ", c.id)
                 d = case_data(m, c)
@@ -724,12 +976,11 @@ function main()
                     g == "warm" && run_warm(writer, roles, c, d)
                     g == "penalty" && run_penalty(writer, roles, c, d)
                     g == "alloc" && run_alloc(writer, roles, c, d)
-                    g == "admm" && run_admm(writer, roles, c, d, kstar, refdir)
+                    g == "admm" && run_admm(writer, roles, c, d, load_kstar(refdir, m, c))
                 catch e
                     CHECK_ONLY && rethrow()
-                    msg = oneline(first(split(sprint(showerror, e), '\n')))
-                    println("  ERROR in ", g, " ", c.id, ": ", msg)
-                    emit(writer, c.id, "error", g * ": " * msg, 0, 0, "-", NaN)
+                    println("  ERROR in ", g, " ", c.id, ": ", errmsg(e))
+                    emit(writer, c.id, "error", "$g|case|" * errmsg(e), 0, 0, "-", NaN)
                 end
                 flush(writer.io)
             end

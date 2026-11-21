@@ -7,18 +7,25 @@
 #   forward_error   for n ≤ PB_FORWARD_MAX_N (default 500): ‖β - β*‖∞/‖β*‖∞ against the solution
 #                   β* = v + X'a* of the dual system (XX' + ρI)a* = y - Xv in 128-bit BigFloat (Cholesky); the
 #                   absolute error ‖β - β*‖∞ when β* = 0. A diagnostic; it is not tested.
-# An output with a nonfinite entry, or that the harness recorded as a failure (outputs-failures.tsv), has η = Inf,
-# forward_error = Inf and pass = false, with the status of the failure.
+# Conventions: an output that the harness recorded as a failure (outputs-failures.tsv) has η = Inf, pass = false and
+# the status `error: <message>`; an output with a nonfinite entry and no recorded failure has η = Inf, pass = false and
+# the status `nonfinite`; the others have the status `ok`. For n ≤ PB_FORWARD_MAX_N the forward error of the first two
+# kinds is Inf; for larger n the forward error of every output is NaN (not evaluated).
 #
-#   PB_INPUTS=<inputs dir> PB_OUTPUTS=<the outputs-<julia> dir of harness.jl> PB_HARNESS_SHA=<sha> \
+#   PB_INPUTS=<inputs dir> PB_OUTPUTS=<the outputs-<julia> dir of harness.jl> PB_SOURCE_SHA=<sha> PB_HARNESS_SHA=<sha> \
 #   [PB_FILTER=<regex on case ids>] [PB_ACC_TAG=all] [PB_FORWARD_MAX_N=500] \
 #   julia --threads=1 --project=. docs/audit/wide-leastsquares-solves-1103/accuracy.jl
 #
-# The inputs must be the manifest that the outputs were made from (the SHA-256 of inputs-index.tsv recorded in the outputs
-# index), and the element type, steps and number of inputs of each output file must agree with it; a mismatch stops the
-# run before any scoring. PB_HARNESS_SHA must equal the harness identity of the outputs unless both are unset (PB_CHECK_ONLY).
-# The result is accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and
-# input identities of the outputs), one row per (case, role, step, input), and the closing line `# complete: yes`.
+# Before scoring anything, a preflight checks the outputs index and the failures index together: their formats,
+# columns and identities (source, harness, manifest digest and Julia version agree between them, the manifest digest is
+# that of the inputs, and PB_SOURCE_SHA and PB_HARNESS_SHA equal the source and harness of the outputs; outside
+# PB_CHECK_ONLY both are required), one row per (case, role) with a case of the manifest, a primary role and the four
+# primary roles for each case, the element type, steps, number of inputs and shape of the manifest, the count nfail
+# against the failure rows of that (case, role), failure keys in range and not repeated, and then the size and SHA-256
+# of every output file. It lists every problem it finds and stops before any score is written. The result is
+# accuracy-<tag>.tsv in the outputs directory: a header of `# key: value` lines (with the source, harness and input
+# identities of the outputs, the SHA-256 of the outputs index and PB_FILTER), one row per (case, role, step, input), and
+# the closing line `# complete: yes`.
 # With PB_CHECK_ONLY=1 the script first checks its column sweeps against the dense BigFloat evaluation eta_exact and a dense
 # dual solve on a small random problem, with and without the in-place operation, and the in-place operation against
 # Base.fma under a scoped rounding mode, and prints the effective cost of the whole η evaluation per multiply-add of its
@@ -187,31 +194,107 @@ function forward_columns(X::Matrix{T}, y::Vector{T}, V::Matrix{T}, B::Matrix{T},
     err
 end
 
-function evaluate(m::Manifest, outdir::String)
-    header, _, rows = read_tsv(joinpath(outdir, "outputs-index.tsv"))
-    fheader, _, frows = read_tsv(joinpath(outdir, "outputs-failures.tsv"))
-    get(header, "inputs_index_sha256", "") == m.sha256 ||
-        error("the outputs were made from the manifest $(get(header, "inputs_index_sha256", "?")), not from $(m.sha256)")
+const PRIMARY_ROLES = ("S", "C_B", "C_D", "C_W")
+const OUTPUT_COLUMNS = ["case", "role", "file", "eltype", "shape", "sha256", "nfail", "copy_identical", "acc_gammas", "nv"]
+const FAILURE_COLUMNS = ["case", "role", "gamma_index", "vindex", "message"]
+
+# The preflight of the outputs directory (see the header). It returns the header and rows of the index, the failures
+# keyed by (case, role, step index, input index) and the SHA-256 of the index; it throws with the list of every problem.
+function preflight(m::Manifest, outdir::String)
+    problems = String[]
+    bad(msg) = push!(problems, msg)
+    ipath, fpath = joinpath(outdir, "outputs-index.tsv"), joinpath(outdir, "outputs-failures.tsv")
+    isfile(ipath) || error("missing $ipath")
+    isfile(fpath) || error("missing $fpath")
+    ibytes = read(ipath)
+    header, cols, rows = parse_tsv(String(ibytes), ipath)
+    fheader, fcols, frows = read_tsv(fpath)
+    get(header, "format", "") == "pb1103-outputs-2" || bad("outputs-index.tsv has the format $(get(header, "format", "<absent>"))")
+    get(fheader, "format", "") == "pb1103-outputs-failures-1" || bad("outputs-failures.tsv has the format $(get(fheader, "format", "<absent>"))")
+    cols == OUTPUT_COLUMNS || bad("outputs-index.tsv has the columns $(join(cols, ','))")
+    fcols == FAILURE_COLUMNS || bad("outputs-failures.tsv has the columns $(join(fcols, ','))")
     for k in ("source_sha", "harness_sha", "inputs_index_sha256", "julia")
-        get(fheader, k, "") == get(header, k, "?") || error("outputs-failures.tsv and outputs-index.tsv differ in $k")
+        get(fheader, k, "<absent>") == get(header, k, "<absent>") || bad("outputs-failures.tsv and outputs-index.tsv differ in $k")
     end
-    out_harness = get(header, "harness_sha", "unset")
-    env_harness = env_sha("PB_HARNESS_SHA"; required = !env_flag("PB_CHECK_ONLY"))
-    env_harness == out_harness || error("PB_HARNESS_SHA $env_harness differs from the harness identity $out_harness of the outputs")
+    get(header, "inputs_index_sha256", "") == m.sha256 ||
+        bad("the outputs were made from the manifest $(get(header, "inputs_index_sha256", "?")), not from $(m.sha256)")
+    required = !env_flag("PB_CHECK_ONLY")
+    for (var, key) in (("PB_SOURCE_SHA", "source_sha"), ("PB_HARNESS_SHA", "harness_sha"))
+        want = env_sha(var; required)
+        got = get(header, key, "<absent>")
+        want == got || bad("$var $want differs from the $key $got of the outputs")
+    end
+    isempty(problems) || error("accuracy.jl refuses the outputs before scoring:\n  " * join(problems, "\n  "))
+    byid = Dict(c.id => c for c in m.cases)
+    seen = Dict{Tuple{String,String},Int}()
+    for (i, r) in enumerate(rows)
+        where_ = "outputs-index.tsv row $i ($(r["case"]), $(r["role"]))"
+        c = get(byid, r["case"], nothing)
+        c === nothing && (bad("$where_: the case is not in the manifest"); continue)
+        r["role"] in PRIMARY_ROLES || (bad("$where_: not a primary role"); continue)
+        key = (r["case"], r["role"])
+        haskey(seen, key) && (bad("$where_: repeats row $(seen[key])"); continue)
+        seen[key] = i
+        K = size_of_v(c)
+        r["eltype"] == string(c.T) || bad("$where_: element type $(r["eltype"]), the manifest has $(c.T)")
+        r["acc_gammas"] == join(repr.(c.acc_gammas), ",") || bad("$where_: other steps than the manifest")
+        tryparse(Int, r["nv"]) == K || bad("$where_: $(r["nv"]) inputs, the manifest has $K")
+        r["shape"] == string(c.p, "x", K * length(c.acc_gammas)) || bad("$where_: shape $(r["shape"])")
+        n = tryparse(Int, r["nfail"])
+        n !== nothing && n >= 0 || bad("$where_: nfail $(r["nfail"])")
+        r["copy_identical"] in ("true", "false") || bad("$where_: copy_identical $(r["copy_identical"])")
+    end
+    for id in unique(k[1] for k in keys(seen)), role in PRIMARY_ROLES
+        haskey(seen, (id, role)) || bad("outputs-index.tsv: no row of $role for $id")
+    end
+    failures = Dict{Tuple{String,String,Int,Int},String}()
+    counts = Dict{Tuple{String,String},Int}()
+    for (i, f) in enumerate(frows)
+        where_ = "outputs-failures.tsv row $i ($(f["case"]), $(f["role"]))"
+        key2 = (f["case"], f["role"])
+        haskey(seen, key2) || (bad("$where_: no such row in outputs-index.tsv"); continue)
+        c = byid[f["case"]]
+        gi, k = tryparse(Int, f["gamma_index"]), tryparse(Int, f["vindex"])
+        (gi !== nothing && 1 <= gi <= length(c.acc_gammas) && k !== nothing && 1 <= k <= size_of_v(c)) ||
+            (bad("$where_: step index $(f["gamma_index"]) or input index $(f["vindex"]) out of range"); continue)
+        key = (f["case"], f["role"], gi, k)
+        haskey(failures, key) && (bad("$where_: repeats the failure key $key"); continue)
+        failures[key] = f["message"]
+        counts[key2] = get(counts, key2, 0) + 1
+    end
+    for (key2, i) in seen
+        n = tryparse(Int, rows[i]["nfail"])
+        n === nothing || n == get(counts, key2, 0) ||
+            bad("outputs-index.tsv row $i ($(key2[1]), $(key2[2])): nfail $n but $(get(counts, key2, 0)) failure rows")
+    end
+    if isempty(problems)
+        for (i, r) in enumerate(rows)
+            c = byid[r["case"]]
+            path = joinpath(outdir, r["file"])
+            isfile(path) || (bad("output file $(r["file"]) is missing"); continue)
+            bytes = read(path)
+            want = c.p * size_of_v(c) * length(c.acc_gammas) * sizeof(c.T)
+            length(bytes) == want || bad("output file $(r["file"]) has $(length(bytes)) bytes, expected $want")
+            bytes2hex(sha256(bytes)) == r["sha256"] || bad("output file $(r["file"]): SHA-256 mismatch")
+        end
+    end
+    isempty(problems) || error("accuracy.jl refuses the outputs before scoring:\n  " * join(problems, "\n  "))
+    header, rows, failures, bytes2hex(sha256(ibytes))
+end
+size_of_v(c::Case) = c.arrays["V"].shape[2]
+
+function evaluate(m::Manifest, outdir::String)
+    header, rows, failures, index_sha = preflight(m, outdir)
     rx = Regex(env_string("PB_FILTER", ""))
     fwd_max = env_int("PB_FORWARD_MAX_N", 500)
     tag = env_string("PB_ACC_TAG", "all")
     byid = Dict(c.id => c for c in m.cases)
     ids = unique([r["case"] for r in rows])
-    for id in ids
-        haskey(byid, id) || error("the outputs hold the case $id, which the manifest does not")
-    end
-    failures = Dict{Tuple{String,String,Int,Int},String}((f["case"], f["role"], parse(Int, f["gamma_index"]), parse(Int, f["vindex"])) =>
-                                                          f["message"] for f in frows)
     open(joinpath(outdir, "accuracy-$tag.tsv"), "w") do io
-        for (k, v) in [("format", "pb1103-accuracy-2"), ("julia", get(header, "julia", "unknown")),
+        for (k, v) in [("format", "pb1103-accuracy-3"), ("julia", get(header, "julia", "unknown")),
                        ("outputs_order", get(header, "order", "unknown")), ("source_sha", get(header, "source_sha", "unset")),
-                       ("harness_sha", out_harness), ("inputs_index_sha256", m.sha256), ("filter", rx.pattern),
+                       ("harness_sha", get(header, "harness_sha", "unset")), ("inputs_index_sha256", m.sha256),
+                       ("outputs_index_sha256", index_sha), ("filter", rx.pattern),
                        ("forward_max_n", fwd_max), ("inplace_bigfloat", INPLACE[]), ("eta_precision_bits", 256),
                        ("forward_precision_bits", 128), ("started_utc", Dates.format(now(UTC), "yyyy-mm-ddTHH:MM:SSZ"))]
             println(io, "# ", k, ": ", v)
@@ -229,19 +312,17 @@ function evaluate(m::Manifest, outdir::String)
             crow = [r for r in rows if r["case"] == id]
             Bs, γidx, vidx, labels, skip = Matrix{T}[], Int[], Int[], Tuple{String,String,String}[], Bool[]
             for r in crow
-                r["eltype"] == string(T) || error("output $(r["file"]) is $(r["eltype"]); the case $id is $T")
-                r["acc_gammas"] == join(repr.(c.acc_gammas), ",") || error("output $(r["file"]) has other steps than the manifest")
-                parse(Int, r["nv"]) == K || error("output $(r["file"]) has another number of inputs than the manifest")
                 shape = parse.(Int, split(r["shape"], 'x'))
-                shape == [c.p, K * length(γs)] || error("output $(r["file"]) has the wrong shape")
                 B = read_verified(joinpath(outdir, r["file"]), r["sha256"], T, shape)
                 push!(Bs, B)
                 for gi in eachindex(γs), k in 1:K
                     msg = get(failures, (id, r["role"], gi, k), nothing)
+                    col = view(B, :, (gi - 1) * K + k)
+                    status = msg !== nothing ? "error: " * msg : all(isfinite, col) ? "ok" : "nonfinite"
                     push!(γidx, gi)
                     push!(vidx, k)
                     push!(skip, msg !== nothing)
-                    push!(labels, (r["role"], msg === nothing ? "ok" : "error: " * msg, r["copy_identical"]))
+                    push!(labels, (r["role"], status, r["copy_identical"]))
                 end
             end
             Ball = reduce(hcat, Bs)

@@ -39,9 +39,9 @@ module PkgSControl end
 module Proto end
 module ProtoControl end
 
-# The three observation-space Cholesky prototypes. With γT = T(γ) and ρ = inv(γT) as in LeastSquaresLoss, the shift
-# I + XX'/ρ is formed with the scalar inv(ρ) in the lower triangle, as lasso.m forms 1/ρ once, and all three use
-# the same shift:
+# The three observation-space Cholesky prototypes. With γT = T(γ) and ρ = inv(γT) as in LeastSquaresLoss, each
+# factorization computes the scalar inv(ρ) once into a local, as lasso.m forms 1/ρ once, forms the shift I + XX'/ρ
+# with it in the lower triangle and stores it as invρ; all three use the same shift:
 #   CB (Boyd et al., lasso.m, fat branch): caches X'y and the factor L of I + XX'/ρ;
 #       q = X'y + ρv, β = q/ρ - X'((I + XX'/ρ) \ Xq)/ρ².
 #   CD (residual form): a = (I + XX'/ρ) \ (y - Xv), β = v + X'a/ρ.
@@ -127,8 +127,9 @@ const PROTOTYPE_SOURCE = quote
     rhs!(c::CB{T}) where {T} = (BLAS.gemv!('T', one(T), c.X, c.y, zero(T), c.Xty); c)
     function factor!(c::CB{T}, γ::Real) where {T}
         γT, ρ = penalty_of(T, γ)
-        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
-        c.γ, c.ρ, c.invρ, c.ρ2 = γT, ρ, inv(ρ), ρ * ρ
+        invρ = inv(ρ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, invρ))
+        c.γ, c.ρ, c.invρ, c.ρ2 = γT, ρ, invρ, ρ * ρ
         c
     end
     refactor!(c::CB, γ::Real) = factor!(c, γ)
@@ -181,8 +182,9 @@ const PROTOTYPE_SOURCE = quote
     end
     function factor!(c::CD{T}, γ::Real) where {T}
         γT, ρ = penalty_of(T, γ)
-        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
-        c.γ, c.ρ, c.invρ = γT, ρ, inv(ρ)
+        invρ = inv(ρ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, invρ))
+        c.γ, c.ρ, c.invρ = γT, ρ, invρ
         c
     end
     refactor!(c::CD, γ::Real) = factor!(c, γ)
@@ -235,8 +237,9 @@ const PROTOTYPE_SOURCE = quote
     end
     function factor!(c::CW{T}, γ::Real) where {T}
         γT, ρ = penalty_of(T, γ)
-        cholesky_lower!(shift_mul!(c.L, c.XXt, inv(ρ)))
-        c.γ, c.ρ, c.invρ = γT, ρ, inv(ρ)
+        invρ = inv(ρ)
+        cholesky_lower!(shift_mul!(c.L, c.XXt, invρ))
+        c.γ, c.ρ, c.invρ = γT, ρ, invρ
         c
     end
     # W = L⁻¹X (a copy of X and trsm) and c = L⁻¹y (a copy of y and a triangular solve)
@@ -393,8 +396,11 @@ end
 # dictionaries. A file without the closing line `# complete: yes` is an interrupted write and is rejected.
 function read_tsv(path::AbstractString)
     isfile(path) || error("missing file $path")
-    lines = readlines(path)
-    filter!(!isempty, lines)
+    parse_tsv(read(path, String), path)
+end
+# the same from the text of a file (name is used in the messages)
+function parse_tsv(text::AbstractString, path::AbstractString)
+    lines = filter!(!isempty, split(text, '\n'))
     !isempty(lines) && lines[end] == "# complete: yes" || error("$path is incomplete (no closing `# complete: yes` line)")
     header = Dict{String,String}()
     cols = nothing
@@ -558,7 +564,8 @@ function admm_step!(w::AdmmWork{T}, px::P, obj, γ::T, κ::T) where {T,P}
     (rr, ss, nx, nz, nu)
 end
 
-# Boyd's stopping rule: ‖x - z‖ < √p ε_abs + ε_rel max(‖x‖, ‖z‖) and ρ‖z - zold‖ < √p ε_abs + ε_rel ρ‖u‖
+# Boyd's stopping rule: ‖x - z‖ < √p ε_abs + ε_rel max(‖x‖, ‖z‖) and ρ‖z - zold‖ < √p ε_abs + ε_rel ρ‖u‖. Both norms
+# are computed; the second comparison is evaluated only when the first holds (&&).
 function boyd_converged(p::Int, ρ::Real, t::NTuple{5,Float64}; εabs = 1e-4, εrel = 1e-2)
     r, s = sqrt(t[1]), ρ * sqrt(t[2])
     r < sqrt(p) * εabs + εrel * max(sqrt(t[3]), sqrt(t[4])) && s < sqrt(p) * εabs + εrel * ρ * sqrt(t[5])
@@ -586,9 +593,9 @@ end
 
 const ADMM_CHECKPOINTS = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000)
 
-# k iterations of admm_step! on the work arrays, with Boyd's residual norms and tolerances evaluated after each
-# iteration. The number of iterations that meet the rule is returned (the caller consumes it); it does not stop the
-# loop. The sums of the last iteration are returned too.
+# k iterations of admm_step! on the work arrays, with boyd_converged evaluated after each iteration (O(p) work on the
+# sums of admm_step!). The number of iterations that meet the rule is returned (the caller consumes it); it does not
+# stop the loop. The sums of the last iteration are returned too.
 function admm_loop!(w::AdmmWork{T}, px::P, obj, γ::T, κ::T, ρ::Real, k::Int; εabs = 1e-4, εrel = 1e-2) where {T,P}
     p = length(w.x)
     flags = 0
@@ -601,10 +608,10 @@ function admm_loop!(w::AdmmWork{T}, px::P, obj, γ::T, κ::T, ρ::Real, k::Int; 
 end
 
 # An untimed run of one role for at most cap iterations (exactly cap when a target is not reached). It records, for
-# Boyd's rule and for the stationarity target tight_tol·scale, whether the target was reached, the iteration count k
-# (the first iteration that meets the target, or the number of iterations run when it was not reached) and the
-# measures (r, s, stationarity, objective) at that iteration, and the trajectory at the checkpoints and at the
-# iterations that reached a target. The run stops when both targets are reached.
+# Boyd's rule and for the stationarity target tight_tol·scale, the status (:reached, or :capped when the run went
+# through all cap iterations without meeting the target), the iteration count k (the first iteration that meets the
+# target, or cap when capped) and the measures (r, s, stationarity, objective) at that iteration, and the trajectory
+# at the checkpoints and at the iterations that reached a target. The run stops when both targets are reached.
 function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; tight_tol::Real, scale::Real, cap::Int,
                       εabs = 1e-4, εrel = 1e-2) where {T}
     n, p = size(X)
@@ -633,7 +640,8 @@ function admm_untimed(role::Role, X::Matrix{T}, y::Vector{T}, λ::T, ρ::Real; t
         (hit || k in ADMM_CHECKPOINTS) && push!(rows, (Float64(k), last...))
         boyd !== nothing && tight !== nothing && break
     end
-    level(x) = x === nothing ? (; reached = false, k = ran, measures = last) : (; reached = true, k = x[1], measures = x[2])
+    # a target that is not met has been tried through all cap iterations here (the loop breaks only when both are met)
+    level(x) = x === nothing ? (; status = :capped, k = ran, measures = last) : (; status = :reached, k = x[1], measures = x[2])
     (; boyd = level(boyd), tight = level(tight), ran, rows)
 end
 

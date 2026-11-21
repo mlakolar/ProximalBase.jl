@@ -12,13 +12,16 @@
 # only (the timed flag of the manifest is false), and only the Float64 Gaussian cases of the lasso sizes are ADMM
 # instances. The main X, the responses and the random proximal inputs are generated in Float64 from the seed of
 # the design and size and cast to Float32 for the Float32 cases, which have their own ADMM iterates; the controls
-# are deterministic. In the rank-n/2 designs X is a product of rounded Gaussian factors and y = Xβ* is computed in
-# rounded arithmetic, so the rank and the consistency of the stored arrays hold to the tolerances of the validator
-# (not exactly); the duplicated rows are exactly equal. The streams of a Random generator can differ between Julia
-# versions, so the files, not the seeds, define the inputs, and regenerating with another version can give other
-# hashes. The columns acc_gammas (the steps whose prox outputs are evaluated for accuracy) extend the timing steps
-# by the ADMM steps 0.1 and 10 for the lasso instances. With PB_CHECK_ONLY=1 the script also reloads the manifest and
-# checks the arrays.
+# are deterministic. In the rank-n/2 designs X is the rounded product of two Gaussian factors, scaled to unit-norm
+# columns in floating point, and y = Xβ* is computed in rounded arithmetic, so the stored X and y have rank n/2 and
+# consistency only up to rounding. The validator, which runs with PB_CHECK_ONLY=1, tests the numerical rank and the
+# distance of y from the range of X for the rank-deficient cases with n ≤ 200 (in the full profile the 100×1000 and
+# 200×20000 cases). The duplicated rows are equal by construction (the same rows scaled by the same column norms and
+# converted elementwise), and the validator checks it for each duplicated-rows case. The streams of a Random
+# generator can differ between Julia versions, so the files, not the seeds, define the inputs, and regenerating with
+# another version can give other hashes. The columns acc_gammas (the steps whose prox outputs are evaluated for
+# accuracy) extend the timing steps by the ADMM steps 0.1 and 10 for the lasso instances. With PB_CHECK_ONLY=1 the
+# script also reloads the manifest and checks the arrays.
 include(joinpath(@__DIR__, "common.jl"))
 
 const PROFILES = Dict(

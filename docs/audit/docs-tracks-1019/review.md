@@ -798,17 +798,27 @@ receipt in `test/TESTING.md`, extending the ordered span from eight blocks
 to nine. The later GroupNormLinf wording commit at `8364532f` edits text added
 after the frozen inventory. The audit holds 66 receipts and 132 transitions.
 
-## Indicator scaling reconciliation for #1118
+## Reconciliation after built-in indicator scaling (#1118)
 
-[PR #1118](https://github.com/mlakolar/ProximalBase.jl/pull/1118) merged at
-`a38c0a8e6a6b7e8955dc784448542e4fd294c450` (tree
-`61e1df0d1c2d1f5928a5406fd02451398541312d`). Its actual first parent is
-`1e3033d69742bbd170c8eebe116c7474b772bc82`. The PR API reports a different
-base. At the touched documentation paths, the [reviewed PR head](https://github.com/mlakolar/ProximalBase.jl/pull/1118#pullrequestreview-6002953095) and landed
-commit have identical blobs.
+`reconcile_pr_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450`
+verified that [#1118](https://github.com/mlakolar/ProximalBase.jl/pull/1118)
+merged with actual first parent `1e3033d69742bbd170c8eebe116c7474b772bc82`.
+The review traced ten affected baseline blocks through their before and after
+blobs. The new events cover the IndNonnegative benchmark and endpoint row,
+five scaling passages, the developer KKT notes, and two migration entries.
 
-`ledger_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450` independently
-reviewed the change against the landed source, tests and benchmark harness.
+Before the #1118 edit, the Scaled unsupported-cases roots `::19` and `::22`
+had separate upstream histories in `calculus.md` followed by exact moves to
+`spec/scaled.md#spec-scaled-limitations`. Their prior receipts, basis records
+and move rows are tracked in the first parent. For `::22`, the replacement
+keeps the first of two list items and changes the second. The other eight
+roots use the existing same-file or exact frozen-move receipt rules. The
+audit holds 72 receipts and 142 events across the same 2,162 frozen roots.
+
+### First-parent hunk evidence
+
+`ledger_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450` independently verified
+the changed hunks against the landed source, tests and benchmark harness.
 The table identifies the frozen roots and the changed lines in the first-parent
 diff. The schema-2 receipts record complete ordered spans and full hashes for
 all ten transitions.
@@ -853,10 +863,3 @@ the newly added scaling example, the new migration section, and the edited
 first-parent diff adds one heading and retains the existing headings and
 explicit IDs. The authored link changes add references to #1080. The rendered
 anchor and link audits cover the existing guide forwards and spec targets.
-
-Against the ledger PR's base `62df416397b0165f6af5895416c966a575a2095d`,
-all six blocking checks pass with zero findings using the strict #1118
-render of the same authored manual. The rendered link audit covers 81
-pages, with zero broken links or orphan pages. The supplemental report
-finds zero removed lines. All 2,162 frozen ID/hash/kind tuples and all
-earlier upstream events are retained. The checker fixtures pass 131 tests.

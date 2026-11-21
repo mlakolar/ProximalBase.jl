@@ -217,27 +217,31 @@ original block at that scope in the moved file's before blob. Each event
 verifies both blobs at the moved path and keeps its span within the recorded
 scope. The current ledger uses the `upstream` action for this case.
 
+A verbatim move of an already-reviewed upstream span can also precede another
+upstream edit. Set `move_after_event` to the number of original-file events
+before that move. In the first post-move event's actual parent, the tracked
+ledger must record the exact ordered move to the named section. The tracked
+upstream receipt must match the original-file prefix, and the tracked migration
+basis must bind that receipt and its terminal hashes. Those hashes must match
+the ordered source of the first post-move event. The current `upstream` row
+uses those parent records as evidence, so remove its active migration basis.
+
+To record the actual relocation as well, include `reviewed_move` with the
+move's full `before_commit` and `after_commit` IDs. The checker verifies the
+first-parent diff, the same historical receipt in both trees, the tracked
+ledger rows and the landed migration basis. The ordered span must leave the
+original file and appear at the named destination. CI fetches both revisions
+alongside the upstream event revisions.
+
 The checker derives the complete replacement span from the source-owned changed
 line regions. An unchanged neighboring block is excluded only when positional
 block matching and unchanged raw-line alignment agree. Matching text elsewhere
 in the old file does not exempt a newly introduced copy from the receipt.
 
-If an exact move relocated a previously reviewed upstream span, add
-`reviewed_move` with the full `before_commit` and `after_commit` of the landed
-move to the schema-2 receipt. Preserve its historical event prefix and append
-the edits made at the moved destination. The checker validates the historical
-receipt in both move trees, the landed migration basis and move row, and the
-source and destination spans in the first-parent diff. The complete ordered
-terminal span must have left the original file and appeared at the recorded
-destination. Later events continue at that path and heading. The current row
-uses `upstream` and the current migration-basis entry is removed once the move
-is verified through the upstream receipt. CI fetches both move revisions in
-addition to the upstream event revisions.
-
 Events need not be adjacent commits or have identical whole-file blobs between
 them: unrelated upstream work may edit other sections. Exact block-hash
 continuity is mandatory. Each event verifies exact contiguous replacement spans
-within its recorded file. Each PR's merged status is independently verified and recorded
+within one file. Each PR's merged status is independently verified and recorded
 in `review.md`; an offline
 checker cannot authenticate it. CI fetches the exact before/after revisions for
 every recorded event at depth one, deduplicating revisions shared by events.

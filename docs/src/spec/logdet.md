@@ -10,7 +10,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`LogDetLoss`](@ref).
 
 Source: [`src/functions/logdet.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/logdet.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-logdet-definition)
 

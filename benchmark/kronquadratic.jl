@@ -16,10 +16,13 @@
 # cells are timed without it. The dense role copies a symmetric iterate into a dense matrix through the public
 # accessors of the candidate tree, forms A D and (A D) B with mul!, and takes the value dot(D, W)/2 + dot(C, D) and the
 # gradient (W + Wᵀ)/2 + C; for a matrix argument it forms A X and (A X) B. Each round times the roles of each case in
-# alternating order (reversed in even rounds) and keeps per role the median and the minimum over the samples of its
-# trial. A case cycles through COPIES distinct arguments, so that consecutive calls do not repeat their input; the
-# roles share the dense arguments, the data and the output, and build their own iterates from the same coordinates
-# and values (the dense role reads the candidate's). The summary gives per case the route of the candidate (matrix,
+# the order archive, candidate, control, dense (PB_REVERSE=1 exchanges the first two), reversed in even rounds, so
+# that the dense role is timed last in odd rounds and first in even rounds in both settings, and keeps per role the
+# median and the minimum over the samples of its trial (a BenchmarkTools time limit of 0.5 s, 1 s at p ≥ 800, and at
+# most 200 samples). A case cycles through COPIES separately sampled argument objects, so that consecutive calls take different
+# objects; the roles receive the same dense arguments, the same coefficient values (each constructor may copy them)
+# and the same output, and build their own iterates from the same coordinates and values (the dense role reads the
+# candidate's). The summary gives per case the route of the candidate (matrix,
 # accumulate or dense), the median over the rounds of the ratios candidate/dense, candidate/archive and
 # control/candidate (A/A) of the trial minima and medians, and the warmed allocations of each role.
 # PB_QUICK=1 runs small sizes for one round; PB_FILTER selects cases by a regular expression on their ids;
@@ -289,7 +292,8 @@ selected(c) = !haskey(ENV, "PB_FILTER") || occursin(Regex(ENV["PB_FILTER"]), c.i
 print(String(take!(copy(summary))))       # the header; each run_cases call prints its rows
 
 if sweep
-  # one (T, p, n) cell at a time, so that the iterates of a cell are freed before the next one is built
+  # one (T, p, n) cell at a time: the references to a cell's iterates are dropped before the next cell is built, and a
+  # collection is requested (GC.gc), which does not guarantee that all of them are reclaimed
   ncases = 0
   for T in (Float32, Float64), p in SWEEP_P
     rng = MersenneTwister(1061 + p)

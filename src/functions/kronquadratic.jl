@@ -233,11 +233,11 @@ gradient!(G, f::KronQuadratic, X::AbstractMatrix) = (value_and_gradient!(G, f, X
 
 # The products M X with the matrix that a symmetric iterate X represents take one of two routes: column by column
 # over the active coordinates (_kron_left!), or a matrix product on a dense copy. Value-only and gradient calls take
-# the dense route when 32n > p² for n nonzero active values. In exclusive sweeps on an Intel Xeon E5-2640 v4 with
-# Julia 1.10.13 and 1.13.4, the accumulating route of a value-only call ran at 0.04–0.82 of a straightforward dense
-# implementation below this cutoff, with the crossover near n ≈ p²/28 (p = 800) and p²/23 (p = 200); that of a
-# gradient call crossed near p²/30 (p = 800) and p²/21 (p = 200). See benchmark/README.md, "Measured performance".
-# Counting the nonzero values needs no coordinate conversion.
+# the dense route when 32n > p² for n nonzero active values. The cutoff is a measured tradeoff from exclusive sweeps on
+# one x86-64 CPU with Julia 1.10.13 and 1.13.4, against a straightforward dense implementation: below it the
+# accumulating route of a value-only call ran at 0.045–0.825 of the dense time, and that of a gradient call at
+# 0.528–0.943 for p ≥ 200. The CPU, the method and the per-size numbers are in benchmark/README.md, "Measured
+# performance". Counting the nonzero values needs no coordinate conversion.
 function _kron_dense_route(X::SymmetricSparseIterate, p::Int)
   vals = activevalues(X)
   n = 0
@@ -347,8 +347,10 @@ function _kron_symmetric_value(f::KronQuadratic{T}, X::SymmetricSparseIterate{T}
 end
 
 # The value, and the gradient W/2 + Wᵀ/2 + C for W = A X B written into G, in column order over all entries. The two
-# entries of a mirrored pair add the same two halves, and C, when present, is exactly symmetric here
-# (_kron_check_input), so they receive the same value; halving first keeps the loop free of branches.
+# entries of a mirrored pair add the same two halves and mirrored entries of C (exactly symmetric when present,
+# _kron_check_input), so they compare equal for results other than NaN and hold NaN in mirrored positions; their
+# signs of zero can differ where those of C do. The arithmetic has no branches, and whether C is present is resolved
+# by specialization.
 function _kron_symmetric!(G::StridedMatrix{T}, f::KronQuadratic{T}, X::SymmetricSparseIterate{T}) where {T}
   p = size(f.A, 1)
   AX, W, C = f.AX, f.W, f.C

@@ -170,9 +170,10 @@ sufficient to accept a symmetric iterate.
 
 `KronQuadratic` has symmetric-iterate value and gradient methods, with no prox,
 for `p = q` and, when `C` is supplied, an exactly symmetric `C`. Its gradient
-there is `(A X B + B X A)/2 + C`, a dense matrix whose mirrored entries receive
-the same computed value, `NaN` included (so `issymmetric` holds for results
-without `NaN`). In exact arithmetic it differs from the gradient `A X B + C` that
+there is `(A X B + B X A)/2 + C`, a dense matrix whose mirrored entries compare
+equal when the result is not `NaN`, with a `NaN` in both mirrored positions and
+signs of zero that can differ where those of `C` do (so `issymmetric` holds for
+results without `NaN`). In exact arithmetic it differs from the gradient `A X B + C` that
 `matrixview(x)` gets as a matrix argument when `A X B` is not symmetric; see
 [Kronecker quadratic](@ref Kronecker-quadratic).
 

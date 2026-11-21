@@ -617,6 +617,22 @@ end
   @test !ProximalBase._kron_dense_route(X1, 1)
   X1[1, 1] = 1
   @test ProximalBase._kron_dense_route(X1, 1)   # 32 > 1
+  # the route each public oracle takes, observed through the dense-copy scratch f.X (an internal field): filled with
+  # NaN before the call, it stays NaN on the accumulating route and is overwritten on the dense route
+  for (q, coords) in ((8, ((2, 1), (3, 3))), (8, ((2, 1), (3, 3), (5, 4))), (1, ()), (1, ((1, 1),)))
+    h = KronQuadratic(Matrix{T}(I, q, q) + ones(T, q, q), Matrix{T}(I, q, q), ones(T, q, q))
+    Y = SymmetricSparseIterate(T, q)
+    for (r, c) in coords
+      Y[r, c] = T(1)
+    end
+    dense = 32 * length(coords) > q^2
+    @test ProximalBase._kron_dense_route(Y, q) == dense
+    for call in (Z -> h(Z), Z -> value_and_gradient!(zeros(T, q, q), h, Z), Z -> gradient!(zeros(T, q, q), h, Z))
+      fill!(h.X, T(NaN))
+      call(Y)
+      @test dense ? !any(isnan, h.X) : all(isnan, h.X)
+    end
+  end
   # both routes agree with the formula on each side of the boundary
   rng = Xoshiro(17)
   f = KronQuadratic(random_symmetric(rng, T, p), random_symmetric(rng, T, p), random_symmetric(rng, T, p))

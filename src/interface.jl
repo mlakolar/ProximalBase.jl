@@ -342,8 +342,9 @@ array with the same shape; see [`gradient!`](@ref) to reuse an output buffer.
 Supported symmetric-iterate gradients of `SqrNormL2`, `LinearFunction`,
 `KronQuadratic` and supported `Scaled` wrappers of them produce a dense matrix,
 the derivative over symmetric matrices. For `KronQuadratic` and its supported
-`Scaled` wrappers, mirrored entries receive the same computed value, `NaN`
-included, so `issymmetric` holds for results without `NaN`. `ZeroFunction`
+`Scaled` wrappers, mirrored entries compare equal when the result is not `NaN`,
+a `NaN` occurs in both mirrored positions, and the signs of zero can differ where
+those of `C` do; `issymmetric` holds for results without `NaN`. `ZeroFunction`
 has no symmetric-iterate gradient method. A capability trait does not supply
 missing operand methods.
 

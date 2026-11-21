@@ -74,10 +74,13 @@ behavior lists the overlaps that the oracles detect.
 The value has type `T`. For a matrix argument the gradient is ``AXB+C``.
 For a symmetric iterate it is ``\frac12(W+W^\top)+C`` with ``W=AXB``, computed
 as ``W/2+W^\top/2+C``. The two entries of a mirrored pair add the same two
-halves and the same entry of `C`, so they receive the same computed value,
-`NaN` included, and `issymmetric` holds for results without `NaN`. Halving
-before the sum gives the rounded ``(W+W^\top)/2`` except where a half or the
-sum of the halves is subnormal, or where ``W_{ij}+W_{ji}`` overflows.
+halves and mirrored entries of `C`: they compare equal when the result is not
+`NaN`, a `NaN` occurs in both mirrored positions, and their signs of zero can
+differ where those of `C` do; `issymmetric` holds for results without `NaN`.
+When every operation stays finite and in the normal range, halving before the
+sum gives the rounded ``(W+W^\top)/2``. In the subnormal range a nonzero half
+can round to zero or lose digits, which is ordinary IEEE arithmetic, and
+``W_{ij}+W_{ji}`` can overflow where the halves and their sum do not.
 Its off-diagonal entry ``(r,c)`` is half the derivative of ``q`` along the
 coordinate ``(r,c)``, which moves both mirrored entries. The value is the
 same formula for both arguments.
@@ -96,10 +99,13 @@ without forming ``(AX)B``. A zero coefficient, stored or absent, contributes
 nothing to that accumulation. On the dense route ``AX`` is formed by `mul!` on a
 dense copy. A gradient call then forms ``(AX)B`` with `mul!` and writes
 ``W/2+W^\top/2+C`` with ``W=(AX)B`` in column order; on the accumulating route
-its value is a pass over the stored entries. In exclusive sweeps on one
-x86-64 CPU with Julia 1.10.13 and 1.13.4 the accumulating routes ran faster than a
-straightforward dense implementation below the cutoff; the numbers are in
-the measured performance section of `benchmark/README.md`. Results are rounded in
+its value is a pass over the stored entries. The cutoff is a measured
+tradeoff: in exclusive sweeps on one x86-64 CPU with Julia 1.10.13 and 1.13.4,
+of a version with the same routes and an earlier gradient store, the
+accumulating routes ran below the cutoff at 0.045–0.825 (value-only calls) and,
+for ``p\geq200``, 0.528–0.943 (gradient calls) of the time of a straightforward
+dense implementation. The measured performance section of
+`benchmark/README.md` gives the method and the numbers per size. Results are rounded in
 working precision, and the routes can differ by rounding.
 
 ## [Range clauses](@id spec-kronquadratic-range)

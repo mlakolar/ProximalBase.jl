@@ -373,3 +373,16 @@ refusals listed in the failure section, with a sentinel output where the caller 
 allocations on both kernel routes. It also checks that `NormL0(λ)` and `NormL0(λ; diagonal = true)` are the same
 object with bit-identical values and proximal outputs on vectors, dense and sparse matrices, a
 `SymmetricSparseIterate` and array steps.
+
+## Coverage of KronQuadratic
+
+`kronquadratic` checks `KronQuadratic` in Float32 and Float64: the constructor and its refusals (element
+types with the conversion hint, axes, shapes, finiteness, exact symmetry), traits, `lipschitz` and
+`kronquadratic_data`; hand-computed and `kron(B, A)` references for values and gradients on matrix arguments,
+views, row-strided, reversed-column and `SparseIterate` arguments and destinations; the symmetric-iterate
+gradient `(A X B + B X A)/2 + C` against an independent formula, on empty, sparse, dense and explicit-zero
+iterates, with central differences along coordinate directions; the route predicate on both sides of
+`32n = p²` and the route each public oracle takes, observed through a sentinel in the dense-copy scratch;
+the D-trace residual, a proximal-gradient loop with KKT scores, and the coordinate-descent direction model;
+`Scaled`, `check_symmetric_parameters`, the checks before writes (each leaving the destination and the data
+unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and inference.

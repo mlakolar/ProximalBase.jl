@@ -446,9 +446,12 @@ products ``AX`` and ``(AX)B``. At a symmetric iterate with ``n`` nonzero
 active values, both calls take an accumulating route when ``32n\leq p^2``: the
 gradient accumulates ``AX`` over the active coordinates, and a value-only call
 accumulates ``AX`` and ``BX`` without forming ``(AX)B``. Above that cutoff they
-form ``AX`` from a dense copy and then ``(AX)B``. In the measured sweeps the
-accumulating routes ran faster than a straightforward dense implementation
-below the cutoff; see the measured performance in `benchmark/README.md`.
+form ``AX`` from a dense copy and then ``(AX)B``. The cutoff is a measured
+tradeoff: in exclusive sweeps of a version with the same routes and an
+earlier gradient store, the accumulating routes ran below the cutoff at
+0.045–0.825 (value-only) and, for ``p\geq200``, 0.528–0.943 (gradient) of the
+time of a straightforward dense implementation; see the measured performance
+in `benchmark/README.md`.
 
 The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
 view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
@@ -468,8 +471,9 @@ together, so the derivative of ``q`` along that coordinate is
 ``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. When `C`
 is supplied, symmetric-iterate calls require it to be exactly symmetric and
 throw `ArgumentError` before writes otherwise. The two entries of each
-mirrored pair of the gradient receive the same computed value, `NaN`
-included, so `issymmetric` holds for results without `NaN`. `matrixview(X)` is a matrix argument and gets
+mirrored pair of the gradient compare equal when the result is not `NaN`, a
+`NaN` occurs in both positions, and their signs of zero can differ where those
+of `C` do; `issymmetric` holds for results without `NaN`. `matrixview(X)` is a matrix argument and gets
 ``AXB+C``.
 
 ```@example library_kronquadratic

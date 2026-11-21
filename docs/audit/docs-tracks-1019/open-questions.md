@@ -128,6 +128,13 @@ that happens to pass.
   subtraction wording awaits the owner's decision.
   [Source](../../../src/functions/groupnormlinf.jl)
 
+- The box endpoint row says public scalar-step array oracles reject invalid
+  steps. It could describe direct box calls or also calls through Scaled.
+  The direct methods check the step, and the wrapper tests distinguish
+  the dispatch paths. The scope of the statement awaits the owner's
+  decision. [Source](../../../src/functions/indbox.jl)
+  · [Tests](../../../test/indballlinf.jl)
+
 ## Owner review and next gates
 
 The owner accepted the external Claude review prepared for PR #1021 at

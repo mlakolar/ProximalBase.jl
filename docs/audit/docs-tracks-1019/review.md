@@ -863,3 +863,17 @@ the newly added scaling example, the new migration section, and the edited
 first-parent diff adds one heading and retains the existing headings and
 explicit IDs. The authored link changes add references to #1080. The rendered
 anchor and link audits cover the existing guide forwards and spec targets.
+
+## Reconciliation after PoissonLoss restoration (#1133)
+
+`reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb` verified
+that [#1133](https://github.com/mlakolar/ProximalBase.jl/pull/1133) merged with
+actual first parent `4514d8bd94c216104f305aad4c4a806847fa7e84`. The eight
+same-file transitions cover the README inventory, two API coverage rows,
+two function reference blocks, the source map, the chooser's predictor
+guidance, and the migration scope paragraph. The source-map span replaces
+one row with the revised predictor row and two consecutive loss rows.
+Six histories gained an event and two are new. The ledger retains all
+2,162 frozen roots. The upstream audit holds 74 receipts and 150 events. The historical and
+current readings of the migration inventory remain open after the explicit
+`PoissonLoss` exception.

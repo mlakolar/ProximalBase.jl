@@ -1,6 +1,7 @@
 # [NormL0 numerical contract](@id spec-norml0)
 
 This page gathers the existing numerical rules for `NormL0`.
+For `diagonal = false`, see the [diagonal-free contract](norml0offdiag.md).
 The text is preserved from the earlier manual. Clause conversion and status
 assignments are a separate review step; unstated status remains unclassified.
 Read [How to read the numerical contracts](index.md) for authority and ownership.
@@ -10,7 +11,7 @@ Read [How to read the numerical contracts](index.md) for authority and ownership
 **Links only until clause conversion.** Constructors and API help: [`NormL0`](@ref).
 
 Source: [`src/functions/norml0.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/src/functions/norml0.jl).
-The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supported interface.
+The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supported interface.
 
 ## [Definition and domain](@id spec-norml0-definition)
 
@@ -18,11 +19,11 @@ The [API coverage matrix](../api/coverage.md#Coverage-matrix) lists the supporte
 
 ## [Traits](@id spec-norml0-traits)
 
-**Links only until clause conversion.** Trait declarations are described by [`NormL0`](@ref) and [`NormL0`](@ref).
+**Links only until clause conversion.** Trait declarations are described by [`NormL0`](@ref).
 
 ## [Supported arguments](@id spec-norml0-arguments)
 
-**Links only until clause conversion.** Operation signatures and representations are described by [`NormL0`](@ref) and [`NormL0`](@ref).
+**Links only until clause conversion.** Operation signatures and representations are described by [`NormL0`](@ref).
 
 ## [Preconditions](@id spec-norml0-preconditions)
 

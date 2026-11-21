@@ -1,0 +1,50 @@
+scan-1.10.13.tsv.gz rows 680 scenarios 136 output/value mismatches 0 bounds mismatches 0
+delta fused shared 0 136
+delta fused+A shared 1 136
+delta prox shared -1 136
+delta prox+A shared 0 136
+2048 total active-tied false fused [4]
+2048 total active-tied false fused+A [5]
+2048 total active-tied false prox [3]
+2048 total active-tied false prox+A [4]
+2048 total active-tied false shared [4]
+2048 total active-tied true fused [4]
+2048 total active-tied true fused+A [5]
+2048 total active-tied true prox [3]
+2048 total active-tied true prox+A [4]
+2048 total active-tied true shared [4]
+2048 total deep-interior false fused [3]
+2048 total deep-interior false fused+A [4]
+2048 total deep-interior false prox [2]
+2048 total deep-interior false prox+A [3]
+2048 total deep-interior false shared [3]
+2048 total deep-interior true fused [2]
+2048 total deep-interior true fused+A [3]
+2048 total deep-interior true prox [1]
+2048 total deep-interior true prox+A [2]
+2048 total deep-interior true shared [2]
+scan-1.13.4.tsv.gz rows 680 scenarios 136 output/value mismatches 0 bounds mismatches 0
+delta fused shared 0 136
+delta fused+A shared 1 136
+delta prox shared -1 136
+delta prox+A shared 0 136
+2048 total active-tied false fused [4]
+2048 total active-tied false fused+A [5]
+2048 total active-tied false prox [3]
+2048 total active-tied false prox+A [4]
+2048 total active-tied false shared [4]
+2048 total active-tied true fused [4]
+2048 total active-tied true fused+A [5]
+2048 total active-tied true prox [3]
+2048 total active-tied true prox+A [4]
+2048 total active-tied true shared [4]
+2048 total deep-interior false fused [3]
+2048 total deep-interior false fused+A [4]
+2048 total deep-interior false prox [2]
+2048 total deep-interior false prox+A [3]
+2048 total deep-interior false shared [3]
+2048 total deep-interior true fused [2]
+2048 total deep-interior true fused+A [3]
+2048 total deep-interior true prox [1]
+2048 total deep-interior true prox+A [2]
+2048 total deep-interior true shared [2]

@@ -1,0 +1,5 @@
+version	bounds	vector_cases	stored_margin_matches	exact_feasibility_matches	pb_feasibility_matches	max_abs_margin_difference
+1.10.13	auto	12525	12525	12525	12525	0.0
+1.10.13	yes	12525	12525	12525	12525	0.0
+1.13.4	auto	12540	12540	12540	12540	0.0
+1.13.4	yes	12540	12540	12540	12540	0.0

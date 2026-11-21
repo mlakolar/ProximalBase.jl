@@ -1,0 +1,5 @@
+cell	data_rows	output_mismatch	value_mismatch	standalone_mismatch	finite_bounds	straddles	matched_copy
+master-1.10.13-auto.tsv.gz	21180	0	0	0	21108	16566	3630
+master-1.10.13-yes.tsv.gz	21180	0	0	0	21108	16584	3720
+master-1.13.4-auto.tsv.gz	21216	0	0	0	21144	16638	3726
+master-1.13.4-yes.tsv.gz	21216	0	0	0	21144	16656	3600

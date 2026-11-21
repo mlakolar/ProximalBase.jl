@@ -1,0 +1,11 @@
+job	role	seconds	status	conditions
+14432289	PB import and arithmetic preflight	85	COMPLETED	both PB pins, both Julia versions and bounds modes
+14432327	read-only enclosure canary	14	COMPLETED	master, Julia 1.13.4, default bounds, AMD EPYC 7513
+14432340	PS pin and archived environment check	93	COMPLETED	both Julia versions, original loaded PB tree
+14432354	read-only validation	118	COMPLETED	eight source/version/bounds cells, AMD EPYC 7513
+14432458	fusion parity and enclosure validation	50	COMPLETED	four version/bounds cells, AMD EPYC 7513
+14432459	exclusive solver replay canary	26	COMPLETED	Julia 1.13.4, AMD EPYC 7513
+14432495	exclusive microbenchmark canary	19	COMPLETED	Julia 1.13.4, AMD EPYC 7513
+14432520	untimed traversal counts	31	COMPLETED	both Julia versions, AMD EPYC 7513
+14432548	exclusive PB microbenchmarks	120	COMPLETED	both Julia versions, AMD EPYC 7513, single bound core and no co-tenants
+14432549	exclusive PS paired solve timings and replay	190	COMPLETED	both Julia versions, AMD EPYC 7513, single bound core and no co-tenants

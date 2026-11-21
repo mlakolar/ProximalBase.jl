@@ -66,16 +66,20 @@ Base.@propagate_inbounds Base.getindex(a::_ExpScaledArray{T}, i::Int) where {T} 
     Scaled(f, α)
 
 Nonnegative multiple `h(x) = α f(x)`. The expressions `α*f` and `f*α` construct
-it too. Negative or `NaN` scales are invalid. For positive finite `α`, a proximal
-step for `h` uses the inner function's step `α*γ`.
+it too. Negative or `NaN` scales throw `ArgumentError`.
 
 For `f` one of `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox` (including
 `IndBallLinf`) or `IndNonnegative`, a nonnegative `α` returns `f` itself, since the
-scale does not change these indicators.
+scale does not change these indicators. This also holds for the explicitly
+parametric constructor `Scaled{F, T}(f, α)`, including an abstract `F`.
 
-For any other `f`, the wrapper retains `f` by reference, including its parameters,
-scratch and caches. Traits and supported oracles forward to `f`, except that
-`iszeropreserving` is false for an infinite scale; scaling does not add missing methods.
+When the constructor returns a wrapper, it retains `f` by reference, including its
+parameters, scratch and caches. On the ordinary path with positive finite `α` and `γ`,
+a proximal step for `h` hands the inner function the step `α*γ`; where that product
+is not a normal number, the factors can be moved into folded levels instead. Supported
+oracles of `f` are forwarded where `Scaled` has a method for them, and scaling does not
+add missing methods (`Scaled` has no `value_entry`). The type-based traits query the
+declared field type `F`, and `iszeropreserving` is false for an infinite scale.
 Call [`reset_cache!`](@ref) on the outermost function after changing cached data.
 
 # Examples
@@ -95,10 +99,11 @@ julia> prox(f, [2.0, -1.0], 1.0)
 - A zero scale may return a simpler function, or throw if no domain-preserving
   representation is supported; the result need not be a `Scaled`. For a built-in
   indicator it returns the indicator.
-- Nested positive finite factors retain their exponents when intermediate
-  products exceed floating-point range; whether a result is recovered depends
-  on the inner function. An infinite scale of a function other than a built-in indicator
-  has function-specific endpoint rules.
+- Nested positive finite floating-point factors whose product is not a normal number
+  retain their exponents in the wrappers they create; whether a result is recovered
+  depends on the inner function. Integer factors are multiplied as integers. An
+  infinite scale of a function other than a built-in indicator has function-specific
+  endpoint rules.
 - Exact input/output identity follows the supported inner prox; other overlaps
   remain subject to the [ownership rules](@ref numerical-usage).
 
@@ -471,10 +476,12 @@ _infinite_factor(α) = false
 # α v with an infinite factor α, for the array-step route, which does not recover a product
 _scaled_product_value(f, α, y, v) = (r = α * v; isnan(r) && !isnan(v) ? _scaled_nan_value(f, α, y, r) : r)
 
-# Whether f(x) is exactly 0, decided from the argument and the stored parameters, never from a
-# computed value. Called only where the computed value of f is 0 (not NaN). The families below:
-# their value is 0 exactly when all the entries they penalize are 0. The entries they leave free (a zero level or weight, an index in no group) do not enter the
-# value, whatever they hold, as in the function's own value. Any other function: false.
+# A certificate that f(x) is exactly 0, decided from the argument and the stored parameters, not from a
+# computed value (a computed 0 can be a positive value that underflowed). Called only where the computed
+# value of f is 0 (not NaN). For the families below the certificate holds when all the entries they penalize
+# are 0; the entries they leave free (a zero level or weight, an index in no group) are not read, except that
+# NormL1Nonneg also requires every entry to be nonnegative. A false result is the absence of a certificate.
+# Any other function: false.
 _exactly_zero_at(f, x) = false
 # an entry with the weight w under the level λ is penalized (an infinite weight at any level)
 @inline _penalized(λ, w) = w > 0 && (λ > 0 || isinf(w))
@@ -619,12 +626,16 @@ function _gradient_chain!(g, s, x)
 end
 prox!(y, s::Scaled, x, γ::Real) =
   (x = _symmetric_argument(y, x); _check_oracle_arrays(prox!, s, y, x, γ); _prox_unchecked!(y, s, x, γ))
-# The step that Scaled passes to f.
+# The step that Scaled passes to f on the ordinary scalar route: the plain product s.α * γ, in the
+# arithmetic of the two types. The recovery guard below covers a positive finite factor and step whose
+# floating-point product is not a normal number. Other products are used as formed: with a factor 0.5 and
+# step -nextfloat(0.0) the product is -0.0, and with a factor Inf and step 0.0 it is NaN.
 @inline _scaled_step(s::Scaled, γ::Real) = s.α * γ
 
-# A single factor takes the route of a chain (`_nested_step`) for a step that it takes out of the
-# range, so that the product α γ is not rounded before the function forms its coefficient. A zero,
-# infinite, negative or NaN step or factor keeps its meaning.
+# A single positive finite factor takes the route of a chain (`_nested_step`) for a positive finite step
+# whose floating-point product with it is not a normal number, so that the product α γ is not rounded
+# before the function forms its coefficient. A zero, infinite, negative or NaN step or factor does not
+# take it.
 @inline function _step_exceptional(s::Scaled, γ::Real)
   p = s.α * γ
   p isa AbstractFloat || return false
@@ -1044,8 +1055,9 @@ _chain_finite(a::_ProjectionScale) = isfinite(a.m)
 _chain_finite(a::Real) = isfinite(a)
 # A chain with an infinite factor is refused at a nonzero coordinate or group, as an infinite factor of one wrapper is. Its
 # value at a zero coordinate or group is outside the contract (see the scaling guide) and is computed here without a guarantee:
-# by the screen of the function at g for a smooth function, of the function with its folded levels, or of the
-# function at g divided by the product, multiplied by it.
+# for a function defined outside the package, by its scaled gradient (`_kkt_custom_zero`); for a built-in smooth
+# function, by the method that `_kkt_unfolded` selects at g; for another built-in function, by that method for
+# the function with its folded levels, or for the function at g divided by the product, multiplied by it.
 @noinline function _kkt_chain_infinite(s::Scaled, f, a, g, x, k)
   cls = _kkt_class(typeof(f))
   ge = _ExpScaledArray(g, _scale_inverse(a))

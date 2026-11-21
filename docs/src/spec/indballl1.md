@@ -96,10 +96,12 @@ value `NaN` at any radius. An empty input has value zero and is copied.
 
 ## [Failure behavior](@id spec-indballl1-failures)
 
-A negative or NaN radius throws `ArgumentError` at construction. A negative
-or NaN scalar step throws `ArgumentError` before writes, also for `α * f`, which is
-`f` itself for a nonnegative `α`. Invalid axes, shapes and argument types are checked before
-writes as described in [array and precision conventions](@ref numerical-usage).
+A negative or NaN radius throws `ArgumentError` at construction. In the scalar-step
+`prox`, `prox!` and `value_and_prox!` calls, a negative or NaN step throws `ArgumentError`
+before writes when the call reaches the step check; `α * f` is `f` itself for `α ≥ 0`, so the
+same holds through it. Invalid axes, shapes and argument types are checked before
+writes as described in [array and precision conventions](@ref numerical-usage); a call can
+raise one of those errors before the step is examined.
 
 ## [Limitations and non-guarantees](@id spec-indballl1-limitations)
 

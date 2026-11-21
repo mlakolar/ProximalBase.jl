@@ -7,6 +7,7 @@ const PB = ProximalBase
 const CANON_FACTORS = Any[2, 0, 1, 0.5, 2.0, 2f0, 3f0, 5e-324, 1e-300, floatmax(Float64), floatmax(Float32), nextfloat(0f0),
                           Inf, Inf32, 0.0, -0.0, big(2.0), big(0), big(Inf)]
 const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big(-1.0), big(NaN)]
+const CANON_BIGFLOAT = big(2.0)    # built before the allocation checks
 scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
 times_allocs(f, α) = (α * f; @allocated α * f)
 
@@ -36,7 +37,7 @@ function check_canonical(f)
   end
   @test_throws ArgumentError Scaled(Scaled(f, 2), -1)
   @test_throws ArgumentError Scaled(Scaled(f, Inf), NaN)
-  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, CANON_BIGFLOAT)
     @test @inferred(Scaled(f, α)) === f
     @test @inferred(α * f) === f
     @test scaled_allocs(f, α) == 0
@@ -184,8 +185,9 @@ end
   @test iszeropreserving(Inf * IndBox(0.0, 1.0)) && iszeropreserving(Inf * IndBallLinf(1.0))
   @test !iszeropreserving(Inf * IndBox(1.0, 2.0))
   # an unsupported form of the score names the box
-  err = try; kkt_violation(2 * IndBox(0.0, 1.0), [1.0], 1); catch e; e; end
-  @test err isa MethodError && !occursin("Scaled", sprint(showerror, err))
+  box = IndBox(0.0, 1.0)
+  err = try; kkt_violation(2 * box, [1.0], 1); catch e; e; end
+  @test err isa MethodError && err.f === kkt_violation && err.args[1] === box
 end
 
 @testset "Validation, ownership and restriction" begin

@@ -23,13 +23,15 @@ end
   _fused_small_case(f, α, v) ? _fused_small_value(f, α, y, r) : r
 end
 
-# Whether an entry of an array step may leave the range in the product with the factors. A chain whose
-# factors have a product that is not a normal number takes the route below. A single factor does
-# when it is far from one, outside the band of a quarter of the exponent range (2^±255 for Float64,
-# 2^±31 for Float32), whatever the entries are: reading them to decide would cost a pass over the step
-# on every call. An entry of the step that is itself within a quarter of the range limit, with a factor
-# inside the band, is rounded with the product as before. An infinite factor takes the route below too,
-# which hands it on as before and applies the rule of its value there.
+# Whether an entry of an array step may leave the range in the product with the factors. A chain that
+# `_chained` recognizes (a wrapper nested in the field `f` with a product that is not a normal number)
+# takes the route below; a chain hidden behind an abstract field type does not. A single factor takes it
+# when it is outside the band of a quarter of the exponent range (2^±255 for Float64, 2^±31 for Float32)
+# in a floating working type tested by `_wide_factor`; the entries of the step are not read to decide,
+# which would cost a pass over the step on every call. An entry of the step that is itself within a
+# quarter of the range limit, with a factor inside the band, is rounded with the product as before. An
+# infinite factor is outside the band, so in those working types it takes the route below too, which
+# hands it on as before and applies the rule of its value there.
 @inline _factor_band(::Type{T}) where {T<:AbstractFloat} = exponent(floatmax(T)) ÷ 4
 @inline _wide_factor(α::Real, ::Type{T}) where {T<:AbstractFloat} =
   !(ldexp(one(T), -_factor_band(T)) <= α <= ldexp(one(T), _factor_band(T)))

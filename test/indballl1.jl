@@ -6,6 +6,7 @@ using Test, ProximalBase, OffsetArrays, Random
 const CANON_FACTORS = Any[2, 0, 1, 0.5, 2.0, 2f0, 3f0, 5e-324, 1e-300, floatmax(Float64), floatmax(Float32), nextfloat(0f0),
                           Inf, Inf32, 0.0, -0.0, big(2.0), big(0), big(Inf)]
 const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big(-1.0), big(NaN)]
+const CANON_BIGFLOAT = big(2.0)    # built before the allocation checks
 scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
 times_allocs(f, α) = (α * f; @allocated α * f)
 
@@ -35,7 +36,7 @@ function check_canonical(f)
   end
   @test_throws ArgumentError Scaled(Scaled(f, 2), -1)
   @test_throws ArgumentError Scaled(Scaled(f, Inf), NaN)
-  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, CANON_BIGFLOAT)
     @test @inferred(Scaled(f, α)) === f
     @test @inferred(α * f) === f
     @test scaled_allocs(f, α) == 0
@@ -372,8 +373,8 @@ end
   for r in (zero(T), T(3), T(Inf))
     ball = IndBallL1(r)
     inner = Scaled(ball, T(0.5))
-    # The explicit type constructor preserves a nested wrapper with a normal
-    # product, so it exercises recursive validation outside the chain path.
+    # The explicit type constructors return the ball, so `inner` and `nested`
+    # are the ball itself.
     nested = Scaled{typeof(inner), T}(inner, T(0.5))
     @test inner === ball && nested === ball && Scaled(ball, δ) === ball
     for h in (ball, Scaled(ball, δ), Scaled(Scaled(ball, δ), δ), nested)

@@ -6,6 +6,7 @@ using Test, ProximalBase, LinearAlgebra, Random, SparseArrays
 const CANON_FACTORS = Any[2, 0, 1, 0.5, 2.0, 2f0, 3f0, 5e-324, 1e-300, floatmax(Float64), floatmax(Float32), nextfloat(0f0),
                           Inf, Inf32, 0.0, -0.0, big(2.0), big(0), big(Inf)]
 const CANON_INVALID = Any[-1, -1.0, NaN, -Inf, -1f0, NaN32, -5e-324, -Inf32, big(-1.0), big(NaN)]
+const CANON_BIGFLOAT = big(2.0)    # built before the allocation checks
 scaled_allocs(f, α) = (Scaled(f, α); @allocated Scaled(f, α))
 times_allocs(f, α) = (α * f; @allocated α * f)
 
@@ -35,7 +36,7 @@ function check_canonical(f)
   end
   @test_throws ArgumentError Scaled(Scaled(f, 2), -1)
   @test_throws ArgumentError Scaled(Scaled(f, Inf), NaN)
-  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, CANON_BIGFLOAT)
     @test @inferred(Scaled(f, α)) === f
     @test @inferred(α * f) === f
     @test scaled_allocs(f, α) == 0
@@ -45,32 +46,6 @@ function check_canonical(f)
   @test !(Scaled(f, 2) isa Scaled) && Scaled(f, 2) isa typeof(f)
   @test Scaled(NormL1(1.0), 2.0) isa Scaled
 end
-
-# A negative, NaN or tiny negative scalar step through a scaled indicator throws before anything is written, and
-# the other steps give the result of the indicator at the points x (the vectors of one element type).
-function check_scaled_steps(f, points)
-  for α in (2, Inf, 1e-300), x in points
-    T = eltype(x)
-    s = α * f
-    for γ in (-one(T), T(NaN), -nextfloat(zero(T)), -1)
-      y = fill(T(7), length(x))
-      @test_throws ArgumentError prox!(y, s, x, γ)
-      @test all(==(T(7)), y)
-      @test_throws ArgumentError value_and_prox!(y, s, x, γ)
-      @test all(==(T(7)), y)
-      @test_throws ArgumentError prox(s, x, γ)
-    end
-    for γ in (zero(T), one(T), T(0.3), T(Inf), 2, 0)
-      y1, y2 = similar(x), similar(x)
-      @test isequal(prox!(y1, s, x, γ), prox!(y2, f, x, γ)) && isequal(y1, y2)
-      @test isequal(s(x), f(x))
-      v1 = value_and_prox!(y1, s, x, γ)
-      v2 = value_and_prox!(y2, f, x, γ)
-      @test isequal(v1, v2) && isequal(y1, y2) && isequal(v1, s(y1))
-    end
-  end
-end
-
 
 ####################################
 #  A reference independent of the implementation
@@ -655,6 +630,24 @@ end
   @test value_and_prox!(fill!(Yc, 42), chain, X, 1.0) === 0.0
   @test isequal(Yc, Y1)
   @test isequal(prox(Scaled(f, 2.0), Symmetric(X)), Y1)
+end
+
+@testset "steps through a scale are the caller's steps" begin
+  f = IndBallL0(1)
+  x = [3.0, -1.0]
+  # the product of the scale and an integer step is not formed
+  @test prox(2 * f, x, typemax(Int)) == [3.0, 0.0]
+  @test prox(2 * f, x, typemax(Int)) == prox(f, x, typemax(Int))
+  @test_throws ArgumentError prox(2 * f, x, -typemax(Int))
+  @test prox(Inf * f, x, 1.0) == [3.0, 0.0]
+  @test prox(Inf * f, x, Inf) == [3.0, 0.0]
+  # a step that is not a real number is refused with the indicator's error, before writing
+  y = fill(42.0, 2)
+  @test_throws ArgumentError prox!(y, 2 * f, x, 1.0 + 0.0im)
+  @test_throws ArgumentError prox!(y, f, x, 1.0 + 0.0im)
+  @test all(==(42.0), y)
+  # a wrong output extent is reported before the step
+  @test_throws DimensionMismatch prox!(zeros(3), 2 * f, x, -1.0)
 end
 
 @testset "an infinite step projects" begin

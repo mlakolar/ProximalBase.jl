@@ -464,6 +464,7 @@ end
   end
 end
 
+const BIGFLOAT_FACTOR = big(2.0)    # built before the allocation checks
 # the factors of the canonicalization tests: Int, Float32, Float64 and BigFloat, zero, subnormal, huge and infinite
 scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 5e-324, 1e-300, floatmax(Float64), Inf, Inf32,
                                          0.0, -0.0, nextfloat(zero(T)), floatmax(T), T(Inf), big(2.0), big(0), big(Inf)]
@@ -498,7 +499,7 @@ scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 
   @test_throws ArgumentError Scaled(Scaled(IND, 2), -1)
   @test_throws ArgumentError Scaled(Scaled(IND, Inf), NaN)
   # construction is inferred and does not allocate
-  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300)
+  for α in (2, 2.0, 2f0, 0, Inf, -0.0, 1e-300, BIGFLOAT_FACTOR)
     @test @inferred(Scaled(IND, α)) === IND
     @test @inferred(α * IND) === IND
     @test allocs(Scaled, IND, α) == 0
@@ -577,7 +578,7 @@ end
     zs = copy(S)
     @test isequal(value_and_prox!(zs, s, zs, one(T)), zero(T))
     @test PB.check_symmetric_parameters(s, S) === true
-    # a scalar step that is negative or NaN throws before writing, as for the indicator; an array of steps is not checked
+    # a scalar step that is negative or NaN throws before writing, as for the indicator; the entries of an array step are not checked
     for α in (2, Inf, 1e-300), γ in (-one(T), T(NaN), -nextfloat(zero(T)))
       y = fill(T(7), length(x))
       @test_throws ArgumentError prox!(y, α * IND, x, γ)
@@ -623,7 +624,11 @@ end
   @test @inferred(kkt_violation(Scaled(IND, 2.0), Float32[0.25], 1)) === -0.25f0
   # the MethodError of an unsupported form names the indicator
   err = try; kkt_violation(2 * IND, [1.0], [0.0], 1); catch e; e; end
-  @test err isa MethodError && !occursin("Scaled", sprint(showerror, err))
+  @test err isa MethodError && err.f === kkt_violation && err.args[1] === IND
+  # an aliased fused gradient has no method for the orthant; the wrapper used to refuse the alias
+  xa = [3.0, -1.0]
+  err = try; value_and_gradient!(xa, 2 * IND, xa); catch e; e; end
+  @test err isa MethodError && any(a -> a === IND, err.args)
 end
 
 @testset "kkt_violation, restrict, traits" begin

@@ -295,12 +295,12 @@ if sweep
     rng = MersenneTwister(1061 + p)
     A, B, C = symmetric_data(rng, T, p), symmetric_data(rng, T, p), symmetric_data(rng, T, p)
     for n in sweep_counts(p)
-      cases = filter(selected, symmetric_pair(T, rng, p, n, A, B, C, "n$n"))
-      isempty(cases) && continue
-      foreach(check, cases)
+      cell = filter(selected, symmetric_pair(T, rng, p, n, A, B, C, "n$n"))
+      isempty(cell) && continue
+      foreach(check, cell)
       get(ENV, "PB_CHECK_ONLY", "0") == "1" && continue
-      global ncases += length(cases)
-      run_cases(cases, p >= 800 ? rounds_large : rounds, p >= 800)
+      global ncases += length(cell)
+      run_cases(cell, p >= 800 ? rounds_large : rounds, p >= 800)
       GC.gc()
     end
   end

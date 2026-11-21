@@ -2,6 +2,9 @@
 #  group MCP  Σₖ p(‖x[Gₖ]‖₂; λ0 wₖ, a)
 ####################################
 
+# marks the internal constructor route that takes groups and weights already owned by the object
+struct _GroupMCPOwned end
+
 """
     GroupMCP(λ0, groups; a = 3)
     GroupMCP(λ0, groups, w; a = 3)
@@ -60,8 +63,6 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
 See the [GroupMCP numerical contract](@ref spec-groupmcp) for endpoint and
 range rules.
 """
-struct _GroupMCPOwned end
-
 struct GroupMCP{T<:Real, G<:AbstractVector{<:AbstractVector{<:Integer}}} <: AbstractFunction
   λ0::T
   a::T

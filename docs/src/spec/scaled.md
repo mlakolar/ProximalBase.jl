@@ -99,8 +99,16 @@ and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infin
 
 `Scaled(f,0)` simplifies only when a domain-preserving representation is known.
 For finite-data built-in losses, quadratics, centered squared norms and affine
-functions it returns `ZeroFunction()`. A zero-scaled finite-level `NormL1` with
-finite weights also returns `ZeroFunction`. Infinite weights are retained in
+functions it returns `ZeroFunction()`.
+
+### [Zero scaling of NormL1 with finite level and weights](@id scaled.constructor.norm-l1-zero-scale)
+
+A zero-scaled finite-level `NormL1` with
+finite weights also returns `ZeroFunction`.
+
+### Other zero-scale cases
+
+Infinite weights are retained in
 `NormL1(0,w)` so their fixed-zero restrictions survive. A zero-scaled
 `ElasticNet` with finite levels likewise returns `ZeroFunction` for finite
 weights and `ElasticNet(0,0,w)` for infinite ones. A zero-scaled finite-level
@@ -248,6 +256,10 @@ These existing tests contain the numerical checks for this family. Their asserti
 - [`test/numerical_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_recovery.jl)
 - [`test/kkt_point.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_point.jl)
 - [`test/kkt_block.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_block.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `scaled.constructor.norm-l1-zero-scale` | `guaranteed` | [Constructor zero-scale dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L111-L118), [finite-level and finite-weight checks](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L136-L143), and [finite weighted and unweighted cases](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/numerical_recovery.jl#L1495-L1502) |
 
 ## [History](@id spec-scaled-history)
 

@@ -42,7 +42,14 @@ For `IndBallL2`, the value and projection compare the norm with the radius in
 scaled units when the ordinary sum of squares overflows or is too small.
 The domain has no fixed feasibility tolerance. Within the rounding error of
 the norm, the comparison can fall on either side of the boundary.
-`value_and_prox!` evaluates the stored point. For dense vectors of four
+
+### [Value at the stored output](@id ind-ball-l2.value-and-prox.stored-output)
+
+`value_and_prox!` evaluates the stored point.
+
+### Projection behavior
+
+For dense vectors of four
 entries with matching `Float32` or `Float64` input, output and radius, the
 projection checks the rounded coefficients when the input sum of squares is
 ordinary and the finite radius is at least
@@ -84,6 +91,10 @@ including implicit zeros of a `SparseIterate`.
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/indballl2.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/indballl2.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `ind-ball-l2.value-and-prox.stored-output` | `guaranteed` | [Generic fused implementation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl2.jl#L107-L110), [matching floating-vector paths](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl2.jl#L132-L203), [stored four-entry result tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl2.jl#L136-L163), and [finite-range stored-result tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl2.jl#L203-L235) |
 
 ## [History](@id spec-indballl2-history)
 

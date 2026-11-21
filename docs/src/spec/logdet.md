@@ -47,8 +47,16 @@ for other domain failures, with an all-NaN gradient in both cases. A zero step
 is the identity, including outside the domain. A positive finite step accepts
 finite inputs, including asymmetric or indefinite matrices. It diagonalizes
 ``(X+X^\mathsf{T})/2-\gamma wS`` and replaces each eigenvalue ``d`` with the
-positive root of ``z^2-dz-\gamma w=0``. Negative, NaN and infinite steps throw
-before writing. Non-finite entries at a positive step also throw before
+positive root of ``z^2-dz-\gamma w=0``.
+
+### [Invalid proximal steps](@id log-det-loss.prox.invalid-step)
+
+Negative, NaN and infinite steps throw
+before writing.
+
+### Non-finite inputs at positive steps
+
+Non-finite entries at a positive step also throw before
 factorization and writes.
 
 ## [Failure behavior](@id spec-logdet-failures)
@@ -79,6 +87,10 @@ in which case the fused value follows the standalone domain rule.
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/logdet.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/logdet.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `log-det-loss.prox.invalid-step` | `guaranteed` | [Proximal step check](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L121-L127), [Concrete fused and allocating methods](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L171-L189), and [invalid steps and untouched destinations](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/logdet.jl#L118-L147) |
 
 ## [History](@id spec-logdet-history)
 

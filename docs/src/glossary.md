@@ -153,3 +153,16 @@ An **exported name** is available directly after `using ProximalBase`,
 while an **unexported name** is called with the module prefix, such as
 `ProximalBase.leastsquares_data(f)` or `ProximalBase.value_from_predictor(f, z)`. See
 the [coverage matrix](api/coverage.md) and the [API reference](api/interface.md).
+
+## [Intermediate overflow](@id glossary-intermediate-overflow)
+
+**Intermediate overflow** occurs when a step of a computation exceeds
+the finite range of its working type. The exact final result can still be
+representable. See the [floating-point range exercise](@ref learn-intermediate-overflow).
+
+## [Subnormal value](@id glossary-subnormal)
+
+A **subnormal value** is a nonzero representable number whose magnitude is
+below the smallest positive normal value of its floating-point type.
+The [spacing exercise](@ref learn-subnormal-spacing) shows the transition
+from a subnormal value to zero.

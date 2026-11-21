@@ -71,6 +71,8 @@ makedocs(;
             "Proximal gradient methods" => "proximal_gradient.md",
             "Coordinate descent and working sets" => "coordinate_descent.md",
             "What a solver adds" => "optimization_algorithms.md",
+            "Proximal operations by hand" => "learn/proximal_exercises.md",
+            "Floating-point range" => "learn/floating_point.md",
             "Glossary" => "glossary.md",
         ],
         "User guide" => [
@@ -108,6 +110,13 @@ makedocs(;
             "Scaled products" => "developer/routines/scaled-products.md",
             "Squared residuals in power-of-two units" => "developer/routines/squared-residuals.md",
             "The shared ℓ₁-ball level" => "developer/routines/l1-ball-level.md",
+            "Scalar soft thresholding" => "developer/routines/soft-threshold.md",
+            "Euclidean shrinkage and radial projection" => "developer/routines/euclidean-shrink.md",
+            "Cardinality decisions and selection" => "developer/routines/cardinality-selection.md",
+            "Least-squares predictors and proximal solves" => "developer/routines/predictor-and-factorizations.md",
+            "Sparse products" => "developer/routines/sparse-products.md",
+            "Point-aware KKT scores" => "developer/routines/point-aware-scores.md",
+            "Proximal step dispatch" => "developer/routines/compact-steps.md",
         ],
         "Numerical contracts" => [
             "How to read the contracts" => "spec/index.md",

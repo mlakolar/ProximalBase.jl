@@ -68,10 +68,16 @@ squares, and is otherwise unchanged.
 | ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
 The common interpretation of [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)
-applies. A finite zero group becomes `+0` under positive finite parameters. An
-infinite-weight or infinite-level group's value is zero at a zero group, `NaN`
+applies. A finite zero group becomes `+0` under positive finite parameters.
+
+### [Values at infinite weights or levels](@id group-norm-l2.value.infinite-penalty)
+
+An infinite-weight or infinite-level group's value is zero at a zero group, `NaN`
 when it contains `NaN`, and `Inf` otherwise; a zero weight overrides these value
 rules and contributes zero.
+
+### Finite-input range recovery
+
 For finite inputs, norms whose sums of squares overflow or underflow and
 thresholds outside the floating-point range are recomputed in power-of-two
 units, so that a representable proximal point is returned accurately. Values recover terms that round below `floatmin`: for `Float32` and `Float64`,
@@ -114,6 +120,10 @@ proximal operators, the block operations and the screen against their formulas.
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
 
 ## [Evidence](@id spec-groupnorml2-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `group-norm-l2.value.infinite-penalty` | `guaranteed` | [Group value route](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/groupnorml2.jl#L185-L195), [Zero-weight exit](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/numerical_kernels.jl#L960-L964), [Infinite penalty value classifier](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/numerical_kernels.jl#L997-L1010), and [Infinite parameter and zero-weight value tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/groupnorml2.jl#L629-L652) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

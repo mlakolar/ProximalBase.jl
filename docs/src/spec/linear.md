@@ -53,10 +53,18 @@ the argument are finite.
 
 At a matrix `SparseIterate` the value `f(x)` is computed from the stored entries of
 `x` whose value is nonzero, in `O(nactive(x))` and without forming a zero for an unstored
-entry; the order of the summation is not specified. A `Diagonal` coefficient array is the
+entry; the order of the summation is not specified.
+
+### [Diagonal coefficients for a matrix SparseIterate](@id linear-function.value.sparse-matrix-diagonal)
+
+A `Diagonal` coefficient array is the
 exception to the cost: its value is summed over the nonzero stored diagonal entries in
 `O(p)` (it scans the `p` diagonal positions), and the other entries of `x` are ignored, as
-in the diagonal-only `dot` of `Diagonal`. An entry that is not stored, or is stored as
+in the diagonal-only `dot` of `Diagonal`.
+
+### Other sparse matrix value rules
+
+An entry that is not stored, or is stored as
 `+0` or `-0`, adds nothing, even when the coefficient at that position is `NaN`,
 `Inf` or `-Inf`, and `c` is not read there; a nonzero entry follows ordinary
 arithmetic, also when it or its coefficient is not finite. Historical traversal measurements
@@ -160,6 +168,10 @@ These existing tests contain the numerical checks for this family. Their asserti
 - [`test/linear_value_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/linear_value_recovery.jl)
 - [`test/sparse_value_cost.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/sparse_value_cost.jl)
 - [`test/kkt_point.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_point.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `linear-function.value.sparse-matrix-diagonal` | `characterized` | [Ordinary diagonal traversal](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/linear.jl#L252-L275), [diagonal recovery traversal](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/linear.jl#L276-L293), and [coefficient reads and values for Float32 and Float64](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/sparse_value_cost.jl#L244-L269) |
 
 ## [History](@id spec-linear-history)
 

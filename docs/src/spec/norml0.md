@@ -43,11 +43,15 @@ The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supp
 
 ## [Endpoint clauses](@id spec-norml0-endpoints)
 
+### [Exact threshold comparison](@id norm-l0.prox.exact-threshold)
+
 For `NormL0(λ)` at positive finite `λ` and `γ`, compare the squared
 distance cost of setting a finite input `v` to zero with the penalty cost
 of keeping it. The comparison uses the exact products of the represented
 homogeneous `Float32` or `Float64` inputs. A tie gives positive zero,
 including when the candidate costs fall outside the floating-point range.
+
+### Level and step endpoints
 
 | Level and valid step | Proximal entry |
 |:--|:--|
@@ -97,6 +101,10 @@ with `prox_block` and in calls through `Scaled`.
 | Sparse products and stored zeros | [Sparse product semantics](@ref Sparse-product-semantics) |
 
 ## [Evidence](@id spec-norml0-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `norm-l0.prox.exact-threshold` | `guaranteed` | [Scalar comparison and prepared cutoff](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/norml0.jl#L52-L126), [Exact objective tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/norml0.jl#L34-L75), and [Prepared scalar step tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/norml0.jl#L113-L132) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

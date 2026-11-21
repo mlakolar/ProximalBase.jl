@@ -54,7 +54,15 @@ For the supported mode, supply the level, center, step and destination in
 the same floating-point type as the argument. See
 [numerics](../numerics.md) for FP32/FP64 and zero/non-finite cases.
 Shape mismatch is `DimensionMismatch`; complex center, argument or output is
-`ArgumentError`. Exact gradient aliasing with the input is rejected. Use
+`ArgumentError`.
+
+### [Exact gradient aliasing](@id sqr-norm-l2.gradient.exact-aliasing)
+
+Exact gradient aliasing with the input is rejected.
+
+### Parameter and output buffers
+
+Use
 independent parameter/output buffers even where a particular kernel can safely
 read an aliased center.
 
@@ -109,6 +117,10 @@ These existing tests contain the numerical checks for this family. Their asserti
 - [`test/ridge_precision.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/ridge_precision.jl)
 - [`test/numerical_kernels.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_kernels.jl)
 - [`test/kkt_point.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_point.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `sqr-norm-l2.gradient.exact-aliasing` | `guaranteed` | [Gradient and fused entry points](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrnorml2.jl#L143-L156), [family preflight](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrnorml2.jl#L229-L236), [alias guards](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L241-L249), and [alias rejection and preserved storage tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/symmetric_parameters.jl#L302-L309) |
 
 ## [History](@id spec-sqrnorml2-history)
 

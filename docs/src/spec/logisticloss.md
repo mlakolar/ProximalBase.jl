@@ -48,9 +48,17 @@ coefficient vector must also be independent of the scratch.
 
 The scalar formulas preserve the small tail for saturated responses.
 For a response of one half and `0 < abs(η) < 1/1024`, the derivative uses a
-centered expression to retain the slope through weighting. A
+centered expression to retain the slope through weighting.
+
+### [Zero-weight observations](@id logistic-loss.value-and-gradient.zero-weight-rows)
+
+A
 zero-weight row contributes zero to the value and observation derivative, even
-at a nonfinite predictor. At active rows, NaN propagates. Infinite predictors
+at a nonfinite predictor.
+
+### Active rows and range limits
+
+At active rows, NaN propagates. Infinite predictors
 give the logistic limit: zero loss for a matching binary response, and infinity
 otherwise. Standard matrix products may still propagate nonfinite design
 entries, including through a zero derivative. For large weights the scalar
@@ -89,6 +97,10 @@ coordinate and second-order interfaces remain deferred.
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/logisticloss.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/logisticloss.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `logistic-loss.value-and-gradient.zero-weight-rows` | `guaranteed` | [Zero-weight branch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logisticloss.jl#L71-L76), [observation value and derivative writes](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logisticloss.jl#L107-L115), and [nonfinite predictor tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/logisticloss.jl#L103-L114) |
 
 ## [History](@id spec-logisticloss-history)
 

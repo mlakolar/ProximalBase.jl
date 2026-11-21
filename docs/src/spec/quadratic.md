@@ -35,7 +35,11 @@ decomposition of `A`, a computed approximation of the true smallest eigenvalue.
 When ``\lambda_{\min}<0`` and the rounded product ``\gamma(-\lambda_{\min})`` is not
 ``<1`` (a NaN step included), the prox throws `DomainError` before the output
 is written; otherwise it applies the formula above, and when
-``\lambda_{\min}\ge0`` no step check is made. For a nonnegative finite
+``\lambda_{\min}\ge0`` no step check is made.
+
+### [Computed proximal denominators](@id quadratic-function.prox.computed-denominators)
+
+For a nonnegative finite
 ``\gamma`` and finite cached eigenvalues, the check accepts exactly when every
 computed denominator ``1+\gamma\lambda_i`` is positive.
 
@@ -91,6 +95,10 @@ These existing tests contain the numerical checks for this family. Their asserti
 - [`test/quadratic_domain.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/quadratic_domain.jl)
 - [`test/numerical_recovery.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/numerical_recovery.jl)
 - [`test/kkt_smooth.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_smooth.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `quadratic-function.prox.computed-denominators` | `characterized` | [Computed step check and spectral solve](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/quadratic.jl#L216-L244), [accepted and rejected steps](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/quadratic_domain.jl#L102-L145), and [step conversion at the boundary](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/quadratic_domain.jl#L292-L307) |
 
 ## [History](@id spec-quadratic-history)
 

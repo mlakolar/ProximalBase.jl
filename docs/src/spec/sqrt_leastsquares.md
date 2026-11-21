@@ -40,8 +40,14 @@ The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supp
 
 The definitions of `u` and the boundary regions referred to below are in the [least-squares predictor range discussion](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds).
 
+### [Direct residual norm](@id sqrt-least-squares-loss.value.direct-norm)
+
 **Accuracy and range.** The value is never formed as ``\sqrt{2\,v_{\text{LS}}}`` from the least-squares value
-``v_{\text{LS}}``, whose squares overflow where the norm does not. For strided `Float32` or `Float64` vectors of one
+``v_{\text{LS}}``, whose squares overflow where the norm does not.
+
+### Summation, range and accuracy
+
+For strided `Float32` or `Float64` vectors of one
 element type, which covers both oracles, the sum of squares ``s`` is formed in `T` in one vectorizing loop up to
 ``2^{17}`` entries and by pairwise summation above. The other arguments of `f(β)`, such as mixed element types or
 non-strided arrays, take generic sums in one loop at every length. The product ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
@@ -94,6 +100,10 @@ factor `Inf`.
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 
 - [`test/sqrt_leastsquares.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/sqrt_leastsquares.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `sqrt-least-squares-loss.value.direct-norm` | `characterized` | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrt_leastsquares.jl#L78-L83), [predictor and residual calls](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares_predictor.jl#L310-L319), [direct norm computation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrt_leastsquares.jl#L165-L177), and [finite norms with overflowing squares](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/sqrt_leastsquares.jl#L526-L538) |
 
 ## [History](@id spec-sqrt_leastsquares-history)
 

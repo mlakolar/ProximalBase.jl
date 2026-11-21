@@ -65,7 +65,11 @@ The complete [predictor and residual oracle section](../smooth.md#Least-squares-
 
 SVD-based
 proximal evaluation is intended for finite data; no general non-finite-data
-recovery is promised for the decomposition. Value range recovery is separate
+recovery is promised for the decomposition.
+
+### [Value range recovery and gradient arithmetic](@id least-squares-loss.value.recovery-scope)
+
+Value range recovery is separate
 from the ordinary matrix-product gradient arithmetic.
 
 ## [Clauses owned elsewhere](@id spec-leastsquares-elsewhere)
@@ -87,6 +91,10 @@ These existing tests contain the numerical checks for this family. Their asserti
 - [`test/core_functions.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/core_functions.jl)
 - [`test/leastsquares_predictor.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/leastsquares_predictor.jl)
 - [`test/kkt_smooth.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/kkt_smooth.jl)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `least-squares-loss.value.recovery-scope` | `characterized` | [Fused gradient and value evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares.jl#L95-L114), [value recovery](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares.jl#L221-L235), [ordinary-call range tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/numerical_recovery.jl#L1198-L1219), and [predictor gradient range tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/leastsquares_predictor.jl#L501-L515) |
 
 ## [History](@id spec-leastsquares-history)
 

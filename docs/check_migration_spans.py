@@ -39,13 +39,19 @@ def locate(span, page):
     start = section.find(span.text)
     if start < 0 or section.find(span.text, start + 1) >= 0:
         raise ValueError(f"passage {span.sha[:12]} must occur once in {span.scope}")
+    # A fenced copy can contain the same section text as the authored heading.
+    layout = m.located_destination_blocks(page, path)
+    heading = section.split("\n", 1)[0].rstrip()
+    headings = [first for block, first, _ in layout if block.kind == "heading" and block.text == heading]
+    if len(headings) != 1 or not page.startswith(section, headings[0]):
+        raise ValueError(f"cannot locate a unique authored section for {span.scope}")
+    start += headings[0]
     end = start + len(span.text)
-    blocks = [(block, first, last) for block, first, last in m.located_destination_blocks(section, path)
+    blocks = [(block, first, last) for block, first, last in layout
               if first < end and start < last]
     if not blocks or blocks[0][1] != start or blocks[-1][2] != end:
         raise ValueError(f"passage must occupy complete Markdown blocks in {span.scope}")
-    offset = page.index(section)
-    return start + offset, end + offset, [block for block, _, _ in blocks]
+    return start, end, [block for block, _, _ in blocks]
 
 
 def published_spans(reference, root):

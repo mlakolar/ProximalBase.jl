@@ -109,6 +109,18 @@ class PostBaselineSpanTests(unittest.TestCase):
         result = self.check(self.mapping("reword", self.second), candidate=self.published)
         self.assertTrue(any("overlap" in line for line in result["findings"]))
 
+    def test_fenced_section_copy_cannot_hide_reuse_of_a_live_passage(self):
+        replacement = "A covered group has a result of `+0`."
+        section = "### [Child](@id child)\n\n" + replacement
+        self.write(self.spec_path, "# Contract\n\n````markdown\n" + section
+                   + "\n````\n\n## [Rules](@id rules)\n\n" + section + "\n")
+        parent = self.mapping("reword", replacement)
+        child = self.mapping("reword", replacement)
+        child["source_sha256"] = m.digest(self.second)
+        child["destinations"][0]["scope"] = self.spec_path + "#child"
+        findings = self.check(parent, child)["findings"]
+        self.assertTrue(any("overlap" in line for line in findings))
+
     def test_retained_examples_require_original_assertions_and_order(self):
         changed = self.array_example.replace("@assert array == expected\n", "")
         for first, second in ((changed, self.compact_example), (self.compact_example, self.array_example)):

@@ -25,7 +25,8 @@ for ``p`` is that of finite positive ``\lambda`` and `a`; at `a = Inf` and finit
 ``\lambda t``. The shape `a` is not rescaled by the weights. Entries in no group are unpenalized.
 
 **Zero weights.** A group with `w_k = 0` is unpenalized, whatever `λ0` (`Inf` included): the proximal map leaves its
-entries unchanged and its term is zero. This rule precedes every other rule on this page.
+entries unchanged and its term is zero. For the group's proximal map and term, this rule comes before the others on
+this page.
 
 `GroupMCP(λ0, groups, w; a = 3)` converts `λ0`, `w` and `a` to
 `T = float(promote_type(typeof(λ0), eltype(w), typeof(a)))`. `GroupMCP(λ0, groups; a = 3)` uses `T = float(promote_type(typeof(λ0), typeof(a)))` and the weights

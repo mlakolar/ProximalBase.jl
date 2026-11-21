@@ -71,6 +71,8 @@ makedocs(;
             "Proximal gradient methods" => "proximal_gradient.md",
             "Coordinate descent and working sets" => "coordinate_descent.md",
             "What a solver adds" => "optimization_algorithms.md",
+            "Proximal operations by hand" => "learn/proximal_exercises.md",
+            "Floating-point range" => "learn/floating_point.md",
             "Glossary" => "glossary.md",
         ],
         "User guide" => [

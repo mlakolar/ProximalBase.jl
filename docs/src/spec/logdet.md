@@ -90,7 +90,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
-| `log-det-loss.prox.invalid-step` | `guaranteed` | [Proximal step check](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L121-L127), [Fused proximal dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L164-L174), and [invalid steps and untouched destinations](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/logdet.jl#L118-L147) |
+| `log-det-loss.prox.invalid-step` | `guaranteed` | [Proximal step check](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L121-L127), [Concrete fused and allocating methods](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L171-L189), and [invalid steps and untouched destinations](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/logdet.jl#L118-L147) |
 
 ## [History](@id spec-logdet-history)
 

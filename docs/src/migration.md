@@ -96,9 +96,9 @@ constructor `Scaled{F, T}(f, α)` does the same, including `Scaled{AbstractFunct
 Negative, NaN and `-Inf` factors still throw `ArgumentError`, before the indicator is returned.
 A zero scale already returned `f`; a positive scale built a `Scaled` wrapper.
 
-The result is the indicator, so every call on it, supported or not, behaves as the call on
+The result is the indicator object itself, so a call on it, supported or not, behaves as the call on
 the bare indicator, including which error an unsupported call raises and in which order its
-checks run. The wrapper's own dispatch and checks no longer exist for these functions. The
+checks run. No wrapper is built for these functions, so the wrapper's dispatch and checks do not apply to them. The
 cases below are representative; the first is the motivating one.
 
 * `prox(Inf * IndBallL0(1), [3.0, -1.0], 1.0)` threw `ArgumentError` (the product of the scale
@@ -135,8 +135,8 @@ cases below are representative; the first is the motivating one.
   dispatch see the indicator, so `check_parameters(2 * IndBox(l, u), x)` throws
   `DimensionMismatch` for a bound array whose length does not match `x`.
 * An unsupported `kkt_violation` form raises a `MethodError` for the indicator, after the
-  checks that apply to the call (a wrong extent raises `DimensionMismatch` first). Only
-  `IndNonnegative` has a three-argument screen.
+  checks that apply to the call (a wrong extent can raise `DimensionMismatch` first). Among these
+  indicators only `IndNonnegative` has a three-argument screen.
 * `typeof`, `.f` and `.α`, `isa Scaled`, `==`, `hash` and `show` of the result are those of
   the indicator. Code that unwraps `s.f` after `α * f` needs a check for the indicator.
 

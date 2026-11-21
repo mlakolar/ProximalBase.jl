@@ -29,7 +29,7 @@ built-in indicators has function-specific exceptional arithmetic described in
 `Scaled(f, α)`, `α * f` and `f * α` return the indicator `f` itself for any nonnegative `α`, including
 `0`, `-0.0` and `Inf`. Nested scalings of an indicator return it too, also when the product of
 the factors overflows, underflows or passes through `Inf`. A negative, NaN or `-Inf` factor throws `ArgumentError` before the indicator
-is returned. The result is the indicator, so every call on it, supported or not, behaves as the
+is returned. The result is the indicator object itself, so a call on it, supported or not, behaves as the
 call on the bare indicator, including which error an unsupported call raises and in which order
 its checks run. For example, in the supported scalar-step array calls `prox`, `prox!` and
 `value_and_prox!` a negative or NaN step throws `ArgumentError` before writing when the call
@@ -183,7 +183,7 @@ remain `BigFloat`.
   under `Scaled`; the call throws a `MethodError` that names the `Scaled` function. `IndNonnegative` has none
   either, with or without a factor, and neither do the other built-in indicators; because `α * f` is the
   indicator, the call raises a `MethodError` for the indicator, after the checks that apply to the call
-  (a wrong extent, for example, raises `DimensionMismatch` first). Only `IndNonnegative` has a
+  (a wrong extent, for example, can raise `DimensionMismatch` first). Among these indicators only `IndNonnegative` has a
   three-argument screen; for it, `α * f` uses the screen of the indicator with the supplied gradient,
   unscaled: `-v[i]`. `NormLinf` has the full-point form and, as `NormL2` does,
   throws an `ArgumentError` for its other forms, also under `Scaled`. A function defined outside the package is treated as in

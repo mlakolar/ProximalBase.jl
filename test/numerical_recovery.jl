@@ -987,6 +987,70 @@ function test_normL1_value_underflow(::Type{T}) where {T<:AbstractFloat}
   end
 end
 
+# Issue #134: the range test of the dense weighted value loop is an unsigned max reduction of the coefficients'
+# high words (LLVM 23 does not vectorize the Bool flag of two comparisons). Its flag must be the chained comparison
+# floatmin(T) <= λ0 wᵢ <= floatmax(T) (exempting zero factors in the recovery pass) for every coefficient, in the
+# vector body and in the remainder, and the values it selects must agree with the per-entry path of a view.
+function test_normL1_value_range_flag(::Type{T}) where {T<:AbstractFloat}
+  e0 = emin(T)
+  δ = nextfloat(zero(T))
+  rng = Xoshiro(134)
+  inrange(a) = PB._high_word(a) - PB._high_word(floatmin(T)) <= PB._high_word(floatmax(T)) - PB._high_word(floatmin(T))
+  chained(a) = floatmin(T) <= a <= floatmax(T)
+  @testset "NormL1 value loop: the range test of the coefficients (#134)" begin
+    U = T === Float32 ? UInt32 : UInt64
+    edges = T[0, -0.0, δ, -δ, prevfloat(floatmin(T)), floatmin(T), nextfloat(floatmin(T)), -floatmin(T), 1, -1,
+              prevfloat(floatmax(T)), floatmax(T), -floatmax(T), Inf, -Inf, NaN, -NaN]
+    append!(edges, reinterpret.(T, U[typemax(U), typemax(U) >> 1, reinterpret(U, T(Inf)) + one(U)]))  # NaN payloads
+    T === Float64 && append!(edges, reinterpret.(T, UInt64[0x000fffff_ffffffff, 0x00100000_00000001, 0x000fffff_00000000,
+                                                          0x7fefffff_00000000, 0x7fefffff_ffffffff, 0x7ff00000_00000001]))
+    @test all(a -> inrange(a) == chained(a), edges)
+    @test all(a -> inrange(a) == chained(a), reinterpret.(T, rand(rng, U, 100_000)))
+    # the flag of both passes against the scalar reference: one special coefficient at the first, a middle or the last
+    # entry, at lengths across the vector widths and their remainders; NaN and negative weights are written in place
+    reference(λ, w, allow) = all(i -> (allow & (iszero(λ) | iszero(w[i]))) | chained(λ * w[i]), eachindex(w))
+    pass1(f, x) = PB._l1_value_sum(f, x, false)
+    pass2(f, x) = PB._l1_value_sum(f, x, true)
+    levels = T[0.3, 0, -0.0, δ, floatmin(T), pow2(T, -40), 1, floatmax(T), Inf]
+    specials = T[0, -0.0, δ, prevfloat(floatmin(T)), floatmin(T), pow2(T, -precision(T)), floatmax(T), Inf, NaN, -1, -δ]
+    flagbad = String[]
+    valbad = String[]
+    for n in vcat(0:19, [31, 32, 33, 63, 64, 65, 129, 257]), λ in levels, sw in specials, pos in unique([1, n ÷ 2 + 1, n])
+      n == 0 && (pos = 0)
+      w = T(0.5) .+ rand(rng, T, n)
+      x = T(2) .* randn(rng, T, n)
+      f = NormL1(λ, w)
+      n > 0 && (f.w[pos] = sw)                                         # after construction: NaN and negatives too
+      for (allow, r) in ((false, pass1(f, x)), (true, pass2(f, x)), (false, PB._l1_value_sum(f, x, false)), (true, PB._l1_value_sum(f, x, true)))
+        r[2] == reference(λ, f.w, allow) || push!(flagbad, "n=$n λ=$λ w[$pos]=$sw allow=$allow")
+      end
+      # the values of valid weights: the SIMD loop and its recovery against the per-entry path of a view
+      (n == 0 || !(sw >= 0)) && continue
+      for xv in (x, (y = copy(x); y[pos] = 0; y), (y = copy(x); y[mod1(pos + 1, n)] = NaN; y), (y = copy(x); y[mod1(pos + 1, n)] = -Inf; y))
+        a = f(xv); b = f(view(xv, :))
+        ok = isequal(a, b) || (isfinite(a) && isfinite(b) && abs(a - b) <= 2n * eps(T) * max(a, b) + 2n * δ)
+        ok || push!(valbad, "n=$n λ=$λ w[$pos]=$sw x=$xv: $a vs $b")
+      end
+    end
+    @test isempty(flagbad)
+    @test isempty(valbad)
+    # all coefficients exceptional at once: zero, subnormal, floatmin and infinite weights, and a zero level
+    for w in (zeros(T, 37), fill(-zero(T), 37), fill(δ, 37), fill(floatmin(T), 37), fill(T(Inf), 37)), λ in (T(0.3), zero(T), T(Inf))
+      f = NormL1(λ, copy(w))
+      x = T(2) .* randn(rng, T, 37)
+      @test pass1(f, x)[2] == reference(λ, w, false) && pass2(f, x)[2] == reference(λ, w, true)
+      a = f(x); b = f(view(x, :))
+      @test isequal(a, b) || (isfinite(a) && isfinite(b) && abs(a - b) <= 74 * eps(T) * max(a, b) + 74δ)
+    end
+    # products that underflow and overflow between ordinary coefficients keep the exceptional paths of #373
+    w = T(0.5) .+ rand(rng, T, 64); w[17] = pow2(T, e0 - 3); w[50] = floatmax(T) / 2   # λ0 w: 2^(e0-1) and 2 floatmax
+    x = T(2) .* randn(rng, T, 64); x[50] = pow2(T, -10)
+    f = NormL1(T(4), w)
+    @test !pass1(f, x)[2] && !pass2(f, x)[2]
+    @test isfinite(f(x)) && isapprox(f(x), T(l1val(f.λ0, w, x)); rtol = 64 * eps(T))
+  end
+end
+
 function test_normL1_prox(::Type{T}) where {T<:AbstractFloat}
   E, e0 = emax(T), emin(T)
   δ = nextfloat(zero(T))
@@ -2100,6 +2164,7 @@ setprecision(BigFloat, 2400) do
   test_normL1_values(T)   # NormL1 values: levels and weights outside the range, infinite and zero parameters
   test_normL1_value_entry_type(T)   # NormL1 value entries: the unweighted entry type (#684)
   test_normL1_value_underflow(T)   # NormL1 values: products that round below floatmin (#373)
+  test_normL1_value_range_flag(T)   # NormL1 value loop: the range test of the coefficients (#134)
   test_normL1_prox(T)   # NormL1 prox thresholds and the weight kernels
   test_product_sum_shift(T)
   test_square_consumers(T)   # squared-residual consumers: the exceptional branches of the value

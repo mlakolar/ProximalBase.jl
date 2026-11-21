@@ -535,7 +535,11 @@
       "dest": "docs/src/spec/scaled.md#spec-scaled-limitations;docs/src/spec/scaled.md#spec-scaled-limitations",
       "dest_sha": "bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2;a2cfbfe4a57a5fcfa6cd9e0f351b91eed9dfdffbb41f49cb96e0b7116c832282",
       "reviewer": "reconcile_pr_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450",
-      "move_after_event": 5
+      "move_after_event": 5,
+      "reviewed_move": {
+        "before_commit": "9d15a4ce4cb253ba3e3a22d57e85680253597660",
+        "after_commit": "bd5a75a65efdbf3090d1f0b04d555617f8160ec1"
+      }
     },
     {
       "block_id": "CONTRIBUTING.md::Contributing::11",
@@ -1054,7 +1058,11 @@
       "dest": "docs/src/spec/scaled.md#spec-scaled-limitations",
       "dest_sha": "649b6fea47d69f2cb28ee51e2d427d93607797be5c450fa2c8228935752d7c5a",
       "reviewer": "reconcile_pr_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450",
-      "move_after_event": 2
+      "move_after_event": 2,
+      "reviewed_move": {
+        "before_commit": "9d15a4ce4cb253ba3e3a22d57e85680253597660",
+        "after_commit": "bd5a75a65efdbf3090d1f0b04d555617f8160ec1"
+      }
     },
     {
       "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::23",

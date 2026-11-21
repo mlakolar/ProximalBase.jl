@@ -814,3 +814,52 @@ and move rows are tracked in the first parent. For `::22`, the replacement
 keeps the first of two list items and changes the second. The other eight
 roots use the existing same-file or exact frozen-move receipt rules. The
 audit holds 72 receipts and 142 events across the same 2,162 frozen roots.
+
+### First-parent hunk evidence
+
+`ledger_review@a38c0a8e6a6b7e8955dc784448542e4fd294c450` independently verified
+the changed hunks against the landed source, tests and benchmark harness.
+The table identifies the frozen roots and the changed lines in the first-parent
+diff. The schema-2 receipts record complete ordered spans and full hashes for
+all ten transitions.
+
+| Frozen root | Published destination | First-parent diff lines, before → after | Git blobs, before → after | Receipt |
+|:--|:--|:--|:--|:--|
+| `benchmark/README.md`, IndNonnegative harness, 21 | `benchmark/README.md` | 148 → 148 | `32c8aef36fd759e57e967451abb880dda6693545` → `1571319387720022849262f6ed8349fe8f18d1fa` | Benchmark inventory removes the removed scaled probe |
+| `calculus.md`, Nonnegative scaling, 8 | `calculus.md` | insertion after 26, 28 → 27–36, 38–39 | `15372b7752c0f84598d8df7995b77ea382861b76` → `264c81ab962ba6958d7659d897b366e0c829cf40` | Two ordered paragraphs in the checked replacement span |
+| `developer/oracle_dispatch.md`, KKT and restrictions, 17 | `developer/oracle_dispatch.md#KKT-and-restrictions` | 104 → 104 | `c3bb7054dd208b357bd4ccc00a115ee690393d21` → `13fcecd34174f6c52c2fa172b3d1be5f5fd1830d` | Appends to the existing dispatch receipt |
+| `migration.md`, Four-argument KKT, 34 | `migration.md`, Four-argument KKT | 201, 203 → 239, 241–242 | `a4fbf120fd3edef7b8477dbcf10ea037744162da` → `695ddebb00b9bdc82ba7710a7a154c9b30276349` | Appends to the existing ordered two-item span |
+| `migration.md`, Restored functions, 44 | `migration.md`, IndNonnegative row | 226 → 265 | same migration blobs | Adds scaling to the existing row |
+| `numerics.md`, NaN, infinities and zeros, 134 | `spec/indnonnegative.md#spec-indnonnegative-endpoints` | 50 → 50 | `d551f24f356e2543bc4a13576784ace7e386ce27` → `f625713e339cca5023530d3f3a6c302b546921c3` | Exact move followed by the endpoint-row update |
+| `calculus.md`, Allocation, aliases and validation, 28 | `spec/scaled.md#spec-scaled-range` | 75 → 75 | `00f8d12225c004c08d8b3efebda5ab0d13c5b441` → `95b6cd47ab5abedabc4f3dd5b8f48ed5c1bd0504` | Exact move followed by the wrapper qualification |
+| `calculus.md`, A zero scale can change the returned type, 47 | `spec/scaled.md#spec-scaled-endpoints` | 114–115 → 114–116 | same Scaled blobs | Exact move followed by the indicator-family update |
+| `calculus.md`, Unsupported cases, 19 | `spec/scaled.md#spec-scaled-limitations` | 163–164 → 164–166 | same Scaled blobs | Historical upstream events, exact move, then #1118 |
+| `calculus.md`, Unsupported cases, 22 | `spec/scaled.md#spec-scaled-limitations` | 185–189 → 187–192 | same Scaled blobs | Historical upstream events, exact move, then #1118 |
+
+The two Unsupported cases roots retain their original upstream events in
+`calculus.md`. Their historical receipt and migration basis are verified from
+the landed tree of the [Scaled move in
+#1095](https://github.com/mlakolar/ProximalBase.jl/pull/1095), landed at
+`bd5a75a65efdbf3090d1f0b04d555617f8160ec1` with first parent
+`9d15a4ce4cb253ba3e3a22d57e85680253597660`. For root 19, the earlier
+sequence #1053 → #1064 ends at `037653c50bee4f31bcdf703b3db84ab16e176b62325c0965aad6a3eb2b79be73`;
+#1118 replaces it with `649b6fea47d69f2cb28ee51e2d427d93607797be5c450fa2c8228935752d7c5a`.
+For root 22, the earlier sequence #1025 → #981 → #1053 → #999 → #1064
+ends with the ordered pair
+`bbf3c1218e915ff534c6ce63141a5881d69f287cc2d26ae6aff1d90884aadda2`,
+`87f7c0dc588373aa197c8134213217fa5ea9c04969c1234439c53c5146c99d45`.
+The #1118 span retains the first hash and replaces the second with
+`a2cfbfe4a57a5fcfa6cd9e0f351b91eed9dfdffbb41f49cb96e0b7116c832282`.
+For the move itself, the source blob at its first parent is
+`98c4245e91c3c4faebb876d59d3dd3f7ef795a52`. At the landed move the source
+blob is `15372b7752c0f84598d8df7995b77ea382861b76` and the destination
+blob is `00f8d12225c004c08d8b3efebda5ab0d13c5b441`. The destination file
+was added by the move. Each move preserved the ordered terminal hashes of its
+earlier receipt.
+
+The other #1118 edits to the `IndBallL0`, `IndBallL1` and `IndBallL2` specs,
+the newly added scaling example, the new migration section, and the edited
+`IndBallLinf` and `IndBallL0` migration rows have no frozen roots. The
+first-parent diff adds one heading and retains the existing headings and
+explicit IDs. The authored link changes add references to #1080. The rendered
+anchor and link audits cover the existing guide forwards and spec targets.

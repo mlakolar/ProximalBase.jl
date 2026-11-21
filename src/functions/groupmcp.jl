@@ -177,7 +177,8 @@ end
 @inline _gmcp_plateau(λ, kink) = λ * (kink / 2)
 # Below the kink, r (λ - r/(2a)), with r/(2a) formed as r (inv(a)/2) when that factor is a normal number (it does not
 # depend on the group, so a loop over the groups can form it once) and as (r/a)/2 otherwise (a shape near floatmin or
-# floatmax); r/a < λ there, so the second factor stays in [λ/2, λ] up to rounding.
+# floatmax); r/a < λ there, so the second factor stays in [λ/2, λ] up to rounding, and for a finite r and a normal λ the
+# term is not negative.
 @inline function _gmcp_ordinary_term(r, λ, a, kink)
   r < kink || return _gmcp_plateau(λ, kink)
   h = inv(a) / 2
@@ -214,8 +215,7 @@ end
     if (floatmin(T) <= λ <= floatmax(T)) & (floatmin(T) <= kink <= floatmax(T))
       s = _indexed_sumabs2(x, G, T)
       if isfinite(s) & _squares_normal(s, length(G), T)
-        t = _gmcp_ordinary_term(sqrt(s), λ, a, kink)
-        t >= 0 && return (t, true)      # a negative or NaN term would be a defect of the ordinary formula: recomputed
+        return (_gmcp_ordinary_term(sqrt(s), λ, a, kink), true)
       elseif iszero(s) && _l2_all_zero(x, G, T)
         return (zero(T), false)
       end
@@ -334,8 +334,7 @@ end
               V || (_l2_scale!(y, x, G, q); return T(_L2_RECOMPUTE))
               sy = _gmcp_scale!(y, x, G, q)
               (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
-              t = _gmcp_ordinary_term(sqrt(sy), λ, a, kink)
-              return t >= 0 ? t : T(_L2_RECOMPUTE)
+              return _gmcp_ordinary_term(sqrt(sy), λ, a, kink)
             end
           else
             _mcp_keeps(r, λ, a, γ) || return T(_l2_zero!(y, G))
@@ -435,8 +434,8 @@ end
     w = @inbounds f.w[k]
     s = _gmcp_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
     if V
-      # the kernel returns the two codes or a term that is not negative (a term that would not be is recomputed);
-      # any other value is added, so that it is not dropped
+      # the kernel returns the two codes or a term that is not negative (_gmcp_ordinary_term); any other value is added,
+      # so that it is not dropped
       if s == _L2_RECOMPUTE
         t, c = _gmcp_term_outofline(f.λ0, w, f.a, y, G, T)
         v += t

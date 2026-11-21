@@ -554,6 +554,7 @@ kkt_violation(gs, vs, [1.0, -1.0, 0.0, 0.0])
 See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints).
 
 See the [GroupNormLinf limitations and non-guarantees](@ref spec-groupnormlinf-limitations).
+
 ## [The group minimax concave penalty](@id group-mcp-guide)
 
 `GroupMCP` applies the [minimax concave penalty](@ref mcp-guide) to the Euclidean norms of disjoint groups,

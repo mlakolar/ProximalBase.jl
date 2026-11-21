@@ -91,7 +91,7 @@ few units in the last place.
 
 ## [Range clauses](@id spec-groupmcp-range)
 
-The scaled path takes every group that the ordinary path does not. It forms the norm as ``n_s2^k`` in the recovery
+The scaled path takes the groups with positive finite parameters that the ordinary path does not. It forms the norm as ``n_s2^k`` in the recovery
 type `R` (at least `Float64`, wide enough for the input, destination, parameters and step), as `GroupNormL2` does, and
 the level as the product of the significands of `λ0` and `w_k` rounded once in `R`, with its exponent kept apart. No
 product ``\lambda_k``, ``\gamma\lambda_k``, ``a\lambda_k`` or ``a\gamma\lambda_k^2`` is formed as one number: the

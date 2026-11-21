@@ -130,8 +130,8 @@ end
 #  Scalar parts
 ####################################
 
-# λ0 w as a normalized significand in [1/2, 1) and an exponent: the product of the significands of λ0 and w
-# rounded once in R, whatever the size of the product of the factors (positive finite factors)
+# λ0 w as a normalized significand in [1/2, 1) and an exponent: the product of the significands of λ0 and w rounded
+# once in R, with their exponents summed apart from it (positive finite factors)
 @inline function _gmcp_level_parts(λ0, w, ::Type{R}) where {R}
   m0, e0 = _frexp(convert(R, λ0))
   mw, ew = _frexp(convert(R, w))
@@ -339,7 +339,7 @@ end
   _l2_zero!(y, G)                      # isinf(γ)
 end
 
-# The values, at positive finite λ0, w and γ and a finite a. A NaN entry makes every output NaN; an infinite entry (and
+# The values, at positive finite λ0, w and γ and a finite a. A NaN entry makes each output entry of the group NaN; an infinite entry (and
 # no NaN) keeps the group; a zero group gives +0. Otherwise r = ns 2^k from the scaled norm in R, and the decisions are
 # those of the ordinary path on the parts of r, λ0 w (its significands' product rounded once in R), a and γ, so that
 # neither the level nor its products with a and γ are formed as one number: the signs of r - γλ and r - aλ in units of r

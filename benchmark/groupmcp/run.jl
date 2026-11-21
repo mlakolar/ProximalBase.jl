@@ -16,8 +16,9 @@
 # Cases: Float32 and Float64; 4096 entries in groups of 1, 4, 32, 512 or 4096 entries, contiguous (ranges) or permuted
 # (index vectors); shape a = 3, level 0.75, unit weights; steps γ = a/2 (firm), 15a/16 (firm near a) and 3a/2 (hard);
 # regimes zero (every group zeroed), partial (groups zeroed, scaled and kept in turn; zeroed and kept for the hard step)
-# and noshrink (every group kept). Every group norm is a factor 2 away from each threshold of its step (the midpoint of
-# the firm interval for scaled groups), so that implementations that decide on the computed norm agree. Each case has
+# and noshrink (every group kept). A zeroed group has half the zero threshold of its step as its norm, a kept group twice
+# the largest threshold, and a scaled group the midpoint of the firm interval (3% from its ends for γ = 15a/16), so that
+# implementations that decide on the computed norm agree. Each case has
 # PB_INPUTS (default 8) inputs with the same group norms and different directions; the timed samples cycle through them
 # (the setup selects the next one, outside the timing), and the three roles read the same arrays.
 #
@@ -136,8 +137,8 @@ end
 group_probes(PB, d) = probes(d, PB.GroupMCP(d.λ0, d.groups, d.w; a = d.a), PB.prox!, PB.value_and_prox!, PB.prox_block!)
 reference_probes(PB, d) = probes(d, PB.GroupNormL2(d.λ0, d.groups, d.w), PB.prox!, PB.value_and_prox!, PB.prox_block!)
 
-# The closed form of the radial map at the exact norm of each group, and the value, in BigFloat (the inputs are away from
-# every threshold, so the decisions are those of the closed form).
+# The closed form of the radial map at the exact norm of each group, and the value, in BigFloat (the group norms of the
+# inputs are placed away from the thresholds of their step, as the header states).
 function bigprox(d, x)
     a, λ, γ = BigFloat(d.a), BigFloat(d.λ0), BigFloat(d.γ)
     y = BigFloat.(x)

@@ -339,13 +339,13 @@ end
   pb(f, u, γ) = prox_block(f, T.(u), 1, T(γ))
   z = zero(T)
   steps = (z, one(T), T(Inf))
-  # w = 0: unchanged at every level and step, value 0
+  # w = 0: unchanged at the levels and steps below, value 0
   for λ in (z, one(T), T(Inf)), γ in steps, a in (T(3), T(Inf))
     f = GroupMCP(λ, G, T[0]; a)
     @test isequal(pb(f, [NaN, -0.0], γ), T[NaN, -0.0]) && isequal(pb(f, [Inf, -Inf], γ), T[Inf, -Inf])
     @test f(T[NaN, Inf]) === z
   end
-  # stored infinities: +0 at every step; value 0 at a zero group, NaN at a NaN entry, Inf otherwise
+  # stored infinities: +0 at the steps 0, 1 and Inf; value 0 at a zero group, NaN at a NaN entry, Inf otherwise
   for (λ, w) in ((one(T), T(Inf)), (T(Inf), one(T)), (z, T(Inf)), (T(Inf), T(Inf))), γ in steps, a in (T(3), T(Inf))
     f = GroupMCP(λ, G, T[w]; a)
     for u in ([NaN, 1], [Inf, -1], [-0.0, 0], [1, 2])
@@ -518,7 +518,7 @@ end
 end
 
 @testset "historical reproducers" begin
-  # infinite weights (#250): a hard zero at every step, the zero step included; other groups are independent
+  # infinite weights (#250): a hard zero at the steps 0, 1 and Inf; other groups are independent
   f = GroupMCP(1.0, [1:2, 3:4], [Inf, 1.0])
   for γ in (0.0, 1.0, Inf)
     y = prox(f, [3.0, 4.0, 3.0, 4.0], γ)
@@ -586,7 +586,7 @@ end
       @test fused_close(v, f(y), 5, 4)
       # mixed precision: the value of the stored output
       y64 = zeros(Float64, 14)
-      @test value_and_prox!(y64, f, x, γ) === f(y64)         # the scaled path recomputes every term
+      @test value_and_prox!(y64, f, x, γ) === f(y64)         # the scaled path recomputes the terms of the nonzero stored groups
     end
   end
 end

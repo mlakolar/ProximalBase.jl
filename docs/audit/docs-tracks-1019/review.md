@@ -863,3 +863,14 @@ the newly added scaling example, the new migration section, and the edited
 first-parent diff adds one heading and retains the existing headings and
 explicit IDs. The authored link changes add references to #1080. The rendered
 anchor and link audits cover the existing guide forwards and spec targets.
+
+## NormL1 finite-factor overflow deduplication
+
+Independent review `reconcile_pr_review@a4a818b27075aa67c5693cd5c0019d806503f15e` compared the removed
+endpoint sentence with the two retained limitation sentences. The ledger row
+for `numerics.md` endpoint root `::159` points to those exact sentences in
+their original order under `norm-l1.prox.finite-factor-overflow`. The scope
+of the [#866 behavior](https://github.com/mlakolar/ProximalBase.jl/issues/866)
+remains finite factors whose threshold overflows with an infinite input.
+The endpoint table, the genuinely infinite level and weight rules, and the
+example assertions remain in place.

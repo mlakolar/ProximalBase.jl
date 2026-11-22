@@ -479,7 +479,9 @@ group and of the distance of **every** group, a zero group included: a maximum o
 groups scores ``\lvert v_i\rvert`` of every entry. The three-argument form `kkt_violation(g, v, k)` throws an `ArgumentError` because the penalty is not
 separable, and so does a `SymmetricSparseIterate`, which has no groups.
 
-At a zero group the four-argument score is the margin and the term of the full-point value is the distance, and they are in general different numbers (equal where ``v_{G_k}`` has one nonzero entry or the margin is zero; a negative margin has the term ``0``).
+At a zero group the four-argument score is the signed margin and the term of the full-point value is the distance.
+In exact arithmetic, the scores agree when the margin is zero. They also agree for a positive margin when
+``v_{G_k}`` has one nonzero entry. A negative margin gives distance ``0``.
 With ``d=v_{G_k}-\operatorname{proj}(v_{G_k})``, the residual of the projection onto the ℓ₁ ball of radius ``c_k``, a positive margin is
 ``\lVert d\rVert_1`` and the distance is ``\lVert d\rVert_2``, so in exact arithmetic ``\text{distance}\le\text{margin}\le\sqrt{n}\,\text{distance}`` for a group of
 ``n`` entries, and both are positive for the same groups (in exact arithmetic); computed values can break these inequalities by rounding near the boundary. For the gradient `(5/8, 5/8)` with ``\lambda_0=w=1`` the margin is ``0.25`` and the

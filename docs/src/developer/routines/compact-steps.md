@@ -39,7 +39,7 @@ the `GroupSCAD` route does the same for its radial map.
 [SparseGroupNormL2 kernel call](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/sparsegroupnorml2.jl#L223-L228),
 [GroupNormLinf buffer selection](https://github.com/mlakolar/ProximalBase.jl/blob/4e26f7324ced50544d9ab89ee3d32dbca2c3e830/src/functions/groupnormlinf.jl#L406-L416),
 [GroupMCP compact dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/ae693e0af9c8a09e08a90de98d0e6b23b9a518cb/src/functions/groupmcp.jl#L474-L490),
-and [GroupSCAD compact dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/bc8028ae8d472c7d68969180e5c31bf3ba784f37/src/functions/groupscad.jl#L480-L496).
+and [GroupSCAD compact dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/405c212dc69e99b1f34cec12825fd53e93cacea8/src/functions/groupscad.jl#L486-L502).
 
 The allocating wrapper creates a floating vector of the trial length
 and delegates to the compact hook. To use the result with an iterate,
@@ -58,5 +58,5 @@ and [buffer ownership rule](https://github.com/mlakolar/ProximalBase.jl/blob/4e2
   exercise the separate calculation and iterate write.
 - [GroupMCP compact tests](https://github.com/mlakolar/ProximalBase.jl/blob/ae693e0af9c8a09e08a90de98d0e6b23b9a518cb/test/groupmcp.jl#L498-L509)
   compare the compact result with the full-array result and check exact in-place use.
-- [GroupSCAD compact tests](https://github.com/mlakolar/ProximalBase.jl/blob/bc8028ae8d472c7d68969180e5c31bf3ba784f37/test/groupscad.jl#L901-L940)
+- [GroupSCAD compact tests](https://github.com/mlakolar/ProximalBase.jl/blob/405c212dc69e99b1f34cec12825fd53e93cacea8/test/groupscad.jl#L903-L928)
   compare the compact result in place (`out === u`) with the result out of place, bit for bit.

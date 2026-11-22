@@ -430,8 +430,9 @@ The tables and numbers below are copied from the output of verdict mode of `summ
 gathered campaign with the pins of the campaign (`--harness-sha` names the harness that produced the data):
 `tables.md`, `verdict.json` and `per-process-ratios.tsv`, which are not committed. Each subsection names the `tables.md`
 sections it comes from; several of them list only their first rows, and the text says when a number comes from such an
-excerpt. The complete matrix of the 108 ADMM cells is in the untruncated section *Timing detail* and, per process, in
-`per-process-ratios.tsv`. The time limits and reruns of the timing processes and the second verdict run come from the
+excerpt. The complete matrix of the 108 ADMM cells is in the untruncated section *Timing detail*;
+`per-process-ratios.tsv` gives the per-process values of the 102 cells that have a ratio (the six capped cells have none).
+The ranges of the 8-thread diagnostic come from its own `tables-partial.md` files. The time limits and reruns of the timing processes and the second verdict run come from the
 record of the run, not from these files.
 
 Ratios are `V/S`, the recorded time of the variant over that of S; a ratio below 1 is a lower recorded time. *Faster*,
@@ -447,11 +448,11 @@ for example the ratio 0.7877 of C_B (1.10.13, 1500×5000, `ρ = 0.1`, tight targ
   kind, AMD EPYC 7513 (Zen 3), on a Slurm cluster.
 - The plan has exclusive nodes (Conditions). By the maintainer's decision this campaign ran on nodes shared with other
   jobs. The load average at process start (1, 5 and 15 minutes) lies between 14.48 and 60.51 (section *Processes*).
-  This is the main caveat on the timing tables. The A/A controls measure it: over the versions, measurements and
+  This is the main caveat on the timing tables. Over the versions, measurements and A/A
   pairs, the median `|S'/S - 1|` or `|V'/V - 1|` of the per-process medians is 0.001502 to 0.02015, and the largest
   single deviation is 0.6312 (1.10.13, warm, `C_W'/C_W`) (section *A/A controls*). These controls measure the
   variation between the two copies of a role, including what shared load adds to it; they do not isolate the effect of
-  the other jobs. A cell is labelled faster when its six process medians are below 0.95 and the largest of them lies
+  the other jobs. A cell that is not capped and passes accuracy (Criteria) is labelled faster when its six process medians are below 0.95 and the largest of them lies
   farther below 1 than the A/A spread of that cell, and slower when the six are above 1.05 and the smallest lies
   farther above 1 than that spread; a noisier cell therefore tends to come out inconclusive, but a load change that
   affects S and the variant differently within the paired rounds is not removed by this rule.
@@ -514,8 +515,8 @@ Where the variants fail, over the (case, step) pairs with accuracy evidence:
 
 Sections *Timing labels per measurement and variant*, *Timing detail* and *ADMM: total time ratio*. The first table
 gives the median `V/S` over the cells of each (version, measurement, variant, element type) that have a ratio, as
-1.13.4 / 1.10.13; it includes the cells excluded by accuracy and leaves out the capped ADMM cell, which has no ratio
-(17 of the 18 ADMM cells of each row).
+1.13.4 / 1.10.13; it includes the cells excluded by accuracy and leaves out the capped ADMM cell, which has no ratio.
+Each ADMM median therefore uses 17 of the 18 cells of its version and variant.
 
 | measurement | type | C_B | C_D | C_W |
 |---|---|---|---|---|
@@ -584,5 +585,9 @@ stays open.
 
 ### Raw results
 
-The checksum list `sha256-list.tsv` covers the 31 gathered files that verdict mode read. The raw results (the gathered
-campaign directory with its checksum list) are kept with the study archive.
+The checksum list `sha256-list.tsv` covers the 31 gathered files that verdict mode read. The raw results are the
+audit-data prerelease [`audit1103-2026-11-22`](https://github.com/mlakolar/ProximalBase.jl/releases/tag/audit1103-2026-11-22),
+asset `pb1103-campaign.tar.gz` (SHA-256 `edceabb72ee0f27a16c4bd6670689efec4e6b4d80694416160a8d5c41d33d407`): the gathered
+campaign directory with its checksum list, the three summary files and the 8-thread diagnostic. In that copy the
+machine name in each timing-file header is replaced by an anonymous label and the checksum list is recomputed over
+the result; its `README.md` gives the command that reruns verdict mode on it.

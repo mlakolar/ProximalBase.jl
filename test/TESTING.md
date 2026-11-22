@@ -183,8 +183,8 @@ package (the scalar reference of `scad_reference.jl`, a candidate comparison at 
 for near-ties, at the group norm computed in 512-bit BigFloat), with the same objective tolerance as `groupmcp` except that
 `κ = max(1, (a - 1)/(a - 1 - γ))` for finite `a` and `γ < a - 1`, and 1 otherwise, and the same stable-decision checks of the
 kept group, `+0` and the entries in between. It covers the worked examples, the copied group inside the middle piece
-(`γ = 1e-20`: the fused value is `p(r)`, not the plateau), exactly representable ties for both cutoffs of the nonconvex
-steps (`γ ≥ a - 1`), group sizes 1 to 512 with shapes near 2, 3.7, 1000, 1e10 and infinite and steps below, at and above `a - 1`
+(`γ = 1e-20`: the fused value is `p(r)`, not the plateau), ties with equal objectives at representable inputs for both cutoffs
+of the nonconvex steps (`γ ≥ a - 1`), group sizes 1 to 512 with shapes near 2, 3.7, 1000, 1e10 and infinite and steps below, at and above `a - 1`
 with norms at each knot of the decisions (`γλ`, `λ`, `(1 + γ)λ`, `aλ` and the two tie cutoffs) one rounding either side, permuted
 and noncontiguous groups with entries in no group, singleton groups against `SCAD` (the decisions, bit for bit where the
 output is zero or the input, and the points in between within `(8κ + 8)` ulps and a subnormal spacing), the cold-path

@@ -237,7 +237,7 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
   @test v ≈ T(1.814814814814815) rtol = 64eps(T)
   @test !(v ≈ T(2.35))
   @test prox_block(g, u, 1, T(1e-20)) == u
-  # exactly representable ties give the smaller magnitude: a = γ = 9/2, r = 5 is the tie of the left minimum
+  # two ties with equal objectives in exact arithmetic at representable inputs give the smaller magnitude: a = γ = 9/2, r = 5 is the tie of the left minimum
   # (soft = 1/2) and the right one (r), and γ = 25/4, a = 3, r = 5 that of zero and r
   for s in (one(T), T(2)^-20, T(2)^20)
     g1 = GroupSCAD(s, [1:2], T[1]; a = T(9 / 2))
@@ -339,7 +339,7 @@ end
       end
     end
   end
-  # the plateau: the value does not change above aλ, and the group is kept for every step below the cutoff
+  # the plateau: the value does not change above aλ, and the group at r = 50 is kept at the three steps below a - 1 listed
   f = GroupSCAD(one(T), [1:2], T[1]; a = T(3))
   @test f(T[3, 4]) == f(T[30, 40]) == T(2)
   @test f(T[3e30, 4e30]) == T(2) && f(T[Inf, 0]) == T(2) && f(T[0, -Inf]) == T(2)
@@ -803,7 +803,7 @@ end
     @test value_and_prox!(y, s, x, T(0.7)) ≈ α * f(y)
   end
   @test_throws ArgumentError Scaled(f, zero(T))
-  # a factor that makes the effective step overflow gives the step Inf: every group is +0
+  # a factor that makes the effective step overflow gives the step Inf: both groups are +0
   @test prox(Scaled(f, floatmax(T)), x, T(2)) == zeros(T, 4)
   # an effective step that leaves the normal range is rounded: here αγ rounds to Inf and the group is +0, whereas the
   # exact step 2^1200 keeps it (r/λ = 2^700 exceeds √(γ(a + 1)))
@@ -881,6 +881,7 @@ end
   @test isnan(kkt_violation(f, T[NaN, 0, 4, 0, 0, 0, 0], zeros(T, 7), 3))
   @test kkt_violation(GroupSCAD(one(T), [1:2], T[Inf]), T[3, 4], zeros(T, 2), 1) === -T(Inf)
   @test kkt_violation(GroupSCAD(one(T), [1:2], T[0]), T[3, 4], zeros(T, 2), 1) === T(5)
+  @test kkt_violation(GroupSCAD(T(Inf), [1:2], T[0]), T[3, 4], zeros(T, 2), 1) === T(5)
   # an overflowed product λ0 w is recovered
   if T === Float64
     v = fill(floatmax(T), 4)

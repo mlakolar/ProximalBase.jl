@@ -129,9 +129,9 @@ value can be `floatmax(T)` or `Inf`.
 
 ## [Endpoint clauses](@id spec-groupscad-endpoints)
 
-The rows apply per group in this order and test the stored parameters only (`iszero` and `isinf` of `λ0`, `w_k`, `a`
-and `γ`), never their product. Other groups and the entries in no group are independent. Steps are nonnegative and
-not `NaN`.
+The rows apply per group in this order and are selected by the stored parameters (`iszero` and `isinf` of `λ0`, `w_k`, `a`
+and `γ`), not by whether their product overflows or underflows. Other groups and the entries in no group are independent.
+Steps are nonnegative and not `NaN`.
 
 | Parameters | Proximal group | Group value |
 |:--|:--|:--|
@@ -145,7 +145,7 @@ not `NaN`.
 | Same, a zero group (`±0` entries) | `+0` | `0` |
 | Same, finite nonzero group | The ordinary and range clauses above | ``p_{\lambda_k,a}`` at the norm |
 
-At `a = Inf` every row is the corresponding row of `GroupNormL2` at the level `λ0` and the weight `w_k`.
+At `a = Inf` the rows are those of `GroupNormL2` at the level `λ0` and the weight `w_k`, which the group map and the term of that function give.
 
 ## [Failure behavior](@id spec-groupscad-failures)
 

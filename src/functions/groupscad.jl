@@ -171,7 +171,8 @@ end
 # p(r; λ0 w, a) as parts m 2^e for r = ns 2^k > 0, positive finite λ0 and w and finite a. With r = mt 2^et and
 # λ = ml 2^el:
 #  * r ≤ λ (decided on the parts): the product of the significands, mt ml 2^(et+el);
-#  * the exponent et - el above the exponent range of R: r/λ exceeds every finite a, and the plateau (a+1) ml² 2^(2el)/2;
+#  * the exponent et - el above exponent(floatmax(R)) + 1: r/λ exceeds 2^(exponent(floatmax(R)) + 1), hence a, and the
+#    term is the plateau (a+1) ml² 2^(2el)/2;
 #  * otherwise p(r′; ml, a) 2^(2el) with r′ = r/2^el = ldexp(mt, et - el), a normal number in [1/2, floatmax(R)].
 @inline function _gscad_value_parts(λ0, w, a, ns::R, k::Integer) where {R}
   ml, el = _gmcp_level_parts(λ0, w, R)
@@ -293,7 +294,7 @@ end
 # of the group on the ordinary path: for a copied group at the norm r that was computed (the sum of squares is that of
 # the stored group), and for a scaled group at the norm of its stored entries, whose squares are summed as they are
 # written.
-# Ordinary path (O = true: Float32 or Float64 throughout, the step converted exactly): a step with 0 < γ < Inf, a level
+# Ordinary path (O = true: Float32 or Float64 throughout, the step equal to its conversion to T): a step with 0 < γ < Inf, a level
 # λ = λ0 w (rounded once) of at least floatmin/eps with a finite kink aλ, and a finite sum of squares that _squares_normal
 # accepts. t is the scalar kernel at the computed norm r and the rounded level λ; the group is copied for t == r, set to
 # +0 for t == 0, and otherwise scaled by t / r.
@@ -354,11 +355,13 @@ end
 # level is not formed as one number:
 #  * r ≤ λ (decided on the parts): the first piece, soft thresholding. The residual r - γλ in units of 2^et comes from
 #    _mcp_scaled_residual; the group is set to +0 when it is not positive and otherwise scaled by m/mt;
-#  * et - el above the exponent range of R: r/λ exceeds every finite a and 1 + γ of R, and the group is copied;
+#  * et - el above exponent(floatmax(R)) + 1: r/λ exceeds 2^(exponent(floatmax(R)) + 1), which is above a and 1 + γ for the
+#    finite a and γ of R, and the group is copied;
 #  * otherwise r′ = ldexp(mt, et - el) is a normal number in [1/2, floatmax(R)] and t′ is the scalar kernel at (r′, ml, a, γ),
 #    the problem scaled by 2^-el; the group is copied for t′ == r′, set to +0 for t′ == 0 and otherwise scaled by t′ / r′.
-# The decisions are those of the scalar kernel on the computed norm and the level as formed. r′ ≥ 1/2 and ml ≥ 1/2, so the
-# small-magnitude branch of _scad_magnitude cannot apply and _scad_prox is called directly.
+# The decisions are those of the scalar kernel on the computed norm and the level as formed. For R = Float32 or Float64,
+# r′ ≥ 1/2 and ml ≥ 1/2 are above floatmin(R)/eps(R), where the small-magnitude branch of _scad_magnitude starts, so
+# _scad_prox is called directly.
 @noinline function _gscad_shrink_values!(y, x, G, λ0, w, a, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ0, w), float(eltype(x)))

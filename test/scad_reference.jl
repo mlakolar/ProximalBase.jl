@@ -8,7 +8,7 @@ module SCADReferenceTest
 #
 #     prox_{γp}(v) = argmin_u p(|u|) + (u - v)²/(2γ).
 #
-# `scad_reference` minimizes the FULL objective over the three pieces of p. For v ≥ 0 only u ≥ 0 can win, and on each
+# `scad_reference` minimizes the FULL objective over the three pieces of p. For v ≥ 0 a minimizer with u ≥ 0 exists, and on each
 # piece the objective is a quadratic in u, so its minimum over u ≥ 0 lies at an endpoint of a piece or at the vertex of a
 # piece (clamped to it) that has positive curvature; the three pieces are [0, λ], [λ, aλ] and [aλ, max(v, aλ)]. The candidate
 # with the smallest objective wins and v < 0 gives the negative of the answer for -v.
@@ -17,7 +17,7 @@ module SCADReferenceTest
 #   * Exact tie (two candidates whose objectives agree) -> the candidate of minimum magnitude; a zero result is +0.
 #   * `bits = nothing` (the default) works at the current BigFloat precision; an integer sets it for the call. The
 #     objectives are compared at that precision. Candidates whose objectives agree to within 2^-(bits - 40) of their size
-#     are recomputed at 4096 bits (only then, and only below 4096 bits: exact ties and near-ties of enormous dynamic
+#     are recomputed at 4096 bits when the precision is below 4096 (exact ties and near-ties of enormous dynamic
 #     range); candidates that still agree to that tolerance are a tie.
 #   * `scad_reference` returns the minimizer and the minimum of the objective.
 #

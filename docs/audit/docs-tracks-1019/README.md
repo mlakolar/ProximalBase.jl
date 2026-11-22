@@ -342,7 +342,9 @@ and a `bases` list; each record binds `block_id`, `baseline_sha`, the canonical
 `source_shas`, and review `evidence`. The root ledger can then use an ordinary
 `move`, `split` or `reword` destination. The checker verifies every historical
 Git transition first, then applies ordinary token/example accounting to the
-final reviewed upstream text. It does not compare to obsolete pre-feature words
+final reviewed upstream text. For an upstream edit after a verbatim move of
+the frozen block, a basis requires the same committed move row, exact event
+blobs, named section and terminal hashes as the active receipt. It does not compare to obsolete pre-feature words
 or exempt the later migration. Stale and unused basis records fail.
 
 ## Updating the ledger

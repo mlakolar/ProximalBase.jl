@@ -1396,10 +1396,39 @@ class UpstreamTests(unittest.TestCase):
         self.post_move_fixture(outside_heading=True)
         self.assert_rejected("span must stay inside its recorded heading")
 
-    def test_post_move_upstream_cannot_supply_a_migration_basis(self):
+    def test_post_move_upstream_can_supply_an_exact_rewrite_basis(self):
         self.post_move_fixture()
-        with self.assertRaisesRegex(ValueError, "migration bases require upstream edits in the original file"):
-            m.validate_upstream(self.baseline[0], self.record, self.record, self.root, current=False)
+        old = self.baseline[0]
+        target = self.root / self.path
+        rewrite = "Use the revised `1` rule."
+        revised = self.after_move.replace("Updated `1` rule.", rewrite)
+        target.write_text(revised)
+        section = m.section_text(revised, "family-range")
+        hashes = [b.sha for b in m.blocks(section, self.path) if b.kind == "prose"]
+        self.rows[0].update(action="reword", dest_sha=";".join(hashes), reviewer="independent@rewrite")
+        basis = dict(block_id=old.id, baseline_sha=old.sha, upstream_sha=m.receipt_digest(self.record),
+                     source_shas=self.moved_hashes, evidence="Fixture: verified historical move and edit.")
+        basis_file = self.receipt.parent / "migration-bases.json"
+        basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual([b.sha for b in mappings.bases[old.id]], self.moved_hashes)
+        self.assertEqual(m.accounting(self.baseline, mappings, "tokens"), [])
+        self.assertEqual(m.accounting(self.baseline, mappings, "examples"), [])
+
+        changed = revised.replace("`1`", "`2`")
+        target.write_text(changed)
+        section = m.section_text(changed, "family-range")
+        self.rows[0]["dest_sha"] = ";".join(b.sha for b in m.blocks(section, self.path) if b.kind == "prose")
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(m.accounting(self.baseline, mappings, "tokens"))
+
+        self.event["before_blob"] = self.event["after_blob"]
+        self.save()
+        basis["upstream_sha"] = m.receipt_digest(self.record)
+        basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        self.assert_rejected("blob")
 
     def split_fixture(self):
         self.path = "docs/src/numerics.md"

@@ -26,18 +26,6 @@ that happens to pass.
   mixed-type calls. The wording awaits the owner's decision.
   [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
 
-- Before #1118, the `IndNonnegative` endpoint row said “`Scaled` routes do
-  not check and project”. This could refer to calls on a concrete `Scaled`
-  wrapper or to calls on the result of `Scaled(f, α)`, including `α = 0`.
-  The tests before #1118 exercised projection at negative and `NaN` steps
-  through `Scaled(f, 2)`, and confirmed that `Scaled(f, 0)` returned the
-  original indicator, whose public scalar-step oracles check the step.
-  #1118 replaced the quoted text with wording about the return of the
-  original indicator for nonnegative factors. Review of the wording remains open.
-  [Source](../../../src/functions/indnonnegative.jl)
-  · [Scaling source](../../../src/functions/scaled.jl)
-  · [Tests](../../../test/indnonnegative.jl)
-
 - The `GroupNormLinf` optimality section says a zero group's signed margin
   and full-point distance are “equal where `v_G` has one nonzero entry”.
   This could include negative margins or apply only to nonnegative margins.
@@ -115,27 +103,12 @@ that happens to pass.
   [Guide](../../src/group_penalty.md#group-l2-endpoints)
   · [Tests](../../../test/groupnorml2.jl)
 
-- The Scaled endpoint paragraph says finite-data built-in losses simplify
-  to ZeroFunction at zero scale. It could refer to all current built-in
-  losses or only those with a domain-preserving zero-scale representation.
-  The source has separate zero-scale methods for LeastSquaresLoss and
-  SqrtLeastSquaresLoss. The LogisticLoss and LogDetLoss types use the
-  default error path. The family scope awaits the owner's decision.
-  [Source](../../../src/functions/scaled.jl)
-
 - The GroupNormLinf accuracy row describes the margin as a computed sum
   minus the coefficient. It could refer only to ordinary subtraction or also
   to overflow. The non-finite row and source give positive infinity when
   the sum overflows, including at an infinite coefficient. The scope of the
   subtraction wording awaits the owner's decision.
   [Source](../../../src/functions/groupnormlinf.jl)
-
-- The box endpoint row says public scalar-step array oracles reject invalid
-  steps. It could describe direct box calls or also calls through Scaled.
-  The direct methods check the step, and the wrapper tests distinguish
-  the dispatch paths. The scope of the statement awaits the owner's
-  decision. [Source](../../../src/functions/indbox.jl)
-  · [Tests](../../../test/indballlinf.jl)
 
 - The IndBallL2 endpoint row says multiple infinite entries or any NaN give
   an all-NaN projection. That sentence could inherit the positive finite
@@ -223,6 +196,14 @@ The following notes record the questions as written before that review.
   infinite in `Float16`. The scope awaits the owner's decision.
   [Source](../../../src/functions/sparsegroupnorml2.jl)
   · [Shared group-score tests](../../../test/kkt_block.jl)
+
+## Scaling decisions
+
+| Question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| 3. IndNonnegative scaling and invalid scalar steps | Nonnegative scaling returns the indicator. The resulting scalar-step array call still validates the step. [Shared constructor rule](../../src/spec/scaled.md#scaled.constructor.indicator-identity), `guaranteed`. | [Original endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/indnonnegative.md#L46-L50), [constructor](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/scaled.jl#L107-L118) and [before-write tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indnonnegative.jl#L581-L591) |
+| 13. Zero scaling and finite loss data | Finite design and response let the two supported least-squares families simplify to `ZeroFunction()`. [Supported zero scaling](../../src/spec/scaled.md#scaled.constructor.zero-scale-losses), `guaranteed`. For losses without a supported zero-scale representation, the zero factor raises `ArgumentError`. [Default zero scaling](../../src/spec/scaled.md#scaled.constructor.unsupported-zero-scale), `characterized`. | [Original endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/scaled.md#L98-L103), [zero-scale methods](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/scaled.jl#L133-L159), [LeastSquaresLoss tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/numerical_recovery.jl#L1495-L1507) and [SqrtLeastSquaresLoss tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L257-L261) |
+| 15. Box rejection after scaling | Nonnegative scaling returns the original box, including `IndBallLinf`. Its scalar-step array oracles reject negative and `NaN` steps before writing. [Shared constructor rule](../../src/spec/scaled.md#scaled.constructor.indicator-identity), `guaranteed`. | [Original endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/indbox.md#L43-L47), [direct checks](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indbox.jl#L118-L123), [box tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indbox.jl#L16-L64) and [thin-constructor tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballlinf.jl#L115-L131) |
 
 ## Owner review and next gates
 

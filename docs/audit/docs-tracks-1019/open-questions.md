@@ -12,24 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `LeastSquaresLoss` range text says “For strided `Float32` and `Float64`
-  vectors”. This could describe the caller's coefficients `β` or the operands
-  of the squared-residual kernel, including the predictor or residual. The
-  coefficient methods use an internal work vector, and the fast value kernel
-  dispatches on strided operands of a common type. The scope of the phrase
-  awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
-  · [Tests](../../../test/leastsquares_predictor.jl)
-
-- The matrix predictor sentence added by #1115 says both oracles reuse “the same
-  squared-residual recovery”. This could refer to both oracles retrying an
-  overflowing subtraction or to their use of the same range kernel on different
-  operands. The value-only oracle can retry with the original predictor and
-  response. The fused oracle uses the stored residual, and the overflow test
-  gives a finite value for the former and `Inf` for the latter. The scope of
-  “same” awaits the owner's decision.
-  [Source](../../../src/functions/leastsquares_predictor.jl)
-  · [Tests](../../../test/leastsquares_predictor.jl)
-
 - The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
   could mean the loss from unrounded `Xβ` or the exact norm at the stored or
   supplied predictor or residual. The same paragraph leaves open whether
@@ -127,6 +109,13 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Infinite-level endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrnorml2.md#L82-L88) could use “elsewhere” for every nonzero residual or only for nonzero residuals other than `NaN` | With finite `v` and `x` in the working type, a nonzero residual other than `NaN` gives an `Inf` entry score. A `NaN` center or a zero residual gives a `NaN` entry score, which propagates in the full-point maximum. `characterized`. | [Gradient arithmetic](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L203-L211) · [Point-aware score](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L382-L390) · [Separate endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/kkt_point.jl#L465-L474) |
+
+## LeastSquaresLoss decisions
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Strided-vector range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L49-L52) could qualify the caller's coefficients or the operands of the kernel | The strided vectors are the kernel operands. Coefficient calls form the predictor in the loss's work array. Implementation note. | [Coefficient and kernel paths](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares.jl#L87-L131) · [Guard tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L980-L1005) |
+| [Matrix predictor range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L50-L52) could promise that both oracles retry an overflowing subtraction or describe a shared guard with different operands | The value-only oracle can retry from its supplied predictor and response. The fused oracle uses its stored residual, which can give an infinite value after subtraction overflow. `characterized`. | [Matrix oracle value routes](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares_predictor.jl#L281-L313) · [Overflow test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L1353-L1366) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

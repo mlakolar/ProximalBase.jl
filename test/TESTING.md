@@ -411,3 +411,22 @@ iterates, with central differences along coordinate directions; the route predic
 the D-trace residual, a proximal-gradient loop with KKT scores, and the coordinate-descent direction model;
 `Scaled`, `check_symmetric_parameters`, the checks before writes (each leaving the destination and the data
 unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and inference.
+
+## Full validation (nightly)
+
+The `Full validation` workflow (`.github/workflows/full-validation.yml`) runs the `full` tier,
+which is the union of all four tiers in `tiers.toml`, in 3 shards on every combination of
+`ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and 1.13, so 18 jobs. It
+runs daily at 09:23 UTC and on manual dispatch, with `--check-bounds=yes`. Each job saves a log
+that begins with a `PB_FULL_VALIDATION` line giving the commit, OS, Julia minor version and
+shard, followed by the runner's `PB_TEST_FILE_TIME` lines. The log artifacts are kept for 30 days.
+
+The `Full validation verdict` job reads those logs with `scripts/full_validation_verdict.py`. It
+passes only when all 18 cells are present, each log carries the tested commit and the header for
+its own cell, each cell ran the expected Julia minor version, and for every OS and Julia pair the
+files with `status=pass` across the 3 shards equal the full selection with no file in two shards.
+It also requires every matrix job to have succeeded, so a timeout or cancellation fails the run
+even when the saved logs look complete. The job summary lists the commit, the exact Julia version,
+the machine, the shards completed, the files passed, the failing files and the five slowest files
+for each pair. `scripts/test_full_validation_verdict.py` tests the verdict on synthetic logs and
+checks that the workflow matrix matches the script's expected cells.

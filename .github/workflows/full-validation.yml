@@ -1,0 +1,85 @@
+name: Full validation
+on:
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch:
+  # TEMPORARY bootstrap trigger: removed before merge
+  pull_request:
+    paths: ['.github/workflows/full-validation.yml', 'scripts/full_validation_verdict.py']
+permissions:
+  contents: read
+concurrency:
+  group: full-validation-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    name: Full / ${{ matrix.os }} / Julia ${{ matrix.julia }} (shard ${{ matrix.shard }}/3)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        julia: ['1.10', '1.13']
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+      - uses: julia-actions/cache@v3
+      - name: Run the full tier (shard ${{ matrix.shard }}/3)
+        env:
+          PB_OS: ${{ matrix.os }}
+          PB_JULIA: ${{ matrix.julia }}
+          PB_SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          # A workspace-relative path avoids mixing Windows and POSIX temporary paths.
+          mkdir -p full-validation-logs
+          log="full-validation-logs/full-validation-${PB_OS}-${PB_JULIA}-${PB_SHARD}.log"
+          printf 'PB_FULL_VALIDATION commit=%s os=%s julia=%s shard=%s/3\n' \
+            "$(git rev-parse HEAD)" "$PB_OS" "$PB_JULIA" "$PB_SHARD" | tee "$log"
+          julia -e 'using InteractiveUtils; versioninfo()' 2>&1 | tee -a "$log"
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; test_args=["--tier=full","--shard=" * ENV["PB_SHARD"] * "/3"], julia_args=["--check-bounds=yes"])' 2>&1 | tee -a "$log"
+      - name: Preserve full validation log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-validation-log-${{ matrix.os }}-${{ matrix.julia }}-${{ matrix.shard }}
+          path: full-validation-logs/full-validation-${{ matrix.os }}-${{ matrix.julia }}-${{ matrix.shard }}.log
+          retention-days: 30
+          if-no-files-found: error
+  verdict:
+    name: Full validation verdict
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the verdict script
+        run: python3 -B scripts/test_full_validation_verdict.py
+      # With a pattern, a run that produced no log artifact may download nothing
+      # instead of failing; the verdict script then reports each expected cell as missing.
+      - name: Download the cell logs
+        uses: actions/download-artifact@v8
+        with:
+          pattern: full-validation-log-*
+          path: logs
+          merge-multiple: false
+      - name: Check the full selection in every cell
+        run: |
+          # GITHUB_SHA is set by the runner; on pull_request it is the tested merge commit.
+          python3 scripts/full_validation_verdict.py --logs logs --tiers test/tiers.toml \
+            --expected-commit "$GITHUB_SHA" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Require every matrix job to succeed
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: test "$TEST_RESULT" = success

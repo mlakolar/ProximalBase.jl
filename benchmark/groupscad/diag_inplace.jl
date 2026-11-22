@@ -11,7 +11,14 @@
 #
 # Cases: the input generation of run.jl (4096 entries, level 3/4, shape 3.7, unit weights, 8 cycled inputs per case, steps
 # below, at and above a - 1, regimes zero, soft, middle, kept, contiguous ranges and permuted index vectors, Float32 and
-# Float64). Section 1 (group sizes 512 and 4096) is about the proximal map in place; section 2 (group sizes 1, 4 and 32)
+# Float64), and a fifth regime, mixed, in which each group of each input draws its regime at random (seeded) from the four,
+# so that branches are mispredicted as on mixed data.
+#
+# Comparing two commits: PB_SOURCE is the baseline tree. To compare a new tree N with it, pass N as both PB_VARIANT and
+# PB_VARIANT_INPLACE (and set no other variant): the probes V_value, V_vap and W_inplace are then the new tree's value,
+# fused value and in-place proximal map, next to X (baseline), L (legacy) and R (GroupNormL2). The checks that print "bitwise equal"
+# compare the new tree's values and in-place points with the baseline's. Without a variant the same script compares the candidate
+# with the two measurement variants that make_variants.py makes (diag.sh does it when PB_VARIANT is unset). Section 1 (group sizes 512 and 4096) is about the proximal map in place; section 2 (group sizes 1, 4 and 32)
 # about the value and the fused value. PB_FILTER selects cases by a regular expression on their ids.
 #
 # For each case the script prints
@@ -99,14 +106,16 @@ function makedata(::Type{T}, m, layout, step, regime, ninputs) where {T}
     for j in 1:ninputs
         x = Vector{T}(undef, TOTAL)
         for (k, G) in enumerate(groups)
-            r = group_norm(regime, Float64(γ), Float64(a), Float64(λ0))
+            # :mixed draws the regime of each group (and input) at random from the four regimes
+            reg = regime === :mixed ? rand(rng, (:zero, :soft, :middle, :kept)) : regime
+            r = group_norm(reg, Float64(γ), Float64(a), Float64(λ0))
             d = randn(rng, m)
             d ./= sqrt(sum(abs2, d))
             x[G] .= T.(r .* d)
         end
         inputs[j] = x
     end
-    (; groups, inputs, a, λ0, γ, w, r = group_norm(regime, Float64(γ), Float64(a), Float64(λ0)))
+    (; groups, inputs, a, λ0, γ, w, r = group_norm(regime === :mixed ? :soft : regime, Float64(γ), Float64(a), Float64(λ0)))
 end
 
 # the branch of the candidate for one group: :copy, :zero, :scale, or :cold when the ordinary guard fails
@@ -354,7 +363,7 @@ function main()
                 println(io_times, "case,probe,repetition,median_ns")
                 println(io_br, "case,copy,zero,scale,cold")
                 for (section, sizes) in ((1, (512, 4096)), (2, (1, 4, 32)))
-                    for T in (Float32, Float64), m in sizes, layout in (:range, :perm), (sname, step) in STEPS, regime in REGIMES
+                    for T in (Float32, Float64), m in sizes, layout in (:range, :perm), (sname, step) in STEPS, regime in (REGIMES..., :mixed)
                         id = "$T/m$m/$layout/$sname/$regime/$(section == 1 ? "inplace" : "value")"
                         occursin(FILTER, id) || continue
                         d = makedata(T, m, layout, step, regime, NINPUTS)

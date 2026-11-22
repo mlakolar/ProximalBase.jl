@@ -8,6 +8,7 @@
 #
 # The trees are folders with a src/ (for example `git archive <sha> src | tar -x -C <tree>`): the candidate commit, the archived
 # implementation eff21b6d7d33c622313122f46c6ee71693c101ee, and the base of the pull request a6b16d63d9c5102b1ac82d9995014145681d4343.
+# To compare two commits, give PB_SOURCE (the baseline) and the new tree as both PB_VARIANT and PB_VARIANT_INPLACE (see diag_inplace.jl).
 # When PB_VARIANT or PB_VARIANT_INPLACE is not set, the two variant trees are made from PB_SOURCE in PB_OUTPUT/variants
 # (make_variants.py, which needs python3). Run it on an exclusive node, one Julia thread, once per Julia version and CPU.
 set -euo pipefail

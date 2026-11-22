@@ -12,16 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
-  could mean the loss from unrounded `Xβ` or the exact norm at the stored or
-  supplied predictor or residual. The same paragraph leaves open whether
-  the precision and layout conditions apply to the caller's coefficients and
-  design or to the operands of the sum. Its length-and-epsilon condition can
-  also be read to cover precisions beyond `Float32` and `Float64`, which the
-  kernel proof names. The scope of the bound awaits the owner's decision.
-  [Source](../../../src/functions/sqrt_leastsquares.jl)
-  · [Tests](../../../test/sqrt_leastsquares.jl)
-
 - The `LinearFunction` range paragraph gives the bound
   `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)` without defining `n`. It could count
   nonzero products or all entries in the argument or its storage. The recovery
@@ -116,6 +106,12 @@ that happens to pass.
 |:--|:--|:--|
 | [Strided-vector range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L49-L52) could qualify the caller's coefficients or the operands of the kernel | The strided vectors are the kernel operands. Coefficient calls form the predictor in the loss's work array. Implementation note. | [Coefficient and kernel paths](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares.jl#L87-L131) · [Guard tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L980-L1005) |
 | [Matrix predictor range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L50-L52) could promise that both oracles retry an overflowing subtraction or describe a shared guard with different operands | The value-only oracle can retry from its supplied predictor and response. The fused oracle uses its stored residual, which can give an infinite value after subtraction overflow. `characterized`. | [Matrix oracle value routes](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares_predictor.jl#L281-L313) · [Overflow test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L1353-L1366) |
+
+## SqrtLeastSquaresLoss decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Norm accuracy](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrt_leastsquares.md#L56-L63) could compare with the loss at unrounded `Xβ` or with the mathematical norm at the stored or supplied kernel operands | Compare with the exact scaled norm for the stored or supplied predictor or supplied residual. The precision and layout hypotheses apply to the operands and the bound is stated for `Float32` and `Float64`. `characterized`. | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L78-L83) · [Proof](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L114-L122) · [Tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L310-L346) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

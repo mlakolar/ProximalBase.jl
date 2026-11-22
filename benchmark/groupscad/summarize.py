@@ -5,11 +5,11 @@
     python3 benchmark/groupscad/summarize.py CAND LEGACY    # two processes: median X/R of CAND over median X/R of LEGACY
 
 Per case and round the ratios come from ratios.csv; the summary is the median over rounds, with the minimum and maximum.
-With two directories, a case appears only when both directories have it, and is compared only when the outputs of X in the two processes agree (outputs/*.bin): nonfinite
+With two directories, a case appears only when both directories have it, and is compared only when the outputs of X in the two processes agree for every input (outputs_all/*.bin; the first input only, from outputs/*.bin, for a directory without outputs_all/): nonfinite
 entries and values must be equal (NaN with NaN, infinities of the same sign); finite vector entries must agree within
 16 (m + 8) kappa eps(T) times the largest finite magnitude of the candidate vector and be zero in both or in neither;
 finite values must agree within 16 (m + K) eps(T) relative; kappa is (a - 1)/(a - 1 - gamma) for the step below a - 1 and 1 otherwise. In the two-directory output, ratio_of_medians is the median over rounds of the candidate's X/R divided by the median X/R of the
-legacy directory, and min and max are the candidate's smallest and largest round X/R divided by that legacy median. The outputs compared are those of the first input of each case. Cases whose ratio exceeds 1.05 are
+legacy directory, and min and max are the candidate's smallest and largest round X/R divided by that legacy median. The outputs compared are those of every input of each case. Cases whose ratio exceeds 1.05 are
 marked with '!'. The memory and allocations of X are those of its last row in raw.csv (the last round).
 """
 import array
@@ -81,6 +81,27 @@ def agree(case, a, b):
                for x, y in zip(rest_a, rest_b) if math.isfinite(x) and math.isfinite(y))
 
 
+def outputs_all(directory, case):
+    path = os.path.join(directory, "outputs_all", case.replace("/", "_") + ".bin")
+    if not os.path.exists(path):
+        return None
+    code = "f" if case.split("/")[1] == "Float32" else "d"
+    data = array.array(code)
+    with open(path, "rb") as f:
+        data.frombytes(f.read())
+    return data
+
+
+def agree_all(case, cand, legacy):
+    """The outputs of every input agree (outputs_all/), or those of the first input when a directory has no outputs_all/."""
+    first_a, first_b = outputs(cand, case), outputs(legacy, case)
+    all_a, all_b = outputs_all(cand, case), outputs_all(legacy, case)
+    if all_a is None or all_b is None or len(all_a) != len(all_b) or len(first_a) == 0 or len(all_a) % len(first_a):
+        return agree(case, first_a, first_b)
+    n = len(first_a)
+    return all(agree(case, all_a[i:i + n], all_b[i:i + n]) for i in range(0, len(all_a), n))
+
+
 def summary(values):
     return statistics.median(values), min(values), max(values)
 
@@ -99,7 +120,7 @@ def main(args):
     mem_c, mem_l = memory(args[0]), memory(args[1])
     print("case,agree,ratio_of_medians,min,max,candidate_aa_median,legacy_aa_median,candidate_memory,legacy_memory,flag")
     for case in sorted(set(cand) & set(legacy)):
-        ok = agree(case, outputs(args[0], case), outputs(args[1], case))
+        ok = agree_all(case, args[0], args[1])
         if not ok:
             print(case, "no", "", "", "", "", "", "", "", "", sep=",")
             continue

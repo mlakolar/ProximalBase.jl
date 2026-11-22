@@ -37,12 +37,22 @@
 # at the group norm computed in 256-bit BigFloat (the scalar reference of test/scad_reference.jl), entrywise within
 # 16 (m + 8) κ eps(T) max|u| (κ = (a - 1)/(a - 1 - γ) for γ < a - 1, else 1), and its value within 16 (m + K) eps(T) of the BigFloat value (for the fused value,
 # relative to the larger of that value and floatmin(T)). An X/XC mismatch stops the script; a mismatch of X against the
-# reference stops it too, or, with PB_STRICT=0 (for the legacy tree), is recorded as fail in verification.csv. The outputs of X on the first input are written to outputs/ for
-# summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
+# reference stops it too, or, with PB_STRICT=0 (for the legacy tree), is recorded as fail in verification.csv. Every one of the
+# PB_INPUTS inputs of a case is run once per role and checked in this way (the BigFloat reference of an input is computed once
+# per case and shared by the operations); verification.csv has the number of inputs and the number that matched. The outputs of
+# X on the first input are written to outputs/ and those on every input to outputs_all/ (the outputs of the inputs one after
+# the other) for summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
+#
+# Timing: one BenchmarkTools run per role and round, with the reused benchmark of the case. BenchmarkTools estimates the
+# remaining samples from the time of the first sample (setup included) against the seconds cap, and throws an InexactError
+# in sizehint! on Julia 1.10 when the first sample alone took longer than the cap (a stall of the process, for example a
+# garbage collection or a descheduled process on a shared node); on Julia 1.13 the same stall ends the run with one sample.
+# A run that throws, or that has fewer than three samples, is repeated up to PB_RETRIES times (default 3), and a cell that
+# still fails is recorded in failures.csv and left out of that round of raw.csv and ratios.csv.
 #
 # Output files: provenance.txt, verification.csv, raw.csv (per round and role, the median and minimum time of the trial,
 # and the memory and allocations that BenchmarkTools reports with the median estimate, taken from the trial's minimum
-# measurements), ratios.csv (per round X/R and XC/X) and outputs/<case id with / replaced by _>.bin.
+# measurements), ratios.csv (per round X/R and XC/X), failures.csv and outputs/ and outputs_all/<case id with / replaced by _>.bin.
 using BenchmarkTools, Dates, Random, Statistics
 
 include(joinpath(@__DIR__, "..", "..", "test", "scad_reference.jl"))
@@ -172,16 +182,16 @@ function bigvalue(d, x)
 end
 
 # Whether the result of X matches the BigFloat reference within the bounds of the header.
-function verify(op, res, d, κ)
+function verify(op, res, d, κ, j, ref)
     T = eltype(d.x)
     m = length(d.groups[1])
     K = length(d.groups)
-    x = d.inputs[d.cur[]]
+    x = d.inputs[j]
     if op === :value
-        v = bigvalue(d, x)
+        v = ref.value
         return abs(BigFloat(res[1]) - v) <= 16 * (m + K) * eps(T) * v
     end
-    point = bigprox(d, x)
+    point = ref.point
     want = op in (:block_sweep, :block_sweep_inplace) ? reduce(vcat, [point[G] for G in d.groups]) : point
     got = op === :value_and_prox ? res[2] : res[1]
     bound = 16 * (m + 8) * κ * eps(T) * maximum(abs, x)
@@ -193,6 +203,26 @@ end
 
 runcheck(p) = (p.setup(); p.op(); p.result())
 
+# BenchmarkTools' run, repeated when it throws the InexactError of sizehint! (see the header); returns (trial, attempts), with
+# trial = nothing when every attempt failed. Any other exception is raised.
+function timed_run(b, retries)
+    for attempt in 1:retries
+        try
+            t = run(b)
+            length(t.times) >= 3 && return t, attempt     # Julia 1.13 does not throw: a stalled first sample ends the run with one sample
+        catch e
+            e isa InexactError || rethrow()
+        end
+    end
+    nothing, retries
+end
+
+# the BigFloat reference of an input, computed once per case
+reference_for(d, cache, j) = get!(cache, j) do
+    x = d.inputs[j]
+    (point = bigprox(d, x), value = bigvalue(d, x))
+end
+
 function prepare_timing(p, samples, seconds)
     op, setup = p.op, p.setup
     for _ in 1:20
@@ -200,6 +230,12 @@ function prepare_timing(p, samples, seconds)
         op()
     end
     @benchmarkable $op() setup = ($setup()) evals = 1 samples = samples seconds = seconds gctrial = false gcsample = false
+end
+
+harness_state() = try
+    readchomp(Cmd(`git status --porcelain -- .`; dir = @__DIR__)) == "" ? "clean" : "modified"
+catch
+    "state unknown"
 end
 
 function write_provenance(dir, rounds, samples, seconds, filter_pattern, ninputs)
@@ -217,7 +253,15 @@ function write_provenance(dir, rounds, samples, seconds, filter_pattern, ninputs
         println(io, "Source (X, XC): ", SOURCE, " at ", sha(SOURCE))
         println(io, "Reference (R): ", REFERENCE, " at ", sha(REFERENCE))
         println(io, "Load order: ", REVERSE ? "R, XC, X" : "X, XC, R")
-        println(io, "Slurm job: ", get(ENV, "SLURM_JOB_ID", "none"))
+        println(io, "Slurm job: ", get(ENV, "SLURM_JOB_ID", "none"), ", host: ", gethostname(), ", node list: ", get(ENV, "SLURM_JOB_NODELIST", "none"))
+        println(io, "Harness: ", @__FILE__, " at ", sha(@__DIR__), " (", harness_state(), ")")
+        println(io, "Julia options: ", Base.julia_cmd(), ", JULIA_NUM_THREADS=", get(ENV, "JULIA_NUM_THREADS", "unset"))
+        println(io, "Input configuration: entries ", TOTAL, ", group sizes ", SIZES, ", steps (multiples of a - 1) ", STEPS, ", regimes ", REGIMES,
+                ", shape a = ", SHAPE, ", level = ", LEVEL, ", unit weights, layouts range and perm, element types Float32 and Float64")
+        println(io, "Input generation: MersenneTwister(1070 + 7m + 3(layout === :perm) + 11 inputs), random directions, ", ninputs,
+                " inputs per case selected in turn by the setups; operations ", OPS)
+        println(io, "Verification: every input of every case, BigFloat precision ", precision(BigFloat), ", strict ", get(ENV, "PB_STRICT", "1"),
+                ", retries per run ", get(ENV, "PB_RETRIES", "3"))
         println(io, "Rounds: ", rounds, ", maximum samples: ", samples, ", target cap (seconds): ", seconds,
                 ", inputs per case: ", ninputs)
         println(io, "Filter: ", filter_pattern)
@@ -236,12 +280,12 @@ function run_matrix(outdir)
     selected = Regex(filter_pattern)
     check_only = get(ENV, "PB_CHECK_ONLY", "0") == "1"
     strict = get(ENV, "PB_STRICT", "1") == "1"
-    mkpath(joinpath(outdir, "outputs"))
+    mkpath(joinpath(outdir, "outputs")); mkpath(joinpath(outdir, "outputs_all"))
     write_provenance(outdir, rounds, samples, seconds, filter_pattern, ninputs)
 
     cells = NamedTuple[]
     open(joinpath(outdir, "verification.csv"), "w") do io
-        println(io, "case,order,aa,x_vs_bigfloat")
+        println(io, "case,order,aa,x_vs_bigfloat,inputs,inputs_matching")
         for T in (Float32, Float64), m in SIZES, layout in (:range, :perm), (sname, step) in STEPS, regime in REGIMES
             prefix = "GroupSCAD/$T/m$m/$layout/$sname/$regime"
             any(op -> occursin(selected, "$prefix/$op"), OPS) || continue
@@ -249,24 +293,39 @@ function run_matrix(outdir)
             suites = Dict("X" => group_probes(X.ProximalBase, d), "XC" => group_probes(XC.ProximalBase, d),
                           "R" => reference_probes(R.ProximalBase, d))
             κ = step < 1 ? 1 / (1 - step) : 1          # (a - 1)/(a - 1 - γ) for the step below a - 1
+            ref_cache = Dict{Int, Any}()
             for op in OPS
                 id = "$prefix/$op"
                 occursin(selected, id) || continue
                 order = ORDERS[mod1(length(cells) + 1, length(ORDERS))]
-                results = Dict{String, Any}()
-                for role in order
-                    d.cur[] = 0                      # each role checks the first input
-                    results[role] = runcheck(getproperty(suites[role], op))
+                aa_ok = true
+                passes = 0
+                first_out = nothing
+                all_out = Any[]
+                for j in 1:ninputs
+                    results = Dict{String, Any}()
+                    for role in order
+                        d.cur[] = j - 1              # the setup of the probe selects the input j
+                        results[role] = runcheck(getproperty(suites[role], op))
+                    end
+                    d.cur[] == j || error("input selection out of step for $id")
+                    isequal(results["X"], results["XC"]) || (aa_ok = false; error("A/A output mismatch for $id, input $j"))
+                    ok = verify(op, results["X"], d, κ, j, reference_for(d, ref_cache, j))
+                    passes += ok
+                    ok || strict && error("X does not match the reference for $id, input $j")
+                    j == 1 && (first_out = results["X"])
+                    push!(all_out, results["X"])
                 end
-                isequal(results["X"], results["XC"]) || error("A/A output mismatch for $id")
-                matches = verify(op, results["X"], d, κ)
-                matches || strict && error("X does not match the reference for $id")
-                open(joinpath(outdir, "outputs", replace(id, "/" => "_") * ".bin"), "w") do out
-                    for r in results["X"]
-                        write(out, r isa Number ? [r] : r)
+                d.cur[] = 1
+                write_outputs(path, out) = open(path, "w") do io
+                    for res in out, r in res
+                        write(io, r isa Number ? [r] : r)
                     end
                 end
-                println(io, id, ',', join(order, "/"), ",pass,", matches ? "pass" : "fail")
+                write_outputs(joinpath(outdir, "outputs", replace(id, "/" => "_") * ".bin"), (first_out,))
+                write_outputs(joinpath(outdir, "outputs_all", replace(id, "/" => "_") * ".bin"), all_out)
+                println(io, id, ',', join(order, "/"), ',', aa_ok ? "pass" : "fail", ',', passes == ninputs ? "pass" : "fail", ',',
+                        ninputs, ',', passes)
                 timings = check_only ? nothing :
                     Dict(role => prepare_timing(getproperty(suites[role], op), samples, seconds) for role in order)
                 push!(cells, (; id, timings))
@@ -277,28 +336,43 @@ function run_matrix(outdir)
     println("Output verification done for $(length(cells)) cells (see verification.csv)")
     check_only && return
 
+    retries = parse(Int, get(ENV, "PB_RETRIES", "3"))
     open(joinpath(outdir, "raw.csv"), "w") do raw
         open(joinpath(outdir, "ratios.csv"), "w") do ratios
-            println(raw, "case,round,order,role,median_ns,min_ns,memory,allocs")
-            println(ratios, "case,round,x_to_reference,control_to_x")
-            for round in 1:rounds
-                ord = ORDERS[mod1(round, length(ORDERS))]
-                for i in (isodd(round) ? eachindex(cells) : reverse(eachindex(cells)))
-                    cell = cells[i]
-                    medians = Dict{String, Float64}()
-                    for (j, role) in enumerate(ord)
-                        t = run(cell.timings[role])
-                        med = median(t)
-                        medians[role] = med.time
-                        println(raw, cell.id, ',', round, ',', j, ',', role, ',', med.time, ',', minimum(t).time, ',',
-                                med.memory, ',', med.allocs)
+            open(joinpath(outdir, "failures.csv"), "w") do failures
+                println(raw, "case,round,order,role,median_ns,min_ns,memory,allocs")
+                println(ratios, "case,round,x_to_reference,control_to_x")
+                println(failures, "case,round,role,attempts,outcome")
+                for round in 1:rounds
+                    ord = ORDERS[mod1(round, length(ORDERS))]
+                    for i in (isodd(round) ? eachindex(cells) : reverse(eachindex(cells)))
+                        cell = cells[i]
+                        medians = Dict{String, Float64}()
+                        lines = String[]
+                        failed = false
+                        for (j, role) in enumerate(ord)
+                            t, attempts = timed_run(cell.timings[role], retries)
+                            attempts > 1 && println(failures, cell.id, ',', round, ',', role, ',', attempts, ',',
+                                                    t === nothing ? "failed" : "repeated")
+                            if t === nothing
+                                failed = true
+                                continue
+                            end
+                            med = median(t)
+                            medians[role] = med.time
+                            push!(lines, string(cell.id, ',', round, ',', j, ',', role, ',', med.time, ',', minimum(t).time, ',',
+                                                med.memory, ',', med.allocs))
+                        end
+                        failed && continue           # a round of the cell without all three roles is not recorded
+                        foreach(l -> println(raw, l), lines)
+                        println(ratios, cell.id, ',', round, ',', medians["X"] / medians["R"], ',', medians["XC"] / medians["X"])
                     end
-                    println(ratios, cell.id, ',', round, ',', medians["X"] / medians["R"], ',', medians["XC"] / medians["X"])
+                    flush(raw)
+                    flush(ratios)
+                    flush(failures)
+                    println("round $round/$rounds")
+                    flush(stdout)
                 end
-                flush(raw)
-                flush(ratios)
-                println("round $round/$rounds")
-                flush(stdout)
             end
         end
     end

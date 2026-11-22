@@ -112,11 +112,21 @@ decide it. The accuracy bound includes the case where the computed radius reache
 using ProximalBase, LinearAlgebra
 ```
 
-The rules apply to each group in this order; ``\lambda_0``, ``w_k`` and ``\gamma`` are decided separately, before a radius is formed,
+### [Step validation before group rules](@id group-norm-linf.prox.step-validation-order)
+
+Direct array and compact proximal calls check the step before applying the
+per-group rules, including the zero-weight and zero-level identity cases.
+
+### Ordered group rules
+
+The first row validates the step. After that check, the remaining rules
+apply to each group in the order shown. The oracles consider
+``\lambda_0``, ``w_k`` and ``\gamma`` separately before forming a radius,
 so that the proximal operator and the value do not form a product such as ``\lambda_0w_k`` with ``\lambda_0=\infty`` and ``w_k=0``.
 
 | Case | Result for group ``k`` |
 |:--|:--|
+| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 | ``w_k=0`` | Unpenalized: returned unchanged, `NaN` and `±Inf` included, also at an infinite level or step; value zero |
 | ``w_k=\infty``, or ``\lambda_0=\infty`` with ``w_k>0`` | Fixed at `+0` at every nonnegative step, ``\gamma=0`` and ``\gamma=\infty`` included, for `NaN` and `±Inf` inputs too; ``w_k=\infty`` with ``\lambda_0=0`` is included. Value `0` at a zero group, `Inf` at a nonzero group without `NaN`, `NaN` at a `NaN` entry |
 | ``\lambda_0=0`` or ``\gamma=0``, finite positive ``w_k`` | The identity, also when ``\lambda_0w_k`` overflows and at ``\gamma=\infty`` with a zero level. Value `0` at a zero level, ``\lambda_0w_k\max\lvert x_{G_k}\rvert`` at a zero step |
@@ -124,7 +134,6 @@ so that the proximal operator and the value do not form a product such as ``\lam
 | A `NaN` entry, positive finite level, weight and step | Every entry of the group becomes `NaN`; the other groups are unaffected |
 | A `±Inf` entry and no `NaN`, positive finite level, weight and step | Returned unchanged, also when the finite product ``\gamma\lambda_0w_k`` overflows |
 | Finite entries, the computed radius reaches the computed sum of magnitudes | `+0`, also when the product ``\gamma\lambda_0w_k`` overflows while the sum is finite |
-| ``\gamma<0`` or ``\gamma=`` `NaN` | `ArgumentError` before any write |
 
 The value of a group is ``\lambda_0w_k\max\lvert x_{G_k}\rvert``, formed in floating point as
 ``(\lambda_0w_k)m`` with two rounded products when ``\lambda_0w_k`` is a normal number and by the three-factor
@@ -189,6 +198,7 @@ prox(scaled, [2000.0, 500.0], 2.0^30)
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `group-norm-linf.scaled.zero-factor` | `guaranteed` | [Scaled constructor](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L111-L118), [Zero-scale error](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L133-L135), and [GroupNormLinf zero-factor rejection test](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/groupnormlinf.jl#L1638-L1644) |
+| `group-norm-linf.prox.step-validation-order` | `characterized` | [Array validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L347-L350), [Compact validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L406-L415), and [Invalid-step sentinel tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L483-L500) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

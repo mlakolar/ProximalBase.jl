@@ -12,15 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The NormLinf range paragraph calls τ* the root of the level equation
-  at the rounded radius. If the radius rounds to zero, every level at or above
-  the largest magnitude solves the equation. The statement could refer to the
-  smallest root or apply only when the rounded radius stays positive. The
-  implementation uses the largest entry as the zero-radius reference in its
-  exceptional-path derivation. The range interpretation awaits the owner's
-  decision. [Source](../../../src/functions/normlinf.jl)
-  · [Tests](../../../test/normlinf.jl)
-
 - The GroupNormL2 endpoint row for positive finite parameters and step also
   says `γ = Inf` fixes the group at zero. It could describe a separate
   infinite-step branch or fall under the row's finite-step qualifier. The
@@ -110,6 +101,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Symmetric value traversal](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/norml2.md#L43-L47) could count visits to a stored off-diagonal coordinate or its contributions to the squared norm | Each off-diagonal coordinate occupies one stored entry, with multiplicity two in the squared norm. Implementation note. | [Ordinary sum and recovery multiplicity](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L63-L94) · [Dense-reference comparisons](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/norml2.jl#L161-L173) |
+
+## NormLinf decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Rounded-radius level](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/normlinf.md#L43-L55) could imply uniqueness at zero radius or only for positive radii | A positive rounded radius has one real root, which can be negative. At zero rounded radius the smallest root is the largest magnitude, giving an unchanged ideal clip at the represented input. `characterized`. | [Threshold analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/normlinf.jl#L354-L368) · [Tiny and zero radius tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/normlinf.jl#L1505-L1515) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

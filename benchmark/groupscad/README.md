@@ -6,8 +6,11 @@ function). The header of `run.jl` lists the cases, the operations, the verificat
 files. `summarize.py` reports one result directory, or compares a candidate directory with a legacy directory on the
 cases whose saved outputs agree for every input (`outputs_all/`); every input of each case is verified against the BigFloat
 reference before timing, while the timed samples rotate through the input pool (with fewer sample setups than `PB_INPUTS`,
-some inputs are not timed). A BenchmarkTools run that throws the `InexactError` of `sizehint!` is repeated (`PB_RETRIES`, default 3);
-a cell that still fails is listed in `failures.csv` and left out of that round.
+some inputs are not timed). A BenchmarkTools run that throws the `InexactError` of `sizehint!` (or ends with fewer than three samples) is repeated
+(`PB_RETRIES` attempts in all, default 3, at least 1; `PB_SAMPLES` at least 3); a repeated run and every cell-round whose attempts were
+exhausted are listed in `failures.csv`, and an exhausted cell-round is left out of `raw.csv` and `ratios.csv` for all roles.
+`summarize.py` compares every input only for directories that declare their inputs and have `outputs_all/`, reports an
+incomplete or incompatible comparison as `incompatible`, and labels a first-input-only comparison of older directories as such.
 
 The verification of X against the BigFloat radial map uses `test/scad_reference.jl` of the tree that holds `run.jl`,
 whichever tree `PB_SOURCE` names.
@@ -42,20 +45,29 @@ and `kept`. With `PB_STRICT=0` a result of X that does not match the reference i
 instead of stopping the run; `summarize.py` compares the two trees only on cases whose outputs agree and lists the others
 with `agree = no`.
 
-## Diagnosis of the in-place and value costs
+## Diagnosis of the in-place, value and compact-block costs
 
-`diag_inplace.jl` runs, in one process, the candidate, a second and a third compilation of it (A/A controls), the archived tree,
-GroupNormL2 and two optional variant trees on the inputs of `run.jl`: the branch taken per group, the in-place proximal map, its
-components (sum of squares, the shared scaling loop, plain loops, with and without the compiler knowing that `y === x`, the scalar
-kernel), and the value and fused value for small groups. `make_variants.py` makes the two variant trees from the candidate tree.
-`diag.sh` runs all of it from a package root (a clean `git archive`), with the trees given by environment variables:
+`diag_inplace.jl` runs, in one process, a baseline tree (`PB_SOURCE`) with a second and a third compilation of it (A/A controls),
+the archived tree, GroupNormL2, and optionally a tree for the value probes (`PB_VARIANT`) and one for the in-place probes and the
+compact block sweeps (`PB_VARIANT_INPLACE`, with a duplicate compilation), on the inputs of `run.jl`: the branch taken per group,
+the in-place proximal map and its components, the value and fused value for small groups, and the compact block sweeps with
+`out === u` and into separate outputs. The header of `diag_inplace.jl` lists the probes, the cases and the output files;
+`make_variants.py` makes the two experimental variants from a baseline whose source has the pattern that it edits.
+`diag.sh` runs it from a package root (a clean `git archive`), with the trees given by environment variables. The head of
+the pull request is compared with the baseline `9d2fefc71` by passing it as both variant trees:
 
 ```sh
-git archive <candidate sha> src | tar -x -C /tmp/pb1070-cand
-git archive eff21b6d7d33c622313122f46c6ee71693c101ee src | tar -x -C /tmp/pb1070-legacy
-git archive a6b16d63d9c5102b1ac82d9995014145681d4343 src | tar -x -C /tmp/pb1070-base
-PB_SOURCE=/tmp/pb1070-cand PB_LEGACY=/tmp/pb1070-legacy PB_REFERENCE=/tmp/pb1070-base PB_OUTPUT=/tmp/pb1070-diag \
-  JULIA=julia PB_REPS=8 bash benchmark/groupscad/diag.sh
+git archive <head sha> | (mkdir -p /tmp/pb1070-pkg && tar -x -C /tmp/pb1070-pkg)
+for t in head:<head sha> base9d:9d2fefc71 legacy:eff21b6d7d33c622313122f46c6ee71693c101ee ref:a6b16d63d9c5102b1ac82d9995014145681d4343; do
+  mkdir -p /tmp/pb1070-${t%%:*} && git archive ${t#*:} src | tar -x -C /tmp/pb1070-${t%%:*}
+done
+cd /tmp/pb1070-pkg
+PB_SOURCE=/tmp/pb1070-base9d PB_VARIANT=/tmp/pb1070-head PB_VARIANT_INPLACE=/tmp/pb1070-head \
+  PB_LEGACY=/tmp/pb1070-legacy PB_REFERENCE=/tmp/pb1070-ref PB_OUTPUT=/tmp/pb1070-diag JULIA=julia PB_REPS=8 \
+  bash benchmark/groupscad/diag.sh
 ```
 
-The header of `diag_inplace.jl` lists the probes and the output files (`branches.csv`, `times.csv`, `ratios.txt`, `provenance.txt`).
+(The `git archive` commands run in a clone of the repository.) A filter such as `PB_FILTER='/blocks$'` restricts the run to the compact
+block sweeps. The tree digests and the module load order that the run used are written to `provenance.txt`.
+
+`test_summarize.py` is a self-test of the comparison rules of `summarize.py` (`python3 benchmark/groupscad/test_summarize.py`).

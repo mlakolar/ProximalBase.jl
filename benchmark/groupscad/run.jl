@@ -33,27 +33,33 @@
 # the inputs). Every sample is one call or one sweep (evals = 1). Each round times the roles of every case in an order that
 # repeats every six rounds, the cases in reverse order in even rounds. PB_ROUNDS must be a positive multiple of six.
 #
-# Before timing, each case is run once per role on its first input. XC must equal X (isequal); X must match the radial map
-# at the group norm computed in 256-bit BigFloat (the scalar reference of test/scad_reference.jl), entrywise within
-# 16 (m + 8) κ eps(T) max|u| (κ = (a - 1)/(a - 1 - γ) for γ < a - 1, else 1), and its value within 16 (m + K) eps(T) of the BigFloat value (for the fused value,
-# relative to the larger of that value and floatmin(T)). An X/XC mismatch stops the script; a mismatch of X against the
-# reference stops it too, or, with PB_STRICT=0 (for the legacy tree), is recorded as fail in verification.csv. Every one of the
-# PB_INPUTS inputs of a case is run once per role and checked in this way (the BigFloat reference of an input is computed once
-# per case and shared by the operations); verification.csv has the number of inputs and the number that matched. The outputs of
-# X on the first input are written to outputs/ and those on every input to outputs_all/ (the outputs of the inputs one after
-# the other) for summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular expression on their ids.
+# Before timing, every one of the PB_INPUTS inputs of a case is run once per role (X, XC and R, each on the same input, in the
+# order of ORDERS). XC must equal X (isequal), on every input; X is checked against the BigFloat reference, and R is not
+# verified (it is timed as a cost reference). X must match the radial map at the group norm computed in 256-bit BigFloat (the
+# scalar reference of test/scad_reference.jl), entrywise within 16 (m + 8) κ eps(T) max|u| (κ = (a - 1)/(a - 1 - γ) for
+# γ < a - 1, else 1), and its value within 16 (m + K) eps(T) of the BigFloat value (for the fused value, relative to the
+# larger of that value and floatmin(T)). An X/XC mismatch stops the script; a mismatch of X against the reference stops it
+# too, or, with PB_STRICT=0 (for the legacy tree), is recorded as fail in verification.csv. The BigFloat reference of an input
+# is computed once per case and shared by the operations; verification.csv has the number of inputs and the number that
+# matched. The outputs of X on the first input are written to outputs/ and those on every input to outputs_all/ (the outputs
+# of the inputs one after the other) for summarize.py. PB_CHECK_ONLY=1 stops after that. PB_FILTER selects cases by a regular
+# expression on their ids.
 #
-# Timing: one BenchmarkTools run per role and round, with the reused benchmark of the case. BenchmarkTools estimates the
-# remaining samples from the time of the first sample (setup included) against the seconds cap, and throws an InexactError
-# in sizehint! on Julia 1.10 when the first sample alone took longer than the cap (a stall of the process, for example a
-# garbage collection or a descheduled process on a shared node); on Julia 1.13 the same stall ends the run with one sample.
-# A run that throws, or that has fewer than three samples, is repeated up to PB_RETRIES times (default 3), and a cell that
-# still fails is recorded in failures.csv and left out of that round of raw.csv and ratios.csv.
+# Timing: one BenchmarkTools run per role and round, with the reused benchmark of the case. In BenchmarkTools 1.8.0 (the
+# version of the benchmark environment) `_run` estimates the remaining samples from the time of the first sample (setup
+# included) against the seconds cap and calls sizehint! with that estimate; when the first sample alone took longer than
+# the cap (a stall of the process, for example a garbage collection or a descheduled process on a shared node) the estimate
+# is negative, and sizehint! throws an InexactError on Julia 1.10.13 (observed in the campaign of #1195, and reproduced with a
+# setup that sleeps). On Julia 1.13.4 the same stall did not throw and ended the run with one sample. A run is repeated when
+# it throws an InexactError from sizehint! (the frame is checked; any other exception is raised) or has fewer than three
+# samples; PB_RETRIES is the number of attempts in all (default 3, at least 1), and PB_SAMPLES must be at least 3. A run
+# that was repeated, and every cell-round whose attempts were exhausted, is recorded in failures.csv; an exhausted cell-round
+# is left out of raw.csv and ratios.csv for all three roles.
 #
 # Output files: provenance.txt, verification.csv, raw.csv (per round and role, the median and minimum time of the trial,
 # and the memory and allocations that BenchmarkTools reports with the median estimate, taken from the trial's minimum
 # measurements), ratios.csv (per round X/R and XC/X), failures.csv and outputs/ and outputs_all/<case id with / replaced by _>.bin.
-using BenchmarkTools, Dates, Random, Statistics
+using BenchmarkTools, Dates, Random, SHA, Statistics
 
 include(joinpath(@__DIR__, "..", "..", "test", "scad_reference.jl"))
 using .SCADReferenceTest
@@ -203,15 +209,16 @@ end
 
 runcheck(p) = (p.setup(); p.op(); p.result())
 
-# BenchmarkTools' run, repeated when it throws the InexactError of sizehint! (see the header); returns (trial, attempts), with
-# trial = nothing when every attempt failed. Any other exception is raised.
+# BenchmarkTools' run, repeated when it throws an InexactError from sizehint! (see the header) or has fewer than MIN_SAMPLES
+# samples; returns (trial, attempts), with trial = nothing when every attempt failed. Any other exception is raised.
+const MIN_SAMPLES = 3
 function timed_run(b, retries)
     for attempt in 1:retries
         try
             t = run(b)
-            length(t.times) >= 3 && return t, attempt     # Julia 1.13 does not throw: a stalled first sample ends the run with one sample
+            length(t.times) >= MIN_SAMPLES && return t, attempt
         catch e
-            e isa InexactError || rethrow()
+            e isa InexactError && any(fr -> fr.func === :sizehint!, stacktrace(catch_backtrace())) || rethrow()
         end
     end
     nothing, retries
@@ -233,35 +240,49 @@ function prepare_timing(p, samples, seconds)
 end
 
 harness_state() = try
-    readchomp(Cmd(`git status --porcelain -- .`; dir = @__DIR__)) == "" ? "clean" : "modified"
+    readchomp(pipeline(Cmd(`git status --porcelain -- .`; dir = @__DIR__); stderr = devnull)) == "" ? "clean" : "modified"
 catch
     "state unknown"
 end
 
+# sha256 over the relative paths and the bytes of the files below dir: the identity of an archived tree
+function tree_digest(dir)
+    isdir(dir) || return "missing"
+    ctx = SHA.SHA256_CTX()
+    for p in sort!([joinpath(r, f) for (r, _, fs) in walkdir(dir) for f in fs])
+        SHA.update!(ctx, codeunits(relpath(p, dir) * "\0"))
+        SHA.update!(ctx, read(p))
+    end
+    bytes2hex(SHA.digest!(ctx))
+end
+
 function write_provenance(dir, rounds, samples, seconds, filter_pattern, ninputs)
     sha(root) = try
-        readchomp(Cmd(`git rev-parse HEAD`; dir = root))
+        readchomp(pipeline(Cmd(`git rev-parse HEAD`; dir = root); stderr = devnull))
     catch
         "not a git checkout"
     end
+    # the git revision where there is one, and always the sha256 of src/ (a git archive has no revision)
+    identity(root) = string(sha(root), ", src/ sha256 ", tree_digest(joinpath(root, "src")))
+    harness_digest() = bytes2hex(sha256(vcat(read(@__FILE__), read(joinpath(@__DIR__, "..", "..", "test", "scad_reference.jl")))))
     open(joinpath(dir, "provenance.txt"), "w") do io
         println(io, "UTC: ", now(UTC))
         println(io, "Julia: ", VERSION, ", Julia commit: ", Base.GIT_VERSION_INFO.commit)
         println(io, "CPU: ", first(Sys.cpu_info()).model, ", architecture: ", Sys.ARCH, ", Julia CPU target: ", Sys.CPU_NAME)
         println(io, "Threads: ", Threads.nthreads(), ", bounds: ", Base.JLOptions().check_bounds)
         println(io, "BenchmarkTools: ", Base.pkgversion(BenchmarkTools))
-        println(io, "Source (X, XC): ", SOURCE, " at ", sha(SOURCE))
-        println(io, "Reference (R): ", REFERENCE, " at ", sha(REFERENCE))
+        println(io, "Source (X, XC): ", SOURCE, " at ", identity(SOURCE))
+        println(io, "Reference (R): ", REFERENCE, " at ", identity(REFERENCE))
         println(io, "Load order: ", REVERSE ? "R, XC, X" : "X, XC, R")
         println(io, "Slurm job: ", get(ENV, "SLURM_JOB_ID", "none"), ", host: ", gethostname(), ", node list: ", get(ENV, "SLURM_JOB_NODELIST", "none"))
-        println(io, "Harness: ", @__FILE__, " at ", sha(@__DIR__), " (", harness_state(), ")")
+        println(io, "Harness: ", @__FILE__, " at ", sha(@__DIR__), " (", harness_state(), "), sha256 of run.jl and test/scad_reference.jl: ", harness_digest())
         println(io, "Julia options: ", Base.julia_cmd(), ", JULIA_NUM_THREADS=", get(ENV, "JULIA_NUM_THREADS", "unset"))
         println(io, "Input configuration: entries ", TOTAL, ", group sizes ", SIZES, ", steps (multiples of a - 1) ", STEPS, ", regimes ", REGIMES,
                 ", shape a = ", SHAPE, ", level = ", LEVEL, ", unit weights, layouts range and perm, element types Float32 and Float64")
         println(io, "Input generation: MersenneTwister(1070 + 7m + 3(layout === :perm) + 11 inputs), random directions, ", ninputs,
                 " inputs per case selected in turn by the setups; operations ", OPS)
         println(io, "Verification: every input of every case, BigFloat precision ", precision(BigFloat), ", strict ", get(ENV, "PB_STRICT", "1"),
-                ", retries per run ", get(ENV, "PB_RETRIES", "3"))
+                ", attempts per run (PB_RETRIES) ", get(ENV, "PB_RETRIES", "3"), ", minimum samples per run ", MIN_SAMPLES)
         println(io, "Rounds: ", rounds, ", maximum samples: ", samples, ", target cap (seconds): ", seconds,
                 ", inputs per case: ", ninputs)
         println(io, "Filter: ", filter_pattern)
@@ -275,7 +296,10 @@ function run_matrix(outdir)
     seconds = parse(Float64, get(ENV, "PB_SECONDS", "0.025"))
     ninputs = parse(Int, get(ENV, "PB_INPUTS", "8"))
     rounds > 0 && rounds % 6 == 0 || error("PB_ROUNDS must be a positive multiple of six")
-    samples > 0 && isfinite(seconds) && seconds > 0 && ninputs > 0 || error("invalid sample, time or input count")
+    retries = parse(Int, get(ENV, "PB_RETRIES", "3"))
+    retries >= 1 || error("PB_RETRIES must be at least 1")
+    samples >= MIN_SAMPLES && isfinite(seconds) && seconds > 0 && ninputs > 0 ||
+        error("invalid sample, time or input count (PB_SAMPLES must be at least $MIN_SAMPLES)")
     filter_pattern = get(ENV, "PB_FILTER", "")
     selected = Regex(filter_pattern)
     check_only = get(ENV, "PB_CHECK_ONLY", "0") == "1"
@@ -336,7 +360,6 @@ function run_matrix(outdir)
     println("Output verification done for $(length(cells)) cells (see verification.csv)")
     check_only && return
 
-    retries = parse(Int, get(ENV, "PB_RETRIES", "3"))
     open(joinpath(outdir, "raw.csv"), "w") do raw
         open(joinpath(outdir, "ratios.csv"), "w") do ratios
             open(joinpath(outdir, "failures.csv"), "w") do failures
@@ -352,8 +375,8 @@ function run_matrix(outdir)
                         failed = false
                         for (j, role) in enumerate(ord)
                             t, attempts = timed_run(cell.timings[role], retries)
-                            attempts > 1 && println(failures, cell.id, ',', round, ',', role, ',', attempts, ',',
-                                                    t === nothing ? "failed" : "repeated")
+                            (attempts > 1 || t === nothing) && println(failures, cell.id, ',', round, ',', role, ',', attempts, ',',
+                                                                       t === nothing ? "exhausted" : "repeated")
                             if t === nothing
                                 failed = true
                                 continue

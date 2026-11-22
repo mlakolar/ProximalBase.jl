@@ -265,7 +265,14 @@ jobs:
         run: test "$REQUIRED_RESULT" = success
   publish-preview:
     name: Publish PR documentation preview
+    # !cancelled() replaces the implicit success() check, so the intentionally
+    # skipped test and benchmark jobs upstream of gate do not skip this job; a
+    # cancelled workflow still stops it. The explicit results require gate and
+    # docs to have succeeded, and the event conditions still apply.
     if: >-
+      !cancelled() &&
+      needs.gate.result == 'success' &&
+      needs.docs.result == 'success' &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
@@ -325,7 +332,15 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
   deploy-docs:
     name: Publish validated documentation
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # As for publish-preview: !cancelled() replaces the implicit success()
+    # check, and the explicit results and event conditions decide eligibility.
+    # The publication steps below also require this commit to be the master tip.
+    if: >-
+      !cancelled() &&
+      needs.gate.result == 'success' &&
+      needs.docs.result == 'success' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master'
     needs: [gate, docs]
     runs-on: ubuntu-latest
     concurrency:

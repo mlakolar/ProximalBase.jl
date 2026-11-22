@@ -89,6 +89,19 @@ end
           pos("id: classify",changes) < pos("check_repo_hygiene.py",changes)
     deploy=job_block("deploy-docs")
     @test occursin("needs: [gate, docs]",deploy)
+    # The job-level condition of a publication job: the folded `if: >-` lines up to `needs:`.
+    function job_if(block)
+        m=match(r"^    if: >-\n((?:      [^\n]*\n)+)    needs:"m,block)
+        m === nothing ? "" : join(strip.(split(chomp(m.captures[1]),'\n'))," ")
+    end
+    # The skipped test and benchmark lanes of a documentation-only run must not skip
+    # publication; gate, docs, cancellation and the event decide it.
+    status="!cancelled() && needs.gate.result == 'success' && needs.docs.result == 'success' && "
+    @test job_if(deploy)==status*"github.event_name == 'push' && github.ref == 'refs/heads/master'"
+    @test job_if(job_block("publish-preview"))==status*"github.event_name == 'pull_request' && "*
+        "github.event.pull_request.head.repo.full_name == github.repository && "*
+        "github.event.pull_request.draft == false"
+    @test occursin("needs: [gate, docs]",job_block("publish-preview"))
     @test occursin("id: tip",deploy)
     @test occursin("git fetch --no-tags origin refs/heads/master",deploy)
     @test occursin("tip=\"\$(git rev-parse FETCH_HEAD)\"",deploy)

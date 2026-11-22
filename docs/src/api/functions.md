@@ -106,3 +106,9 @@ NormLinf
 ```@docs
 GroupNormLinf
 ```
+
+## Group minimax concave penalty
+
+```@docs
+GroupMCP
+```

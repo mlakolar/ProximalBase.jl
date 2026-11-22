@@ -51,6 +51,7 @@ apply alongside each entry.
 | `GroupNormL2` | [Numerical contract](groupnorml2.md) | Verbatim migration |
 | `SparseGroupNormL2` | [Numerical contract](sparsegroupnorml2.md) | Verbatim migration |
 | `GroupNormLinf` | [Numerical contract](groupnormlinf.md) | Verbatim migration |
+| `GroupMCP` | [Numerical contract](groupmcp.md) | Authored contract |
 | `Scaled` | [Numerical contract](scaled.md) | Verbatim migration |
 | `kkt_violation` | [Numerical contract](kkt_violation.md) | Verbatim migration |
 

@@ -5,7 +5,7 @@
       "baseline_sha": "9f221122c0d8822c17000b1034242d88fa7fecaf8c64c77e737ad32f1d14e15b",
       "block_id": "README.md::ProximalBase.jl / Available functionality::15",
       "dest": "README.md#Available-functionality",
-      "dest_sha": "5b14466058dcfe25444f001847c6b1a13a0ec978b680602bd82810eea53a361e",
+      "dest_sha": "a8c5fa9db04f10644bd21e18baa5c458d543aa73c594cfc218695594cffdcc64",
       "events": [
         {
           "after_blob": "bc30090ff4c2ff33af04fca9e9763565d3a63b48",
@@ -66,9 +66,21 @@
           "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb",
           "source_sha": "cab4100abcce1d1253a5f7d45f175e705a6166fff48eaecaa458bf5f09af4dc6",
           "replacement_sha": "5b14466058dcfe25444f001847c6b1a13a0ec978b680602bd82810eea53a361e"
+        },
+        {
+          "after_blob": "73a94337ff9cfff4531676df41680902d094b85f",
+          "after_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "before_blob": "90d9dbf2f6d985d411a9001f54a7e71c209a387b",
+          "before_commit": "11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed",
+          "merged": true,
+          "pull_request": 1132,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1132",
+          "replacement_sha": "a8c5fa9db04f10644bd21e18baa5c458d543aa73c594cfc218695594cffdcc64",
+          "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "source_sha": "5b14466058dcfe25444f001847c6b1a13a0ec978b680602bd82810eea53a361e"
         }
       ],
-      "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb"
+      "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197"
     },
     {
       "baseline_sha": "62b56931763ed43092b5a02d1755223874f749a8dfd11a393bbf1016dd055eea",
@@ -143,7 +155,7 @@
       "baseline_sha": "96d2afeb2f25a60e902c5936e873c50df93f6f1de3932c33078c55963efcfeed",
       "block_id": "docs/src/migration.md::Compatibility and migration / Retained and removed scope::5",
       "dest": "docs/src/migration.md#Retained-and-removed-scope",
-      "dest_sha": "7b21c23c043e18dbdf6f4fc21509a28ab86575f381b6c95607d07b5d2f1a281b",
+      "dest_sha": "9e6724086e206314b2549228e62b06f6a9c571a24d96d51e85c473eb3bd2eb79",
       "events": [
         {
           "after_blob": "b83a7b6ce1ace94a62ab83a1a9141c1ea3311976",
@@ -240,9 +252,21 @@
           "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb",
           "source_sha": "42e45a8c6bdd23de440177810aab0b43f144bff4dc2e321ed010747638ab80fa",
           "replacement_sha": "7b21c23c043e18dbdf6f4fc21509a28ab86575f381b6c95607d07b5d2f1a281b"
+        },
+        {
+          "after_blob": "09f5a274ceac37fc629962aefa262b1e07d1baf9",
+          "after_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "before_blob": "5eabf71559ed272531d94d02b6c7d1e671fe7df4",
+          "before_commit": "11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed",
+          "merged": true,
+          "pull_request": 1132,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1132",
+          "replacement_sha": "9e6724086e206314b2549228e62b06f6a9c571a24d96d51e85c473eb3bd2eb79",
+          "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "source_sha": "7b21c23c043e18dbdf6f4fc21509a28ab86575f381b6c95607d07b5d2f1a281b"
         }
       ],
-      "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb"
+      "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197"
     },
     {
       "block_id": "docs/src/api/coverage.md::API coverage matrix::25",
@@ -828,11 +852,23 @@
           "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb",
           "source_sha": "d4bd6c8c7696c21a3551fe20cf2593bb6b3afe27970d1030c2193a284b209608",
           "replacement_sha": "291bd69671f3eeee267609d5e355d08b224722a40eb83b23122fbccb11afc5ea"
+        },
+        {
+          "after_blob": "cc6edf1a025b43c516df96741a9f62a0cb71a86a",
+          "after_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "before_blob": "748678efd724c09983609ea3ca9159747eb9d3ff",
+          "before_commit": "11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed",
+          "merged": true,
+          "pull_request": 1132,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1132",
+          "replacement_sha": "309f09eee789d16a8e88751fb425542401d46913588835fdb571a9fccc559249",
+          "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "source_sha": "291bd69671f3eeee267609d5e355d08b224722a40eb83b23122fbccb11afc5ea"
         }
       ],
       "dest": "docs/src/api/functions.md#Smooth-array-functions",
-      "dest_sha": "291bd69671f3eeee267609d5e355d08b224722a40eb83b23122fbccb11afc5ea",
-      "reviewer": "reconcile_pr_review@050aca8bdd12a7f6174ad6acfeab29be3d76ffdb"
+      "dest_sha": "309f09eee789d16a8e88751fb425542401d46913588835fdb571a9fccc559249",
+      "reviewer": "reconcile_pr_review@d4edbeaef1538a0b2c2328b0f7a9b4c928857197"
     },
     {
       "block_id": "docs/src/api/functions.md::Function reference / Least-squares oracles at a supplied predictor or residual::8",

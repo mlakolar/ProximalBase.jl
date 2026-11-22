@@ -169,6 +169,13 @@ that happens to pass.
   · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
   · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
 
+- The `KronQuadratic` sentence added by #1132 ends with “with `Float32` or
+  `Float64`”. This could qualify both dense matrices and symmetric iterates,
+  or symmetric iterates alone. The current input check requires matching
+  precision on both routes. The wording awaits review.
+  [Migration sentence](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/docs/src/migration.md#L26-L27)
+  · [Input checks](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/src/functions/kronquadratic.jl#L149-L164)
+
 ## SparseGroupNormL2 decisions recorded in #1123
 
 The owner approved three wordings and statuses in

@@ -1750,9 +1750,9 @@ def table_labels(ver):
                     recs = [ver.cell(v, c, var) for c in cs]
                     cnt = collections.Counter(r["label"] for r in recs)
                     rows.append([v, meas, var, tp, len(recs), cnt["faster"], cnt["slower"], cnt["inconclusive"], cnt["capped"],
-                                 cnt["excluded"], median([r["center"] for r in recs])])
+                                 cnt["excluded"], median([r["center"] for r in recs if finite(r["center"])])])
     return md_table(["julia", "measurement", "variant", "type", "cells", "faster", "slower", "inconclusive", "capped (ADMM)",
-                     "excluded (accuracy)", "median ratio V/S"], rows)
+                     "excluded (accuracy)", "median ratio V/S (cells with a ratio)"], rows)
 
 
 def table_detail(camp, cells, ver, outdir):

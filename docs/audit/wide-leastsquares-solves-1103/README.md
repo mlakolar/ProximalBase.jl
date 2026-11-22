@@ -426,31 +426,41 @@ Environment variables of `harness.jl`: `PB_INPUTS`, `PB_OUTPUT` (required unless
 
 ## Results
 
-The numbers below are copied from the `tables.md` that verdict mode wrote for the campaign (not committed); each
-subsection names the `tables.md` sections it comes from, which hold the full detail. Ratios are `V/S` (time of the
-variant over the time of S): below 1 the variant is faster.
+The tables and numbers below are copied from the output of verdict mode of `summarize.py` at this commit, run on the
+gathered campaign with the pins of the campaign (`--harness-sha` names the harness that produced the data):
+`tables.md`, `verdict.json` and `per-process-ratios.tsv`, which are not committed. Each subsection names the `tables.md`
+sections it comes from; several of them list only their first rows, and the text says when a number comes from such an
+excerpt. The complete matrix of the 108 ADMM cells is in the untruncated section *Timing detail* and, per process, in
+`per-process-ratios.tsv`. The time limits and reruns of the timing processes and the second verdict run come from the
+record of the run, not from these files.
+
+Ratios are `V/S`, the recorded time of the variant over that of S; a ratio below 1 is a lower recorded time. *Faster*,
+*slower*, *inconclusive*, *capped* and *excluded* are the verdict labels of Criteria, with their stronger conditions:
+for example the ratio 0.7877 of C_B (1.10.13, 1500×5000, `ρ = 0.1`, tight target) is inconclusive.
 
 ### Campaign and conditions
 
 - Pins: source `fdf9b52777b280750a4402776ffeb94b7c702be6`, harness `72c8848f60c87d8f4101e46f6a0b5c1ca797c982`, manifest
   SHA-256 `7f2b2fb32581899672947c46d516f87a80cc298205d919e85d79430270fdd662`.
-- Julia 1.13.4 and 1.10.13, `--threads=1 --check-bounds=no`, one BLAS thread; three processes per role order and version,
-  21 rounds and 5 ADMM repeats each. All twelve timing processes and the 8-thread diagnostic ran on one CPU kind, AMD
-  EPYC 7513 (Zen 3), on a Slurm cluster.
+- Julia 1.13.4 and 1.10.13, `--threads=1 --check-bounds=no`, one BLAS thread; three processes per role order and
+  version, 21 rounds and 5 ADMM repeats each. All twelve timing processes and the 8-thread diagnostic ran on one CPU
+  kind, AMD EPYC 7513 (Zen 3), on a Slurm cluster.
 - The plan has exclusive nodes (Conditions). By the maintainer's decision this campaign ran on nodes shared with other
   jobs. The load average at process start (1, 5 and 15 minutes) lies between 14.48 and 60.51 (section *Processes*).
   This is the main caveat on the timing tables. The A/A controls measure it: over the versions, measurements and
   pairs, the median `|S'/S - 1|` or `|V'/V - 1|` of the per-process medians is 0.001502 to 0.02015, and the largest
-  single deviation is 0.6312 (1.10.13, warm, `C_W'/C_W`) (section *A/A controls*). A cell is labelled faster or slower
-  only when its largest process median lies farther from 1 than the A/A spread of that cell, so a noisier cell tends
-  to come out inconclusive; a load change that affects S and the variant differently within the paired rounds is not
-  removed by this rule.
+  single deviation is 0.6312 (1.10.13, warm, `C_W'/C_W`) (section *A/A controls*). These controls measure the
+  variation between the two copies of a role, including what shared load adds to it; they do not isolate the effect of
+  the other jobs. A cell is labelled faster when its six process medians are below 0.95 and the largest of them lies
+  farther below 1 than the A/A spread of that cell, and slower when the six are above 1.05 and the smallest lies
+  farther above 1 than that spread; a noisier cell therefore tends to come out inconclusive, but a load change that
+  affects S and the variant differently within the paired rounds is not removed by this rule.
 - Six of the twelve timing processes reached a 5 h limit in the 200×20000 ADMM runs and were rerun once from scratch
   with a 10 h limit, the partial file removed by the retry rule of step 5: 1.13.4 `C_first`-3, and 1.10.13 `S_first`-1,
   `S_first`-2, `S_first`-3, `C_first`-2 and `C_first`-3. The reruns ran at other times and on other nodes than their
   sibling processes.
-- Verdict mode accepted the gathered campaign (exit status 0); a second run of verdict mode on the same directory gave an
-  identical `verdict.json`.
+- Verdict mode accepted the gathered campaign (exit status 0); a second run of verdict mode on the same directory gave
+  an identical `verdict.json`.
 
 ### Recommendation
 
@@ -464,9 +474,10 @@ variant over the time of S): below 1 the variant is faster.
 
 A key of A1 is a (Julia version, case, step, input) where the variant fails `η` and S passes. (A) is ruled out because
 each variant fails A1 and A2. On the §11.1 instance (1500×5000) at `ρ = 1` each variant is faster for the whole ADMM run
-at both levels, its largest objective gap equals that of S (0.00271 at Boyd's rule, 2.93e-09 at the tight target, both
-versions), and B1 holds; (B) is ruled out because B3 fails: at the tight target on 200×20000 the variants are slower at
-`ρ = 1` and, for C_D and C_W, at `ρ = 0.1` (for C_B that cell is excluded by accuracy).
+at both levels, its largest objective gap is within that of S plus the registered slack (the printed gaps of S and the
+variant agree: 0.00271 at Boyd's rule, 2.93e-09 at the tight target, both versions), and B1 holds; (B) is ruled out
+because B3 fails: at the tight target on 200×20000 the variants are slower at `ρ = 1` and, for C_D and C_W, at `ρ = 0.1`
+(for C_B that cell is excluded by accuracy).
 
 ### Accuracy
 
@@ -496,14 +507,15 @@ Where the variants fail, over the (case, step) pairs with accuracy evidence:
 - C_D and C_W have no failing pair on the Gaussian design or in Float32. On the Float64 rank-deficient designs C_D fails
   6 of 48 pairs (duplicated rows, up to `ρ/σ_max² = 1.65e-07`) and 7 of 48 (rank `n/2`, up to 1.81e-06), C_W 6 of 48
   (duplicated rows, up to 1.65e-07) and 6 of 48 (rank `n/2`, up to 1.09e-07); the smallest evaluated ratio there is
-  4.38e-09 (duplicated rows) and 1.81e-09 (rank `n/2`). In the rows that section *Accuracy per main case* lists, their failures fall on the
-  inconsistent responses (8 outputs per such case).
+  4.38e-09 (duplicated rows) and 1.81e-09 (rank `n/2`). In the rows that section *Accuracy per main case* lists, their
+  failures fall on the inconsistent responses (8 outputs per such case).
 
 ### Speed
 
 Sections *Timing labels per measurement and variant*, *Timing detail* and *ADMM: total time ratio*. The first table
-gives the median `V/S` over the cells of each (version, measurement, variant, element type), as 1.13.4 / 1.10.13; it
-includes the cells excluded by accuracy.
+gives the median `V/S` over the cells of each (version, measurement, variant, element type) that have a ratio, as
+1.13.4 / 1.10.13; it includes the cells excluded by accuracy and leaves out the capped ADMM cell, which has no ratio
+(17 of the 18 ADMM cells of each row).
 
 | measurement | type | C_B | C_D | C_W |
 |---|---|---|---|---|
@@ -513,7 +525,7 @@ includes the cells excluded by accuracy.
 | warmed prox | Float32 | 1.394 / 1.566 | 1.396 / 1.536 | 0.9686 / 0.9825 |
 | penalty change | Float64 | 5.879 / 5.628 | 5.899 / 5.651 | 61.44 / 60.19 |
 | penalty change | Float32 | 7.404 / 6.965 | 7.325 / 7.012 | 69.74 / 68.63 |
-| ADMM total | Float64 | 0.4294 / 0.5318 | 0.4313 / 0.4789 | 0.475 / 0.4649 |
+| ADMM total | Float64 | 0.3906 / 0.5192 | 0.3868 / 0.4598 | 0.4212 / 0.4515 |
 
 Each first-use cell is faster (18 of 18 per version, variant and type). In the warmed prox, C_B and C_D have no faster
 cell, and C_W has 10 faster cells (1.13.4, Float32) and 71 slower ones of its 504. On the §11.1 instance at
@@ -545,28 +557,30 @@ Whole ADMM runs, total time `V/S` (median of the per-process medians, 1.13.4 / 1
 | 1500×5000 | 10 | Boyd | 0.1582 / 0.173 | 0.1575 / 0.1655 | 0.2158 / 0.2253 |
 | 1500×5000 | 10 | tight | 0.3351 / 0.3642 | 0.3352 / 0.3789 | 0.3256 / 0.3679 |
 
-At 200×20000, `ρ = 10`, tight target, S and each variant reached the cap of 20000 iterations in both versions, so the
-cell is a lower bound and is not timed. The variants trade a cheaper factorization for dearer iterations: in the rows
-that section *ADMM: total time ratio* lists (1.10.13), the factorization ratio is 0.0488 to 0.1776 and the iteration
-ratio 0.989 to 2.07. The slower totals are on the runs with many iterations: in the listed stopping records
+At 200×20000, `ρ = 10`, tight target, S and each variant reached the cap of 20000 iterations in both versions. A
+capped run gives a lower bound on its own time to the target; the cell is not timed, has no `V/S`, and the two bounds
+give no bound on the ratio. The variants trade a cheaper factorization for usually dearer iterations: in the rows that
+section *ADMM: total time ratio* lists (1.10.13), the factorization ratio is 0.04646 to 0.1776 and the iteration ratio
+0.989 to 2.07. The slower totals are on the runs with many iterations: in the listed stopping records
 (1.10.13, section *ADMM stopping records*) the tight target takes 17503 iterations at `ρ = 0.1` and 2361 at `ρ = 1` on
 200×20000, against 103 at `ρ = 1` on 1500×5000, and the four roles stop at the same iteration in those records.
 
 The 8-thread diagnostic (one `S_first` process per version, eight BLAS threads, Julia on one thread, first use and the
 warmed prox on 500×5000 and 1500×5000; files `tables-partial.md`, section *Processes with BLAS threads other than 1*) is
-not part of the verdict and has no A/A control. In the rows it lists (the Float32 duplicated-row cases, 40 of 288 per
-version) first use gives `V/S` 0.03017 to 0.1526, and the warmed prox 2.056 to 3.189 for C_B and C_D and 1.176 to 1.973
-for C_W.
+not part of the verdict; A/A statistics and verdict labels are not reported for it. In the rows it lists (the Float32
+duplicated-row cases, 40 of 288 per version) first use gives `V/S` 0.03017 to 0.1526, and the warmed prox 2.056 to 3.189
+for C_B and C_D and 1.176 to 1.973 for C_W.
 
 ### `#1078` controls
 
-Sections *Accuracy controls from #1078* and *#1078: controls where S fails and the variant has a smaller eta than S*.
-S fails 52 of the 120 controls in both versions, with `η/eps` up to 4.50e+15; in the rows the section lists, its
-failures lie at `ρ = eps/8` and, for the rotated designs among others, at `ρ = eps` and `32 eps` too. Each variant fails more controls than S (68,
-91 and 101). Among the 52 controls that S fails, the variant has a smaller `η` than S in 34 (C_B), 30 (C_D) and 30
-(C_W), which does not by itself make it pass; in the rows the section lists, C_B passes two controls that S fails
-(`rot1x2/neg/eps8` and `rot2x4z/neg/eps8`, Float64, 1.10.13). On the reproducer itself (`c1078/f64/axis1x2/pos/eps8`)
-S and each variant fail. `#1078` stays open.
+Sections *Accuracy controls from #1078* and *#1078: controls where S fails and the variant has a smaller eta than S*. S
+fails 52 of the 120 controls in both versions, with `η/eps` up to 4.50e+15; in the rows the section lists, its failures
+lie at `ρ = eps/8` and, for the rotated designs among others, at `ρ = eps` and `32 eps` too. Each variant fails more
+controls than S (68, 91 and 101). Among the 52 controls that S fails, the variant has a smaller `η` than S in 34 (C_B),
+30 (C_D) and 30 (C_W), which does not by itself make it pass; in the rows the section lists, C_B passes two controls
+that S fails (`rot1x2/neg/eps8` and `rot2x4z/neg/eps8`, Float64, 1.10.13). On the reproducer itself
+(`c1078/f64/axis1x2/pos/eps8`) S and each variant fail in the listed 1.10.13 row; the 1.13.4 row is not listed. `#1078`
+stays open.
 
 ### Raw results
 

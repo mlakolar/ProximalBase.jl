@@ -12,20 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- `docs/src/migration.md`, “Retained and removed scope”, can be read as a
-  history of the #850 reduction or as an inventory of what is unavailable
-  today. #1062 adds `IndBallL1` and `IndBallL0` to the indicator inventory.
-  The current exports and [function library](../../src/function_library.md)
-  include `NormL0`, `MCP` and `SCAD`. The scope of the statement about removals
-  awaits the owner's decision.
-
-- The `IndBallL0` sentence in the same section ends with “with `Float32` or
-  `Float64`”. The phrase could qualify the whole list of input representations
-  or `SymmetricSparseIterate` alone. The implementation uses those element types
-  across the listed representations, and the tests exercise unsupported and
-  mixed-type calls. The wording awaits the owner's decision.
-  [Source](../../../src/functions/indballl0.jl) · [Tests](../../../test/indballl0.jl)
-
 - The `GroupNormLinf` optimality section says a zero group's signed margin
   and full-point distance are “equal where `v_G` has one nonzero entry”.
   This could include negative margins or apply only to nonnegative margins.
@@ -142,13 +128,6 @@ that happens to pass.
   · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
   · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
 
-- The `KronQuadratic` sentence added by #1132 ends with “with `Float32` or
-  `Float64`”. This could qualify both dense matrices and symmetric iterates,
-  or symmetric iterates alone. The current input check requires matching
-  precision on both routes. The wording awaits review.
-  [Migration sentence](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/docs/src/migration.md#L26-L27)
-  · [Input checks](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/src/functions/kronquadratic.jl#L149-L164)
-
 - The GroupMCP zero-group screen describes the margin “for finite `v`,
   `λ0` and `w_k`”. Finiteness of the gradient could refer to the stored
   entries or to the entries after conversion to the working type. The
@@ -159,6 +138,14 @@ that happens to pass.
   · [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533)
   · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145)
   · [Mixed-width tests](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1240)
+
+## Migration scope decisions
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Retained and removed scope](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/migration.md#L11-L25) could describe the #850 reduction or the current inventory | Date the #850 reduction and keep the historical list of removals. Record later restorations with the corresponding PRs and link to the function library for the current inventory. Implementation note. | [#850 merge](https://github.com/mlakolar/ProximalBase.jl/commit/2b373c546e247781d9514a7000ef3e010343ca4c) · [Exports at #850](https://github.com/mlakolar/ProximalBase.jl/blob/2b373c546e247781d9514a7000ef3e010343ca4c/src/ProximalBase.jl#L18-L25) · [Exports at review](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/ProximalBase.jl#L18-L28) |
+| [IndBallL0 input precision](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/migration.md#L23-L25) could qualify every listed representation or only the symmetric sparse one | Place the homogeneous precision requirement before the list of representations. `precondition`. | [Source](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl0.jl#L80-L88) · [Rejection tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl0.jl#L324-L367) · [Supported inputs](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl0.jl#L653-L680) |
+| [KronQuadratic input precision](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/docs/src/migration.md#L26-L27) could qualify both representations or only the symmetric iterate | Put the matching `Float32` or `Float64` requirement before the dense and symmetric-iterate routes. `precondition`. | [Both input checks](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/src/functions/kronquadratic.jl#L149-L164) · [Dense and symmetric-iterate validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/test/kronquadratic.jl#L511-L549) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

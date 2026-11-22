@@ -175,17 +175,23 @@ proximal oracle with a scalar step throws an `ArgumentError` before any write.
 
 At a real array point (`Array`, `SparseIterate` or `BlockIterate`), `kkt_violation(f, v, x, k)` returns at a zero group
 the signed screen of `GroupNormL2` with the level and the weight as separate factors: ``\lVert v_{G_k}\rVert_2-\lambda_0w_k``
-for finite `v`, `λ0` and `w_k`, up to rounding; ``\lVert v_{G_k}\rVert_2`` for a zero weight, whatever `λ0`; otherwise
+for finite converted gradient entries and finite `λ0` and `w_k`, up to rounding; ``\lVert v_{G_k}\rVert_2`` for a zero weight, whatever `λ0`; otherwise
 the rules of that screen for `NaN` and infinite values. At an entry in no group it returns `abs(v[k])`. It throws an `ArgumentError` at a nonzero group, as do
 `kkt_violation(f, v, x)` and `kkt_violation(f, v, i)`. Layout, count and extent errors are those of `GroupNormL2`. A
 call with a `SymmetricSparseIterate` point that passes the shared argument checks throws a `MethodError`.
+
+### [Working type of the zero-group screen](@id group-scad.kkt.entry-classification)
+
+The zero-group screen checks finiteness after converting the gradient
+entries to `W = float(promote_type(eltype(v), eltype(x)))`. A finite stored
+entry that overflows on conversion is treated as infinite.
 
 ## [Limitations and non-guarantees](@id spec-groupscad-limitations)
 
 An instance with a positively weighted group of finite positive level and finite shape is nonconvex (see Traits). The target of the proximal map is a global minimizer of the radial problem in exact arithmetic (see the
 ordinary-path clauses for the computed result), and `GroupSCAD` carries no statement about the global minimization of an objective
 that contains it. At a zero group the score is a rounded signed screen of the local condition ``\lVert v_{G_k}\rVert_2\le\lambda_k``
-(for finite positive factors and finite gradient entries); a nonpositive score is not a proof of that condition and does not imply a global minimizer. The score
+(for finite positive factors and finite converted gradient entries); a nonpositive score is not a proof of that condition and does not imply a global minimizer. The score
 at a nonzero group and the full-point form are not implemented.
 
 `Scaled(GroupSCAD(...), α)` multiplies the value by `α` and calls the proximal operator with the effective step
@@ -212,10 +218,12 @@ numerical targets are the homogeneous ones in Supported arguments.
 
 ## [Clauses owned elsewhere](@id spec-groupscad-elsewhere)
 
+**Links only.**
+
 | Subject | Owning section |
 |:--|:--|
-| The scalar penalty and its proximal map | [SCAD numerical contract](@ref spec-scad) |
-| Group norms, the screen and soft shrinkage at `a = Inf` | [GroupNormL2 numerical contract](groupnorml2.md) |
+| The scalar penalty and its proximal map | [SCAD definition](@ref spec-scad-definition) and [SCAD ordinary-path clauses](@ref spec-scad-ordinary) |
+| Group norms, the screen and soft shrinkage at `a = Inf` | [GroupNormL2 range clauses](@ref spec-groupnorml2-range), [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints), and [KKT endpoint clauses](@ref spec-kkt_violation-endpoints) |
 | Supported precision and oracle agreement | [Supported precision and oracle agreement](../numerics.md#Supported-precision-and-oracle-agreement) |
 | Shared range bounds and recovery limits | [Range guarantees](@ref numerical-value-range) |
 | Ownership and aliasing | [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases) |
@@ -223,6 +231,10 @@ numerical targets are the homogeneous ones in Supported arguments.
 | Scaling a function | [Scaling a function](@ref scaling-guide) |
 
 ## [Evidence](@id spec-groupscad-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `group-scad.kkt.entry-classification` | `characterized` | [GroupSCAD dispatch to the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/1c5667c979f52a1d79ada76383fbc201ae3743b0/src/functions/groupscad.jl#L510-L533), [Working-type conversion in the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/src/numerical_kernels.jl#L1134-L1145), and [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/test/kkt_block.jl#L1233-L1241) |
 
 [`test/groupscad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/groupscad.jl) compares the proximal
 map with a BigFloat minimization of the radial objective that does not use the package, at the group norm computed in 512-bit

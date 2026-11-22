@@ -70,8 +70,8 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # the computed norm equals γλ = 1, w
   value is 0. An infinite weight, or an infinite level with positive weight,
   fixes a group at `+0`, including at zero step.
 - [`kkt_violation`](@ref) has, at a zero group, the rounded signed screen of
-  `GroupNormL2` for the local condition `‖v_G‖₂ ≤ λₖ` (finite positive level and weight and finite
-  entries of `v`; see the contract for the other cases), and `abs(v[i])` for entries
+  `GroupNormL2` for the local condition `‖v_G‖₂ ≤ λₖ` (finite positive level and weight and finite converted
+  gradient entries; see the contract for the other cases), and `abs(v[i])` for entries
   in no group; at a real array point it throws an `ArgumentError` at a nonzero
   group and in the full-point form. A nonpositive score is not a proof of that
   condition and does not imply a global minimizer.

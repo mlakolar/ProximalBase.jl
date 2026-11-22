@@ -935,6 +935,21 @@ end
   @test_throws MethodError prox_block!(zeros(T, 2), s, T[1, 2], 1, one(T))
 end
 
+@testset "working type of the zero-group screen" begin
+  f = GroupSCAD(1.0, [[1]], [1.0])
+  big128 = typemax(UInt128)
+  # the working type is W = float(promote_type(eltype(v), eltype(x))): a finite stored gradient entry that overflows on
+  # conversion to W is infinite there
+  @test kkt_violation(f, UInt128[big128], Float32[0], 1) === Inf32
+  @test kkt_violation(f, [10^6], Float16[0], 1) === Inf16
+  # an entry in no group is converted in the same way
+  @test kkt_violation(f, UInt128[0, big128], Float32[0, 0], 2) === Inf32
+  # entries that fit are scored as finite entries in W (here Float64: the Float64 gradient is not narrowed)
+  @test kkt_violation(f, [3.0], Float32[0], 1) === 2.0
+  @test kkt_violation(f, [1e300], Float32[0], 1) === 1e300 - 1.0
+  @test kkt_violation(f, Float32[3], Float32[0], 1) === 2f0
+end
+
 @testset "zero-group KKT screen ($T)" for T in (Float32, Float64)
   groups = [[3, 1], 4:5, [2]]
   w = T[1, 2, 0.5]

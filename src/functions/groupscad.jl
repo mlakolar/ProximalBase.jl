@@ -25,13 +25,15 @@ The type of the function is `float(promote_type(typeof(λ0), eltype(w)))`, or
 `a = 3.7` does not promote a `Float32` function. A converted shape that is
 not above 2 is refused, and so is a finite supplied shape that converts to `Inf`.
 
-[`prox`](@ref) takes a nonnegative **scalar** step `γ`. For finite positive
-`λₖ`, `a` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces
-`r` by a global minimizer of the scalar SCAD proximal problem at `r` (the smaller
-magnitude at a tie, `+0` at a zero minimizer): the group is kept, scaled toward
-zero, or set to `+0`. At `a = Inf` each group follows the rules of
-[`GroupNormL2`](@ref). [`prox_block`](@ref) takes a compact vector in `groups[k]`
-order and does not update an iterate.
+[`prox`](@ref) takes a nonnegative **scalar** step `γ`. In exact arithmetic, for
+finite positive `λₖ`, `a` and `γ` and a nonzero group norm `r = ‖u[Gₖ]‖₂`, it
+replaces `u[Gₖ]` by `(t/r) u[Gₖ]`, where `t` is a global minimizer of the scalar
+SCAD proximal problem at `r` (the smaller magnitude at a tie, `+0` at a zero
+minimizer). The computed decisions compare the rounded norm, level and cutoffs,
+and the stored entries are rounded; see the
+[rounding clause](@ref spec-groupscad-ordinary). At `a = Inf` each group follows
+the rules of [`GroupNormL2`](@ref). [`prox_block`](@ref) takes a compact vector in
+`groups[k]` order and does not update an iterate.
 
 # Examples
 ```jldoctest
@@ -51,7 +53,7 @@ true
 julia> prox_block(f, [1.8, 2.4], 1, 1.0) ≈ [1.552941176470588, 2.070588235294118]
 true
 
-julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
+julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r ≈ γλ = 1 gives +0
 2-element Vector{Float64}:
  0.0
  0.0
@@ -62,13 +64,16 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
   Negative or `NaN` steps fail before writes.
 - Exact in-place use (`y === x`, `out === u`) is supported; other overlaps
   detected by `Base.mightalias` are rejected.
-- A group with zero weight is unpenalized (unchanged, value 0) at every level.
-  An infinite weight, or an infinite level with positive weight, fixes a group
-  at `+0`, including at zero step.
-- [`kkt_violation`](@ref) has the zero-group screen of `GroupNormL2` and
-  `abs(v[i])` for entries in no group; at a real array point it throws an
-  `ArgumentError` at a nonzero group and in the full-point form. A zero score
-  is a first-order condition and does not imply a global minimizer.
+- A group with zero weight is unpenalized: its entries are copied to the
+  destination under the storage and conversion rules of the
+  [contract](@ref spec-groupscad-endpoints), as are entries in no group, and its
+  value is 0. An infinite weight, or an infinite level with positive weight,
+  fixes a group at `+0`, including at zero step.
+- [`kkt_violation`](@ref) has, at a zero group, the rounded signed screen of
+  `GroupNormL2` for the local condition `‖v_G‖₂ ≤ λₖ`, and `abs(v[i])` for entries
+  in no group; at a real array point it throws an `ArgumentError` at a nonzero
+  group and in the full-point form. A nonpositive score is not a proof of that
+  condition and does not imply a global minimizer.
 - The typed constructor `GroupSCAD{T, G}(λ0, a, groups, w)` stores `groups` and
   `w` without copying them: do not mutate them afterwards.
 - No `SymmetricSparseIterate`, `restrict` or per-group steps.

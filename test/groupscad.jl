@@ -424,6 +424,10 @@ end
   # the norm floatmax with the level 1/2: r/λ is above floatmax, the exponent difference of the parts is 1024 (not above the bound of the
   # copy exit), and the group is unchanged at a = 3.7, γ = 1
   @test prox_block(GroupSCAD(0.5, [1:1], [1.0]), [floatmax(Float64)], 1, 1.0) == [floatmax(Float64)]
+  # the same exponent difference with a = γ = floatmax: the group is below the cutoff and goes to +0
+  g0 = GroupSCAD(0.75, [1:1], [1.0]; a = floatmax(Float64))
+  y0 = prox_block(g0, [2.0^1023], 1, floatmax(Float64))
+  @test y0 == [0.0] && check_group(y0, [2.0^1023], 0.75, 1.0, floatmax(Float64), floatmax(Float64))
   # the exponent difference of the parts above the range: kept
   f3 = GroupSCAD(2.0^-600, [1:2], [2.0^-600])
   u3 = [3.0 * 2.0^600, 4.0 * 2.0^600]
@@ -433,6 +437,13 @@ end
   @test close_value(f(u2), refterm(u2, 2e154, 1e154, 3.7), 2, 1) && f(u2) === Inf
   @test f3(u3) === 0.0
   @test value_and_prox!(similar(u2), f, u2, 1.0) === 0.0
+end
+
+@testset "rounded decisions and stored entries" begin
+  # a rounded cutoff: the exact comparison at r = sqrt(20.0) keeps the group, and the rounded cutoff gives +0
+  @test prox_block(GroupSCAD(1.0, [1:1], [1.0]; a = 3.0), [sqrt(20.0)], 1, 5.0) == [0.0]
+  # the stored entries are rounded: the direction of the group is not exact
+  @test prox_block(GroupSCAD(1.0, [1:2], [1.0]), [1.5, nextfloat(0.0)], 1, 1.0) == [0.5, 0.0]
 end
 
 @testset "constructor ownership and default weights" begin

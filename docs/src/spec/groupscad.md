@@ -26,8 +26,8 @@ finite positive ``\lambda`` it is ``\lambda t``. The shape `a` is not rescaled b
 unpenalized.
 
 **Zero weights.** A group with `w_k = 0` is unpenalized, whatever `λ0` (`Inf` included): the proximal map leaves its
-entries unchanged and its term is zero. For the group's proximal map and term, this rule comes before the others on
-this page.
+entries unchanged (copied to the destination, see Storage below the endpoint table) and its term is zero. For the group's
+proximal map and term, this rule comes before the others on this page.
 
 **Parameter type.** `GroupSCAD(λ0, groups, w; a = 3.7)` uses `T = float(promote_type(typeof(λ0), eltype(w)))` and
 converts `a` to `T`, so the default `a = 3.7` does not promote a `Float32` function to `Float64`.
@@ -76,19 +76,21 @@ output: it equals `f(y)` up to the order in which sums of squares are accumulate
 
 ## [Ordinary-path clauses](@id spec-groupscad-ordinary)
 
-For positive finite `λ0`, `w_k` and `γ`, a finite `a` and a finite nonzero group, let `r` be the computed norm of the
-group and ``\lambda_k`` the level as formed. The group is replaced by ``(t_*/r)\,u`` along the group, where ``t_*`` is a
-global minimizer of ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar `SCAD`
+**Exact-arithmetic target.** For positive finite `λ0`, `w_k` and `γ`, a finite `a` and a nonzero group with norm
+``r=\lVert u_{G_k}\rVert_2``, the target replaces the group by ``(t_*/r)\,u_{G_k}``, where ``t_*`` is a global minimizer of
+``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar `SCAD`
 [proximal rule](@ref spec-scad-ordinary) selects at the input `r`: the group is unchanged when ``t_*=r``, `+0` when
 ``t_*=0``, and otherwise scaled by ``t_*/r``, which is below one. At a tie between minimizers the smaller magnitude is
 taken, so a tie with zero gives `+0`. The middle piece has positive, zero or negative curvature as `γ` passes through
-`a - 1`; the scalar contract owns the comparisons. ``t_*`` can round to `r` inside the middle piece, as for the input
-`[1.2, 1.6]` with `λ_k = 1`, `γ = 1e-20` and `a = 3.7`: the group is then unchanged, and its value is ``p_{\lambda_k,a}`` at `r`,
-below the plateau.
+`a - 1`; the scalar contract owns the comparisons.
 
-When the input, the destination, the parameters and the step are `Float32` or `Float64`, the decisions are those of
-the scalar kernel on the computed norm and the level as formed. They are not exact in the entries: the computed norm
-carries the rounding of the sum of squares, and a group within that rounding of a threshold can take either side.
+**Computed result.** When the input, the destination, the parameters and the step are `Float32` or `Float64`, the decisions
+are the comparisons of the scalar kernel on the computed norm, the level as formed and the cutoffs, each rounded. A group
+within that rounding of a cutoff can take either side: for `a = 3`, `γ = 5`, ``\lambda_k=1`` and `r = sqrt(20.0)` the
+result is `+0`. The stored entries ``q\,u_i`` are rounded, so the direction of the group is not exact: for ``\lambda_k=1``,
+`γ = 1` and `[1.5, nextfloat(0.0)]` the result is `[0.5, 0.0]`. ``t_*`` can round to `r` inside the middle piece, as for the
+input `[1.2, 1.6]` with `λ_k = 1`, `γ = 1e-20` and `a = 3.7`: the group is then unchanged, and its value is
+``p_{\lambda_k,a}`` at `r`, below the plateau.
 
 The value of such a group is ``p_{\lambda_k,a}`` at its computed norm, up to rounding.
 
@@ -151,9 +153,10 @@ Steps are nonnegative and not `NaN`.
 
 At `a = Inf` the rows are those of `GroupNormL2` at the level `λ0` and the weight `w_k`, which the group map and the term of that function give.
 
-**Storage.** "Unchanged", "Identity" and "signed zeros kept" refer to the values stored in the destination under the
-[storage rule](../iterates.md#Active-coordinates-are-deliberate-state) of the iterates. A dense destination keeps a `-0.0`; a zero written to an absent coordinate of a
-`SparseIterate` leaves it absent, and it reads `+0`.
+**Storage.** "Unchanged", "Identity" and "signed zeros kept" mean that the entries, and the entries in no group, are copied to the
+destination under the [storage rule](../iterates.md#Active-coordinates-are-deliberate-state) of the iterates and the conversion
+to its element type. A dense destination of the same element type keeps a `-0.0`; a zero written to an absent coordinate of a
+`SparseIterate` leaves it absent, and it reads `+0`. A route that sets a group to zero writes `+0`.
 
 ## [Failure behavior](@id spec-groupscad-failures)
 
@@ -179,13 +182,16 @@ call with a `SymmetricSparseIterate` point that passes the shared argument check
 
 ## [Limitations and non-guarantees](@id spec-groupscad-limitations)
 
-An instance with a positively weighted group of finite positive level and finite shape is nonconvex (see Traits). The proximal map returns a global minimizer of the radial problem, and
-`GroupSCAD` carries no statement about the global minimization of an objective that contains it. The zero-group screen is a first-order score: a
-zero value is a stationarity condition at best and does not imply a global minimizer. The score at a nonzero group and
-the full-point form are not implemented.
+An instance with a positively weighted group of finite positive level and finite shape is nonconvex (see Traits). The target of the proximal map is a global minimizer of the radial problem in exact arithmetic (see the
+ordinary-path clauses for the computed result), and `GroupSCAD` carries no statement about the global minimization of an objective
+that contains it. At a zero group the score is a rounded signed screen of the local condition ``\lVert v_{G_k}\rVert_2\le\lambda_k``
+(for finite positive factors); a nonpositive score is not a proof of that condition and does not imply a global minimizer. The score
+at a nonzero group and the full-point form are not implemented.
 
 `Scaled(GroupSCAD(...), α)` multiplies the value by `α` and calls the proximal operator with the effective step
-``\alpha\gamma`` as rounded, as for the scalar `SCAD`; the rounded step is passed through the ordered endpoint table. A zero `α` throws an `ArgumentError`. There is no compact block
+``\alpha\gamma`` as rounded, as for the scalar `SCAD`. The effective step is validated: a negative or `NaN` one (`Scaled(f, Inf)` at
+`γ = 0` gives `NaN`) throws an `ArgumentError` before any write, and the ordered endpoint table applies to a valid effective step.
+A zero `α` throws an `ArgumentError`. There is no compact block
 method and no point-aware score under `Scaled` (`MethodError`).
 
 ```@example group_scad
@@ -200,9 +206,9 @@ route shared with other functions rejects a `SymmetricSparseIterate` destination
 `prox(f, S, steps)`, with an `ArgumentError`. The scalar-step refusal of a `SymmetricSparseIterate` is under Failure
 behavior. A `SparseIterate` destination is written entry by entry, as for `GroupNormL2`.
 
-A `Float32` input whose norm exceeds `floatmax(Float32)`, with a `Float64` destination, is covered by the tests of
-[#534](https://github.com/mlakolar/ProximalBase.jl/issues/534): the scaled norm is formed in at least `Float64`. Other
-type combinations carry no precision guarantee.
+For a finite shape, a `Float32` input whose norm exceeds `floatmax(Float32)`, with a `Float64` destination, is covered by the tests of
+[#534](https://github.com/mlakolar/ProximalBase.jl/issues/534). Other mixed type combinations carry no precision guarantee; the
+numerical targets are the homogeneous ones in Supported arguments.
 
 ## [Clauses owned elsewhere](@id spec-groupscad-elsewhere)
 
@@ -219,9 +225,9 @@ type combinations carry no precision guarantee.
 ## [Evidence](@id spec-groupscad-evidence)
 
 [`test/groupscad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/groupscad.jl) compares the proximal
-map with a BigFloat minimization of the radial objective that does not use the package: the scalar reference of
-`test/scad_reference.jl` (candidate comparison at 512 bits, repeated at 4096 bits when two candidates are within its
-uncertainty, ties included) at the group norm computed in 512-bit BigFloat. It checks the objective at the computed
+map with a BigFloat minimization of the radial objective that does not use the package, at the group norm computed in 512-bit
+BigFloat: for a finite shape the scalar reference of `test/scad_reference.jl` (candidate comparison at 512 bits, repeated at 4096 bits
+when two candidates are within its uncertainty, ties included), and for `a = Inf` the closed-form soft threshold. It checks the objective at the computed
 output within a stated tolerance and, where the reference decision is stable under the rounding of the norm, the output
 itself. The cases tested are listed in the file and in `test/TESTING.md`.
 
@@ -234,5 +240,5 @@ non-floating destinations and the uncopied buffers of the typed constructor, as 
 [`GroupMCP`](@ref spec-groupmcp). The archived `legacy/full` implementation formed the
 group norm in the input type and could return `NaN` for representable outputs
 ([#534](https://github.com/mlakolar/ProximalBase.jl/issues/534)); `GroupSCAD` forms the scaled norm in the recovery type
-and has tests for the reproducers. The infinite-weight convention follows
+and has finite-shape tests for the reproducers. The infinite-weight convention follows
 [#250](https://github.com/mlakolar/ProximalBase.jl/issues/250).

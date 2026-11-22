@@ -645,14 +645,16 @@ are stated in the contract. The type trait `isconvex` is false.
 
 ### Proximal operator: radial SCAD
 
-For finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a finite nonzero norm
+In exact arithmetic, for finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a nonzero norm
 ``r=\lVert x_{G_k}\rVert_2``, the proximal operator replaces the norm of the group by a global minimizer ``t_*`` of
 ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar [`SCAD`](@ref spec-scad-ordinary)
-proximal operator gives at the input ``r``, and keeps the direction of a nonzero result: the group is kept when
+proximal operator gives at the input ``r``, along the direction of the group: the group is kept when
 ``t_*=r``, becomes `+0` when ``t_*=0`` and is otherwise scaled by ``t_*/r``. For ``\gamma<a-1`` the minimizer is
 continuous in ``r``; from ``\gamma=a-1`` on it jumps between two local minimizers, and the smaller magnitude is taken
-at an exact tie. At `a = Inf` the group map is that of `GroupNormL2`. Entries in no group are unchanged; the other
-cases follow the [endpoint table](@ref spec-groupscad-endpoints).
+at a tie. The computed decisions compare rounded quantities and the stored entries are rounded: see the
+[computed result](@ref spec-groupscad-ordinary). At `a = Inf` the group map is that of `GroupNormL2`. Entries in no group are
+copied to the destination under the [storage rule](@ref spec-groupscad-endpoints); the other cases follow the
+[endpoint table](@ref spec-groupscad-endpoints).
 
 ```@example group_penalty
 gsc = GroupSCAD(1.0, [[1, 4], [3, 2]], [1.0, 1.0])    # entry 5 is in no group; a = 3.7
@@ -667,7 +669,7 @@ ps
 ```
 
 `prox!`, `value_and_prox!` and `prox_block!` accept exact in-place use and reject other detected overlaps and
-destinations whose element type is not floating point, before any write. `value_and_prox!` returns the value at the
+destinations whose element type is not a concrete floating-point type, before any write. `value_and_prox!` returns the value at the
 stored output, up to the order of the sums of squares (see the [GroupSCAD results](@ref spec-groupscad-results)).
 `prox_block!(out, g, u, k, γ)`, the allocating `prox_block` and `BlockIterate(p, g)` / `BlockIterate(x, g)` follow
 [the group ℓ₂ norm](@ref group-l2-guide).
@@ -677,8 +679,9 @@ stored output, up to the order of the sums of squares (see the [GroupSCAD result
 At a zero group, `kkt_violation(g, v, x, k)` is the screen of `GroupNormL2` with the level and the weight as separate
 factors (``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; see the
 [failure behavior](@ref spec-groupscad-failures) for the other cases), and an entry in no group scores `abs(v[k])`. At a
-real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score is a
-first-order condition, and does not imply a global minimizer of the nonconvex objective.
+real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. For finite positive factors the
+score is a rounded signed screen of the local condition ``\lVert v_{G_k}\rVert_2\le\lambda_k``: a nonpositive score is not a
+proof of that condition and does not imply a global minimizer of the nonconvex objective.
 
 ```@example group_penalty
 @assert kkt_violation(gsc, [3.0, 0.0, 0.0, 4.0, 0.5], zeros(5), 1) == 4.0    # ‖(3, 4)‖₂ - 1

@@ -3,9 +3,6 @@ on:
   schedule:
     - cron: '23 9 * * *'
   workflow_dispatch:
-  # TEMPORARY bootstrap trigger: removed before merge
-  pull_request:
-    paths: ['.github/workflows/full-validation.yml', 'scripts/full_validation_verdict.py']
 permissions:
   contents: read
 concurrency:
@@ -69,11 +66,10 @@ jobs:
           persist-credentials: false
       - name: Test the verdict script
         run: python3 -B scripts/test_full_validation_verdict.py
-      # With a pattern, a run that produced no log artifact may download nothing
-      # instead of failing; the verdict script then reports each expected cell as missing.
-      # Only artifacts of this run attempt are downloaded. Re-running only the failed
-      # jobs leaves the other cells' artifacts on an earlier attempt, so the verdict fails;
-      # a retry must re-run all jobs.
+      # The pattern selects artifact names that carry this run attempt. If it matches
+      # nothing, the verdict script reports each expected cell as missing. A rerun
+      # passes only if it reran all 18 matrix jobs; a cell left on an earlier
+      # attempt is reported missing.
       - name: Download the cell logs
         uses: actions/download-artifact@v8
         with:
@@ -88,12 +84,10 @@ jobs:
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
             --jq '.jobs[] | {name, conclusion}' > jobs.jsonl
       - name: Check the full selection in every cell
-        run: |
-          # GITHUB_SHA is set by the runner; on pull_request it is the tested merge commit.
-          python3 scripts/full_validation_verdict.py --logs logs --tiers test/tiers.toml \
-            --jobs jobs.jsonl --attempt "$GITHUB_RUN_ATTEMPT" \
-            --expected-commit "$GITHUB_SHA" --summary "$GITHUB_STEP_SUMMARY"
-      - name: Require every matrix job to succeed
         env:
           TEST_RESULT: ${{ needs.test.result }}
-        run: test "$TEST_RESULT" = success
+        run: |
+          # GITHUB_SHA is set by the runner: the commit the scheduled or dispatched run checked out.
+          python3 scripts/full_validation_verdict.py --logs logs --tiers test/tiers.toml \
+            --jobs jobs.jsonl --attempt "$GITHUB_RUN_ATTEMPT" \
+            --expected-commit "$GITHUB_SHA" --aggregate "$TEST_RESULT" --summary "$GITHUB_STEP_SUMMARY"

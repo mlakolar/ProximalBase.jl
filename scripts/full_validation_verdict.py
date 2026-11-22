@@ -3,8 +3,10 @@
 
 Reads the per-cell logs downloaded from the
 `full-validation-log-<os>-<julia>-<shard>-attempt-<n>` artifacts and the job
-conclusions of the same workflow run attempt, and checks both against the full
-test selection (the union of all four tiers in `test/tiers.toml`).  The expected
+conclusions of the same workflow run attempt. The job conclusions are checked
+against the expected matrix job names, and the passing timing records of each
+OS and Julia pair against the full test selection (the union of all four tiers
+in `test/tiers.toml`).  The expected
 cells below mirror the matrix in `.github/workflows/full-validation.yml`;
 `test_full_validation_verdict.py` compares the two texts.  It imports only the
 standard library and needs Python 3.11 or newer (`tomllib`).
@@ -433,6 +435,7 @@ def main(argv=None):
     parser.add_argument("--jobs", required=True, help="JSON lines with the name and conclusion of each job of this run attempt")
     parser.add_argument("--attempt", required=True, help="run attempt that the artifact names must carry")
     parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--aggregate", required=True, help="aggregate result of the matrix job (needs.test.result)")
     parser.add_argument("--summary", help="Markdown file to append the report to")
     args = parser.parse_args(argv)
     if not args.attempt.isdigit():
@@ -443,6 +446,8 @@ def main(argv=None):
         records, job_file_problems = load_jobs(args.jobs)
         problems, rows = evaluate(args.logs, selection, args.expected_commit, args.attempt, records)
         problems = job_file_problems + problems
+        if args.aggregate != "success":
+            problems.append(f"the aggregate result of the matrix job is {args.aggregate!r}, expected 'success'")
     except (TiersError, OSError, tomllib.TOMLDecodeError) as error:
         problems, rows = [f"cannot read the validation inputs: {error}"], []
     report = render(args.expected_commit, rows, problems)

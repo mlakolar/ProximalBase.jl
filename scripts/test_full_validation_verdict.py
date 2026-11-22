@@ -107,9 +107,11 @@ class VerdictTests(unittest.TestCase):
                 continue
             self.write_cell(*cell, **overrides.get(cell, {}))
 
+    aggregate = "success"
+
     def run_verdict(self, summary=None):
         argv = ["--logs", str(self.logs), "--tiers", str(self.tiers), "--jobs", str(self.jobs),
-                "--attempt", ATTEMPT, "--expected-commit", COMMIT]
+                "--attempt", ATTEMPT, "--expected-commit", COMMIT, "--aggregate", self.aggregate]
         if summary:
             argv += ["--summary", str(summary)]
         out = io.StringIO()
@@ -312,6 +314,13 @@ class VerdictTests(unittest.TestCase):
         )
         self.assertIn("1:success 2:cancelled 3:success | 2/3 |", out)
 
+    def test_aggregate_result_must_be_success(self):
+        self.write_all()
+        for result in ("failure", "cancelled", "skipped", ""):
+            with self.subTest(result=result):
+                self.aggregate = result
+                self.assertFails(f"the aggregate result of the matrix job is {result!r}, expected 'success'")
+
     def test_missing_job(self):
         self.write_all()
         self.write_jobs(skip={("ubuntu-latest", "1.13", 3)})
@@ -411,7 +420,7 @@ class WorkflowTextTests(unittest.TestCase):
     def test_required_strings(self):
         for needle in ("if: always()", "persist-credentials: false", "--check-bounds=yes", "--tier=full",
                        "actions: read", "--jobs jobs.jsonl", '--attempt "$GITHUB_RUN_ATTEMPT"',
-                       'test "$TEST_RESULT" = success'):
+                       '--aggregate "$TEST_RESULT"'):
             self.assertIn(needle, self.text)
 
     def test_actions_read_is_confined_to_the_verdict_job(self):

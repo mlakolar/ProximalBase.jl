@@ -327,7 +327,7 @@ end
 @testset "knots, plateau and shapes near 2 ($T)" for T in (Float32, Float64)
   rng = Xoshiro(5 + sizeof(T))
   # the norms at the knots of each step regime, one rounding either side, for a few shapes and group sizes
-  for a in (nextfloat(T(2)), T(3), T(3.7), T(10)), λ0 in (one(T), T(0.6))
+  for a in (nextfloat(T(2)), T(2) + 64eps(T), T(3), T(3.7), T(10)), λ0 in (one(T), T(0.6))
     crit = a - 1
     for γ in (T(0.3), one(T), prevfloat(crit), crit, nextfloat(crit), crit + 1, T(30)), n in (1, 2, 5)
       w = one(T)
@@ -439,7 +439,7 @@ end
     ws = [1.0, 1.0]
     f = GroupSCAD{Float64, typeof(groups)}(1.0, 3.7, groups, ws)
     @test f.groups === groups && f.w === ws && f.group_of == [1, 2]
-    @test prox(f, [3.0, 4.0], 1.0) == [3.0, 4.0]
+    @test prox(f, [30.0, 40.0], 1.0) == [30.0, 40.0]
   end
   @test_throws ArgumentError GroupSCAD{Float64, Vector{Vector{Int}}}(1.0, 3.7, [[1], [1]], [1.0, 1.0])
   # the default weight √|G| without overflowing the group size in a narrow type
@@ -744,7 +744,7 @@ end
     λ0 = max(δ, ldexp(T(0.5) + rand(rng, T) / 2, eλ))
     w = ldexp(T(0.5) + rand(rng, T) / 2, ew)
     γ = max(δ, ldexp(T(0.5) + rand(rng, T) / 2, eg))
-    a = rand(rng, (T(3.7), nextfloat(T(2)), T(2.5), T(1000), ldexp(T(0.75), rand(rng, -E+2:E-2)), ldexp(T(1.5), E - 1), T(Inf)))
+    a = rand(rng, (T(3.7), nextfloat(T(2)), T(2.5), T(1000), ldexp(T(0.75), rand(rng, 2:E-2)), ldexp(T(1.5), E - 1), T(Inf)))
     λ = biglevel(λ0, w)
     # norms near the thresholds of the step, or at a random scale
     c = rand(rng, knots(λ, a, γ))

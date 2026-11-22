@@ -618,3 +618,70 @@ a global minimizer.
 
 See the [GroupMCP numerical contract](@ref spec-groupmcp) for the endpoint table, the range clauses and the
 limitations under `Scaled`.
+
+## [The group SCAD penalty](@id group-scad-guide)
+
+`GroupSCAD` applies the [SCAD penalty](@ref spec-scad) to the Euclidean norms of disjoint groups,
+
+```math
+g(x)=\sum_{k=1}^{K}p_{\lambda_k,a}\bigl(\lVert x_{G_k}\rVert_2\bigr),\qquad
+p_{\lambda,a}(t)=\begin{cases}\lambda t, & 0\le t\le\lambda,\\ \lambda t-(t-\lambda)^2/(2(a-1)), & \lambda<t<a\lambda,\\ (a+1)\lambda^2/2, & t\ge a\lambda,\end{cases}
+```
+
+with the effective coefficient ``\lambda_k=\lambda_0w_k`` for finite positive `λ0` and `w_k`, and the formula for ``p``
+as written for finite positive ``\lambda`` and finite `a`. A group with zero weight is unpenalized; other stored zero or
+infinite levels and weights follow the [endpoint table](@ref spec-groupscad-endpoints). The shape `a > 2` is not
+rescaled by the weights. The constructors follow those of [`GroupNormL2`](@ref group-l2-guide), with the default
+weights ``w_k=\sqrt{\lvert G_k\rvert}`` and the keyword `a = 3.7`; `a` is converted to the type of the level and the
+weights, so `GroupSCAD(1f0, groups)` stays `Float32`. The type trait `isconvex` is false.
+
+| Constructor | Meaning |
+|:--|:--|
+| `GroupSCAD(λ0, groups)` | Default weights and shape |
+| `GroupSCAD(λ0, groups, w; a)` | One nonnegative weight per group |
+| `GroupSCAD(λ0, groups, w; a = Inf)` | The rules of `GroupNormL2` applied to the stored factors and precision of the `GroupSCAD` |
+
+### Proximal operator: radial SCAD
+
+For finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a finite nonzero norm
+``r=\lVert x_{G_k}\rVert_2``, the proximal operator replaces the norm of the group by a global minimizer ``t_*`` of
+``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar [`SCAD`](@ref spec-scad-ordinary)
+proximal operator gives at the input ``r``, and keeps the direction of a nonzero result: the group is kept when
+``t_*=r``, becomes `+0` when ``t_*=0`` and is otherwise scaled by ``t_*/r``. For ``\gamma<a-1`` the minimizer is
+continuous in ``r``; from ``\gamma=a-1`` on it jumps between two local minimizers, and the smaller magnitude is taken
+at an exact tie. At `a = Inf` the group map is that of `GroupNormL2`. Entries in no group are unchanged; the other
+cases follow the [endpoint table](@ref spec-groupscad-endpoints).
+
+```@example group_penalty
+gsc = GroupSCAD(1.0, [[1, 4], [3, 2]], [1.0, 1.0])    # entry 5 is in no group; a = 3.7
+xs = [1.2, 4.0, 3.0, 1.6, 7.0]
+ps = prox(gsc, xs, 1.0)
+@assert ps ≈ [0.6, 4.0, 3.0, 0.8, 7.0]                # group 1: r = 2 is shrunk to 1; group 2: r = 5 ≥ aλ = 3.7 is kept
+@assert gsc(xs) ≈ 49 / 27 + 2.35                      # p(2) on the middle piece, and the plateau (a + 1)λ²/2
+@assert prox(gsc, xs, 4.0) == [0.0, 4.0, 3.0, 0.0, 7.0]    # γ = 4 ≥ a - 1: r = 2 goes to zero, r = 5 stays
+@assert prox(gsc, xs, 12.0) == [0.0, 0.0, 0.0, 0.0, 7.0]   # at γ = 12 both groups are below the cutoff λ√(γ(a + 1))
+@assert prox(GroupSCAD(1.0, [1:2], [1.0]; a = Inf), [3.0, 4.0], 1.0) == prox(GroupNormL2(1.0, [1:2], [1.0]), [3.0, 4.0], 1.0)
+ps
+```
+
+`prox!`, `value_and_prox!` and `prox_block!` accept exact in-place use and reject other detected overlaps and
+destinations whose element type is not floating point, before any write. `value_and_prox!` returns the value at the
+stored output, up to the order of the sums of squares (see the [GroupSCAD results](@ref spec-groupscad-results)).
+`prox_block!(out, g, u, k, γ)`, the allocating `prox_block` and `BlockIterate(p, g)` / `BlockIterate(x, g)` follow
+[the group ℓ₂ norm](@ref group-l2-guide).
+
+### Zero-group screen
+
+At a zero group, `kkt_violation(g, v, x, k)` is the screen of `GroupNormL2` with the level and the weight as separate
+factors (``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; see the
+[failure behavior](@ref spec-groupscad-failures) for the other cases), and an entry in no group scores `abs(v[k])`. At a
+real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score is a
+first-order condition, and does not imply a global minimizer of the nonconvex objective.
+
+```@example group_penalty
+@assert kkt_violation(gsc, [3.0, 0.0, 0.0, 4.0, 0.5], zeros(5), 1) == 4.0    # ‖(3, 4)‖₂ - 1
+@assert kkt_violation(gsc, [3.0, 0.0, 0.0, 4.0, 0.5], zeros(5), 5) == 0.5
+```
+
+See the [GroupSCAD numerical contract](@ref spec-groupscad) for the endpoint table, the range clauses and the
+limitations under `Scaled`.

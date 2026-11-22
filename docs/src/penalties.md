@@ -366,7 +366,9 @@ nothing # hide
 At step four, magnitudes zero and four have the same objective for an
 input of four, and the proximal operator chooses zero. See the
 [SCAD numerical contract](@ref spec-scad) for the penalty formula,
-supported storage and endpoint rules.
+supported storage and endpoint rules. [`GroupSCAD`](@ref GroupSCAD) applies the
+same penalty to the Euclidean norms of disjoint groups; see the
+[group SCAD penalty](@ref group-scad-guide).
 
 ## [Off-diagonal cardinality penalty](@id norml0offdiag-guide)
 

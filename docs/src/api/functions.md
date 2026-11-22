@@ -112,3 +112,9 @@ GroupNormLinf
 ```@docs
 GroupMCP
 ```
+
+## Group SCAD penalty
+
+```@docs
+GroupSCAD
+```

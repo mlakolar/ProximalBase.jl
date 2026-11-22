@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" role="img" aria-labelledby="title description">
+  <title id="title">Update the residual along one column</title>
+  <desc id="description">Subtract the column (1, one half) from residual (2, 3) to obtain (1, 2.5).</desc>
+  <rect width="480" height="240" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="15" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="24" y="28" fill="#192438" text-anchor="start">Update the residual along one column</text>
+    <polyline points="75.00,197.00 427.00,197.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="75.00,197.00 75.00,56.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="75.00,197.00 281.00,62.00" fill="none" stroke="#1e55b3" stroke-width="3" />
+    <polyline points="75.00,197.00 178.00,84.50" fill="none" stroke="#aa4b20" stroke-width="3" />
+    <polyline points="281.00,62.00 178.00,84.50" fill="none" stroke="#586577" stroke-width="2" />
+    <polyline points="193.00,75.00 178.00,84.50 195.00,88.00" fill="none" stroke="#586577" stroke-width="2" />
+    <circle cx="281" cy="62" r="4.5" fill="#1e55b3" />
+    <circle cx="178" cy="84.5" r="4.5" fill="#aa4b20" />
+    <text x="293" y="65" fill="#1e55b3" text-anchor="start">r = (2, 3)</text>
+    <text x="165" y="70" fill="#aa4b20" text-anchor="end">r′ = (1, 2.5)</text>
+    <text x="192" y="54" fill="#586577" text-anchor="start">subtract Δa</text>
+  </g>
+</svg>

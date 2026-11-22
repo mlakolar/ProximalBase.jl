@@ -44,8 +44,18 @@ The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supp
 
 The value uses Cholesky. It returns `NaN` at a logical NaN entry and `Inf`
 for other domain failures, with an all-NaN gradient in both cases. A zero step
-is the identity, including outside the domain. A positive finite step accepts
-finite inputs, including asymmetric or indefinite matrices. It diagonalizes
+is the identity, including outside the domain.
+
+### [Finite input at a positive step](@id log-det-loss.prox.finite-input)
+
+At a positive finite step the input check requires finite entries. Finite
+asymmetric and indefinite matrices pass this check. See
+[Finite-input range failures](@ref log-det-loss.prox.finite-input-range-failure)
+for failures after it.
+
+### Proximal computation at a positive step
+
+The proximal operator diagonalizes
 ``(X+X^\mathsf{T})/2-\gamma wS`` and replaces each eigenvalue ``d`` with the
 positive root of ``z^2-dz-\gamma w=0``.
 
@@ -65,8 +75,15 @@ factorization and writes.
 
 ## [Limitations and non-guarantees](@id spec-logdet-limitations)
 
-At extreme scales the shifted matrix, its spectrum, or the reconstruction can
-exceed the working range. The proximal point is positive definite in exact
+### [Finite-input range failures](@id log-det-loss.prox.finite-input-range-failure)
+
+For a finite input at a positive finite step, the shifted matrix, its
+spectrum, or the reconstruction can exceed the working range. The range
+checks can throw `ArgumentError` before the destination is written.
+
+### Stored-point domain
+
+The proximal point is positive definite in exact
 arithmetic. Rounding can take the stored point outside the numerical domain,
 in which case the fused value follows the standalone domain rule.
 
@@ -91,6 +108,8 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `log-det-loss.prox.invalid-step` | `guaranteed` | [Proximal step check](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L121-L127), [Concrete fused and allocating methods](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/logdet.jl#L171-L189), and [invalid steps and untouched destinations](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/logdet.jl#L118-L147) |
+| `log-det-loss.prox.finite-input` | `precondition` | [Positive-step input check](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/logdet.jl#L121-L137) and [Input validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/logdet.jl#L82-L94) |
+| `log-det-loss.prox.finite-input-range-failure` | `characterized` | [Range checks and staged writes](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/logdet.jl#L137-L169) and [Finite matrix with untouched destination](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/logdet.jl#L195-L197) |
 
 ## [History](@id spec-logdet-history)
 

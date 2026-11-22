@@ -12,13 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The LogDetLoss endpoint paragraph says a positive finite step accepts
-  finite inputs. It could describe the input check or imply that every
-  finite matrix yields a result. The extreme-range test uses a finite
-  matrix and checks a failure before writes. The scope of “accepts”
-  awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
-  · [Tests](../../../test/logdet.jl)
-
 - The SparseGroupNormL2 definition says the constructor “copies the
   supplied groups and weights”. For a collection with a concrete range
   element type, this could promise an independent copy of each supplied
@@ -105,6 +98,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [All-NaN projection](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/indballl2.md#L63-L67) could apply to every radius or only to positive finite ones | The all-NaN rule applies at a positive finite radius. A zero radius fills with positive zeros. An infinite radius copies the input. `guaranteed`. | [Radius branches](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl2.jl#L171-L182) · [Radius endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl2.jl#L239-L257) |
+
+## LogDetLoss decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Positive-step input wording](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/logdet.md#L43-L50) could describe the finiteness check or promise success for every finite input | At a positive finite step the input check requires finite entries. `precondition`. Later working-range checks can reject a finite matrix before any writes. `characterized`. | [Input check and range failures](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/logdet.jl#L121-L169) · [Preserved destination test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/logdet.jl#L195-L197) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

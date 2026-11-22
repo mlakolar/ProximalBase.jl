@@ -136,11 +136,26 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, guide)
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
-    def test_fence_before_the_guide_section_also_changes_example_context(self):
+    def test_unrelated_section_after_the_guide_section_is_allowed(self):
+        self.write(self.guide_path, self.guide + "\n## Another family\n\nAnother example.\n")
+        self.assertEqual(self.check()["findings"], [])
+
+    def test_unrelated_section_before_the_guide_section_is_allowed(self):
         heading = "## [Family guide](@id family-guide)"
-        decoy = "  " + heading + "\n\n```text\nExample explanation\n````\n\n"
-        self.write(self.guide_path, self.guide.replace(heading, decoy + heading, 1))
+        before = "## Another family\n\n```text\n" + heading + "\n```\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        self.assertEqual(self.check()["findings"], [])
+
+    def test_one_byte_inside_the_guide_section_changes_example_context(self):
+        self.write(self.guide_path, self.guide.replace("Compact groups", "Compact Groups", 1))
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_duplicate_guide_section_heading_is_rejected(self):
+        for heading in ("[Family guide](@id family-guide)", "[Duplicate title](@id family-guide)", "family guide"):
+            with self.subTest(heading=heading):
+                self.write(self.guide_path, self.guide + f"\n## {heading}\n\nDuplicate.\n")
+                with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                    self.check()
 
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path

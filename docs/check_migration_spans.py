@@ -45,8 +45,14 @@ def authored_section(page, path, anchor):
     section = m.section_text(page, anchor)
     # A fenced copy can contain the same section text as the authored heading.
     layout = m.located_destination_blocks(page, path)
-    heading = section.split("\n", 1)[0].rstrip()
-    headings = [first for block, first, _ in layout if block.kind == "heading" and block.text == heading]
+    headings = []
+    for block, first, _ in layout:
+        if block.kind == "heading":
+            try:
+                m.section_text(block.text, anchor)
+            except ValueError:
+                continue
+            headings.append(first)
     if len(headings) != 1 or not page.startswith(section, headings[0]):
         raise ValueError(f"cannot locate a unique authored section for {path}#{anchor}")
     return section, headings[0], layout
@@ -179,8 +185,9 @@ def check(reference, candidate, plan, root=m.ROOT):
                         for block in m.blocks(guide_section, guide))
     if not example_count or example_count != examples["count"]:
         raise ValueError("reference guide example count differs from the published inventory")
-    # Markdown before the section can change whether the examples execute.
-    if original_guide != current_guide:
+    current_section, _, _ = authored_section(current_guide, guide, anchor)
+    # Separating newlines belong to the section boundary.
+    if guide_section.rstrip("\n") != current_section.rstrip("\n"):
         findings.append(f"{examples['scope']}: retained examples or their guide context changed")
     return dict(reference=revision, candidate=candidate, passages=len(sources),
                 guide_examples=example_count, findings=findings)

@@ -899,3 +899,19 @@ verified the three changed blocks in the README family summary, the smooth
 API reference, and the migration scope paragraph. Each existing receipt
 gains one exact same-file transition. The audit retains 2,162 frozen block
 identities, 74 receipts, and 153 recorded transitions.
+
+## Reconciliation after the documentation-only CI path
+
+[#1162](https://github.com/mlakolar/ProximalBase.jl/pull/1162) landed as
+`72996eca9c38ea7e1051e3bf49fca43825703015` with first parent
+`9bd6d2aa886a3574818c958a044f2c47fafd24b7`.
+Independent review `sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015` verified five exact same-file
+transitions in the contributor instructions, repository hygiene guidance,
+developer change process, and two existing CI sharding spans in the test
+inventory. Three first receipts are recorded, and each CI sharding history
+gains one event. The nearby nightly-workflow addition in
+[#1164](https://github.com/mlakolar/ProximalBase.jl/pull/1164) leaves the
+five replacement spans intact.
+
+The audit retains 2,162 original block identities and 159 prior events.
+It now holds 77 receipts with 164 events.

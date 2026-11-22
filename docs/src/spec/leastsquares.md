@@ -46,10 +46,24 @@ two, without recovering every representable value (the smooth-functions guide gi
 described with the [smooth functions](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds))
 take the predictor `z` as given, without `β`: they recover a value whose squares overflow or underflow and, for the
 value alone, a difference `z - Y` that overflows, and a predictor with a non-finite entry gives a non-finite value.
-For strided `Float32` and `Float64` vectors, these oracles, `f(β)` and `value_and_gradient!` also recompute a value
-whose ordinary computation `α s / 2` is above `floatmax(T)/2`. The two matrix predictor
-oracles reuse that guard and the same squared-residual recovery. The guard keeps rounding
-in the ordinary sum from deciding between a finite value and `Inf`.
+
+**Implementation note.** When the squared-residual kernel takes strided
+vectors of one type `T` (`Float32` or `Float64`), these oracles, `f(β)`
+and `value_and_gradient!` also recompute a value whose ordinary computation
+`α s / 2` is above `floatmax(T)/2`. The vector condition describes the
+kernel's predictor or residual and the response when used. Coefficient
+calls first form the predictor in the internal work array `f.tmp`. The guard
+keeps rounding in the ordinary sum from deciding between a finite value and
+`Inf`.
+
+### [Overflow in the matrix predictor oracles](@id least-squares-loss.predictor.matrix-subtraction-overflow)
+
+Both matrix predictor oracles use the same ordinary-value guard. The
+value-only oracle can retry an overflowing `z - Y` using the supplied
+predictor `z` and response `Y`. The fused oracle forms and stores the
+residual `d` before computing the value from it. If the subtraction has
+already overflowed in `d`, the fused value can be `Inf` where the
+value-only oracle recovers a finite result.
 
 The complete [predictor and residual oracle section](../smooth.md#Least-squares-at-a-predictor-or-residual-that-the-caller-holds) retains its domain, rounding, range, gradient and buffer rules. It remains one shared owner for these related operations.
 
@@ -95,6 +109,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `least-squares-loss.value.recovery-scope` | `characterized` | [Fused gradient and value evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares.jl#L95-L114), [value recovery](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares.jl#L221-L235), [ordinary-call range tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/numerical_recovery.jl#L1198-L1219), and [predictor gradient range tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/leastsquares_predictor.jl#L501-L515) |
+| `least-squares-loss.predictor.matrix-subtraction-overflow` | `characterized` | [Matrix oracle value routes](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares_predictor.jl#L281-L313) and [Matrix residual overflow test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L1353-L1366) |
 
 ## [History](@id spec-leastsquares-history)
 

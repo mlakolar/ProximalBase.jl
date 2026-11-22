@@ -51,12 +51,29 @@ existing shared-rule owners. Follow the
 [new-family writing rules](docs/src/developer/writing_documentation.md#New-function-families)
 and update the contract family map and navigation.
 
-CI gates pull requests with current Julia 1.x on Linux. Three independent
-test shards cover the complete retained inventory with bounds checks. The
-frozen benchmark differential, repository hygiene checks and strict docs
-build run concurrently on separate Linux runners. The required checks remain
-`PR required jobs` and `PR merge gate` and require every validation lane to
-pass. Job-specific Julia caches are reused on subsequent runs. Reproduce one
+CI gates pull requests and master pushes with Julia 1.13 on Linux. A
+change-classification job runs the repository hygiene checks and classifies
+the changed paths. Three independent test shards cover the complete retained
+inventory with bounds checks, and the frozen benchmark differential and the
+strict docs build are eligible to run in parallel on separate Linux runners. A non-empty change is
+documentation-only when every changed path, including both sides of a rename
+and each deletion, is an added, modified or deleted regular file without the
+execute bit (an execute-bit change, a symlink or a submodule entry on either
+side is not), and the path is a top-level `*.md` file, a `.md`, `.svg`, `.png`
+or `.mmd` file under `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
+`docs/audit/docs-tracks-1019/`. Suffixes are matched case-sensitively. When
+the classification job succeeds with `docs_only=true`, the test shards and the
+benchmark are skipped; the strict docs build is scheduled independently and is
+still required. When it succeeds with
+`docs_only=false`, they run: this covers any other change, an empty change set,
+a push without a usable previous commit and a manual run. The strict docs build
+runs the executable Documenter blocks of the Markdown pages it builds, docstring
+doctests and isolated Literate examples. The classifier is `scripts/ci_changes.py`, with tests in
+`scripts/test_ci_changes.py`. The required checks remain `PR required jobs` and
+`PR merge gate`; they fail unless the classification and docs lanes succeed and
+the test and benchmark lanes were skipped (`docs_only=true`) or succeeded
+(`docs_only=false`).
+Job-specific Julia caches are reused on subsequent runs. Reproduce one
 shard with `julia scripts/test.jl --shard=1/3` (or `2/3`, `3/3`).
 GPU, cross-platform and release automation remain deferred. No release or
 ProximalSolvers pin/source change is implied.

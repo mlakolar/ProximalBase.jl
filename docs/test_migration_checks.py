@@ -145,7 +145,7 @@ class PostBaselineSpanTests(unittest.TestCase):
     def test_unrelated_section_before_the_guide_section_is_allowed(self):
         heading = "## [Family guide](@id family-guide)"
         for before in ("```text\n" + heading + "\n```\n\n",
-                       "- Item\n\n  ```text\n  Outside example.\n  ```\n\n"):
+                       "-   Item\n\n  ```text\n  Outside example.\n  ```\n\n"):
             with self.subTest(before=before):
                 preceding = "## Another family\n\n" + before
                 self.write(self.guide_path, self.guide.replace(heading, preceding + heading, 1))
@@ -161,6 +161,11 @@ class PostBaselineSpanTests(unittest.TestCase):
             with self.subTest(block=block):
                 self.write(self.guide_path, self.guide + f"\n{block}\n---\n" + after)
                 self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_paragraph_continuation_followed_by_rule_stays_in_the_guide_section(self):
+        extra = "A paragraph.\nAdditional guidance.\n---\n\n## Another family\n"
+        self.write(self.guide_path, self.guide + "\n" + extra)
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
     def test_duplicate_guide_section_heading_is_rejected(self):
         for heading in ("## [Family guide](@id family-guide)", "  ## [Another title](@id family-guide)",
@@ -191,6 +196,13 @@ class PostBaselineSpanTests(unittest.TestCase):
                         self.check()
                 else:
                     self.assertEqual(self.check()["findings"], [])
+
+    def test_list_ends_before_fence_after_two_empty_lines(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "- Item\n\n\n  ```text\n  Outside example.\n  ```\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+            self.check()
 
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path

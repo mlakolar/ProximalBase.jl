@@ -16,7 +16,7 @@ REFERENCE = m.AUDIT / "post-baseline-sparsegroupnorml2.json"
 ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?: (.*)|$)")
 SETEXT_UNDERLINE = re.compile(r"^ {0,3}(={3,}|-{3,})[ \t]*$")
 NAMED_HEADING = re.compile(r"\[.+\]\(@id\s+(.+?)\s*\)")
-LIST_PREFIX = re.compile(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +(?=\S)")
+LIST_PREFIX = re.compile(r"^ {0,3}(?:[-+*]|[0-9]+[.)])(?: |$)")
 OTHER_BLOCK = re.compile(r"^ {0,3}(?:>|!!!\s|\?\?\?\s|\[\^[^\]]+\]:|(?:[-*_][ \t]*){3,}$)")
 
 
@@ -49,37 +49,49 @@ def authored_headings(page):
     lines = page.splitlines(keepends=True)
     opened = None
     list_indent = 0
+    list_blank = False
+    block_start = True
     offset = 0
     for i, raw in enumerate(lines):
         start, offset = offset, offset + len(raw)
         line = raw.rstrip("\n")
-        fence = m.FENCE.match(line)
         if opened is not None:
-            # Match the opening indentation and delimiter run for fenced content.
-            if fence and line[:fence.end(1)] == opened:
+            # Julia Markdown closes a top-level fence with the same run at column zero.
+            if line.startswith(opened) and not line.startswith(opened + opened[0]):
                 opened = None
+                block_start = True
             continue
         indent = len(line) - len(line.lstrip(" "))
+        if list_indent and (not line or indent >= list_indent):
+            # A list parses its indented body separately and ends after two empty lines.
+            if not line and list_blank:
+                list_indent = 0
+                block_start = True
+            list_blank = not line
+            continue
+        if list_indent:
+            list_indent = 0
+            block_start = True
         item = LIST_PREFIX.match(line)
         if item:
             list_indent = item.end()
+            list_blank = False
             continue
-        elif line.strip() and indent < list_indent:
-            list_indent = 0
-        if fence and indent < list_indent + 4 and not line.startswith("\t") and fence[1][0] not in fence[2]:
-            # Julia Markdown closes a fence at column zero of its block.
-            opened = " " * list_indent + fence[1]
-            continue
-        if list_indent and indent >= list_indent:
+        fence = m.FENCE.match(line)
+        if fence and indent < 4 and not line.startswith("\t") and fence[1][0] not in fence[2]:
+            opened = fence[1]
             continue
         heading = ATX_HEADING.fullmatch(line)
         if heading:
             title = re.sub(r" +#+$", "", (heading[2] or "").strip())
             yield start, len(heading[1]), title
-        elif re.match(r"^ {0,3}\S", line) and not OTHER_BLOCK.match(line) and i + 1 < len(lines):
+            block_start = True
+            continue
+        if block_start and re.match(r"^ {0,3}\S", line) and not OTHER_BLOCK.match(line) and i + 1 < len(lines):
             underline = SETEXT_UNDERLINE.fullmatch(lines[i + 1].rstrip("\n"))
             if underline:
                 yield start, 1 if underline[1][0] == "=" else 2, line.strip()
+        block_start = not line.strip() or bool(SETEXT_UNDERLINE.fullmatch(line))
 
 
 def authored_section(page, path, anchor):

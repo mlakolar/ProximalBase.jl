@@ -608,8 +608,10 @@ stored output, up to the order of the sums of squares (see the [GroupMCP results
 ### Zero-group screen
 
 At a zero group, `kkt_violation(g, v, x, k)` is the screen of `GroupNormL2` with the level and the weight as separate
-factors (``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; see the
-[failure behavior](@ref spec-groupmcp-failures) for the other cases), and an entry in no group scores `abs(v[k])`. At a
+factors (``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite
+[converted gradient entries](@ref group-mcp.kkt.entry-classification) and finite
+`λ0` and `w_k`; see the [failure behavior](@ref spec-groupmcp-failures) for the other cases),
+and an entry in no group scores `abs(v[k])`. At a
 real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score does not imply
 a global minimizer.
 

@@ -147,10 +147,16 @@ proximal oracle with a scalar step throws an `ArgumentError` before any write.
 
 At a real array point (`Array`, `SparseIterate` or `BlockIterate`), `kkt_violation(f, v, x, k)` returns at a zero group
 the signed screen of `GroupNormL2` with the level and the weight as separate factors: ``\lVert v_{G_k}\rVert_2-\lambda_0w_k``
-for finite `v`, `λ0` and `w_k`, up to rounding; ``\lVert v_{G_k}\rVert_2`` for a zero weight, whatever `λ0`; otherwise
+for finite converted gradient entries and finite `λ0` and `w_k`, up to rounding; ``\lVert v_{G_k}\rVert_2`` for a zero weight, whatever `λ0`; otherwise
 the rules of that screen for `NaN` and infinite values. At an entry in no group it returns `abs(v[k])`. It throws an `ArgumentError` at a nonzero group, as do
 `kkt_violation(f, v, x)` and `kkt_violation(f, v, i)`. Layout, count and extent errors are those of `GroupNormL2`. A
 call with a `SymmetricSparseIterate` point that passes the shared argument checks throws a `MethodError`.
+
+### [Working type of the zero-group screen](@id group-mcp.kkt.entry-classification)
+
+The zero-group screen checks finiteness after converting the gradient
+entries to `W = float(promote_type(eltype(v), eltype(x)))`. A finite stored
+entry that overflows on conversion is treated as infinite.
 
 ## [Limitations and non-guarantees](@id spec-groupmcp-limitations)
 
@@ -176,10 +182,12 @@ behavior. A `SparseIterate` destination is written entry by entry, as for `Group
 
 ## [Clauses owned elsewhere](@id spec-groupmcp-elsewhere)
 
+**Links only.**
+
 | Subject | Owning section |
 |:--|:--|
-| The scalar penalty and its proximal map | [MCP numerical contract](@ref mcp-contract) |
-| Group norms, the screen and soft shrinkage at `a = Inf` | [GroupNormL2 numerical contract](groupnorml2.md) |
+| The scalar penalty and its proximal map | [MCP definition](@ref spec-mcp-definition) and [MCP ordinary-path clauses](@ref spec-mcp-ordinary) |
+| Group norms, the screen and soft shrinkage at `a = Inf` | [GroupNormL2 range clauses](@ref spec-groupnorml2-range), [GroupNormL2 endpoint clauses](@ref spec-groupnorml2-endpoints), and [KKT endpoint clauses](@ref spec-kkt_violation-endpoints) |
 | Supported precision and oracle agreement | [Supported precision and oracle agreement](../numerics.md#Supported-precision-and-oracle-agreement) |
 | Shared range bounds and recovery limits | [Range guarantees](@ref numerical-value-range) |
 | Ownership and aliasing | [Ownership and aliases](../numerical_usage.md#Ownership-and-aliases) |
@@ -187,6 +195,10 @@ behavior. A `SparseIterate` destination is written entry by entry, as for `Group
 | Scaling a function | [Scaling a function](@ref scaling-guide) |
 
 ## [Evidence](@id spec-groupmcp-evidence)
+
+| Clause ID | Status | Evidence |
+|:--|:--|:--|
+| `group-mcp.kkt.entry-classification` | `characterized` | [GroupMCP dispatch to the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533), [Working-type conversion in the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145), and [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1241) |
 
 [`test/groupmcp.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/groupmcp.jl) compares the proximal
 map with a BigFloat minimization of the radial objective that does not use the package: the scalar reference of

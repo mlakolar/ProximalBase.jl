@@ -41,14 +41,19 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--ch
 python3 docs/check_html.py
 ```
 
-CI is `.github/workflows/CI.yml`: three deterministic package-test
-shards plus independent frozen benchmark and strict documentation validation
-run concurrently on Linux/current Julia 1.x. The `PR required jobs` verdict
-and `PR merge gate` require all five validation lanes. There is no
-LTS/cross-platform/GPU matrix. HTML and job-specific logs are retained as
-artifacts; every PR still executes every declared test file with bounds
-checks. On master pushes, a deployment job waits for the merge gate, retrieves
-the validated HTML artifact and calls `docs/deploy.jl` to publish development
+CI is `.github/workflows/CI.yml`. A change-classification job checks
+repository hygiene and classifies the changed files with
+`scripts/ci_changes.py`. When every changed path is documentation (top-level
+Markdown, Markdown and images under `docs/`, and data files under
+`docs/audit/`), the three package-test shards and the frozen benchmark
+differential are skipped. Every other change runs them, concurrently with
+strict documentation validation, on Linux with Julia 1.13. The
+`PR required jobs` verdict and `PR merge gate` require the classification and
+documentation lanes, and either both skipped lanes (documentation-only) or both
+successful lanes (any other change). There is no LTS/cross-platform/GPU matrix
+in the required checks. HTML and job-specific logs are retained as artifacts.
+On master pushes, a deployment job waits for the merge gate, retrieves the
+validated HTML artifact and calls `docs/deploy.jl` to publish development
 documentation. Same-repository non-draft PRs publish their validated HTML
 artifact to an isolated `gh-pages` preview through a separate job that never
 executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass

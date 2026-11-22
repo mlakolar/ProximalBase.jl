@@ -7,10 +7,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: minimal-ci-${{ github.workflow }}-${{ github.ref }}
-  # A superseded pull-request run is cancelled. A master run completes, because
-  # the next push is classified against its own `before` commit, which does not
-  # cover the commits of an earlier cancelled push.
+  # A pull-request run is cancelled when the PR is updated. A push or manual
+  # run has its own group per commit, so it is neither cancelled nor replaced
+  # while pending: the next push is classified against its own `before`
+  # commit, which does not cover the commits of an earlier push.
+  group: minimal-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # `changes` classifies the changed files. When every changed path is

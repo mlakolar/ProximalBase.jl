@@ -31,6 +31,7 @@ end
     @test !occursin("pull_request_target:",workflow)
     @test !occursin("paths-ignore",workflow)
     @test occursin("cancel-in-progress: \${{ github.event_name == 'pull_request' }}",workflow)
+    @test occursin("group: minimal-ci-\${{ github.workflow }}-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}",workflow)
     rules=TOML.parsefile(joinpath(root,".github","tier-rules.toml"))
     @test Set(keys(rules["platforms"]))==Set(["linux"])
     @test rules["platforms"]["linux"]["julia"]=="1.13"

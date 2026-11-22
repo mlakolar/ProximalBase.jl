@@ -247,7 +247,7 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
     g2 = GroupSCAD(s, [1:2], T[1]; a = T(3))
     @test all(isequal(zero(T)), prox_block(g2, s .* T[3, -4], 1, T(25 / 4)))
     @test all(isequal(zero(T)), prox_block(g2, s .* T[3, -4], 1, nextfloat(T(25 / 4))))
-    @test prox_block(g2, s .* T[3, -4], 1, prevfloat(T(25 / 4))) == s .* T[3, -4]
+    @test prox_block(g2, s .* T[3, -4], 1, prevfloat(T(25 / 4), 4)) == s .* T[3, -4]   # the cutoff √(γ (a + 1)) is rounded
   end
 end
 

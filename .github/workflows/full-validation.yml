@@ -1,24 +1,83 @@
 name: Full validation
+# Scheduled and manual validation, separate from the ordinary pull-request and push-to-master
+# required checks. Modes: `full`, `focused` (named files) and `release` (`full` on an expected
+# SHA plus a successful CI.yml run on it; see CI_REQUIRED_JOBS in
+# scripts/full_validation_verdict.py).
 on:
   schedule:
     - cron: '23 9 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'full (all platforms, both Julia versions), focused (needs files) or release (needs expected_sha)'
+        type: choice
+        default: full
+        options: [full, focused, release]
+      platforms:
+        description: 'Runner platform; full and release need all, only focused accepts another value'
+        type: choice
+        default: all
+        options: [all, linux, windows, macos]
+      julia:
+        description: 'Julia minor version; full and release need both, only focused accepts another value'
+        type: choice
+        default: both
+        options: [both, '1.10', '1.13']
+      files:
+        description: 'Focused mode: exact test names from test/tiers.toml separated by spaces or tabs (at most 20)'
+        type: string
+        default: ''
+      expected_sha:
+        description: 'Commit SHA (40 lowercase hexadecimal characters) that the run must check out; required for release'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
-  group: full-validation-${{ github.ref }}
+  # A manual run gets a group of its own; scheduled runs of one ref share one.
+  group: full-validation-${{ github.ref }}-${{ github.event_name == 'schedule' && 'nightly' || github.run_id }}
   cancel-in-progress: false
 jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      mode: ${{ steps.plan.outputs.mode }}
+      files: ${{ steps.plan.outputs.files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the plan script
+        run: python3 -B scripts/test_full_validation_plan.py
+      # The inputs are passed through env. A scheduled run has none, and the script then uses
+      # the defaults.
+      - name: Validate the inputs and write the plan
+        id: plan
+        env:
+          PB_MODE: ${{ inputs.mode }}
+          PB_PLATFORMS: ${{ inputs.platforms }}
+          PB_JULIA: ${{ inputs.julia }}
+          PB_FILES: ${{ inputs.files }}
+          PB_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: python3 -B scripts/full_validation_plan.py --tiers test/tiers.toml --plan-out plan.json
+      - name: Preserve the plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-validation-plan
+          path: plan.json
+          retention-days: 30
+          if-no-files-found: error
+          overwrite: true
   test:
-    name: Full / ${{ matrix.os }} / Julia ${{ matrix.julia }} (shard ${{ matrix.shard }}/3)
+    name: ${{ matrix.label }}
+    needs: [plan]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        julia: ['1.10', '1.13']
-        shard: [1, 2, 3]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     defaults:
       run:
         shell: bash
@@ -30,20 +89,26 @@ jobs:
         with:
           version: ${{ matrix.julia }}
       - uses: julia-actions/cache@v3
-      - name: Run the full tier (shard ${{ matrix.shard }}/3)
+      - name: Run the ${{ needs.plan.outputs.mode }} validation (shard ${{ matrix.shard }}/${{ matrix.shards }})
         env:
           PB_OS: ${{ matrix.os }}
           PB_JULIA: ${{ matrix.julia }}
           PB_SHARD: ${{ matrix.shard }}
+          PB_SHARDS: ${{ matrix.shards }}
+          PB_MODE: ${{ needs.plan.outputs.mode }}
+          PB_FILES: ${{ needs.plan.outputs.files }}
         run: |
           set -euo pipefail
           # A workspace-relative path avoids mixing Windows and POSIX temporary paths.
           mkdir -p full-validation-logs
           log="full-validation-logs/full-validation-${PB_OS}-${PB_JULIA}-${PB_SHARD}.log"
-          printf 'PB_FULL_VALIDATION commit=%s os=%s julia=%s shard=%s/3\n' \
-            "$(git rev-parse HEAD)" "$PB_OS" "$PB_JULIA" "$PB_SHARD" | tee "$log"
+          printf 'PB_FULL_VALIDATION commit=%s os=%s julia=%s shard=%s/%s mode=%s shards=%s\n' \
+            "$(git rev-parse HEAD)" "$PB_OS" "$PB_JULIA" "$PB_SHARD" "$PB_SHARDS" "$PB_MODE" "$PB_SHARDS" | tee "$log"
           julia -e 'using InteractiveUtils; versioninfo()' 2>&1 | tee -a "$log"
-          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; test_args=["--tier=full","--shard=" * ENV["PB_SHARD"] * "/3"], julia_args=["--check-bounds=yes"])' 2>&1 | tee -a "$log"
+          # In focused mode the validated names are passed to the runner with --exact. The
+          # argument vector is built here from the environment.
+          julia --project=. -e 'using Pkg; args = ["--tier=full", "--shard=" * ENV["PB_SHARD"] * "/" * ENV["PB_SHARDS"]]; ENV["PB_MODE"] == "focused" && append!(args, ["--exact"; String.(split(ENV["PB_FILES"]))]); Pkg.instantiate(); Pkg.test(; test_args=args, julia_args=["--check-bounds=yes"])' 2>&1 | tee -a "$log"
+      # This step attempts to upload the cell log.
       - name: Preserve full validation log
         if: always()
         uses: actions/upload-artifact@v7
@@ -54,28 +119,41 @@ jobs:
           if-no-files-found: error
   verdict:
     name: Full validation verdict
-    needs: [test]
+    needs: [plan, test]
     if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
+    outputs:
+      attempt: ${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Require the plan
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+        run: |
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "The plan job concluded '$PLAN_RESULT'. See its log: a rejected input, or a failed step after the validation such as the plan upload, can cause this. Fix the cause and start a new run." >&2
+            exit 1
+          fi
       - name: Test the verdict script
         run: python3 -B scripts/test_full_validation_verdict.py
-      # The pattern selects artifact names that carry this run attempt. If it matches
-      # nothing, the verdict script reports each expected cell as missing. A rerun
-      # passes only if it reran all 18 matrix jobs; a cell left on an earlier
-      # attempt is reported missing.
+      # The pattern selects the logs of this attempt; the verdict script requires one for each
+      # planned cell. It reads a single flat log file as well as one directory per artifact.
       - name: Download the cell logs
         uses: actions/download-artifact@v8
         with:
           pattern: full-validation-log-*-attempt-${{ github.run_attempt }}
           path: logs
           merge-multiple: false
+      - name: Download the plan
+        uses: actions/download-artifact@v8
+        with:
+          name: full-validation-plan
+          path: plan
       - name: Fetch the job conclusions of this run attempt
         env:
           GH_TOKEN: ${{ github.token }}
@@ -83,11 +161,116 @@ jobs:
           set -euo pipefail
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
             --jq '.jobs[] | {name, conclusion}' > jobs.jsonl
-      - name: Check the full selection in every cell
+      # Release mode: the CI.yml runs on this commit with event push or workflow_dispatch and
+      # conclusion success, with their jobs. The verdict script checks the jobs against
+      # CI_REQUIRED_JOBS.
+      - name: Fetch the CI runs of the candidate commit
+        if: needs.plan.outputs.mode == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/CI.yml/runs?head_sha=$GITHUB_SHA&per_page=100" \
+            --jq '.workflow_runs[] | select((.event == "push" or .event == "workflow_dispatch") and .conclusion == "success") | {id, head_sha, event, conclusion, html_url, run_attempt}' > ci_run_candidates.jsonl
+          : > ci_runs.jsonl
+          while read -r run; do
+            id=$(jq -r '.id' <<< "$run")
+            attempt=$(jq -r '.run_attempt' <<< "$run")
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$id/attempts/$attempt/jobs?per_page=100" \
+              --jq '.jobs[] | {name, conclusion}' < /dev/null | jq -s '.' > ci_jobs.json
+            jq -c --slurpfile jobs ci_jobs.json '. + {jobs: $jobs[0]}' <<< "$run" >> ci_runs.jsonl
+          done < ci_run_candidates.jsonl
+          jq -s '.' ci_runs.jsonl > ci_runs.json
+      - name: Check the planned cells
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          PB_MODE: ${{ needs.plan.outputs.mode }}
         run: |
+          set -euo pipefail
+          extra=()
+          if [ "$PB_MODE" = "release" ]; then
+            extra=(--ci-runs ci_runs.json)
+          fi
           # GITHUB_SHA is set by the runner: the commit the scheduled or dispatched run checked out.
           python3 scripts/full_validation_verdict.py --logs logs --tiers test/tiers.toml \
             --jobs jobs.jsonl --attempt "$GITHUB_RUN_ATTEMPT" \
-            --expected-commit "$GITHUB_SHA" --aggregate "$TEST_RESULT" --summary "$GITHUB_STEP_SUMMARY"
+            --expected-commit "$GITHUB_SHA" --aggregate "$TEST_RESULT" --summary "$GITHUB_STEP_SUMMARY" \
+            --plan plan/plan.json --signature signature.txt "${extra[@]}"
+      - name: Preserve the failure signature
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-validation-signature-attempt-${{ github.run_attempt }}
+          path: signature.txt
+          retention-days: 30
+          if-no-files-found: ignore
+  # Scheduled runs only: attempts to open, reopen or comment on an issue for the failure signature.
+  report:
+    name: Nightly failure report
+    needs: [verdict]
+    if: ${{ always() && needs.verdict.result == 'failure' && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      # The artifact name uses the attempt that the verdict job reports in its `attempt` output.
+      - name: Download the failure signature
+        uses: actions/download-artifact@v8
+        with:
+          pattern: full-validation-signature-attempt-${{ needs.verdict.outputs.attempt }}
+          path: signature
+          merge-multiple: true
+      # Issues are matched by label and exact title.
+      - name: Open, reopen or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PRODUCING_ATTEMPT: ${{ needs.verdict.outputs.attempt }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          sig=signature/signature.txt
+          label=nightly-full-validation
+          case "$PRODUCING_ATTEMPT" in
+            ''|*[!0-9]*) link="$RUN_URL" ;;
+            *) link="$RUN_URL/attempts/$PRODUCING_ATTEMPT" ;;
+          esac
+          # A usable signature file has restricted lines, one hash line, at least one other line
+          # and a matching hash.
+          pattern='^(((ubuntu|windows|macos)-latest 1\.(10|13)|global): [a-z0-9_, -]+|signature-hash: [0-9a-f]{12})$'
+          hash=verdict-incomplete
+          lines='verdict-incomplete: the verdict job wrote no valid failure signature'
+          if [ -f "$sig" ] && [ "$(grep -Ev "$pattern" "$sig" | wc -l)" = 0 ] \
+              && [ "$(grep -c '^signature-hash: ' "$sig")" = 1 ] && [ "$(grep -vc '^signature-hash: ' "$sig")" -ge 1 ]; then
+            candidate=$(sed -n 's/^signature-hash: //p' "$sig")
+            body=$(grep -v '^signature-hash: ' "$sig")
+            if [ "$(printf '%s\n' "$body" | sha256sum | cut -c1-12)" = "$candidate" ]; then
+              hash=$candidate
+              lines=$body
+            fi
+          fi
+          title="Nightly full validation failing [$hash]"
+          gh label create "$label" --description "Nightly full validation failure" --color B60205 --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&labels=$label&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | {number, state, title}' | jq -s '.' > issues.json
+          open=$(jq -r --arg title "$title" '[.[] | select(.title == $title and .state == "open")] | sort_by(.number) | .[0].number // empty' issues.json)
+          closed=$(jq -r --arg title "$title" '[.[] | select(.title == $title and .state == "closed")] | sort_by(.number) | last | .number // empty' issues.json)
+          number=${open:-$closed}
+          if [ -z "$open" ] && [ -n "$closed" ]; then
+            gh issue reopen "$closed" --repo "$GITHUB_REPOSITORY"
+          fi
+          if [ -n "$number" ]; then
+            {
+              printf 'The nightly full validation failed again with this signature.\n\n'
+              printf 'Run: %s\nCommit: %s\nDate: %s\n' "$link" "$COMMIT" "$(date -u +%Y-%m-%d)"
+            } > comment.md
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file comment.md
+          else
+            {
+              printf 'The nightly full validation failed with this signature:\n\n'
+              printf '```text\n%s\n```\n\n' "$lines"
+              printf 'Run: %s\nCommit: %s\n\n' "$link" "$COMMIT"
+              printf 'This is the nightly advisory, separate from the ordinary pull-request and push-to-master required checks.\n'
+            } > body.md
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$label" --body-file body.md
+          fi

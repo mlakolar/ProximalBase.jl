@@ -12,16 +12,11 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The GroupMCP zero-group screen describes the margin “for finite `v`,
-  `λ0` and `w_k`”. Finiteness of the gradient could refer to the stored
-  entries or to the entries after conversion to the working type. The
-  shared screen classifies the converted entries. Tests of the shared
-  screen exercise finite integers that become infinite after conversion.
-  The wording awaits the owner's decision.
-  [GroupMCP failure behavior](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/docs/src/spec/groupmcp.md#L148-L153)
-  · [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533)
-  · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145)
-  · [Mixed-width tests](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1240)
+## GroupMCP decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Gradient finiteness in the zero-group screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/docs/src/spec/groupmcp.md#L148-L153) could refer to stored or converted entries | The screen classifies entries after conversion to the working type. A finite stored entry that overflows in the conversion is treated as infinite. `characterized`. | [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533) · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145) · [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1241) |
 
 ## Migration scope decisions
 

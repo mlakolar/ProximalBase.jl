@@ -1,5 +1,18 @@
 # Documentation reader-track migration
 
+**Closed.** This audit is frozen evidence, with no further edits expected.
+
+The six blocking preservation checks, migration-only source/test scope guard,
+removed-lines report and standalone passage check last passed at
+`8a5fac060a5618cedac05563267212e2e3b15bd6`. The owner approved Phase 5
+acceptance at that revision.
+[Acceptance record](https://github.com/mlakolar/ProximalBase.jl/issues/1019#issuecomment-7075157741) ·
+[Owner sign-off](https://github.com/mlakolar/ProximalBase.jl/issues/1019#issuecomment-7081858154)
+
+The migration procedures below describe the historical audit.
+The retired tools and their commands are available at the
+[accepted revision](https://github.com/mlakolar/ProximalBase.jl/blob/8a5fac060a5618cedac05563267212e2e3b15bd6/docs/audit/docs-tracks-1019/README.md).
+
 Tracking issue: [#1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019).
 The frozen documentation provenance baseline is
 `7ae86e2093060eb124211e2f21f043c6379f97ae`.
@@ -28,10 +41,9 @@ the baseline source/test references to `numerics.md`; the check also reads
 current citations. `baseline.json` records the baseline and immutable example
 script hashes. These nine scripts are preserved exactly.
 
-The baseline HTML itself is a build artifact, not repository content. In CI,
-the exact baseline and recorded upstream-provenance commits must be available
-locally; the workflow fetches those commits at depth one. The regular documentation build
-still runs the nine isolated scripts, doctests, and all executable manual
+The baseline HTML itself is a build artifact, not repository content. During the migration,
+CI fetched the exact baseline and recorded upstream-provenance commits at depth
+one. The regular documentation build still runs the nine isolated scripts, doctests, and all executable manual
 examples; provenance checks do not replace their execution.
 
 The initial parser correction for fragment-only links changed the normalized
@@ -48,34 +60,18 @@ defects. Recomputing every block from the same frozen source confirmed that
 this correction changes no hash in the present baseline or its exact moved
 destinations; all 2,162 block IDs and their actions are unchanged.
 
-## Running the six checks
+## The six preservation checks
 
-```sh
-python3 -m unittest discover -s docs -p 'test_migration_checks.py'
-python3 docs/check_migration.py --check all --build docs/build
-```
+The checker ran fixture tests and accounted for blocks, tokens, sentences,
+anchors, citations and examples in both local and CI runs. Report-only mode
+printed each result and its findings. Blocking mode also failed on preservation
+findings and was used for the final acceptance run. Missing or unreadable
+configuration was an execution error in either mode.
 
-Local and CI builds use the same command and the same acceptance rules.
-
-The default is report-only: every check prints `PASS` or `FAIL` and its findings,
-but preservation findings do not change the command's exit status. Missing or
-unreadable configuration is an execution error, not a successful report. Use
-`--blocking` for an explicit acceptance run; the planned final lock will make
-that invocation mandatory in CI. A single check can be selected with
-`--check blocks`, `tokens`, `sentences`, `anchors`, `citations`, or `examples`.
-
-For the docs-only scope check, supply the PR's merge base explicitly:
-
-```sh
-python3 docs/check_migration.py --blocking --scope-base "$PR_MERGE_BASE"
-```
-
-This rejects changes in `src/` and `test/` relative to that PR base. The frozen
-documentation baseline is deliberately not the source-code comparison base:
-unrelated upstream implementation changes may continue during this migration.
-The source/test trees and source docstrings are therefore protected by PR scope,
-while their links to old manual locations are protected by the anchor and
-citation checks.
+The migration-only scope guard compared the source and test trees with the PR's
+merge base. The frozen documentation baseline served as the reference for
+preservation accounting. Anchor and citation checks protected links from source
+and test files to the manual.
 
 ## Exact anchors and runtime-generated identities
 
@@ -230,7 +226,7 @@ To record the actual relocation as well, include `reviewed_move` with the
 move's full `before_commit` and `after_commit` IDs. The checker verifies the
 first-parent diff, the same historical receipt in both trees, the tracked
 ledger rows and the landed migration basis. The ordered span must leave the
-original file and appear at the named destination. CI fetches both revisions
+original file and appear at the named destination. CI fetched both revisions
 alongside the upstream event revisions.
 
 The checker derives the complete replacement span from the source-owned changed
@@ -243,7 +239,7 @@ them: unrelated upstream work may edit other sections. Exact block-hash
 continuity is mandatory. Each event verifies exact contiguous replacement spans
 within one file. Each PR's merged status is independently verified and recorded
 in `review.md`; an offline
-checker cannot authenticate it. CI fetches the exact before/after revisions for
+checker cannot authenticate it. CI fetched the exact before/after revisions for
 every recorded event at depth one, deduplicating revisions shared by events.
 
 All accounting checks accept the upstream disposition only after that evidence
@@ -285,8 +281,8 @@ scope claims, supported-argument descriptions, or evidence references inside
 coverage cells. An exemption for the whole blocks would also exempt those
 claims. This temporary migration therefore accepts the reconciliation cost;
 batch several reviewed external changes in one documentation update when
-practical. Numerical text always retains its exact provenance. The migration
-checks still retire after Phase 5 acceptance.
+practical. Numerical text always retains its exact provenance. Phase 5 acceptance ended the
+migration checks.
 
 ## Reviewed rewrites and exact allowances
 
@@ -328,12 +324,12 @@ its provenance. Destination matching recognizes exact child sentences in the
 three guides. Occurrence checks reject reuse across overlapping whole-paragraph
 and child destinations, as well as reuse by different `reword` or `split` rows.
 
-The read-only helper `docs/refine_migration_ledger.py` prepares replacement root
-rows from a JSON list of `block_id` and ordered `destinations` arrays. It requires
-an actual independent `reviewer@revision`, prints its proposed rows, and never
-overwrites the ledger. Review the output, apply it, then run every preservation
-check. For programmatic use, `sentence_children`, `refinement_inventory` and
-`validated_refinements` expose the same frozen units.
+The read-only refinement helper prepared replacement root rows from a JSON
+list of `block_id` and ordered `destinations` arrays. It required an independent
+`reviewer@revision` and printed proposed rows for review. The workflow ran all
+preservation checks after applying the reviewed rows. For programmatic use,
+`sentence_children`, `refinement_inventory` and `validated_refinements` exposed
+the same frozen units.
 
 Six refined roots already have reviewed upstream changes. Their original
 receipts must survive the subsequent move. `migration-bases.json` has schema 1
@@ -347,22 +343,13 @@ the frozen block, a basis requires the same committed move row, exact event
 blobs, named section and terminal hashes as the active receipt. It does not compare to obsolete pre-feature words
 or exempt the later migration. Stale and unused basis records fail.
 
-## Updating the ledger
+## Ledger updates during the migration
 
-Initialization is one-time and refuses to overwrite the ledger:
-
-```sh
-python3 docs/check_migration.py --init --baseline-html /path/to/unchanged/build
-```
-
-For mechanical moves, prepare a JSON list with `source`, `text`, `destination`,
-and optional `anchor` fields. `text` must be a unique verbatim span in the frozen
-source file. The helper updates only baseline blocks fully contained in those
-spans, validates the complete resulting ledger, and writes only on success:
-
-```sh
-python3 docs/check_migration.py --apply-moves /path/to/moves.json --blocking
-```
+Initialization was one-time and refused to overwrite the ledger. For mechanical
+moves, the helper took a JSON list with `source`, `text`, `destination` and
+optional `anchor` fields. `text` had to be a unique verbatim span in the frozen
+source file. The helper updated only baseline blocks fully contained in those
+spans, validated the complete resulting ledger and wrote only on success.
 
 Do not regenerate the baseline to make findings disappear. New authored content
 does not need a baseline ledger row; existing content must always retain its
@@ -370,21 +357,16 @@ original provenance. When a parser limitation affects a real move, add a
 focused fixture and make the limitation visible in review. Do not broaden the
 parser speculatively or replace a missing block with an aggregate-count check.
 
-The supplemental removed-lines report covers text added after the frozen baseline:
-
-```sh
-python3 docs/check_migration_lines.py "$PR_MERGE_BASE"
-```
-
-It compares the change's actual base with the current tree under `docs/src`,
-including new destination files. Every removed nonblank line must reappear among
-the added lines, with identical literal whitespace and enough occurrences. It
-does not credit unchanged copies elsewhere or use ledger exemptions. Reflow,
-link repairs and deliberate rewrites remain visible for review. The default is
-report-only; `--blocking` is available for a verbatim move. A clean line report
-supplements the six checks and independent review, not a claim of semantic
-equivalence. CI retains this report beside the preservation log for every change,
-including changes that do not touch the ledger.
+The supplemental removed-lines report covered text added after the frozen
+baseline. It compared the change's actual base with the current tree under `docs/src`,
+including new destination files. Each removed nonblank line had to reappear
+among the added lines, with identical literal whitespace and enough occurrences.
+The check accounted for added lines within the diff without ledger exemptions.
+Reflow, link repairs and deliberate rewrites remained visible for review.
+Report-only mode was the default, and blocking mode was available for verbatim
+moves. The line report supplemented the six checks and independent semantic
+review. CI retained it beside the preservation log for each change, including
+changes that did not touch the ledger.
 
 ## Checking the SparseGroupNormL2 clause pilot
 
@@ -394,12 +376,8 @@ It reads the move manifest at the pinned merge commit and verifies the original
 spans against that commit's first parent. Both Git revisions must be available
 locally. The check reads the authored UTF-8 Git blobs with LF line endings.
 
-```sh
-python3 -B docs/check_migration_spans.py HEAD
-```
-
-For a reviewed candidate that rewrites or splits a passage, pass `--rewrites`
-with the path of its JSON mapping in the candidate commit. The mapping uses
+For a reviewed rewrite or split, the check read a JSON mapping from the
+candidate commit. The mapping uses
 schema 1 and a `changes` list. Each entry names the original
 `source_sha256`, an `action` of `reword` or `split`, the independent
 `reviewer@revision` in `reviewer`, and ordered `destinations`. Each
@@ -411,17 +389,16 @@ The check compares protected token and example counts within each reviewed
 passage. A split also preserves the original words. Each replacement occupies
 its own occurrence in the contract. The exact published SparseGroupNormL2
 guide section preserves both example bodies and the Markdown context within
-that section. Take any intentional protected change to separate review. Run the
-command alongside the six preservation checks and the removed-lines report.
+that section. Intentional changes to protected material received separate
+review. The standalone result supplemented the six preservation checks and
+the removed-lines report.
 
-After the final Phase 5 blocking acceptance, retire the six temporary migration
-checks, the removed-lines report and the migration-only source/test scope guard
-from routine CI. End the standalone passage check at the same checkpoint.
-Remove the temporary retirement-record/frozen-inventory sentence
-from `developer/writing_documentation.md`, retaining its forwarding and new-family
-routing rules. Retain this frozen audit and its final acceptance evidence.
-Ordinary strict builds, links, API coverage and executable-example checks
-continue to protect the manual.
+Phase 5 acceptance ended the temporary migration checks and the writing guide's
+migration-audit recording instruction. The writing guide's
+[forwarding and new-family routing rules](../../src/developer/writing_documentation.md)
+still apply. Ordinary strict builds, rendered link checks, API coverage,
+contract schema validation and executable-example checks continue to protect
+the manual.
 
 The `NormL1Nonneg` and `ElasticNet` mechanical moves temporarily keep the old
 automatic subsection headings as forwarding entries so the frozen page/fragment

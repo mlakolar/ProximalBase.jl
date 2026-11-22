@@ -54,7 +54,8 @@ squares, and is otherwise unchanged.
 |:--|:--|
 | `GroupNormL2`, zero weight | Unpenalized group: returned unchanged (`NaN`/`±Inf` included), zero value |
 | `GroupNormL2`, infinite weight, or infinite level with a positive weight | Group fixed at `+0` at every nonnegative step, `γ = 0` included (see [zero-step rule](@ref infinite-penalty-at-zero-step)), also for `NaN`/`±Inf` inputs; value `0` at zero, `Inf` elsewhere (`NaN` at a `NaN` entry) |
-| `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows; `γ = Inf` fixes the group at `+0` |
+| `GroupNormL2`, positive finite level and weight, `γ = Inf` | [Fill the group with `+0`](@ref group-norm-l2.prox.infinite-step) |
+| `GroupNormL2`, positive finite parameters and step | A `NaN` entry makes the group `NaN`; a `±Inf` entry (no `NaN`) leaves the group unchanged, also when the finite threshold's product overflows |
 | `GroupNormL2`, negative or `NaN` step | `ArgumentError` before any write, in `prox!`, `value_and_prox!` and `prox_block!` |
 
 | Case | Result for group ``k`` |
@@ -69,6 +70,11 @@ squares, and is otherwise unchanged.
 
 The common interpretation of [infinite penalties at zero step](@ref infinite-penalty-at-zero-step)
 applies. A finite zero group becomes `+0` under positive finite parameters.
+
+### [Proximal result at an infinite step](@id group-norm-l2.prox.infinite-step)
+
+For a group with a positive finite level and weight, the infinite step
+`γ = Inf` makes its proximal result `+0` throughout.
 
 ### [Values at infinite weights or levels](@id group-norm-l2.value.infinite-penalty)
 
@@ -124,6 +130,7 @@ proximal operators, the block operations and the screen against their formulas.
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `group-norm-l2.value.infinite-penalty` | `guaranteed` | [Group value route](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/groupnorml2.jl#L185-L195), [Zero-weight exit](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/numerical_kernels.jl#L960-L964), [Infinite penalty value classifier](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/numerical_kernels.jl#L997-L1010), and [Infinite parameter and zero-weight value tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/groupnorml2.jl#L629-L652) |
+| `group-norm-l2.prox.infinite-step` | `guaranteed` | [Infinite-step exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L907-L923), [Array result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L216-L217), and [Compact positive-zero result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L271-L276) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

@@ -17,9 +17,8 @@
 # Comparing two commits: PB_SOURCE is the baseline tree and the new tree (the head of the pull request, or any tree of this
 # family) is passed as both PB_VARIANT and PB_VARIANT_INPLACE: V_value, V_vap and W_inplace are then the new tree's value, fused
 # value and in-place proximal map, and the W sweeps (section 3) its compact blocks, next to X (baseline), L (legacy) and R
-# (GroupNormL2); a head whose compact route does not use the in-place flag has the baseline's out-of-place loops there, so that
-# W/C of the compact sweeps then compares equal code. The lines "bitwise equal" compare the new tree's values and in-place points
-# with the baseline's. To measure the two experimental variants of make_variants.py against a baseline instead, give a baseline whose source has the pattern that
+# (GroupNormL2). The lines "bitwise equal" compare the new tree's values and in-place points with the baseline's. To measure
+# the two experimental variants of make_variants.py against a baseline instead, give a baseline whose source has the pattern that
 # make_variants.py edits (the tree of 9d2fefc71 does; the head does not, for the in-place variant).
 #
 # Cases: the input generation of run.jl (4096 entries, level 3/4, shape 3.7, unit weights, 8 cycled inputs per case, steps

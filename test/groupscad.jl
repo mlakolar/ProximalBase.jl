@@ -206,7 +206,7 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
   a = T(3.7)
   f = GroupSCAD(one(T), [1:2], T[1]; a)                        # λ = 1
   pb(f, u, γ) = prox_block(f, T.(u), 1, T(γ))
-  # γ = 1 < a - 1 (a - 1 - γ = 1.7 > 0): the pieces of the proximal map
+  # γ = 1 < a - 1 (a - 1 - γ > 0): the pieces of the proximal map
   @test pb(f, [3, 4], 1) == T[3, 4]                           # r = 5 ≥ aλ: kept
   @test all(isequal(zero(T)), pb(f, [0.6, 0.8], 1))           # r = γλ: +0
   @test pb(f, [0.9, 1.2], 1) ≈ T[0.3, 0.4]                    # r = 1.5 ≤ (1 + γ)λ: soft, t* = 0.5
@@ -215,7 +215,7 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
   for u in ([3, 4], [0.6, 0.8], [0.9, 1.2], [1.8, 2.4])
     @test check_group(pb(f, u, 1), T.(u), 1, 1, a, 1)
   end
-  # γ = 4 ≥ a - 1 (a - 1 - γ = -1.3 ≤ 0): the left minimum (soft) or the right one (the point)
+  # γ = 4 ≥ a - 1 (a - 1 - γ ≤ 0): the left minimum (soft) or the right one (the point)
   for (r, expect) in ((3, :zero), (5, :keep), (4.5, :keep), (4.2, :soft))
     u = T[3, 4] .* T(r / 5)
     y = pb(f, u, 4)
@@ -421,7 +421,10 @@ end
   u2 = [3e300, 4e300]
   @test prox_block(f, u2, 1, 1.0) == [0.0, 0.0]
   @test prox_block(f, [3e147, 4e147], 1, 1.0) == [0.0, 0.0]
-  # the ratio r/λ above the range of the type: kept
+  # the norm floatmax with the level 1/2: r/λ is above floatmax, the exponent difference of the parts is 1024 (not above the bound of the
+  # copy exit), and the group is unchanged at a = 3.7, γ = 1
+  @test prox_block(GroupSCAD(0.5, [1:1], [1.0]), [floatmax(Float64)], 1, 1.0) == [floatmax(Float64)]
+  # the exponent difference of the parts above the range: kept
   f3 = GroupSCAD(2.0^-600, [1:2], [2.0^-600])
   u3 = [3.0 * 2.0^600, 4.0 * 2.0^600]
   @test prox_block(f3, u3, 1, 1.0) == u3
@@ -666,6 +669,7 @@ end
     @test f(b) ≈ f(x)
     z = similar(b)
     @test value_and_prox!(z, f, b, γ) ≈ f(Vector(z))
+    @test isapprox(Vector(z), y; rtol = 0, atol = 8eps(T) * maximum(abs, x))
     bc = copy(b)
     @test prox!(bc, f, bc, γ) === bc && isapprox(Vector(bc), y; rtol = 0, atol = 8eps(T) * maximum(abs, x))
   end

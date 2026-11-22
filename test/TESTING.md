@@ -184,8 +184,10 @@ for near-ties, at the group norm computed in 512-bit BigFloat; for `a = Inf` the
 `κ = max(1, (a - 1)/(a - 1 - γ))` for finite `a` and `γ < a - 1`, and 1 otherwise, and the same stable-decision checks of the
 kept group, `+0` and the entries in between. It covers the worked examples, the copied group inside the middle piece
 (`γ = 1e-20`: the fused value is `p(r)`, not the plateau), ties with equal objectives at representable inputs for both cutoffs
-of the nonconvex steps (`γ ≥ a - 1`), group sizes 1 to 512, and one group of 4096 entries, with shapes near 2, 3.7, 1000, 1e10 and infinite and steps below, at and above `a - 1`
-with target norms 1 ± 4 eps times each candidate knot (`γλ`, `λ`, `(1 + γ)λ`, `aλ` and the two tie cutoffs; the vectors are rounded after scaling), permuted
+of the nonconvex steps (`γ ≥ a - 1`), a random grid of group sizes 1 to 512 with shapes near 2, 3.7, 1000, 1e10 and infinite and steps below, at and above `a - 1`
+with target norms from 1/2 to 4 times a candidate knot (`γλ`, `λ`, `(1 + γ)λ`, `aλ` and the two tie cutoffs), a second grid of shapes near 2 to 10 and
+steps around `a - 1` with target norms 1 ± 4 eps times each candidate knot (the vectors are rounded after scaling), one group of 4096 entries
+with `a = 3.7` and the steps 5, 100 and 200 at the nominal knots, permuted
 and noncontiguous groups with entries in no group, singleton groups against `SCAD` (the decisions, bit for bit where the
 output is zero or the input, and the points in between within `(8κ + 8)` ulps and a subnormal spacing), the cold-path
 counterexamples (an underflowing or overflowing product of level and weight, a `Float64` subnormal step, the exponent difference of the norm and

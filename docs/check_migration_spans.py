@@ -17,6 +17,7 @@ ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?: (.*)|$)")
 SETEXT_UNDERLINE = re.compile(r"^ {0,3}(={3,}|-{3,})[ \t]*$")
 NAMED_HEADING = re.compile(r"\[.+\]\(@id\s+(.+?)\s*\)")
 LIST_PREFIX = re.compile(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +(?=\S)")
+OTHER_BLOCK = re.compile(r"^ {0,3}(?:>|!!!\s|\?\?\?\s|\[\^[^\]]+\]:|(?:[-*_][ \t]*){3,}$)")
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ def authored_headings(page):
         item = LIST_PREFIX.match(line)
         if item:
             list_indent = item.end()
+            continue
         elif line.strip() and indent < list_indent:
             list_indent = 0
         if fence and indent < list_indent + 4 and not line.startswith("\t") and fence[1][0] not in fence[2]:
@@ -74,7 +76,7 @@ def authored_headings(page):
         if heading:
             title = re.sub(r" +#+$", "", (heading[2] or "").strip())
             yield start, len(heading[1]), title
-        elif re.match(r"^ {0,3}\S", line) and i + 1 < len(lines):
+        elif re.match(r"^ {0,3}\S", line) and not OTHER_BLOCK.match(line) and i + 1 < len(lines):
             underline = SETEXT_UNDERLINE.fullmatch(lines[i + 1].rstrip("\n"))
             if underline:
                 yield start, 1 if underline[1][0] == "=" else 2, line.strip()

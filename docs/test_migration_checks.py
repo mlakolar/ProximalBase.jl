@@ -155,6 +155,13 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, self.guide.replace("Compact groups", "Compact Groups", 1))
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
+    def test_list_or_quote_followed_by_rule_stays_in_the_guide_section(self):
+        after = "\n## Another family\n\nAnother example.\n"
+        for block in ("- Extra item.", "> Extra quote."):
+            with self.subTest(block=block):
+                self.write(self.guide_path, self.guide + f"\n{block}\n---\n" + after)
+                self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
     def test_duplicate_guide_section_heading_is_rejected(self):
         for heading in ("## [Family guide](@id family-guide)", "  ## [Another title](@id family-guide)",
                         "[Another title](@id family-guide)\n---", "## family guide ##",

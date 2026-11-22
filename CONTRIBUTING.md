@@ -24,9 +24,11 @@ ridge precision tests cover `Float32` and `Float64`; a custom function verifies 
 extension hooks. This suite is not the historical full package suite, which is
 preserved on legacy/full.
 
-Build the strict docs, doctests and all nine isolated Literate examples:
+Check the contract schema and build the strict docs, doctests and all nine
+isolated Literate examples.
 
 ```sh
+python3 docs/check_contract_schema.py
 julia scripts/instantiate.jl docs
 julia --project=docs docs/make.jl
 python3 docs/check_html.py

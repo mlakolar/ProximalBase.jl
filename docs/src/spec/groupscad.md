@@ -101,12 +101,12 @@ group shrinkage and, for finite positive stored `λ0` and `w_k`, the value ``\la
 For positive finite stored `λ0` and `w_k`, the decisions above do not require the products ``\lambda_0w_k``,
 ``\gamma\lambda_k`` or ``a\lambda_k`` to be representable: an overflowing finite product is not treated as a stored
 infinity, and an underflowing one is not treated as a stored zero. A scaled norm is the recovery route, when needed,
-for a group whose sum of squares overflows or underflows the input type. On that route the norm and the level are
-formed as significands and exponents: ``r\le\lambda_k`` is decided on those parts and gives the soft-thresholding
-point; with ``r=m_r2^{e_r}`` and ``\lambda_k=m_\lambda2^{e_\lambda}`` (significands in ``[1/2,1)``), when ``e_r-e_\lambda`` is above
-`exponent(floatmax(R)) + 1` for the recovery type `R` the group is unchanged; otherwise the scalar kernel decides the problem
-scaled by ``2^{-e_\lambda}``. For `a = 3.7`, `γ = 1.0`, ``\lambda_k=1/2`` and `r = floatmax(Float64)`, ``e_r-e_\lambda=1024``, which is not above that bound,
-although ``r/\lambda_k`` exceeds `floatmax(Float64)`; the group is unchanged. The stored result is limited by the range
+for a group whose sum of squares overflows or underflows the input type. For a finite shape and a finite positive step, that route writes
+``r=m_r2^{e_r}`` and ``\lambda_k=m_\lambda2^{e_\lambda}`` (significands in ``[1/2,1)``): for ``r\le\lambda_k``, decided on these parts,
+the group is soft thresholded; when ``e_r-e_\lambda`` is above `exponent(floatmax(R)) + 1` for the recovery type `R` the group is
+unchanged; otherwise the scalar kernel decides the problem scaled by ``2^{-e_\lambda}``. For `a = 3.7`, `γ = 1.0`,
+``\lambda_k=1/2`` and `r = floatmax(Float64)`, ``e_r-e_\lambda=1024``, which is not above that bound, although ``r/\lambda_k`` exceeds
+`floatmax(Float64)`; the group is unchanged. The stored result is limited by the range
 of the destination type. `Float64` examples, each with its own parameters:
 
 ```@example group_scad

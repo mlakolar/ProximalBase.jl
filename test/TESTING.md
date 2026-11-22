@@ -286,8 +286,8 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 ## CI sharding
 
 In `CI.yml` runs that select package tests, the full declared inventory is split across six
-Linux runners on Julia 1.13. The `Full validation` workflow below uses three shards for each
-OS and Julia pair.
+Linux runners on Julia 1.13. The `full` and `release` modes of the `Full validation` workflow below use
+three shards for each OS and Julia pair.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard

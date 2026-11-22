@@ -872,7 +872,9 @@ end
   @test y == x && fused_close(v, g(y), 2, 2) && close_value(v, refterm(x[1:2], 1, 1, T(3.7)) + refterm(x[3:4], 1, 1, T(3.7)), 2, 2)
 end
 
-# the norm of a group that is zeroed, soft-thresholded, on the middle piece or kept, as in benchmark/groupscad/run.jl
+# the target norm of a group in the zero, soft, middle and kept regimes, as in benchmark/groupscad/run.jl. The middle target is
+# on the middle piece of the penalty only for a step below a - 1; at and above a - 1 it lies between λ and aλ, where the group is
+# sent to +0 (so the middle fixture is a zeroed group there)
 function regime_norm(regime, γ, a, λ)
   convex = γ < a - 1
   keep_cut = convex ? a * λ : max(a * λ, (a + 1 + γ) * λ / 2, γ * λ, λ * sqrt(γ * (a + 1)))
@@ -882,7 +884,7 @@ function regime_norm(regime, γ, a, λ)
 end
 
 # 4096 entries in groups of m entries (ranges or permuted index vectors); regime is one of the four, or :mixed (each group
-# draws its own); the groups of the point have the norm of their regime along a random direction
+# draws its own); each group of the point has the target norm of its regime along a random direction
 function regime_case(rng, ::Type{T}, m, layout, step, regime) where {T}
   K = 4096 ÷ m
   perm = layout === :perm ? randperm(rng, 4096) : collect(1:4096)
@@ -939,15 +941,23 @@ end
   end
 end
 
+# the allocation of op(x) on a restored copy of x0: op runs once on a copy (to compile it), the copy is restored, and the
+# measured call runs on the original data, so that the branch that scales is the one measured
+function restored_allocs(op::F, x0) where {F}
+  x = copy(x0)
+  op(x)
+  copyto!(x, x0)
+  @allocated op(x)
+end
+
 @testset "zero allocations of the in-place paths ($T)" for T in (Float32, Float64)
   rng = Xoshiro(72 + sizeof(T))
   for m in (32, 512, 4096), layout in (:range, :perm), step in (1 // 2, 3 // 2), regime in (:soft, :mixed)
     f, x, γ = regime_case(rng, T, m, layout, step, regime)
-    xi = copy(x)
-    @test allocs(prox!, xi, f, xi, γ) == 0
-    @test allocs(value_and_prox!, xi, f, xi, γ) == 0
+    @test restored_allocs(xi -> prox!(xi, f, xi, γ), x) == 0
+    @test restored_allocs(xi -> value_and_prox!(xi, f, xi, γ), x) == 0
     u = x[f.groups[1]]
-    @test allocs(prox_block!, u, f, u, 1, γ) == 0
+    @test restored_allocs(uu -> prox_block!(uu, f, uu, 1, γ), u) == 0
     @test allocs(f, x) == 0
   end
 end

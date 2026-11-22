@@ -306,11 +306,12 @@ end
 # λ = λ0 w (rounded once) of at least floatmin/eps with a finite kink aλ, and a finite sum of squares that _squares_normal
 # accepts. t is the scalar kernel at the computed norm r and the rounded level λ; the group is copied for t == r, set to
 # +0 for t == 0, and otherwise scaled by t / r. The scaling loops are those of the shared kernels (_l2_scale!, _gmcp_scale!);
-# for y === x they are called with x for both arguments, so that the compiler knows that the arrays coincide and vectorizes the
-# loop without the runtime overlap test that fails (and leaves a scalar loop) for two names of one array. The loops are also
+# in place (I = true, chosen once per call where y === x) they are called with x for both arguments, so that the compiler
+# knows that the arrays coincide and vectorizes the loop without the runtime overlap test that fails (and leaves a scalar
+# loop) for two names of one array; I = false is the call with y and x. The loops are also
 # vectorized over the entries of a group in any order of its indices, as the indices of a group are distinct: the constructors
 # check that the groups are disjoint, and _group_of rejects an index that occurs twice, also within a group.
-@inline function _gscad_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false)) where {O, V}
+@inline function _gscad_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false), ::Val{I} = Val(false)) where {O, V, I}
   T = float(eltype(y))
   if O
     if zero(T) < γ < T(Inf)
@@ -328,11 +329,11 @@ end
           end
           q = t / r
           if V
-            sy = y === x ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
+            sy = I ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
             (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
             return _scad_value(λ, a, sqrt(sy))
           end
-          y === x ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
+          I ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
           return T(_L2_RECOMPUTE)
         elseif iszero(s) && _l2_zero_group(x, G, T)
           return T(_l2_zero!(y, G))
@@ -425,20 +426,23 @@ function _gscad_prox_all!(y, f::GroupSCAD, x, γ::Real, ::Val{V}) where {V}
     return _gscad_l2_loop!(_l2_shrink!, y, f, x, γ, Val(V))
   end
   T = typeof(λ)
-  _gscad_homogeneous(T, y, x) && T(γ) == γ && return _gscad_prox_loop!(y, f, x, T(γ), Val(true), Val(V))
-  _gscad_prox_loop!(y, f, x, γ, Val(false), Val(V))
+  if _gscad_homogeneous(T, y, x) && T(γ) == γ
+    y === x && return _gscad_prox_loop!(x, f, x, T(γ), Val(true), Val(V), Val(true))
+    return _gscad_prox_loop!(y, f, x, T(γ), Val(true), Val(V), Val(false))
+  end
+  _gscad_prox_loop!(y, f, x, γ, Val(false), Val(V), Val(false))
 end
 
 # The fused value takes the term of each group as the value of the stored output does: zero for the _L2_ZERO code, the
 # term returned by the kernel for a group copied or scaled on the ordinary path (for a scaled group the sum of squares of
 # the stored entries can associate differently from that of the value), and otherwise the term of the stored group.
-@noinline function _gscad_prox_loop!(y, f::GroupSCAD, x, γ::Real, ::Val{O}, ::Val{V}) where {O, V}
+@noinline function _gscad_prox_loop!(y, f::GroupSCAD, x, γ::Real, ::Val{O}, ::Val{V}, ::Val{I}) where {O, V, I}
   T = _valtype(y)
   v, n = zero(T), 0
   for k in eachindex(f.groups)
     G = @inbounds f.groups[k]
     w = @inbounds f.w[k]
-    s = _gscad_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
+    s = _gscad_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V), Val(I))
     if V
       # the kernel returns the two codes or a term that is not negative (_scad_value at a finite positive level); any
       # other value is added, so that it is not dropped
@@ -487,7 +491,8 @@ function prox_block!(out::AbstractVector, f::GroupSCAD, u::AbstractVector, k::In
   else
     T = typeof(f.λ0)
     if _gscad_homogeneous(T, out, u) && T(γ) == γ
-      _gscad_shrink!(out, u, G, f.λ0, w, f.a, T(γ), Val(true))
+      out === u ? _gscad_shrink!(u, u, G, f.λ0, w, f.a, T(γ), Val(true), Val(false), Val(true)) :
+                  _gscad_shrink!(out, u, G, f.λ0, w, f.a, T(γ), Val(true))
     else
       _gscad_shrink!(out, u, G, f.λ0, w, f.a, γ, Val(false))
     end

@@ -306,9 +306,10 @@ end
 # λ = λ0 w (rounded once) of at least floatmin/eps with a finite kink aλ, and a finite sum of squares that _squares_normal
 # accepts. t is the scalar kernel at the computed norm r and the rounded level λ; the group is copied for t == r, set to
 # +0 for t == 0, and otherwise scaled by t / r. The scaling loops are those of the shared kernels (_l2_scale!, _gmcp_scale!);
-# in place (I = true, chosen once per call where y === x) they are called with x for both arguments, so that the compiler
-# knows that the arrays coincide and vectorizes the loop without the runtime overlap test that fails (and leaves a scalar
-# loop) for two names of one array; I = false is the call with y and x. The loops are also
+# in place they are called with x for both arguments, so that the compiler knows that the arrays coincide and vectorizes the
+# loop without the runtime overlap test that fails (and leaves a scalar loop) for two names of one array. I = true (in place)
+# and I = false are chosen once per call by the loops over the groups; I = nothing decides at the scaling step (y === x),
+# as the compact block does. The loops are also
 # vectorized over the entries of a group in any order of its indices, as the indices of a group are distinct: the constructors
 # check that the groups are disjoint, and _group_of rejects an index that occurs twice, also within a group.
 @inline function _gscad_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false), ::Val{I} = Val(false)) where {O, V, I}
@@ -328,12 +329,13 @@ end
             return T(_l2_zero!(y, G))
           end
           q = t / r
+          inplace = I === nothing ? y === x : I      # a constant for Bool I
           if V
-            sy = I ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
+            sy = inplace ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
             (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
             return _scad_value(λ, a, sqrt(sy))
           end
-          I ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
+          inplace ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
           return T(_L2_RECOMPUTE)
         elseif iszero(s) && _l2_zero_group(x, G, T)
           return T(_l2_zero!(y, G))
@@ -491,8 +493,7 @@ function prox_block!(out::AbstractVector, f::GroupSCAD, u::AbstractVector, k::In
   else
     T = typeof(f.λ0)
     if _gscad_homogeneous(T, out, u) && T(γ) == γ
-      out === u ? _gscad_shrink!(u, u, G, f.λ0, w, f.a, T(γ), Val(true), Val(false), Val(true)) :
-                  _gscad_shrink!(out, u, G, f.λ0, w, f.a, T(γ), Val(true))
+      _gscad_shrink!(out, u, G, f.λ0, w, f.a, T(γ), Val(true), Val(false), Val(nothing))
     else
       _gscad_shrink!(out, u, G, f.λ0, w, f.a, γ, Val(false))
     end

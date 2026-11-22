@@ -12,17 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The SparseGroupNormL2 definition says the constructor “copies the
-  supplied groups and weights”. For a collection with a concrete range
-  element type, this could promise an independent copy of each supplied
-  range or a copy of the outer collection. `_own_groups` copies the outer
-  vector and retains the range objects. The ownership test mutates the
-  supplied index vectors and weight vector. The copy requirement for
-  range objects awaits the owner's decision.
-  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
-  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
-  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
-
 - The GroupMCP zero-group screen describes the margin “for finite `v`,
   `λ0` and `w_k`”. Finiteness of the gradient could refer to the stored
   entries or to the entries after conversion to the working type. The
@@ -104,6 +93,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Positive-step input wording](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/logdet.md#L43-L50) could describe the finiteness check or promise success for every finite input | At a positive finite step the input check requires finite entries. `precondition`. Later working-range checks can reject a finite matrix before any writes. `characterized`. | [Input check and range failures](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/logdet.jl#L121-L169) · [Preserved destination test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/logdet.jl#L195-L197) |
+
+## SparseGroupNormL2 ownership decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Copying groups and weights](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sparsegroupnorml2.md#L18-L23) could promise a copy of each range object or only of the outer collection | The outer constructors copy the outer collection, supplied weights and ordinary index vectors. `guaranteed`. The concrete range element-type path keeps the individual range objects. Implementation note. | [Outer constructors](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sparsegroupnorml2.jl#L47-L59) · [Concrete range path](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/block_iterate.jl#L119-L126) · [Ownership tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sparsegroupnorml2.jl#L109-L136) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

@@ -233,7 +233,8 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
   u = T[1.2, 1.6]
   y = similar(u)
   v = value_and_prox!(y, g, u, T(1e-20))
-  @test y == u && v == g(y) && v ≈ T(1.814814814814815) rtol = 64eps(T)
+  @test y == u && v == g(y)
+  @test v ≈ T(1.814814814814815) rtol = 64eps(T)
   @test !(v ≈ T(2.35))
   @test prox_block(g, u, 1, T(1e-20)) == u
   # exactly representable ties give the smaller magnitude: a = γ = 9/2, r = 5 is the tie of the left minimum
@@ -347,7 +348,8 @@ end
   end
   # a near 2: the middle piece is almost a concave quadratic with slope λ at λ and 0 at aλ
   g = GroupSCAD(one(T), [1:1], T[1]; a = nextfloat(T(2)))
-  @test g(T[1]) == T(1) && g(T[nextfloat(T(2))]) ≈ T(1.5) rtol = 4eps(T)
+  @test g(T[1]) == T(1)
+  @test g(T[nextfloat(T(2))]) ≈ T(1.5) rtol = 4eps(T)
   @test prox_block(g, T[0.5], 1, T(0.25)) ≈ T[0.25] && prox_block(g, T[5], 1, T(1)) == T[5]
 end
 

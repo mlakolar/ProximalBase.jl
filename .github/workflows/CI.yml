@@ -265,7 +265,13 @@ jobs:
         run: test "$REQUIRED_RESULT" = success
   publish-preview:
     name: Publish PR documentation preview
+    # always() keeps a documentation-only run, whose skipped test and benchmark
+    # jobs sit upstream of gate, from skipping this job; the explicit results
+    # require gate and docs to have succeeded.
     if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      needs.docs.result == 'success' &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.draft == false
@@ -325,7 +331,15 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
   deploy-docs:
     name: Publish validated documentation
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # As for publish-preview: always() keeps a documentation-only push from
+    # skipping this job, and the explicit results require gate and docs to
+    # have succeeded.
+    if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      needs.docs.result == 'success' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master'
     needs: [gate, docs]
     runs-on: ubuntu-latest
     concurrency:

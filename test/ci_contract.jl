@@ -86,6 +86,14 @@ end
           pos("id: classify",changes) < pos("check_repo_hygiene.py",changes)
     deploy=job_block("deploy-docs")
     @test occursin("needs: [gate, docs]",deploy)
+    # A documentation-only run skips test and benchmark upstream of gate; the publication
+    # jobs must still run when gate and docs succeed, and only then.
+    for block in (deploy, job_block("publish-preview"))
+        @test occursin("needs: [gate, docs]",block)
+        @test occursin("always() &&",block)
+        @test occursin("needs.gate.result == 'success' &&",block)
+        @test occursin("needs.docs.result == 'success' &&",block)
+    end
     @test occursin("id: tip",deploy)
     @test occursin("git fetch --no-tags origin refs/heads/master",deploy)
     @test occursin("tip=\"\$(git rev-parse FETCH_HEAD)\"",deploy)

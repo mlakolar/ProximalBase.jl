@@ -12,14 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The GroupNormL2 endpoint row for positive finite parameters and step also
-  says `γ = Inf` fixes the group at zero. It could describe a separate
-  infinite-step branch or fall under the row's finite-step qualifier. The
-  guide table and infinite-step tests exercise the branches separately.
-  The qualifier awaits the owner's decision.
-  [Guide](../../src/group_penalty.md#group-l2-endpoints)
-  · [Tests](../../../test/groupnorml2.jl)
-
 - The IndBallL2 endpoint row says multiple infinite entries or any NaN give
   an all-NaN projection. That sentence could inherit the positive finite
   radius qualifier or apply to all radii. The tests check zero-radius fill,
@@ -107,6 +99,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Rounded-radius level](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/normlinf.md#L43-L55) could imply uniqueness at zero radius or only for positive radii | A positive rounded radius has one real root, which can be negative. At zero rounded radius the smallest root is the largest magnitude, giving an unchanged ideal clip at the represented input. `characterized`. | [Threshold analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/normlinf.jl#L354-L368) · [Tiny and zero radius tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/normlinf.jl#L1505-L1515) |
+
+## GroupNormL2 decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Infinite-step text](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/groupnorml2.md#L53-L68) could be a separate case or fall under the finite-step qualifier | Give the infinite step a separate row. With a positive finite level and weight, an infinite step fills the group with `+0`. `guaranteed`. | [Infinite-step exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L907-L923) · [Array result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L216-L217) · [Compact positive-zero result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L271-L276) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

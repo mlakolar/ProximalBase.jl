@@ -42,22 +42,26 @@ python3 docs/check_html.py
 ```
 
 CI is `.github/workflows/CI.yml`. A change-classification job checks
-repository hygiene and classifies the changed files with
-`scripts/ci_changes.py`. When every changed path is documentation (an added,
-modified or deleted regular, non-executable file that is top-level Markdown,
-Markdown or an image under `docs/`, or a data file under
-`docs/audit/docs-tracks-1019/`), the three package-test shards and the frozen
-benchmark differential are skipped. Markdown can contain Documenter blocks
-that execute, and the strict documentation job validates them. Every other change runs them, concurrently with
-strict documentation validation, on Linux with Julia 1.13. The
+repository hygiene and classifies the changed paths with
+`scripts/ci_changes.py`. A non-empty change is documentation-only when every
+changed path is an added, modified or deleted regular, non-executable file that
+is a top-level `*.md` file, a `.md`, `.svg`, `.png` or `.mmd` file under
+`docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
+`docs/audit/docs-tracks-1019/` (suffixes are case-sensitive). When the job
+succeeds with `docs_only=true`, the three package-test shards and the frozen
+benchmark differential are skipped. When it succeeds with `docs_only=false`
+they run concurrently with strict documentation validation, on Linux with
+Julia 1.13. The strict documentation job validates the executable Documenter
+blocks of the Markdown it builds, and only that Markdown. The
 `PR required jobs` verdict and `PR merge gate` require the classification and
 documentation lanes, and either both skipped lanes (documentation-only) or both
 successful lanes (any other change). There is no LTS/cross-platform/GPU matrix
 in the required checks. HTML and job-specific logs are retained as artifacts.
-On master pushes, a deployment job waits for the merge gate and, if its
-commit is still the tip of master, retrieves the validated HTML artifact and
-calls `docs/deploy.jl` to publish development documentation; for an older
-commit it skips the publication. Same-repository non-draft PRs publish their validated HTML
+On master pushes, a deployment job waits for the merge gate and publishes
+only when the fetched `refs/heads/master` tip equals its commit at the time of
+the check: it then retrieves the validated HTML artifact and calls
+`docs/deploy.jl` to publish development documentation, and otherwise skips the
+publication. Same-repository non-draft PRs publish their validated HTML
 artifact to an isolated `gh-pages` preview through a separate job that never
 executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass
 required gates because local docs passed.

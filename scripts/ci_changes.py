@@ -3,14 +3,18 @@
 
 The classifier compares the checked-out HEAD with the base the event is
 validated against: the first parent of the pull-request merge commit, or the
-`before` commit of a master push. It writes `docs_only=true|false` and
-`base=<sha>` (empty when no base is usable) to `GITHUB_OUTPUT`. A change counts
-as documentation-only when the change set is non-empty and every changed path,
-including both sides of a rename and each deleted path, is on the allowlist
-below and is an added, modified or deleted regular file without the execute
-bit. Any other situation, including an unusable base, is reported as
-`docs_only=false`. An unexpected event, a malformed `before` value, a failed
-git command or any other error exits nonzero and writes no output.
+`before` commit of a master push. When `GITHUB_OUTPUT` is set, it appends
+`docs_only=true|false` and `base=<sha>` (empty when no base is usable).
+
+A change set is documentation-only when it is non-empty and every path that
+`git diff --raw --no-renames --ignore-submodules=none` reports (a rename
+appears as a deletion plus an addition) is on the path allowlist below and is
+an added, modified or deleted regular file without the execute bit. Any other
+result, including an unusable base, is `docs_only=false`. The allowlist is a
+path rule; it does not say which files Documenter builds.
+
+An unexpected event, a malformed `before` value or a failed git command exits
+nonzero before any output is written.
 
 No third-party Python dependencies.
 """
@@ -31,12 +35,12 @@ DOCS_TRANSITIONS = frozenset({
     ("A", "000000", "100644"),
     ("D", "100644", "000000"),
 })
-# Allowed anywhere under docs/ (rendered pages and their images).
+# Suffixes allowed anywhere under docs/ (matched case-sensitively).
 DOCS_SUFFIXES = frozenset({".md", ".svg", ".png", ".mmd"})
-# Allowed under this directory in addition: data files that the docs job checks read.
+# Suffixes allowed in addition under this directory, which the docs job's checks read.
 AUDIT_DATA_DIR = ("docs", "audit", "docs-tracks-1019")
 AUDIT_DATA_SUFFIXES = frozenset({".tsv", ".json", ".csv", ".txt"})
-SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 ZERO_SHA = "0" * 40
 
 
@@ -63,7 +67,7 @@ def changed_paths(base: str, head: str) -> list[Change]:
     Without rename detection, a rename is a deletion of the old path plus an
     addition of the new path, so both paths are returned.
     """
-    out = git("diff", "--raw", "--no-renames", "-z", "--no-abbrev", base, head)
+    out = git("diff", "--raw", "--no-renames", "--ignore-submodules=none", "-z", "--no-abbrev", base, head)
     tokens = out.split(b"\0")
     if tokens and tokens[-1] == b"":
         tokens.pop()
@@ -119,7 +123,7 @@ def base_for_event(event_name: str, env) -> str | None:
         if before == "":
             print("push has no previous commit (missing before)")
             return None
-        if not SHA_PATTERN.match(before):
+        if not SHA_PATTERN.fullmatch(before):
             raise ClassificationError(f"PUSH_BEFORE_SHA is not a 40-digit lowercase hex SHA: {before!r}")
         if before == ZERO_SHA:
             print("push has no previous commit (all-zero before)")

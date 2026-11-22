@@ -291,17 +291,22 @@ files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
 index. Within each shard, files run in their original sorted selection order.
 Each declared test is assigned to exactly one of the three full CI shards.
-A pull request or master push whose changed paths are all documentation skips
-the three shards and the benchmark differential; the strict docs build and the
-repository hygiene check still run. Top-level `*.md` files, `docs/**` `.md`,
-`.svg`, `.png` and `.mmd` files and `.tsv`, `.json`, `.csv` and `.txt` files
-under `docs/audit/docs-tracks-1019/` count as documentation, provided each is
-an added, modified or deleted regular file without the execute bit; an
-execute-bit change, a symlink or a submodule entry on either side does not
-count. Markdown can contain Documenter blocks that execute, and the strict docs
-job validates them. Any other path, an empty change set and a manual run
-execute the shards. `scripts/ci_changes.py` classifies the
-change and `scripts/test_ci_changes.py` tests it.
+When the change-classification job succeeds with `docs_only=true`, the three
+shards and the benchmark differential are skipped, and the strict docs build
+and the repository hygiene check run. A non-empty change is documentation-only
+when every changed path is an added, modified or deleted regular file without
+the execute bit (an execute-bit change, a symlink or a submodule entry on either
+side does not count) and is a top-level `*.md` file, a `.md`, `.svg`, `.png` or
+`.mmd` file under `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
+`docs/audit/docs-tracks-1019/`; suffixes are matched case-sensitively. The
+strict docs build validates the executable Documenter blocks of the Markdown it
+builds, and only that Markdown. When the job succeeds with `docs_only=false`
+(any other path, an empty change set, a push without a usable `before` commit
+or a manual run), the shards run. On a push without a usable `before` commit,
+the classifier selects full validation, and the docs job's migration-scope step
+fails on such a push, so the protected checks fail rather than pass.
+`scripts/ci_changes.py` classifies the change and `scripts/test_ci_changes.py`
+tests it.
 The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
 

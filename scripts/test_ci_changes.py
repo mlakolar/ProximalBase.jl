@@ -308,6 +308,22 @@ class ClassificationTests(RepoTestCase):
         self.commit_gitlink("docs/module.md")
         self.assertFalse(self.docs_only())
 
+    def test_gitlink_update_in_ignored_submodule(self):
+        subprocess.run(["git", "config", "-f", ".gitmodules", "submodule.sub.path", "docs/module.md"], check=True)
+        subprocess.run(["git", "config", "-f", ".gitmodules", "submodule.sub.url", "https://example.test/sub.git"], check=True)
+        subprocess.run(["git", "config", "-f", ".gitmodules", "submodule.sub.ignore", "all"], check=True)
+        subprocess.run(["git", "add", ".gitmodules"], check=True)
+        self.commit_gitlink("docs/module.md")
+        other = self.head()
+        self.base = other  # differs from the commit recorded by commit_gitlink
+        subprocess.run(["git", "update-index", "--cacheinfo", f"160000,{other},docs/module.md"], check=True)
+        self.write("README.md")
+        subprocess.run(["git", "add", "README.md"], check=True)
+        self.commit_index("update gitlink and README")
+        changes = c.changed_paths(self.base, "HEAD")
+        self.assertIn(c.Change("docs/module.md", "160000", "160000", "M"), changes)
+        self.assertFalse(self.docs_only())
+
     def test_execute_bit_change(self):
         (self.root / "docs/src/a.md").chmod(0o755)
         self.commit("chmod +x")
@@ -360,7 +376,7 @@ class BaseTests(RepoTestCase):
         self.assertEqual(self.silent("push", {"PUSH_BEFORE_SHA": self.base}), self.base)
 
     def test_push_with_malformed_before(self):
-        for value in ("abc", "G" * 40, self.base.upper(), self.base + "0"):
+        for value in ("abc", "G" * 40, self.base.upper(), self.base + "0", self.base + "\n"):
             with self.subTest(value=value):
                 with self.assertRaises(c.ClassificationError):
                     self.silent("push", {"PUSH_BEFORE_SHA": value})

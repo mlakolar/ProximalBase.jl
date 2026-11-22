@@ -87,13 +87,16 @@ end
     deploy=job_block("deploy-docs")
     @test occursin("needs: [gate, docs]",deploy)
     @test occursin("id: tip",deploy)
-    @test occursin("git fetch --no-tags origin master",deploy)
+    @test occursin("git fetch --no-tags origin refs/heads/master",deploy)
     @test occursin("tip=\"\$(git rev-parse FETCH_HEAD)\"",deploy)
     @test occursin("\"\$tip\" == \"\$GITHUB_SHA\"",deploy)
     # Every step after the freshness check, including the publication, is conditional on it.
     after=deploy[something(pos("id: tip",deploy),1):end]
     @test count("if: steps.tip.outputs.current == 'true'",after)==5
     @test occursin("docs/deploy.jl",after)
+    publish=filter(step -> occursin("docs/deploy.jl",step),split(deploy,r"^      - "m))
+    @test length(publish)==1
+    @test all(step -> occursin("if: steps.tip.outputs.current == 'true'",step),publish)
     @test !isnothing(pos("id: tip",deploy)) && !isnothing(pos("docs/deploy.jl",deploy)) &&
           pos("id: tip",deploy) < pos("docs/deploy.jl",deploy)
     @test count("docs_only == 'false'",workflow)==2

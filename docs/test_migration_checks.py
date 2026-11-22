@@ -1323,14 +1323,14 @@ class UpstreamTests(unittest.TestCase):
         self.save()
         self.assert_rejected("original file")
 
-    def post_move_fixture(self, *, prior_fields=None, duplicate=False, outside_heading=False):
+    def post_move_fixture(self, *, prior_fields=None, duplicate=False, outside_heading=False, anchored=True):
         old = self.baseline[0]
         m.git("checkout", "--quiet", "--detach", self.before, root=self.root)
         (self.root / old.path).write_text(self.original.replace(old.text, "See the family contract."))
         m.git("add", old.path, root=self.root)
         self.path = "docs/src/spec/family.md"
         (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.move_scope = self.path + "#family-range"
+        self.move_scope = self.path + "#family-range" if anchored else self.path
         self.prior_move = dict(self.rows[0], action="move", dest=self.move_scope,
                                dest_sha=old.sha, reviewer="mechanical")
         self.prior_ledger = self.receipt.parent / "ledger.tsv"
@@ -1395,6 +1395,12 @@ class UpstreamTests(unittest.TestCase):
     def test_post_move_upstream_rejects_a_span_outside_the_recorded_heading(self):
         self.post_move_fixture(outside_heading=True)
         self.assert_rejected("span must stay inside its recorded heading")
+
+    def test_post_move_upstream_basis_requires_a_named_section(self):
+        self.post_move_fixture(anchored=False)
+        self.assertEqual(self.check()[0], [])
+        with self.assertRaisesRegex(ValueError, "a post-move migration basis requires a named section"):
+            m.validate_upstream(self.baseline[0], self.record, self.record, self.root, current=False)
 
     def test_post_move_upstream_can_supply_an_exact_rewrite_basis(self):
         self.post_move_fixture()

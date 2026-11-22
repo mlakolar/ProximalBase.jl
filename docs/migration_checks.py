@@ -957,6 +957,8 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     source = [old]
     scope = None
     if path != old.path:
+        if not current and not anchor:
+            raise ValueError("a post-move migration basis requires a named section")
         if current and row.get("action") != "upstream":
             raise ValueError("post-move receipts require an upstream ledger action")
         if move_after:

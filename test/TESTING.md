@@ -428,47 +428,143 @@ the D-trace residual, a proximal-gradient loop with KKT scores, and the coordina
 `Scaled`, `check_symmetric_parameters`, the checks before writes (each leaving the destination and the data
 unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and inference.
 
-## Full validation (nightly)
+## Full validation (nightly and manual)
 
-The `Full validation` workflow (`.github/workflows/full-validation.yml`) runs the `full` tier,
-which is the union of all four tiers in `tiers.toml`, in 3 shards for each combination of
-`ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and 1.13: 18 jobs, all with
-`--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be started manually. It is not
-part of the pull-request or master checks.
+The `Full validation` workflow (`.github/workflows/full-validation.yml`) validates the `full` tier,
+which is the union of all four tiers in `tiers.toml`, on `ubuntu-latest`, `windows-latest` and
+`macos-latest` with Julia 1.10 and 1.13, with `--check-bounds=yes`. It runs daily at
+09:23 UTC and can be started manually. It is not part of the ordinary pull-request and
+push-to-master required checks (`PR required jobs` and `PR merge gate`); this workflow does not
+report a failure of those checks, and a failure here is not a merge gate.
 
-Each test step writes a log that starts with a `PB_FULL_VALIDATION` line (commit, OS, Julia minor
-version and shard), followed by `versioninfo()` and the test runner's output. A complete log also
-holds the runner line with the announced file list, one `PB_TEST_FILE_TIME` record per file and a
-closing `PB_TEST_SHARD_TIME` record; a job that fails during setup or is interrupted leaves no log
-or a partial one. The job uploads the log, if it exists, as the artifact
-`full-validation-log-<os>-<julia>-<shard>-attempt-<n>` and requests 30-day retention.
+### Modes and inputs
 
-The `Full validation verdict` job downloads the artifacts of the current run attempt, lists that
-attempt's jobs through the GitHub API and runs `scripts/full_validation_verdict.py`. The script
-reports `FULL VALIDATION: PASS` only when all of these checks hold:
+A scheduled run is a `full` run on every platform with both Julia versions. A manual run takes
+these inputs:
+
+| Input | Values | Meaning |
+| --- | --- | --- |
+| `mode` | `full` (default), `focused`, `release` | what to run and which verdict to give |
+| `platforms` | `all` (default), `linux`, `windows`, `macos` | runner OS |
+| `julia` | `both` (default), `1.10`, `1.13` | Julia minor version |
+| `files` | empty (default) or space-separated test names | exact names from `tiers.toml`; required for `focused`, empty otherwise |
+| `expected_sha` | empty (default) or 40 lowercase hexadecimal characters | the run must check out this commit; required for `release` |
+
+- `full` runs 3 shards for each selected OS and Julia version, up to 18 jobs.
+- `focused` runs the listed files in one job for each selected OS and Julia version (`--shard=1/1`).
+  It reports `FOCUSED VALIDATION`, not `FULL VALIDATION`. It is for checking a file on a platform where a problem
+  was seen, for example Windows or macOS.
+- `release` is a `full` run on an exact commit with `platforms=all` and `julia=both`. It also
+  needs a CI.yml run on the same commit that passed the frozen benchmark and the strict
+  documentation build (see below). It reports one verdict and publishes nothing.
+
+The `Plan` job runs first. It checks every input with `scripts/full_validation_plan.py` and
+passes the inputs to the script only through `env`, and a workflow-text test checks that no `run:`
+script holds an expression. The script rejects:
+- a `mode`, `platforms` or `julia` outside the allowed values;
+- `files` that are not plain names (paths, `..`, wildcards, uppercase and prefixes), names that are
+  not in the full selection, duplicates, more than 20 names, `files` outside `focused` mode and
+  an empty `files` in `focused` mode;
+- a requested name that is a strict prefix of another name in the inventory that is not also
+  requested (for example `elasticnet` without `elasticnet_extremes`), because the test runner
+  selects files by name prefix and would run the longer file too;
+- an `expected_sha` that is not 40 lowercase hexadecimal characters, one that differs from the
+  commit of the run (both are printed), and a `release` without one;
+- a `release` with a platform or Julia restriction.
+
+It then writes the matrix (`include` entries `{os, julia, shard, shards, label}`), the mode and the
+normalized file list as job outputs, and `plan.json` as the artifact `full-validation-plan`. For
+`full` and `release` it asserts that the full matrix equals the 18 cells that the verdict script
+lists.
+
+### Logs
+
+The test step writes a log that starts with a `PB_FULL_VALIDATION` line (commit, OS, Julia minor
+version, shard as `<n>/<shards>`, `mode` and `shards`), followed by `versioninfo()` and the test
+runner's output. A complete log also holds the runner line with the announced file list, one
+`PB_TEST_FILE_TIME` record per file and a closing `PB_TEST_SHARD_TIME` record. The test step starts
+the log; the upload step attempts to preserve it if that step is reached, so a job that fails
+during setup or is interrupted can leave no log or a partial one. The log is uploaded as the
+artifact `full-validation-log-<os>-<julia>-<shard>-attempt-<n>` with 30-day retention requested.
+A focused job uses shard 1 in the name.
+
+### Verdict
+
+The `Full validation verdict` job requires the plan job to have succeeded, downloads the logs of
+the current run attempt and `plan.json`, lists that attempt's jobs through the GitHub API and runs
+`scripts/full_validation_verdict.py --plan plan.json`. Without `--plan` the script checks a `full`
+run. The script reads the expected cells and job names from the plan.
+
+For `full` and `release` the script reports `FULL VALIDATION: PASS` or `RELEASE VALIDATION: PASS`
+only when all of these checks hold:
 - the aggregate result of the matrix job is `success`, and each of the 18 job names
   `Full / <os> / Julia <julia> (shard <n>/3)` appears once with conclusion `success`, with no other
-  `Full / ...` job;
-- each of the 18 cells has one log artifact of the current attempt, whose single header names the
-  tested commit and the cell, whose runner line reports `tier full`, the cell's shard, a Julia
-  version of the form `<minor>.<patch>` for the cell's minor version, and a platform string that
-  contains the cell's OS marker (`linux`, `mingw` or `windows`, `apple-darwin`);
+  `Full / ...` job; the plan's cells must also equal the 18 cells that the script lists;
+- each of the 18 cells has one directory for its log artifact of the current attempt, with one log
+  file in it (the script checks the downloaded directory, not a server-side artifact count). The
+  log's single header names the tested commit, the cell, the mode and the shard count, and its
+  runner line reports `tier full`, the cell's shard, a Julia version of the form
+  `<minor>.<patch>` for the cell's minor version, and a platform string that contains the cell's
+  OS marker (`linux`, `mingw` or `windows`, `apple-darwin`);
 - in each log, the announced count, the announced file list and the files of the recognized
   `PB_TEST_FILE_TIME` records agree, a recognized `PB_TEST_SHARD_TIME` record with the same shard
   and count follows the last file record, and the recognized elapsed times are finite and
-  non-negative;
+  non-negative. The announced list is the line after the runner line. It is parsed although it
+  matches no record pattern, and each log must announce at least 1 file;
 - for each OS and Julia pair, the files with `status=pass` across the 3 shards equal the full
-  selection, and no file appears in two shards; the manifest must give at least one file per shard.
+  selection, and no file appears in two shards. The manifest must give at least 3 names, one for
+  each shard.
 
-Lines that do not match the recognized record patterns are not checked. The job summary shows the
-commit and, for each pair, the reported Julia version and platform string, each shard's job
-conclusion, the files that ran with another status and up to five of the slowest parsed files.
-"Shards completed" counts the shards whose job concluded `success` and whose own log passed the
-per-log checks; a pair can show 3/3 and still fail a pair-wide check. A failure of the download
-or API step stops the job before the script writes a summary.
+For `focused` the script reports `FOCUSED VALIDATION: PASS` or `FAIL`, not the full-validation
+line. For each planned cell it requires one log whose header matches the cell with `mode=focused`,
+a runner line with `shard 1/1`, the same job and per-log checks as above, and a set of files with
+`status=pass` that equals the requested files exactly. The job name is `Focused / <os> / Julia <julia>`.
 
-A rerun passes only if it reruns all 18 matrix jobs, because the verdict reads only artifacts and
-jobs of the current attempt. `scripts/test_full_validation_verdict.py` tests the verdict on
-synthetic logs, and checks the workflow text for the matrix lists, the job name and artifact name
-templates and the required options; it does not evaluate `include` or `exclude` entries of the
-matrix.
+For `release` the script also takes `--ci-runs`. A workflow step lists the CI.yml runs on
+`GITHUB_SHA` and the jobs of each. The verdict needs at least one run with event `push` or
+`workflow_dispatch`, conclusion `success` and these jobs all `success` (a skipped job does not
+count): `PR required jobs`, `Frozen benchmark differential / Linux`, `Strict documentation /
+Linux` and the three `Julia 1.13 / Linux (tests N/3)` jobs. This shows that the frozen benchmark and
+the strict documentation build passed on that commit through the existing required machinery,
+without repeating them. If no run qualifies, start one with `gh workflow run CI.yml --ref <ref>`,
+wait for it, then rerun release validation. It prints `RELEASE VALIDATION: PASS` only if the matrix
+checks and the CI-run check both hold.
+
+Lines of a log that do not match the recognized record patterns are not checked, apart from the
+announced file list above. The job summary shows the commit and, for each pair, the reported Julia
+version and platform string, each shard's job conclusion, the files that ran with another status
+and up to five of the slowest parsed files. "Shards completed" counts the shards whose job
+concluded `success` and whose own log passed the per-log checks; a pair can show 3/3 and still fail
+a pair-wide check. If the script cannot read its inputs (the plan, the tiers file or the job
+list), the table has no rows and the summary lists that problem; a missing log for a cell is then
+not reported separately. A failure of the download or API step stops the job before the script
+writes a summary. If the download pattern matches no log artifact, the script reports each planned
+cell as missing, provided that it can read its other inputs.
+
+A rerun passes only if it reruns all planned matrix jobs, because the verdict reads only artifacts
+and jobs of the current attempt.
+
+### Nightly failure reports
+
+When the verdict job of a scheduled run fails, the `Nightly failure report` job opens one issue
+for each failure signature, or comments on the open one. It has `issues: write`, and no other job
+does; `actions: read` is on the verdict and report jobs only. The verdict script writes the
+signature to `signature.txt`, uploaded as the artifact `full-validation-signature-attempt-<n>`.
+Each line is `<os> <julia minor>: <sorted failing files>`; when an OS and Julia pair has no failing
+file, the line names the problem class instead (`job-not-success`, `missing-log`, `log-invalid`
+or `coverage`), and `global: ...` lines cover problems that belong to no pair. The last line is
+`signature-hash: <12 hex>`, the first 12 hexadecimal characters of the SHA-256 of the lines. A
+failing file appears in the signature only if the full selection names it. The issue title is
+`Nightly full validation failing [<hash>]`; an open issue with that title gets a comment with the
+run URL, commit and date, and otherwise a new issue is created. If the verdict wrote no valid
+signature, the hash is `verdict-incomplete`.
+
+### Tests of the workflow
+
+`scripts/test_full_validation_plan.py` tests the plan script, and
+`scripts/test_full_validation_verdict.py` tests the verdict on synthetic logs in all three modes
+and the signature. The latter also checks the workflow text: the input choices and defaults, that
+inputs reach scripts only through `env`, the plan, test, verdict and report wiring, the
+confinement of the `actions: read` and `issues: write` permissions, and the artifact name and
+header templates. It does not evaluate the matrix; the matrix comes from the plan script, which
+is tested separately.

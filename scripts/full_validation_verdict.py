@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
-"""Verdict for the nightly full-validation matrix.
+"""Verdict for the full-validation matrix, in three modes.
 
 Reads the per-cell logs downloaded from the
 `full-validation-log-<os>-<julia>-<shard>-attempt-<n>` artifacts and the job
 conclusions of the same workflow run attempt. The job conclusions are checked
-against the expected matrix job names, and the passing timing records of each
-OS and Julia pair against the full test selection (the union of all four tiers
-in `test/tiers.toml`).  The expected
-cells below mirror the matrix in `.github/workflows/full-validation.yml`;
-`test_full_validation_verdict.py` compares the two texts.  It imports only the
-standard library and needs Python 3.11 or newer (`tomllib`).
+against the expected job names, and the passing timing records of each OS and
+Julia pair against the expected files.
+
+Without `--plan` the script checks the nightly full validation: 18 cells, and
+the full test selection (the union of all four tiers in `test/tiers.toml`) for
+each OS and Julia pair.  The cells below mirror the matrix of the full and
+release modes in `.github/workflows/full-validation.yml`;
+`test_full_validation_verdict.py` compares the two texts.  With `--plan` the
+cells, the mode and the requested files come from the `plan.json` that
+`full_validation_plan.py` wrote.  A `focused` plan checks that exactly the
+requested files passed in each planned cell and reports `FOCUSED VALIDATION`.
+A `release` plan checks the full matrix and also needs `--ci-runs`: a CI.yml
+run on the same commit that passed the benchmark and documentation jobs.
+
+The script imports only the standard library and needs Python 3.11 or newer
+(`tomllib`).
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -28,6 +39,21 @@ SHARD_COUNT = 3
 TIERS = ("quick", "standard", "thorough", "full")
 ARTIFACT_PREFIX = "full-validation-log-"
 JOB_PREFIX = "Full / "
+FOCUSED_PREFIX = "Focused / "
+MODES = ("full", "focused", "release")
+MAX_FOCUSED_FILES = 20
+# The CI.yml jobs that a release needs on the released commit: the PR required jobs
+# and the jobs behind them that carry the frozen benchmark and the strict docs build.
+CI_EVENTS = ("push", "workflow_dispatch")
+CI_REQUIRED_JOBS = (
+    "PR required jobs",
+    "Frozen benchmark differential / Linux",
+    "Strict documentation / Linux",
+    "Julia 1.13 / Linux (tests 1/3)",
+    "Julia 1.13 / Linux (tests 2/3)",
+    "Julia 1.13 / Linux (tests 3/3)",
+)
+SIGNATURE_HASH_LENGTH = 12
 # Substrings of the platform triple that `Sys.MACHINE` reports for each runner OS.
 MACHINE_MARKERS = {
     "ubuntu-latest": ("linux",),
@@ -53,6 +79,15 @@ class TiersError(Exception):
     """The tier manifest does not define a full selection."""
 
 
+class PlanError(Exception):
+    """The plan file is not a valid plan for this mode."""
+
+    def __init__(self, problems, mode=None):
+        super().__init__("; ".join(problems))
+        self.problems = list(problems)
+        self.mode = mode  # the mode the plan file declares, when it declares a known one
+
+
 def expected_cells():
     return [(o, j, s) for o in OSES for j in JULIAS for s in SHARDS]
 
@@ -64,6 +99,116 @@ def artifact_name(os_name, julia, shard, attempt):
 def job_name(os_name, julia, shard):
     """The job name in the exact format of the workflow's `name:` for the test job."""
     return f"{JOB_PREFIX}{os_name} / Julia {julia} (shard {shard}/{SHARD_COUNT})"
+
+
+def focused_job_name(os_name, julia):
+    """The job name in the exact format of the workflow's `name:` for a focused cell."""
+    return f"{FOCUSED_PREFIX}{os_name} / Julia {julia}"
+
+
+class Plan:
+    """The cells and files that one run is expected to cover."""
+
+    def __init__(self, mode, files, cells, shard_count):
+        self.mode = mode
+        self.files = list(files)
+        self.cells = list(cells)
+        self.shard_count = shard_count
+        self.from_file = False
+
+    @property
+    def pairs(self):
+        return list(dict.fromkeys(cell[:2] for cell in self.cells))
+
+    @property
+    def job_prefix(self):
+        return FOCUSED_PREFIX if self.mode == "focused" else JOB_PREFIX
+
+    def job_name(self, cell):
+        if self.mode == "focused":
+            return focused_job_name(cell[0], cell[1])
+        return job_name(*cell)
+
+    @property
+    def title(self):
+        return {"focused": "Focused validation", "release": "Release validation", "full": "Full validation"}.get(
+            self.mode, "Validation"
+        )
+
+    @property
+    def verdict_label(self):
+        return self.title.upper()
+
+
+def default_plan():
+    return Plan("full", [], expected_cells(), SHARD_COUNT)
+
+
+def load_plan(plan_path, selection):
+    """Read and validate `plan.json`; raise PlanError with the problems found."""
+    try:
+        data = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    except ValueError as error:
+        raise PlanError([f"{plan_path} is not valid JSON: {error}"])
+    if not isinstance(data, dict):
+        raise PlanError([f"{plan_path} does not hold a JSON object"])
+    mode = data.get("mode")
+    if mode not in MODES:
+        raise PlanError([f"plan mode {mode!r} is not one of {', '.join(MODES)}"])
+    problems = []
+    files = data.get("files")
+    if not isinstance(files, list) or not all(isinstance(name, str) for name in files):
+        raise PlanError(["plan files must be a list of names"], mode)
+    matrix = data.get("matrix")
+    include = matrix.get("include") if isinstance(matrix, dict) else None
+    if not isinstance(include, list) or not include:
+        raise PlanError(["plan matrix must hold a non-empty include list"], mode)
+    shard_count = SHARD_COUNT if mode in ("full", "release") else 1
+    cells, labels = [], {}
+    for entry in include:
+        if not isinstance(entry, dict):
+            problems.append(f"matrix entry {entry!r} is not an object")
+            continue
+        os_name, julia = entry.get("os"), entry.get("julia")
+        shard, shards, label = entry.get("shard"), entry.get("shards"), entry.get("label")
+        if os_name not in OSES or julia not in JULIAS:
+            problems.append(f"matrix entry {entry!r} names an OS or Julia version outside the allowed sets")
+            continue
+        integers = all(isinstance(n, int) and not isinstance(n, bool) for n in (shard, shards))
+        if not integers or shards != shard_count or not 1 <= shard <= shards:
+            problems.append(f"matrix entry {entry!r} needs shard in 1..{shard_count} of {shard_count} for mode {mode}")
+            continue
+        cell = (os_name, julia, shard)
+        cells.append(cell)
+        labels[cell] = label
+    if problems:
+        raise PlanError(problems, mode)
+    plan = Plan(mode, files, cells, shard_count)
+    if len(set(cells)) != len(cells):
+        problems.append("the plan repeats a cell")
+    if mode in ("full", "release"):
+        if sorted(cells) != sorted(expected_cells()):
+            problems.append(f"the cells of a {mode} plan differ from the {len(expected_cells())} expected cells")
+        if files:
+            problems.append(f"a {mode} plan must not list files")
+    else:
+        if len({cell[:2] for cell in cells}) != len(cells):
+            problems.append("a focused plan repeats an OS and Julia pair")
+        if not files:
+            problems.append("a focused plan needs at least one file")
+        if len(files) > MAX_FOCUSED_FILES:
+            problems.append(f"a focused plan lists {len(files)} files, at most {MAX_FOCUSED_FILES} are allowed")
+        if len(files) != len(set(files)):
+            problems.append("the plan repeats a file")
+        unknown = sorted(set(files) - set(selection))
+        if unknown:
+            problems.append(f"the plan lists files outside the full selection: {unknown}")
+    for cell, label in labels.items():
+        if label != plan.job_name(cell):
+            problems.append(f"matrix label {label!r} differs from the job name {plan.job_name(cell)!r}")
+    if problems:
+        raise PlanError(problems, mode)
+    return plan
 
 
 def load_selection(tiers_path):
@@ -108,25 +253,27 @@ def parse_seconds(text):
 class Cell:
     """What one log file says about one OS x Julia x shard cell."""
 
-    def __init__(self, os_name, julia, shard):
-        self.os, self.julia, self.shard = os_name, julia, shard
+    def __init__(self, os_name, julia, shard, shards=SHARD_COUNT):
+        self.os, self.julia, self.shard, self.shards = os_name, julia, shard, shards
         self.present = False
         self.problems = []
+        self.kinds = set()  # problem classes, for the failure signature
         self.results = {}  # file -> (elapsed_s or None, status)
         self.version = None
         self.machine = None
 
     @property
     def label(self):
-        return f"{self.os} / Julia {self.julia} / shard {self.shard}/{SHARD_COUNT}"
+        return f"{self.os} / Julia {self.julia} / shard {self.shard}/{self.shards}"
 
-    def problem(self, text):
+    def problem(self, text, kind="log-invalid"):
         self.problems.append(f"{self.label}: {text}")
+        self.kinds.add(kind)
 
 
-def parse_log(cell, text, expected_commit):
+def parse_log(cell, text, expected_commit, header_extra=None):
     cell.present = True
-    shard_label = f"{cell.shard}/{SHARD_COUNT}"
+    shard_label = f"{cell.shard}/{cell.shards}"
     headers, runners, trailers = [], [], []
     runner_index = None
     last_file_index = -1
@@ -169,6 +316,7 @@ def parse_log(cell, text, expected_commit):
             "os": cell.os,
             "julia": cell.julia,
             "shard": shard_label,
+            **(header_extra or {}),
         }
         for key, value in wanted.items():
             if header.get(key) != value:
@@ -265,16 +413,21 @@ def load_jobs(jobs_path):
     return records, problems
 
 
-def check_jobs(records):
-    """Return (problems, conclusions) with `conclusions` keyed by (os, julia, shard)."""
+def check_jobs(records, plan):
+    """Return (problems, conclusions, unexpected) with `conclusions` keyed by cell.
+
+    `unexpected` is True when a job of the plan's name prefix is outside the plan.
+    """
     problems = []
-    expected = {job_name(*cell): cell for cell in expected_cells()}
+    expected = {plan.job_name(cell): cell for cell in plan.cells}
     seen = {}
+    unexpected = False
     for name, conclusion in records:
-        if not name.startswith(JOB_PREFIX):
+        if not name.startswith(plan.job_prefix):
             continue
         if name not in expected:
             problems.append(f"job {name!r} is outside the expected matrix")
+            unexpected = True
             continue
         seen.setdefault(name, []).append(conclusion)
     conclusions = {}
@@ -290,112 +443,223 @@ def check_jobs(records):
             conclusions[cell] = str(found[0])
             if found[0] != "success":
                 problems.append(f"job {name!r} concluded {found[0]}, expected success")
-    return problems, conclusions
+    return problems, conclusions, unexpected
 
 
 def pair_label(os_name, julia):
     return f"{os_name} / Julia {julia}"
 
 
-def evaluate(logs_dir, selection, expected_commit, attempt, job_records):
-    """Return (problems, rows) for the logs under `logs_dir` and the job records."""
+def evaluate(logs_dir, selection, expected_commit, attempt, job_records, plan=None):
+    """Return (problems, rows, global_classes) for the logs under `logs_dir` and the job records.
+
+    A row's `classes` and the global classes name the kinds of problem, for the
+    failure signature; the problem texts are for people.
+    """
+    plan = plan or default_plan()
     problems = []
-    job_problems, job_conclusions = check_jobs(job_records)
+    global_classes = set()
+    job_problems, job_conclusions, unexpected_job = check_jobs(job_records, plan)
     problems.extend(job_problems)
+    if unexpected_job:
+        global_classes.add("unexpected-job")
 
     found, stray = find_cell_logs(logs_dir)
     if not Path(logs_dir).is_dir():
         problems.append(f"log directory {logs_dir} does not exist; no test artifacts were downloaded")
+        global_classes.add("no-logs")
     elif not found:
         problems.append(f"log directory {logs_dir} holds no {ARTIFACT_PREFIX}* artifact")
+        global_classes.add("no-logs")
 
-    expected_names = {artifact_name(*cell, attempt) for cell in expected_cells()}
+    expected_names = {artifact_name(*cell, attempt) for cell in plan.cells}
     for name in found:
         if name not in expected_names:
             problems.append(f"log artifact {name} is outside the expected cells of attempt {attempt}")
+            global_classes.add("unexpected-artifact")
     for name in stray:
         problems.append(f"unexpected entry {name} in the log directory")
+        global_classes.add("unexpected-artifact")
+
+    # With a plan file the log header also names the mode and the shard count.
+    header_extra = {"mode": plan.mode, "shards": str(plan.shard_count)} if plan.from_file else None
 
     cells = {}
-    for key in expected_cells():
-        cell = Cell(*key)
+    for key in plan.cells:
+        cell = Cell(*key, plan.shard_count)
         cells[key] = cell
         name = artifact_name(*key, attempt)
         files = found.get(name)
         if files is None:
-            cell.problem(f"no log artifact {name} (missing cell)")
+            cell.problem(f"no log artifact {name} (missing cell)", kind="missing-log")
         elif len(files) != 1:
             cell.problem(f"expected exactly one log file in {name}, found {len(files)}")
         else:
-            parse_log(cell, files[0].read_text(encoding="utf-8", errors="replace"), expected_commit)
+            parse_log(cell, files[0].read_text(encoding="utf-8", errors="replace"), expected_commit, header_extra)
         problems.extend(cell.problems)
 
     selected = set(selection)
+    if plan.mode == "focused":
+        target = set(plan.files)
+        outside_text = "files outside the requested list ran"
+        missing_text = "requested files did not run"
+    else:
+        target = selected
+        outside_text = "files outside the full selection ran"
+        missing_text = "files in the full selection did not run"
     rows = []
-    for os_name in OSES:
-        for julia in JULIAS:
-            pair = [cells[(os_name, julia, s)] for s in SHARDS]
-            label = pair_label(os_name, julia)
-            owner = {}
-            failing = []
-            reported = set()
-            for cell in pair:
-                for name, (_, status) in cell.results.items():
-                    reported.add(name)
-                    if name in owner and owner[name] != cell.shard:
-                        problems.append(
-                            f"{label}: test file {name} ran in shards {owner[name]} and {cell.shard}"
-                        )
-                    owner.setdefault(name, cell.shard)
-                    if status != "pass":
-                        failing.append(f"{name} ({status})")
-                        problems.append(
-                            f"{label} / shard {cell.shard}/{SHARD_COUNT}: test file {name} has status {status}"
-                        )
-            unexpected = sorted(reported - selected)
-            if unexpected:
-                problems.append(f"{label}: files outside the full selection ran: {unexpected}")
-            if all(cell.present for cell in pair):
-                missing = sorted(selected - reported)
-                if missing:
-                    problems.append(f"{label}: files in the full selection did not run: {missing}")
-            passed = {n for c in pair for n, (_, st) in c.results.items() if st == "pass"} & selected
-            times = {}
-            for cell in pair:
-                for name, (elapsed, _) in cell.results.items():
-                    if elapsed is not None:
-                        times[name] = max(elapsed, times.get(name, elapsed))
-            slowest = sorted(times.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
-            rows.append(
-                {
-                    "os": os_name,
-                    "julia": ", ".join(sorted({c.version for c in pair if c.version})) or "n/a",
-                    "machine": ", ".join(sorted({c.machine for c in pair if c.machine})) or "n/a",
-                    "jobs": " ".join(f"{c.shard}:{job_conclusions[(os_name, julia, c.shard)]}" for c in pair),
-                    "shards": sum(
-                        1
-                        for c in pair
-                        if c.present and not c.problems and job_conclusions[(os_name, julia, c.shard)] == "success"
-                    ),
-                    "passed": len(passed),
-                    "expected": len(selected),
-                    "failing": sorted(failing),
-                    "slowest": slowest,
-                }
-            )
-    return problems, rows
+    for os_name, julia in plan.pairs:
+        pair = [cells[c] for c in plan.cells if c[:2] == (os_name, julia)]
+        label = pair_label(os_name, julia)
+        owner = {}
+        failing = []
+        failing_names = set()
+        reported = set()
+        classes = set()
+        for cell in pair:
+            classes |= cell.kinds
+            if job_conclusions[(os_name, julia, cell.shard)] != "success":
+                classes.add("job-not-success")
+            for name, (_, status) in cell.results.items():
+                reported.add(name)
+                if name in owner and owner[name] != cell.shard:
+                    problems.append(
+                        f"{label}: test file {name} ran in shards {owner[name]} and {cell.shard}"
+                    )
+                    classes.add("coverage")
+                owner.setdefault(name, cell.shard)
+                if status != "pass":
+                    failing.append(f"{name} ({status})")
+                    if name in selected:
+                        failing_names.add(name)
+                    else:
+                        classes.add("coverage")
+                    problems.append(
+                        f"{label} / shard {cell.shard}/{plan.shard_count}: test file {name} has status {status}"
+                    )
+        unexpected = sorted(reported - target)
+        if unexpected:
+            problems.append(f"{label}: {outside_text}: {unexpected}")
+            classes.add("coverage")
+        if all(cell.present for cell in pair):
+            missing = sorted(target - reported)
+            if missing:
+                problems.append(f"{label}: {missing_text}: {missing}")
+                classes.add("coverage")
+        passed = {n for c in pair for n, (_, st) in c.results.items() if st == "pass"} & target
+        times = {}
+        for cell in pair:
+            for name, (elapsed, _) in cell.results.items():
+                if elapsed is not None:
+                    times[name] = max(elapsed, times.get(name, elapsed))
+        slowest = sorted(times.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        rows.append(
+            {
+                "os": os_name,
+                "julia_minor": julia,
+                "julia": ", ".join(sorted({c.version for c in pair if c.version})) or "n/a",
+                "machine": ", ".join(sorted({c.machine for c in pair if c.machine})) or "n/a",
+                "jobs": " ".join(f"{c.shard}:{job_conclusions[(os_name, julia, c.shard)]}" for c in pair),
+                "shards": sum(
+                    1
+                    for c in pair
+                    if c.present and not c.problems and job_conclusions[(os_name, julia, c.shard)] == "success"
+                ),
+                "passed": len(passed),
+                "expected": len(target),
+                "failing": sorted(failing),
+                "failing_names": sorted(failing_names),
+                "classes": classes,
+                "slowest": slowest,
+            }
+        )
+    return problems, rows, global_classes
+
+
+def load_ci_runs(path):
+    """Read the CI.yml runs of the commit: a JSON list of run objects with their jobs."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(run, dict) for run in data):
+        raise ValueError("the CI run list is not a JSON list of objects")
+    return data
+
+
+def ci_run_rejection(run, commit):
+    """Return why `run` does not qualify as the CI evidence for `commit`, or None if it does."""
+    reasons = []
+    if run.get("head_sha") != commit:
+        reasons.append(f"head_sha {run.get('head_sha')!r} is not {commit}")
+    if run.get("event") not in CI_EVENTS:
+        reasons.append(f"event {run.get('event')!r} is not {' or '.join(CI_EVENTS)}")
+    if run.get("conclusion") != "success":
+        reasons.append(f"conclusion {run.get('conclusion')!r} is not success")
+    jobs = run.get("jobs")
+    jobs = jobs if isinstance(jobs, list) else []
+    for required in CI_REQUIRED_JOBS:
+        conclusions = [j.get("conclusion") for j in jobs if isinstance(j, dict) and j.get("name") == required]
+        if not conclusions:
+            reasons.append(f"job {required!r} is absent")
+        elif any(c != "success" for c in conclusions):
+            reasons.append(f"job {required!r} concluded {conclusions}, expected success")
+    return "; ".join(reasons) or None
+
+
+def check_ci_runs(runs, commit):
+    """Return (problems, evidence) for the release check; `evidence` is the qualifying run or None."""
+    rejected = []
+    for run in runs:
+        reason = ci_run_rejection(run, commit)
+        if reason is None:
+            return [], run
+        rejected.append(f"run {run.get('id')!r}: {reason}")
+    problems = [
+        f"no CI.yml run on commit {commit} qualifies: it needs event push or workflow_dispatch, "
+        f"conclusion success and the jobs {', '.join(repr(j) for j in CI_REQUIRED_JOBS)} all successful. "
+        "Dispatch CI.yml on the release ref with `gh workflow run CI.yml --ref <ref>`, wait for it, "
+        "then rerun release validation."
+    ]
+    problems.extend(rejected[:5])
+    return problems, None
+
+
+def signature_lines(rows, global_classes):
+    """The sorted failure-signature lines: per OS and Julia minor, the failing files or the problem classes."""
+    lines = []
+    for row in rows:
+        if row["failing_names"]:
+            what = ", ".join(row["failing_names"])
+        elif row["classes"]:
+            what = ", ".join(sorted(row["classes"]))
+        else:
+            continue
+        lines.append(f"{row['os']} {row['julia_minor']}: {what}")
+    if global_classes:
+        lines.append("global: " + ", ".join(sorted(global_classes)))
+    return sorted(lines)
+
+
+def signature_text(lines):
+    """The lines followed by `signature-hash: <12 hex>`, the SHA-256 of the lines joined by newlines."""
+    body = "".join(line + "\n" for line in lines)
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:SIGNATURE_HASH_LENGTH]
+    return f"{body}signature-hash: {digest}\n"
 
 
 def cell_text(value):
     return str(value).replace("|", "\\|")
 
 
-def render(commit, rows, problems):
+def render(commit, rows, problems, plan=None, notes=()):
+    plan = plan or default_plan()
     lines = [
-        "## Full validation",
+        f"## {plan.title}",
         "",
         f"Commit: `{commit}`",
         "",
+    ]
+    if plan.mode == "focused":
+        lines += [f"Requested files: {' '.join(f'`{name}`' for name in plan.files)}", ""]
+    lines += [
         "| OS | Julia | Machine | Job conclusions (shard:conclusion) | Shards completed | Files passed | Failing files | Slowest 5 files |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
@@ -410,7 +674,7 @@ def render(commit, rows, problems):
                     row["julia"],
                     row["machine"],
                     row["jobs"],
-                    f"{row['shards']}/{SHARD_COUNT}",
+                    f"{row['shards']}/{plan.shard_count}",
                     f"{row['passed']}/{row['expected']}",
                     failing,
                     slowest,
@@ -418,12 +682,15 @@ def render(commit, rows, problems):
             ) + " |"
         )
     lines.append("")
+    lines.extend(notes)
+    if notes:
+        lines.append("")
     if problems:
-        lines.append(f"FULL VALIDATION: FAIL ({len(problems)} problems)")
+        lines.append(f"{plan.verdict_label}: FAIL ({len(problems)} problems)")
         lines.append("")
         lines.extend(f"- {problem}" for problem in problems)
     else:
-        lines.append("FULL VALIDATION: PASS")
+        lines.append(f"{plan.verdict_label}: PASS")
     lines.append("")
     return "\n".join(lines)
 
@@ -436,25 +703,60 @@ def main(argv=None):
     parser.add_argument("--attempt", required=True, help="run attempt that the artifact names must carry")
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--aggregate", required=True, help="aggregate result of the matrix job (needs.test.result)")
+    parser.add_argument("--plan", help="plan.json of this run; without it the script checks the full validation")
+    parser.add_argument("--ci-runs", help="JSON list of the CI.yml runs on the commit with their jobs; required in release mode")
+    parser.add_argument("--signature", help="file to write the failure signature to when there are problems")
     parser.add_argument("--summary", help="Markdown file to append the report to")
     args = parser.parse_args(argv)
     if not args.attempt.isdigit():
         parser.error("--attempt must be a number")
 
+    plan = default_plan()
+    notes = []
     try:
         selection = load_selection(args.tiers)
+        if args.plan:
+            plan = load_plan(args.plan, selection)
+            plan.from_file = True
+        if args.ci_runs and plan.mode != "release":
+            parser.error("--ci-runs is only used in release mode")
+        if plan.mode == "release" and not args.ci_runs:
+            parser.error("release mode needs --ci-runs")
         records, job_file_problems = load_jobs(args.jobs)
-        problems, rows = evaluate(args.logs, selection, args.expected_commit, args.attempt, records)
+        problems, rows, classes = evaluate(args.logs, selection, args.expected_commit, args.attempt, records, plan)
         problems = job_file_problems + problems
+        if job_file_problems:
+            classes.add("job-list-invalid")
         if args.aggregate != "success":
             problems.append(f"the aggregate result of the matrix job is {args.aggregate!r}, expected 'success'")
-    except (TiersError, OSError, tomllib.TOMLDecodeError) as error:
-        problems, rows = [f"cannot read the validation inputs: {error}"], []
-    report = render(args.expected_commit, rows, problems)
+            classes.add("aggregate-not-success")
+        if plan.mode == "release":
+            ci_problems, evidence = check_ci_runs(load_ci_runs(args.ci_runs), args.expected_commit)
+            problems.extend(ci_problems)
+            if evidence is None:
+                classes.add("ci-run-missing")
+            else:
+                notes.append(f"CI.yml run on this commit: {evidence.get('html_url') or evidence.get('id')}")
+        # A problem class that adds nothing to a more specific one is dropped from the signature.
+        if any(row["failing_names"] or row["classes"] for row in rows):
+            classes.discard("aggregate-not-success")
+    except PlanError as error:
+        # An invalid plan that still names its mode reports under that mode's label; one that
+        # does not gets the neutral label.
+        plan = Plan(error.mode or "unknown", [], [], 1 if error.mode == "focused" else SHARD_COUNT)
+        problems, rows, classes = [f"invalid plan: {p}" for p in error.problems], [], {"plan-invalid"}
+    except (TiersError, OSError, ValueError, tomllib.TOMLDecodeError) as error:
+        if args.plan and not plan.from_file:
+            plan = Plan("unknown", [], [], SHARD_COUNT)
+        problems, rows, classes = [f"cannot read the validation inputs: {error}"], [], {"inputs-unreadable"}
+    report = render(args.expected_commit, rows, problems, plan, notes)
     print(report)
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as handle:
             handle.write(report)
+    if args.signature and problems:
+        lines = signature_lines(rows, classes) or ["global: unclassified"]
+        Path(args.signature).write_text(signature_text(lines), encoding="utf-8")
     return 1 if problems else 0
 
 

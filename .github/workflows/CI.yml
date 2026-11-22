@@ -7,12 +7,53 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: minimal-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A superseded pull-request run in this workflow-level group is cancelled. A
+  # push or manual run has its own workflow-level group per run id, so another
+  # run of this workflow does not cancel or replace it through this group. A
+  # push with a usable `before` commit is classified by the net difference
+  # between the trees of `before` and the pushed commit.
+  group: minimal-ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # All validation lanes are required, but run concurrently.
+  # `changes` classifies the changed files. When every changed path is
+  # documentation, `docs_only` is 'true': `test` and `benchmark` are skipped
+  # and `required` expects them to be skipped. They run when `docs_only` is
+  # 'false'. If the output is missing or empty, both jobs are skipped (their
+  # condition compares with 'false') and `required` fails because `docs_only`
+  # is neither 'true' nor 'false'. If `changes` fails, `required` fails.
+  changes:
+    name: Change classification / Linux
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test the change classifier
+        run: python3 -B scripts/test_ci_changes.py
+      - name: Classify the changed files
+        id: classify
+        env:
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: python3 scripts/ci_changes.py
+      # The classifier's base is the first parent of a pull-request merge
+      # commit or the `before` commit of a push. When the classifier succeeds
+      # with an empty base, the check falls back to HEAD^1, which exists unless HEAD is a root commit. The check
+      # inspects the added, copied, modified and renamed blobs (ACMR) in the
+      # range.
+      - name: Check repository hygiene
+        env:
+          BASE: ${{ steps.classify.outputs.base }}
+        run: |
+          python3 scripts/test_repo_hygiene.py
+          python3 scripts/check_repo_hygiene.py --base "${BASE:-HEAD^1}"
+  # The validation lanes run concurrently.
   test:
-    name: Julia 1 / Linux (tests ${{ matrix.shard }}/3)
+    name: Julia 1.13 / Linux (tests ${{ matrix.shard }}/3)
+    needs: [changes]
+    if: needs.changes.outputs.docs_only == 'false'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -22,7 +63,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: '1.13'
       - uses: julia-actions/cache@v3
       - name: Test declared minimal inventory (shard ${{ matrix.shard }}/3)
         run: |
@@ -32,23 +73,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: package-validation-logs-linux-current-julia-shard-${{ matrix.shard }}
+          name: package-validation-logs-linux-julia-1.13-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/pb-package-tests-shard-${{ matrix.shard }}.log
           if-no-files-found: ignore
   benchmark:
     name: Frozen benchmark differential / Linux
+    needs: [changes]
+    if: needs.changes.outputs.docs_only == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Check repository hygiene before Julia setup
-        run: |
-          python3 scripts/test_repo_hygiene.py
-          python3 scripts/check_repo_hygiene.py --base 'HEAD^1'
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: '1.13'
       - uses: julia-actions/cache@v3
       - name: Prepare benchmark environment
         run: julia scripts/instantiate.jl benchmark
@@ -66,7 +105,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: benchmark-validation-logs-linux-current-julia
+          name: benchmark-validation-logs-linux-julia-1.13
           path: ${{ runner.temp }}/pb-benchmark-differential.log
           if-no-files-found: ignore
   docs:
@@ -138,7 +177,7 @@ jobs:
           fi
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: '1.13'
       - uses: julia-actions/cache@v3
       - name: Lint authored Markdown and generated contract sources
         run: python3 docs/check_markdown.py
@@ -187,24 +226,33 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: documentation-validation-logs-linux-current-julia
+          name: documentation-validation-logs-linux-julia-1.13
           path: ${{ runner.temp }}/pb-docs-*.log
           if-no-files-found: ignore
   required:
     name: PR required jobs
     if: always()
-    needs: [test, benchmark, docs]
+    needs: [changes, test, benchmark, docs]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every Linux validation lane
+      - name: Require the validation lanes that the classification calls for
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
           TEST_RESULT: ${{ needs.test.result }}
           BENCHMARK_RESULT: ${{ needs.benchmark.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
         run: |
-          test "$TEST_RESULT" = success
-          test "$BENCHMARK_RESULT" = success
+          set -euo pipefail
+          echo "changes=$CHANGES_RESULT docs_only='$DOCS_ONLY'"
+          echo "test=$TEST_RESULT benchmark=$BENCHMARK_RESULT docs=$DOCS_RESULT"
+          test "$CHANGES_RESULT" = success
           test "$DOCS_RESULT" = success
+          case "$DOCS_ONLY" in
+            true)  test "$TEST_RESULT" = skipped; test "$BENCHMARK_RESULT" = skipped ;;
+            false) test "$TEST_RESULT" = success; test "$BENCHMARK_RESULT" = success ;;
+            *)     echo "unclassified change: '$DOCS_ONLY'"; exit 1 ;;
+          esac
   gate:
     name: PR merge gate
     if: always()
@@ -289,18 +337,38 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: julia-actions/setup-julia@v3
+      # This job holds the gh-pages-writes lock. The publication steps run only
+      # if the fetched tip of master equals this commit at the time of the
+      # check.
+      - name: Check that this commit is the master tip
+        id: tip
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/master
+          tip="$(git rev-parse FETCH_HEAD)"
+          if [[ "$tip" == "$GITHUB_SHA" ]]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "This run does not publish: master is at $tip, not $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.tip.outputs.current == 'true'
+        uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
-      - uses: julia-actions/cache@v3
+          version: '1.13'
+      - if: steps.tip.outputs.current == 'true'
+        uses: julia-actions/cache@v3
       - name: Prepare documentation environment
+        if: steps.tip.outputs.current == 'true'
         run: julia scripts/instantiate.jl docs
       - name: Retrieve the validated HTML artifact
+        if: steps.tip.outputs.current == 'true'
         uses: actions/download-artifact@v8
         with:
           name: documentation-linux-current-julia
           path: docs/build
       - name: Publish development documentation
+        if: steps.tip.outputs.current == 'true'
         run: julia --project=docs docs/deploy.jl
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

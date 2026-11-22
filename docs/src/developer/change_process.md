@@ -41,15 +41,29 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; julia_args=["--ch
 python3 docs/check_html.py
 ```
 
-CI is `.github/workflows/CI.yml`: three deterministic package-test
-shards plus independent frozen benchmark and strict documentation validation
-run concurrently on Linux/current Julia 1.x. The `PR required jobs` verdict
-and `PR merge gate` require all five validation lanes. There is no
-LTS/cross-platform/GPU matrix. HTML and job-specific logs are retained as
-artifacts; every PR still executes every declared test file with bounds
-checks. On master pushes, a deployment job waits for the merge gate, retrieves
-the validated HTML artifact and calls `docs/deploy.jl` to publish development
-documentation. Same-repository non-draft PRs publish their validated HTML
+CI is `.github/workflows/CI.yml`. A change-classification job checks
+repository hygiene and classifies the changed paths with
+`scripts/ci_changes.py`. A non-empty change is documentation-only when every
+changed path is an added, modified or deleted regular, non-executable file that
+is a top-level `*.md` file, a `.md`, `.svg`, `.png` or `.mmd` file under
+`docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
+`docs/audit/docs-tracks-1019/` (suffixes are case-sensitive). When the job
+succeeds with `docs_only=true`, the three package-test shards and the frozen
+benchmark differential are skipped. When it succeeds with `docs_only=false`
+they are eligible to run in parallel with strict documentation validation, on
+Linux with Julia 1.13. The strict documentation job is scheduled independently
+of the classification; it runs the executable Documenter blocks of the Markdown
+pages it builds, docstring doctests and isolated Literate examples. The
+`PR required jobs` verdict and `PR merge gate` require the classification and
+documentation lanes, and either both skipped lanes (documentation-only) or both
+successful lanes (any other change). There is no LTS/cross-platform/GPU matrix
+in the required checks. HTML and job-specific logs are retained as artifacts.
+On master pushes, a deployment job becomes eligible after `gate` and `docs`
+succeed. Its publication steps run only if the fetched `refs/heads/master` tip
+equals its commit at the time of the check: the job then attempts to retrieve
+the validated HTML artifact and publish development documentation with
+`docs/deploy.jl`. After `gate` and `docs` succeed, a separate job for
+same-repository non-draft PRs becomes eligible to publish their validated HTML
 artifact to an isolated `gh-pages` preview through a separate job that never
 executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass
 required gates because local docs passed.

@@ -4,6 +4,14 @@ const root=dirname(@__DIR__)
 const TT=Main.TestTiers
 workflow=read(joinpath(root,".github","workflows","CI.yml"),String)
 
+# The text of one top-level job, up to the next job or comment at the same indent.
+function job_block(name)
+    m=match(Regex("^  "*name*":\\n(.*?)(?=^  \\S|\\z)","ms"),workflow)
+    m === nothing ? "" : m.captures[1]
+end
+
+pos(needle,text)=(r=findfirst(needle,text); r===nothing ? nothing : first(r))
+
 parts(names,w,count)=[TT.shard_files(names,i,count;weights=w) for i in 1:count]
 function check_partition(names,w,count)
     p=parts(names,w,count)
@@ -18,17 +26,81 @@ end
 @testset "minimal required CI contract" begin
     @test occursin("name: PR required jobs",workflow)
     @test occursin("name: PR merge gate",workflow)
-    @test occursin("version: '1'",workflow)
+    @test occursin("version: '1.13'",workflow)
+    @test !occursin("version: '1'",workflow)
     @test occursin("--check-bounds=yes",workflow)
     @test occursin("shard: [1, 2, 3]",workflow)
-    @test occursin("needs: [test, benchmark, docs]",workflow)
+    @test occursin("needs: [changes, test, benchmark, docs]",workflow)
     @test occursin("BENCHMARK_RESULT:",workflow)
     @test occursin("DOCS_RESULT:",workflow)
     @test occursin("PB_CHECK_ONLY: '1'",workflow)
     @test occursin("docs/make.jl",workflow)
     @test !occursin("continue-on-error",workflow)
+    @test !occursin("pull_request_target:",workflow)
+    @test !occursin("paths-ignore",workflow)
+    @test occursin("cancel-in-progress: \${{ github.event_name == 'pull_request' }}",workflow)
+    @test occursin("group: minimal-ci-\${{ github.workflow }}-\${{ github.event_name == 'pull_request' && github.ref || github.run_id }}",workflow)
     rules=TOML.parsefile(joinpath(root,".github","tier-rules.toml"))
     @test Set(keys(rules["platforms"]))==Set(["linux"])
+    @test rules["platforms"]["linux"]["julia"]=="1.13"
+end
+@testset "documentation-only classification fails closed" begin
+    @test occursin("name: Change classification / Linux",workflow)
+    for job in ("changes","test","benchmark","docs","required","gate","deploy-docs")
+        @test !isempty(job_block(job))
+    end
+    required=job_block("required")
+    @test occursin("name: PR required jobs",required)
+    @test occursin("if: always()",required)
+    @test occursin("needs: [changes, test, benchmark, docs]",required)
+    @test occursin("CHANGES_RESULT: \${{ needs.changes.result }}",required)
+    @test occursin("DOCS_ONLY: \${{ needs.changes.outputs.docs_only }}",required)
+    @test occursin("TEST_RESULT: \${{ needs.test.result }}",required)
+    @test occursin("BENCHMARK_RESULT: \${{ needs.benchmark.result }}",required)
+    @test occursin("DOCS_RESULT: \${{ needs.docs.result }}",required)
+    @test occursin("test \"\$CHANGES_RESULT\" = success",required)
+    @test occursin("test \"\$DOCS_RESULT\" = success",required)
+    @test occursin("true)  test \"\$TEST_RESULT\" = skipped; test \"\$BENCHMARK_RESULT\" = skipped ;;",required)
+    @test occursin("false) test \"\$TEST_RESULT\" = success; test \"\$BENCHMARK_RESULT\" = success ;;",required)
+    @test occursin("*)     echo \"unclassified change: '\$DOCS_ONLY'\"; exit 1 ;;",required)
+    gate=job_block("gate")
+    @test occursin("name: PR merge gate",gate)
+    @test occursin("if: always()",gate)
+    @test occursin("needs: [required]",gate)
+    @test occursin("REQUIRED_RESULT: \${{ needs.required.result }}",gate)
+    @test occursin("test \"\$REQUIRED_RESULT\" = success",gate)
+    # The test and benchmark jobs each depend on `changes` and run when the classification is 'false'.
+    for job in ("test","benchmark")
+        section=job_block(job)
+        @test occursin("needs: [changes]",section)
+        @test occursin("if: needs.changes.outputs.docs_only == 'false'",section)
+    end
+    changes=job_block("changes")
+    @test occursin("fetch-depth: 2",changes)
+    @test occursin("docs_only: \${{ steps.classify.outputs.docs_only }}",changes)
+    @test occursin("BASE: \${{ steps.classify.outputs.base }}",changes)
+    @test occursin("check_repo_hygiene.py --base \"\${BASE:-HEAD^1}\"",changes)
+    @test occursin("test_repo_hygiene.py",changes)
+    @test !occursin("hygiene",job_block("benchmark"))
+    @test !isnothing(pos("id: classify",changes)) && !isnothing(pos("check_repo_hygiene.py",changes)) &&
+          pos("id: classify",changes) < pos("check_repo_hygiene.py",changes)
+    deploy=job_block("deploy-docs")
+    @test occursin("needs: [gate, docs]",deploy)
+    @test occursin("id: tip",deploy)
+    @test occursin("git fetch --no-tags origin refs/heads/master",deploy)
+    @test occursin("tip=\"\$(git rev-parse FETCH_HEAD)\"",deploy)
+    @test occursin("\"\$tip\" == \"\$GITHUB_SHA\"",deploy)
+    # Every step after the freshness check, including the publication, is conditional on it.
+    after=deploy[something(pos("id: tip",deploy),1):end]
+    @test count("if: steps.tip.outputs.current == 'true'",after)==5
+    @test occursin("docs/deploy.jl",after)
+    publish=filter(step -> occursin("docs/deploy.jl",step),split(deploy,r"^      - "m))
+    @test length(publish)==1
+    @test all(step -> occursin("if: steps.tip.outputs.current == 'true'",step),publish)
+    @test !isnothing(pos("id: tip",deploy)) && !isnothing(pos("docs/deploy.jl",deploy)) &&
+          pos("id: tip",deploy) < pos("docs/deploy.jl",deploy)
+    @test count("docs_only == 'false'",workflow)==2
+    @test !occursin("docs_only == 'true'",workflow)
 end
 @testset "shards cover the complete supported inventory exactly once" begin
     inv=TT.inventory()

@@ -77,15 +77,24 @@ See the [shared non-finite KKT rules](../numerics.md#NaN,-infinities-and-zeros) 
 | Case | Retained behavior |
 |:--|:--|
 | `SqrNormL2`, zero level | Zero standalone value; gradient/prox can still encounter IEEE zero-times-nonfinite arithmetic |
-| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for every nonzero residual, subnormal ones included, and NaN at a zero residual; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
+| `SqrNormL2`, infinite level | Gradient is the IEEE `λ(x - y)`: ±Inf for nonzero residuals other than NaN, subnormal ones included, and NaN for zero or NaN residuals; the four-argument and full-point `kkt_violation` scores of `SqrNormL2` take their gradient entry from the ridge-gradient helpers and follow this rule for finite `v` and `x` (the non-finite rules of the `kkt_violation` rows below take precedence, at an infinite level too: `SqrNormL2(Inf)`, `v = [Inf]`, `x = [0.0]` scores `+Inf`), while the three-argument screen does not use the gradient (`kkt_violation(SqrNormL2(Inf), [1.0], 1)` is `1.0`) |
 
 The rules for non-finite entries of `v` and `x` take precedence over this formula
 (for `f = SqrNormL2(1.0)`, `v = [-Inf]` and `x = [Inf]` the score is `+Inf` while `norm(v + gradient(f,x), Inf)` is `NaN`).
 The precision can differ: for `f = SqrNormL2(1.0, [nextfloat(1.0)])`, `x = Float32[1]` and
 `v = Float32[0]` the score works in `Float64` and is `eps(Float64)`, while `gradient(f,x)` rounds the center to
-`Float32` and is zero. With an infinite level and finite `v` and `x` the four-argument and full-point scores follow the gradient
-oracle (`NaN` at a zero residual, `Inf` elsewhere); a non-finite entry of `v` or `x` still follows the non-finite rules
+`Float32` and is zero.
+
+### [Point-aware scores at infinite level](@id sqr-norm-l2.kkt.infinite-level)
+
+With an infinite level and finite `v` and `x` entries in the working type,
+a zero residual gives a `NaN` entry score and a nonzero residual other than
+`NaN` gives `Inf`. A `NaN` center entry gives a `NaN` residual and entry
+score. The full-point maximum propagates a `NaN` entry score.
+A non-finite entry of `v` or `x` still follows the non-finite rules
 (for `f = SqrNormL2(Inf)`, `v = [Inf]` and `x = [0.0]` the score is `+Inf`, while the gradient is `NaN`).
+
+### Zero level
 
 A zero level makes the value zero, but does not make every
 gradient or endpoint operation immune to IEEE `0*Inf`/`0*NaN` arithmetic.
@@ -121,6 +130,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `sqr-norm-l2.gradient.exact-aliasing` | `guaranteed` | [Gradient and fused entry points](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrnorml2.jl#L143-L156), [family preflight](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrnorml2.jl#L229-L236), [alias guards](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/interface.jl#L241-L249), and [alias rejection and preserved storage tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/symmetric_parameters.jl#L302-L309) |
+| `sqr-norm-l2.kkt.infinite-level` | `characterized` | [Gradient helper](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L203-L211), [Point-aware score](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L382-L390), and [Separate NaN-center and infinite-level tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/kkt_point.jl#L465-L474) |
 
 ## [History](@id spec-sqrnorml2-history)
 

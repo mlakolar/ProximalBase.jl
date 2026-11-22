@@ -12,14 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `SqrNormL2` endpoint text says “`NaN` at a zero residual, `Inf`
-  elsewhere” at infinite level with finite `v` and `x`. “Elsewhere” could
-  refer to a nonzero residual that is not `NaN` or include a `NaN` center.
-  The constructor accepts a `NaN` center and the score helpers propagate its
-  `NaN`. The tests exercise `NaN` centers and infinite levels separately.
-  The wording awaits the owner's decision.
-  [Source](../../../src/functions/sqrnorml2.jl) · [Tests](../../../test/kkt_point.jl)
-
 - The `LeastSquaresLoss` range text says “For strided `Float32` and `Float64`
   vectors”. This could describe the caller's coefficients `β` or the operands
   of the squared-residual kernel, including the predictor or residual. The
@@ -129,6 +121,12 @@ that happens to pass.
 | [Zero-group scores](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/group_penalty.md#L482-L489) could agree for every one-entry gradient or only when the margin is nonnegative | In exact arithmetic a zero margin gives zero distance. With one nonzero gradient entry a positive margin equals the distance. A negative margin gives zero distance. `characterized`. | [Margin and distance](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L422-L445) · [Signed margin](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1117-L1131) · [Distance comparison](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1344-L1363) |
 | [Accuracy row](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/kkt_violation.md#L53-L54) could describe subtraction for ordinary sums or also describe overflow | A finite sum of magnitudes uses subtraction. If the sum overflows, the margin is `+Inf`, including when the coefficient is infinite. `guaranteed`. | [Before subtraction](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L436-L445) · [Overflow tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1143-L1149) |
 | [Ordered endpoints](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/groupnormlinf.md#L115-L127) could put invalid steps after identity cases or apply the ordered group rules after step validation | Direct array and compact calls validate the step before the per-group exits. `characterized` for the ordering. | [Array validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L347-L350) · [Compact validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L406-L415) · [Invalid-step sentinel tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L483-L500) |
+
+## SqrNormL2 decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Infinite-level endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrnorml2.md#L82-L88) could use “elsewhere” for every nonzero residual or only for nonzero residuals other than `NaN` | With finite `v` and `x` in the working type, a nonzero residual other than `NaN` gives an `Inf` entry score. A `NaN` center or a zero residual gives a `NaN` entry score, which propagates in the full-point maximum. `characterized`. | [Gradient arithmetic](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L203-L211) · [Point-aware score](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L382-L390) · [Separate endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/kkt_point.jl#L465-L474) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

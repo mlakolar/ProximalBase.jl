@@ -2,11 +2,11 @@
 """Validate the inputs of the Full validation workflow and emit its plan.
 
 The inputs arrive in the environment (`PB_MODE`, `PB_PLATFORMS`, `PB_JULIA`, `PB_FILES`,
-`PB_EXPECTED_SHA`, plus `GITHUB_SHA`); an empty value stands for the default.  The script appends
-`matrix`, `mode` and `files` to `GITHUB_OUTPUT` and writes `plan.json` for the verdict job.
-`full` and `release` need all platforms and both Julia versions; `focused` takes a restriction and
-a list of test names separated by spaces or tabs, which the workflow passes to the runner with
-`--exact`.
+`PB_EXPECTED_SHA`, plus `GITHUB_SHA`); an empty value stands for the default.  When
+`GITHUB_OUTPUT` names a file, the script appends `matrix`, `mode` and `files` to it; it writes
+`plan.json` for the verdict job.  `full` and `release` need all platforms and both Julia versions;
+`focused` accepts a platform or Julia restriction and needs a list of test names separated by
+spaces or tabs, which the workflow passes to the runner with `--exact`.
 
 It imports only the standard library and `full_validation_verdict`.
 """

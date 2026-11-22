@@ -108,7 +108,7 @@ jobs:
           # In focused mode the validated names are passed to the runner with --exact. The
           # argument vector is built here from the environment.
           julia --project=. -e 'using Pkg; args = ["--tier=full", "--shard=" * ENV["PB_SHARD"] * "/" * ENV["PB_SHARDS"]]; ENV["PB_MODE"] == "focused" && append!(args, ["--exact"; String.(split(ENV["PB_FILES"]))]); Pkg.instantiate(); Pkg.test(; test_args=args, julia_args=["--check-bounds=yes"])' 2>&1 | tee -a "$log"
-      # The test step creates the log; this step attempts to upload it.
+      # This step attempts to upload the cell log.
       - name: Preserve full validation log
         if: always()
         uses: actions/upload-artifact@v7
@@ -141,9 +141,8 @@ jobs:
           fi
       - name: Test the verdict script
         run: python3 -B scripts/test_full_validation_verdict.py
-      # The pattern selects the logs of this attempt. The verdict script requires one for each
-      # planned cell, so a retry must rerun all matrix jobs. It reads a single flat log file as
-      # well as one directory per artifact.
+      # The pattern selects the logs of this attempt; the verdict script requires one for each
+      # planned cell. It reads a single flat log file as well as one directory per artifact.
       - name: Download the cell logs
         uses: actions/download-artifact@v8
         with:
@@ -271,7 +270,7 @@ jobs:
               printf 'The nightly full validation failed with this signature:\n\n'
               printf '```text\n%s\n```\n\n' "$lines"
               printf 'Run: %s\nCommit: %s\n\n' "$link" "$COMMIT"
-              printf 'This is the nightly advisory, separate from the ordinary pull-request and push-to-master required checks. Later scheduled failures with the same signature comment on this issue while it is open and labeled.\n'
+              printf 'This is the nightly advisory, separate from the ordinary pull-request and push-to-master required checks.\n'
             } > body.md
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label "$label" --body-file body.md
           fi

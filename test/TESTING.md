@@ -368,14 +368,77 @@ Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
 
 Positional arguments of the runner select files by name prefix. With `--exact`, each positional
-selector must equal a manifest name of the selected tier and the selection is those names;
-`--exact` needs at least one selector. For example, `julia scripts/test.jl --tier=full --exact indballl0`
-runs `indballl0` but not `indballl0_reference`, while `julia scripts/test.jl indballl0` runs both.
+selector must equal a manifest name of the selected tier, at least one is required, an unknown
+name is an error (`no test file named X in tier T`), and the runner filters the tier to the named
+files before any sharding. For example,
+`julia scripts/test.jl --tier=full --exact indballl0` runs `indballl0` but not
+`indballl0_reference`, while `julia scripts/test.jl indballl0` runs both.
+
+`PB_TEST_FILE_TIME` records the parent runner's wall-clock time in seconds for
+each test-file subprocess, including startup and compilation. Its `status` is
+`pass` for a zero exit, `fail` for a nonzero exit, or `error` if running the
+subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
+for the selected files, including runner overhead, and uses `shard=all` for
+unsharded runs. Find both records in the GitHub Actions test job logs and the
+`package-validation-logs-linux-julia-1.13-shard-*` artifacts.
+
+The inventory/partition contract is checked by `ci_contract`. The PR verdict
+and merge gate require the three shards and the frozen differential check
+unless the change is documentation-only, in which case they must be skipped;
+they require the change classification and the strict documentation build. PR builds may warm
+independent Julia package caches for the three validation job types.
+
+`logisticloss` checks homogeneous Float32 and Float64 logistic regression with
+dense, strided-view and CSC designs. It covers binary and fractional responses,
+weights, offsets, validation and aliases, nonfinite predictors, ordinary scaling,
+warmed allocations and product counts. Independent BigFloat and finite-difference
+references check the value and both gradient spaces, including weighted tails.
+
+## Poisson regression coverage
+
+`poissonloss` has the testsets "Agreement with the BigFloat reference" (2048-bit
+BigFloat evaluation at the `Float64` predictor, with tolerances from the accuracy
+bounds of the contract), "Ordinary path", "Finite differences", "Endpoint and
+overflow cases", "Empty shapes", "Validation before writes", "Scaled", "Borrowed
+data and strided arguments" and "Poisson predictor product counts". The Evidence
+section of `docs/src/spec/poissonloss.md` lists the cases.
+
+## SCAD coverage
+
+`scad` checks the globally minimizing scalar prox against independent BigFloat objectives
+and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
+and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
+
+## Coverage of NormL0 with diagonal = false
+
+`norml0offdiag` compares the proximal map of `NormL0(λ; diagonal = false)` with an exact `Rational{BigInt}` minimization over the
+keep and drop patterns of the pairs: exhaustively for `p = 2, 3` over values below, at and above the
+threshold with both signs and the four zero pairs, and on seeded samples for `p = 4`. It checks the
+diagonal, symmetry of the output, ties, the value and the fused value, the entrywise result for an asymmetric input, agreement with the all-entry `NormL0` off
+the diagonal for `p` up to 64 with mixed level and step types, the contrast on the diagonal, the
+refusals listed in the failure section, with a sentinel output where the caller passes one, strided views and reshapes, default steps, scaling and warmed
+allocations on both kernel routes. It also checks that `NormL0(λ)` and `NormL0(λ; diagonal = true)` are the same
+object with bit-identical values and proximal outputs on vectors, dense and sparse matrices, a
+`SymmetricSparseIterate` and array steps.
+
+## Coverage of KronQuadratic
+
+`kronquadratic` checks `KronQuadratic` in Float32 and Float64: the constructor and its refusals (element
+types with the conversion hint, axes, shapes, finiteness, exact symmetry), traits, `lipschitz` and
+`kronquadratic_data`; hand-computed and `kron(B, A)` references for values and gradients on matrix arguments,
+views, row-strided and reversed-column arguments and destinations, and `SparseIterate` arguments; the symmetric-iterate
+gradient `(A X B + B X A)/2 + C` against an independent formula, on empty, sparse, dense and explicit-zero
+iterates, with central differences along coordinate directions; the route predicate on both sides of
+`32n = p²` and the route each public oracle takes, observed through a sentinel in the dense-copy scratch;
+the D-trace residual, a proximal-gradient loop with KKT scores, and the coordinate-descent direction model;
+`Scaled`, `check_symmetric_parameters`, the checks before writes (each leaving the destination and the data
+unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and inference.
 
 ## Full validation (nightly)
 
-The `Full validation` workflow (`.github/workflows/full-validation.yml`) runs the `full` tier with
-`--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be dispatched manually. It is not
+The `Full validation` workflow (`.github/workflows/full-validation.yml`) uses the `full` tier as its
+inventory and runs with `--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be dispatched manually. It is not
 one of the ordinary pull-request and push-to-master required checks.
 
 The `mode` input selects the run; a scheduled run is `full`:
@@ -391,7 +454,7 @@ rejects a `platforms` other than `all` or a `julia` other than `both` outside `f
 `tiers.toml`, separated by spaces or tabs. `expected_sha` is 40 lowercase hexadecimal characters,
 is required for `release`, and must equal the commit of the run when given.
 
-The verdict job runs `scripts/full_validation_verdict.py`. A passing verdict needs:
+The verdict checks are in `scripts/full_validation_verdict.py`. A passing verdict needs:
 - the matrix job result `success` and a `success` conclusion for each planned job;
 - for each planned cell, a log of the current attempt that matches the cell;
 - for `full` and `release`, files with `status=pass` across the 3 shards of each OS and Julia pair
@@ -402,13 +465,14 @@ The verdict job runs `scripts/full_validation_verdict.py`. A passing verdict nee
   conclusion `success`, and `PR required jobs`, `Frozen benchmark differential / Linux`,
   `Strict documentation / Linux` and the three `Julia 1.13 / Linux (tests N/3)` jobs all `success`.
 
-A retry must rerun all matrix jobs, because each planned cell needs a log of the current attempt.
+A retried run can give a passing verdict only if it reruns all matrix jobs, because each planned cell
+needs a log of the current attempt.
 
 When the verdict job of a scheduled run fails, the `Nightly failure report` job (permission
-`issues: write`) attempts to report it in an issue titled `Nightly full validation failing [<hash>]`,
-where the hash comes from the failure signature: the affected OS and Julia pairs with their failing
-files or problem classes. It looks for issues with the label `nightly-full-validation` and that exact
-title. It comments on an open match, otherwise reopens the highest-numbered closed match and comments,
-otherwise creates a labeled issue.
+`issues: write`) attempts to report it in an issue titled `Nightly full validation failing [<key>]`.
+The key is a hash of the verdict's failure signature when the job can read a valid signature, and
+`verdict-incomplete` otherwise. It looks for issues with the label `nightly-full-validation` and that
+exact title. It comments on the lowest-numbered open match, otherwise reopens the highest-numbered
+closed match and comments, otherwise creates a labeled issue.
 
 The script docstrings and `scripts/test_full_validation_*.py` give the details.

@@ -6,7 +6,7 @@ job list of that attempt.  With `--plan plan.json` the cells, mode and requested
 the plan; without it the script expects the 18 cells of the nightly run.  A `focused` verdict
 requires the requested files to pass in each planned cell.  A `release` verdict also takes
 `--ci-runs` and requires a successful CI.yml run on the commit with the jobs in `CI_REQUIRED_JOBS`.
-`--signature` writes the failure signature when there are problems.
+When the script renders a failed verdict, `--signature` writes its failure signature.
 
 The script imports only the standard library and needs Python 3.11 or newer (`tomllib`).
 """

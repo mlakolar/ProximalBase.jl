@@ -925,8 +925,8 @@ end
   end
 end
 
-@testset "the value of the ordinary path equals the branch-free scalar form ($T)" for T in (Float32, Float64)
-  # f(x) uses the branch-based _scad_stored_value; the sum of _scad_value at the same norms, in the same order, is the same number
+@testset "the value of the ordinary path is the scalar value at the computed norms ($T)" for T in (Float32, Float64)
+  # f(x) is the sum, in the order of the groups, of the scalar value _scad_value at the computed norm of each group
   rng = Xoshiro(71 + sizeof(T))
   for m in (1, 4, 32), layout in (:range, :perm), step in (1 // 2, 3 // 2)
     f, x, γ = regime_case(rng, T, m, layout, step, :mixed)

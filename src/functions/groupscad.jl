@@ -207,7 +207,7 @@ end
     if (floatmin(T) <= λ <= floatmax(T)) & isfinite(a * λ)
       s = _indexed_sumabs2(x, G, T)
       if isfinite(s) & _squares_normal(s, length(G), T)
-        return (_scad_stored_value(λ, a, sqrt(s)), true)
+        return (_scad_value(λ, a, sqrt(s)), true)
       elseif iszero(s) && _l2_all_zero(x, G, T)
         return (zero(T), false)
       end
@@ -322,7 +322,7 @@ end
           t = _scad_magnitude(r, λ, a, γ)
           if t == r
             _l2_copy!(y, x, G)
-            return V ? _scad_stored_value(λ, a, r) : T(_L2_RECOMPUTE)
+            return V ? _scad_value(λ, a, r) : T(_L2_RECOMPUTE)
           elseif iszero(t)
             return T(_l2_zero!(y, G))
           end
@@ -330,7 +330,7 @@ end
           if V
             sy = y === x ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
             (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
-            return _scad_stored_value(λ, a, sqrt(sy))
+            return _scad_value(λ, a, sqrt(sy))
           end
           y === x ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
           return T(_L2_RECOMPUTE)
@@ -440,7 +440,7 @@ end
     w = @inbounds f.w[k]
     s = _gscad_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
     if V
-      # the kernel returns the two codes or a term that is not negative (_scad_stored_value at a finite positive level); any
+      # the kernel returns the two codes or a term that is not negative (_scad_value at a finite positive level); any
       # other value is added, so that it is not dropped
       if s == _L2_RECOMPUTE
         t, c = _gscad_term_outofline(f.λ0, w, f.a, y, G, T)

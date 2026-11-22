@@ -98,8 +98,24 @@ and an `αγ` that overflows reaches it as `Inf`. A group that reaches the infin
 ## [Endpoint clauses](@id spec-scaled-endpoints)
 
 `Scaled(f,0)` simplifies only when a domain-preserving representation is known.
-For finite-data built-in losses, quadratics, centered squared norms and affine
-functions it returns `ZeroFunction()`.
+
+### [Zero scaling of supported losses and other functions](@id scaled.constructor.zero-scale-losses)
+
+For `LeastSquaresLoss` and `SqrtLeastSquaresLoss` with finite design and response
+data, a zero scale returns `ZeroFunction()`. The same applies to
+`QuadraticFunction`, `SqrNormL2` and `LinearFunction` with finite parameters.
+
+### [Zero scaling without a loss representation](@id scaled.constructor.unsupported-zero-scale)
+
+Other losses without a supported zero-scale representation throw `ArgumentError`.
+
+```@example scaled_zero_losses
+using ProximalBase, Test
+X = ones(1, 1)
+@test_throws ArgumentError Scaled(LogisticLoss([1.0], X), 0)
+@test_throws ArgumentError Scaled(LogDetLoss(X), 0)
+@test_throws ArgumentError Scaled(PoissonLoss([1.0], X), 0)
+```
 
 ### [Zero scaling of NormL1 with finite level and weights](@id scaled.constructor.norm-l1-zero-scale)
 
@@ -119,10 +135,19 @@ identity; an infinite weight keeps its fixed zero (`0 * NormL1Nonneg(1.0, [Inf])
 a finite input to `+0`). Infinite `NormL1`, `NormL1Nonneg` and
 `ElasticNet` levels and non-finite parameters of other function families can make construction
 throw `ArgumentError`. A custom function's zero scale has no generic supported
-representation and throws. The built-in indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
+representation and throws.
+
+### [Nonnegative scaling of indicators](@id scaled.constructor.indicator-identity)
+
+The constructor returns the original function `f` for a nonnegative factor
+whenever it recognizes `f` as an indicator.
+
+The built-in indicators `IndBallL0`, `IndBallL1`, `IndBallL2`, `IndBox`
 (including `IndBallLinf`) and `IndNonnegative` do not depend on their scale: `Scaled(f, 0)` and
 `0 * f` return the indicator `f` itself, as any nonnegative scale does.
 Inspect the constructed object rather than assume it is always a `Scaled`.
+
+### Zero-scale examples
 
 ```@example scaled_zero
 using ProximalBase
@@ -259,6 +284,9 @@ These existing tests contain the numerical checks for this family. Their asserti
 
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
+| `scaled.constructor.indicator-identity` | `guaranteed` | [Scaling constructor](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/scaled.jl#L107-L118), [orthant tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indnonnegative.jl#L485-L520) and [box tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indbox.jl#L16-L64) |
+| `scaled.constructor.zero-scale-losses` | `guaranteed` | [Zero-scale methods](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/scaled.jl#L133-L158), [least-squares tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/numerical_recovery.jl#L1495-L1507) and [square-root loss tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L257-L261) |
+| `scaled.constructor.unsupported-zero-scale` | `characterized` | [Default zero-scale method](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/scaled.jl#L133-L139) and the executable assertions in [Zero scaling without a loss representation](@ref scaled.constructor.unsupported-zero-scale) |
 | `scaled.constructor.norm-l1-zero-scale` | `guaranteed` | [Constructor zero-scale dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L111-L118), [finite-level and finite-weight checks](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/scaled.jl#L136-L143), and [finite weighted and unweighted cases](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/numerical_recovery.jl#L1495-L1502) |
 
 ## [History](@id spec-scaled-history)

@@ -40,14 +40,25 @@ The [API coverage matrix](../api/coverage.md#API-coverage-matrix) lists the supp
 
 The [ElasticNet range clauses](@ref spec-elasticnet-range) explain the Julia 1.10 subnormal-scaling allowance cited here.
 
+### [Reference level for the rounded radius](@id norm-linf.prox.rounded-radius-reference)
+
 The clip level `τ` of `NormLinf` has an **absolute** error. On the ordinary finite path, for `n ≥ 1` entries in the
 floating type `T` of the output with `n eps(T) ≤ 1/2` (up to `2^22` entries in `Float32` and `2^51` in `Float64`), a
 hypothesis that the code does not check, the level returned by the threshold satisfies
-`|τ - τ*| ≤ 2.25 n eps(T) max|xᵢ| + 2nδ`, where `τ*` is the root of `Σ(|xᵢ| - τ)₊ = a` for the entries
+`|τ - τ*| ≤ 2.25 n eps(T) max|xᵢ| + 2nδ`. When the rounded radius is positive, `τ*` is the unique real root of
+`Σ(|xᵢ| - τ)₊ = a` for the entries
 `abs(convert(T, xᵢ))` and the radius `a` that the prox forms (the product `γλ` rounded in the promoted type of `γ`, `λ`
 and `T`, then to `T`), and `δ = nextfloat(zero(T))` (the storage of a subnormal radius or output adds `δ`; `x = [δ]`,
-`λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is `δ/2`). The prox clips at the larger of the level and zero,
-which is within the same bound of `max(τ*, 0)`. The derivation, in `src/functions/normlinf.jl`, bounds the excess
+`λ = δ`, `γ = 0.5` gives `[δ]` where the exact point is `δ/2`). The positive-radius reference can be negative.
+The prox clips at the larger of the level and zero, which is within the same bound of `max(τ*, 0)`.
+
+If the radius rounds to zero, every level at or above the largest input magnitude solves the equation.
+The reference uses the smallest of these levels, the largest magnitude in the working type.
+Clipping at that reference would leave the represented input unchanged.
+
+### Threshold derivation and scaling
+
+The derivation, in `src/functions/normlinf.jl`, bounds the excess
 `Σ(|xᵢ| - τ)₊ - a` for each of the four ways the threshold search ends, and it does not assume that the entries it found
 above the level are the entries above the exact level. Unlike the relative bounds of the `NormL2` and `GroupNormL2`
 kernels, the bound is absolute: an entry far below `max|xᵢ|` is not clipped to a relative accuracy. A sum of magnitudes
@@ -124,6 +135,7 @@ ranges and the accuracy are in the [numerical contract](../numerics.md).
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `norm-linf.kkt.nonfinite-entries` | `guaranteed` | [Full-point dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/normlinf.jl#L1162-L1173), [Non-finite classification](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/normlinf.jl#L1080-L1087), and [NaN precedence and infinite entries](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/kkt_linf.jl#L442-L473) |
+| `norm-linf.prox.rounded-radius-reference` | `characterized` | [Threshold analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/normlinf.jl#L354-L368) and [Tiny and zero radius tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/normlinf.jl#L1505-L1515) |
 
 These existing tests contain the numerical checks for this family. Their assertions define the cases covered; listing a test does not establish a broader guarantee.
 

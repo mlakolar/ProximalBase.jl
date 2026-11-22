@@ -136,11 +136,73 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, guide)
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
-    def test_fence_before_the_guide_section_also_changes_example_context(self):
+    def test_unrelated_section_after_the_guide_section_is_allowed(self):
+        for heading in ("## Another family", "  ## Another family ##", "Another family\n---"):
+            with self.subTest(heading=heading):
+                self.write(self.guide_path, self.guide + f"\n{heading}\n\nAnother example.\n")
+                self.assertEqual(self.check()["findings"], [])
+
+    def test_unrelated_section_before_the_guide_section_is_allowed(self):
         heading = "## [Family guide](@id family-guide)"
-        decoy = "  " + heading + "\n\n```text\nExample explanation\n````\n\n"
-        self.write(self.guide_path, self.guide.replace(heading, decoy + heading, 1))
+        for before in ("```text\n" + heading + "\n```\n\n",
+                       "-   Item\n\n  ```text\n  Outside example.\n  ```\n\n"):
+            with self.subTest(before=before):
+                preceding = "## Another family\n\n" + before
+                self.write(self.guide_path, self.guide.replace(heading, preceding + heading, 1))
+                self.assertEqual(self.check()["findings"], [])
+
+    def test_one_byte_inside_the_guide_section_changes_example_context(self):
+        self.write(self.guide_path, self.guide.replace("Compact groups", "Compact Groups", 1))
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_list_or_quote_followed_by_rule_stays_in_the_guide_section(self):
+        after = "\n## Another family\n\nAnother example.\n"
+        for block in ("- Extra item.", "> Extra quote."):
+            with self.subTest(block=block):
+                self.write(self.guide_path, self.guide + f"\n{block}\n---\n" + after)
+                self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_paragraph_continuation_followed_by_rule_stays_in_the_guide_section(self):
+        extra = "A paragraph.\nAdditional guidance.\n---\n\n## Another family\n"
+        self.write(self.guide_path, self.guide + "\n" + extra)
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_duplicate_guide_section_heading_is_rejected(self):
+        for heading in ("## [Family guide](@id family-guide)", "  ## [Another title](@id family-guide)",
+                        "[Another title](@id family-guide)\n---", "## family guide ##",
+                        "## [Another title](@id family--guide)", "## [Another title](@id family-guide )",
+                        "## family- guide"):
+            with self.subTest(heading=heading):
+                self.write(self.guide_path, self.guide + f"\n{heading}\n\nDuplicate.\n")
+                with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                    self.check()
+
+    def test_preceding_fence_with_a_longer_apparent_closer_hides_the_section(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "```text\nUnrelated text.\n````\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+            self.check()
+
+    def test_preceding_top_level_fence_closes_at_column_zero(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "  ```text\n  Outside example.\n"
+        for closer in ("```", "  ```"):
+            with self.subTest(closer=closer):
+                guide = self.guide.replace(heading, before + closer + "\n\n" + heading, 1)
+                self.write(self.guide_path, guide)
+                if closer.startswith(" "):
+                    with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                        self.check()
+                else:
+                    self.assertEqual(self.check()["findings"], [])
+
+    def test_list_ends_before_fence_after_two_empty_lines(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "- Item\n\n\n  ```text\n  Outside example.\n  ```\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+            self.check()
 
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path
@@ -1261,14 +1323,14 @@ class UpstreamTests(unittest.TestCase):
         self.save()
         self.assert_rejected("original file")
 
-    def post_move_fixture(self, *, prior_fields=None, duplicate=False, outside_heading=False):
+    def post_move_fixture(self, *, prior_fields=None, duplicate=False, outside_heading=False, anchored=True):
         old = self.baseline[0]
         m.git("checkout", "--quiet", "--detach", self.before, root=self.root)
         (self.root / old.path).write_text(self.original.replace(old.text, "See the family contract."))
         m.git("add", old.path, root=self.root)
         self.path = "docs/src/spec/family.md"
         (self.root / self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.move_scope = self.path + "#family-range"
+        self.move_scope = self.path + "#family-range" if anchored else self.path
         self.prior_move = dict(self.rows[0], action="move", dest=self.move_scope,
                                dest_sha=old.sha, reviewer="mechanical")
         self.prior_ledger = self.receipt.parent / "ledger.tsv"
@@ -1334,10 +1396,45 @@ class UpstreamTests(unittest.TestCase):
         self.post_move_fixture(outside_heading=True)
         self.assert_rejected("span must stay inside its recorded heading")
 
-    def test_post_move_upstream_cannot_supply_a_migration_basis(self):
-        self.post_move_fixture()
-        with self.assertRaisesRegex(ValueError, "migration bases require upstream edits in the original file"):
+    def test_post_move_upstream_basis_requires_a_named_section(self):
+        self.post_move_fixture(anchored=False)
+        self.assertEqual(self.check()[0], [])
+        with self.assertRaisesRegex(ValueError, "a post-move migration basis requires a named section"):
             m.validate_upstream(self.baseline[0], self.record, self.record, self.root, current=False)
+
+    def test_post_move_upstream_can_supply_an_exact_rewrite_basis(self):
+        self.post_move_fixture()
+        old = self.baseline[0]
+        target = self.root / self.path
+        rewrite = "Use the revised `1` rule."
+        revised = self.after_move.replace("Updated `1` rule.", rewrite)
+        target.write_text(revised)
+        section = m.section_text(revised, "family-range")
+        hashes = [b.sha for b in m.blocks(section, self.path) if b.kind == "prose"]
+        self.rows[0].update(action="reword", dest_sha=";".join(hashes), reviewer="independent@rewrite")
+        basis = dict(block_id=old.id, baseline_sha=old.sha, upstream_sha=m.receipt_digest(self.record),
+                     source_shas=self.moved_hashes, evidence="Fixture: verified historical move and edit.")
+        basis_file = self.receipt.parent / "migration-bases.json"
+        basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertEqual([b.sha for b in mappings.bases[old.id]], self.moved_hashes)
+        self.assertEqual(m.accounting(self.baseline, mappings, "tokens"), [])
+        self.assertEqual(m.accounting(self.baseline, mappings, "examples"), [])
+
+        changed = revised.replace("`1`", "`2`")
+        target.write_text(changed)
+        section = m.section_text(changed, "family-range")
+        self.rows[0]["dest_sha"] = ";".join(b.sha for b in m.blocks(section, self.path) if b.kind == "prose")
+        errors, mappings = self.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(m.accounting(self.baseline, mappings, "tokens"))
+
+        self.event["before_blob"] = self.event["after_blob"]
+        self.save()
+        basis["upstream_sha"] = m.receipt_digest(self.record)
+        basis_file.write_text(json.dumps(dict(schema=1, bases=[basis])))
+        self.assert_rejected("blob")
 
     def split_fixture(self):
         self.path = "docs/src/numerics.md"

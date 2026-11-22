@@ -53,8 +53,22 @@ element type, which covers both oracles, the sum of squares ``s`` is formed in `
 non-strided arrays, take generic sums in one loop at every length. The product ``\alpha\sqrt s`` is kept when ``s`` is not below ``n\,\texttt{floatmin}(T)/\varepsilon_T`` and the
 product is below ``\texttt{floatmax}(T)/2`` (a `NaN` or infinite ``s`` is not kept). Otherwise, and for every sum that is not finite, the norm is recomputed
 from the squares in units of a power of two, with ``\alpha`` folded in and the squares summed compensated, in
-at least `Float64`. For finite entries that `T` represents exactly, ``n\le 2^{40}`` of them, with ``(n+3)\varepsilon_T\le 1/16`` or
-strided `Float32` or `Float64` vectors of one element type, and ``v`` the exact value, the result is within ``(n/2+4)\,\varepsilon_T|v|`` of ``v``, plus two units of
+at least `Float64`.
+
+### [Accuracy for the supplied norm operands](@id sqrt-least-squares-loss.value.norm-accuracy)
+
+The bound applies in working type `T` equal to `Float32` or `Float64`, with finite
+norm operands exactly representable in `T` and ``n\le 2^{40}`` entries. Either
+``(n+3)\varepsilon_T\le 1/16`` holds or the operands are strided vectors of one
+element type, `Float32` or `Float64`. The reference ``v`` is the exact norm
+including any positive finite `Float32` or `Float64` factor supplied to the
+norm kernel. It uses the stored predictor from the
+matrix-vector product, the supplied predictor, or the supplied residual.
+When the kernel takes a predictor, the reference uses exact differences from
+the represented response. The rounding of the matrix-vector product is
+already present in the predictor.
+
+A finite result is within ``(n/2+4)\,\varepsilon_T|v|`` of ``v``, plus two units of
 the smallest subnormal where ``|v|<\texttt{floatmin}(T)``; with ``u`` and ``w=(n/2+4)\varepsilon_T`` as in the
 range statement above, the result is finite where ``|v|(1+w)\le\texttt{floatmax}(T)``, is `Inf` above
 ``(\texttt{floatmax}(T)+u/2)(1+w)``, and between the two is `Inf` or finite within the bound (`floatmax(T)` is possible
@@ -104,6 +118,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `sqrt-least-squares-loss.value.direct-norm` | `characterized` | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrt_leastsquares.jl#L78-L83), [predictor and residual calls](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/leastsquares_predictor.jl#L310-L319), [direct norm computation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/sqrt_leastsquares.jl#L165-L177), and [finite norms with overflowing squares](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/sqrt_leastsquares.jl#L526-L538) |
+| `sqrt-least-squares-loss.value.norm-accuracy` | `characterized` | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L78-L83), [Accuracy proof](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L114-L122), and [Stored-predictor comparisons](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L310-L346) |
 
 ## [History](@id spec-sqrt_leastsquares-history)
 

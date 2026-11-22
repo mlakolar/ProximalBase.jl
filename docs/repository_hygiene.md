@@ -4,8 +4,19 @@ Keep git focused on maintained Julia/Python source, tests, benchmark **drivers**
 and small curated documentation. Agents may produce extensive diagnostics in
 their local worktrees; those outputs must not be committed to the package.
 
-The required CI gate runs `scripts/check_repo_hygiene.py` on the **resulting
-changed tree** (not all historical files). It rejects:
+The required CI gate runs `scripts/check_repo_hygiene.py` in the
+change-classification job on the **resulting changed tree** (not all historical
+files). The check inspects the blobs, at the checked-out commit, of the paths
+that `git diff` reports as added, copied, modified or renamed between the
+checked-out commit and the classifier's base:
+
+- For a pull request, the base is the first parent of the tested merge commit.
+- For a push to master with a usable `before` commit, the base is `before`.
+- For a push without a usable `before` commit (all zeros, missing or not
+  fetchable) and for a manual run, the base is the first parent of the
+  checked-out commit, if that commit has one.
+
+The check rejects:
 
 - Any newly added or modified tracked file larger than **1 MiB**, or more than
   **5 MiB combined changed file contents** in one pull request/push.

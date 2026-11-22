@@ -342,7 +342,9 @@ and a `bases` list; each record binds `block_id`, `baseline_sha`, the canonical
 `source_shas`, and review `evidence`. The root ledger can then use an ordinary
 `move`, `split` or `reword` destination. The checker verifies every historical
 Git transition first, then applies ordinary token/example accounting to the
-final reviewed upstream text. It does not compare to obsolete pre-feature words
+final reviewed upstream text. For an upstream edit after a verbatim move of
+the frozen block, a basis requires the same committed move row, exact event
+blobs, named section and terminal hashes as the active receipt. It does not compare to obsolete pre-feature words
 or exempt the later migration. Stale and unused basis records fail.
 
 ## Updating the ledger
@@ -407,9 +409,9 @@ new clause labels.
 
 The check compares protected token and example counts within each reviewed
 passage. A split also preserves the original words. Each replacement occupies
-its own occurrence in the contract. This spec-only pilot uses the exact
-published guide file to preserve both example bodies and their Markdown
-context. Take any intentional protected change to separate review. Run the
+its own occurrence in the contract. The exact published SparseGroupNormL2
+guide section preserves both example bodies and the Markdown context within
+that section. Take any intentional protected change to separate review. Run the
 command alongside the six preservation checks and the removed-lines report.
 
 After the final Phase 5 blocking acceptance, retire the six temporary migration

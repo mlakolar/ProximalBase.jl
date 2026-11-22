@@ -6,12 +6,15 @@ manifest = TestTiers.inventory()
 tier = "full"
 selectors = String[]
 list_only = false
+exact = false
 shard = nothing
 for arg in ARGS
     if startswith(arg,"--tier=")
         global tier = split(arg,'=';limit=2)[2]
     elseif arg == "--list"
         global list_only = true
+    elseif arg == "--exact"
+        global exact = true
     elseif startswith(arg,"--shard=")
         shard === nothing || error("shard specified twice")
         parts = split(split(arg,'=';limit=2)[2],'/')
@@ -24,10 +27,18 @@ for arg in ARGS
     end
 end
 selected = TestTiers.select(manifest,tier)
+# With --exact every positional selector is a manifest name of the tier; otherwise it is a name prefix.
+exact && isempty(selectors) && error("--exact needs at least one test name")
 for selector in selectors
-    any(n -> startswith(n,selector),selected) || error("no test file matches $selector in tier $tier")
+    if exact
+        selector in selected || error("no test file named $selector in tier $tier")
+    else
+        any(n -> startswith(n,selector),selected) || error("no test file matches $selector in tier $tier")
+    end
 end
-isempty(selectors) || filter!(n -> any(s -> startswith(n,s),selectors),selected)
+if !isempty(selectors)
+    exact ? filter!(in(selectors),selected) : filter!(n -> any(s -> startswith(n,s),selectors),selected)
+end
 if shard !== nothing
     selected = TestTiers.shard_files(selected,shard...; weights=manifest.weights)
 end

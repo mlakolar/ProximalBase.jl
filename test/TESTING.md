@@ -311,12 +311,35 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 
 ## CI sharding
 
-The full declared inventory is split across three Linux/current-Julia runners.
+**Correction to the historical 56-file paragraph below.** The
+[measured checkout](https://github.com/mlakolar/ProximalBase.jl/blob/9ef0db982e264d00452c4877f1e58dd1d91778e3/test/tiers.toml#L103)
+used a 35-second weight for `norml0offdiag` when assigning the shard. The
+[Julia 1.13.4 shard](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339/job/136054574400)
+observed 38.971 seconds. [#1063](https://github.com/mlakolar/ProximalBase.jl/pull/1063)
+landed with the [40-second provisional weight](https://github.com/mlakolar/ProximalBase.jl/blob/735de29173bd3e547c5d40039d3f27aece83d915/test/tiers.toml#L108)
+after rounding that observation up to the next five seconds.
+
+The full declared inventory is split across three Linux runners on Julia 1.13.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
 index. Within each shard, files run in their original sorted selection order.
 Each declared test is assigned to exactly one of the three full CI shards.
+When the change-classification job succeeds with `docs_only=true`, the three
+shards and the benchmark differential are skipped; the repository hygiene check
+has already passed in that job, and the independently scheduled strict docs
+build is still required. A non-empty change is documentation-only
+when every changed path is an added, modified or deleted regular file without
+the execute bit (an execute-bit change, a symlink or a submodule entry on either
+side does not count) and is a top-level `*.md` file, a `.md`, `.svg`, `.png` or
+`.mmd` file under `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
+`docs/audit/docs-tracks-1019/`; suffixes are matched case-sensitively. The
+strict docs build runs the executable Documenter blocks of the Markdown pages it
+builds, docstring doctests and the isolated Literate examples. When the job
+succeeds with `docs_only=false` (any other path, an empty change set, a push
+without a usable `before` commit or a manual run), the shards run.
+`scripts/ci_changes.py` classifies the change and `scripts/test_ci_changes.py`
+tests it.
 The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
 
@@ -381,17 +404,25 @@ weight and record its justification.
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
 with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
 
+Positional arguments of the runner select files by name prefix. With `--exact`, each positional
+selector must equal a manifest name of the selected tier, at least one is required, an unknown
+name is an error (`no test file named X in tier T`), and the runner filters the tier to the named
+files before any sharding. For example,
+`julia scripts/test.jl --tier=full --exact indballl0` runs `indballl0` but not
+`indballl0_reference`, while `julia scripts/test.jl indballl0` runs both.
+
 `PB_TEST_FILE_TIME` records the parent runner's wall-clock time in seconds for
 each test-file subprocess, including startup and compilation. Its `status` is
 `pass` for a zero exit, `fail` for a nonzero exit, or `error` if running the
 subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
 for the selected files, including runner overhead, and uses `shard=all` for
 unsharded runs. Find both records in the GitHub Actions test job logs and the
-`package-validation-logs-linux-current-julia-shard-*` artifacts.
+`package-validation-logs-linux-julia-1.13-shard-*` artifacts.
 
-The inventory/partition contract is checked by `ci_contract`. All three
-shards, the frozen differential check, and the strict documentation build are
-required by the existing PR verdict and merge gate. PR builds may warm
+The inventory/partition contract is checked by `ci_contract`. The PR verdict
+and merge gate require the three shards and the frozen differential check
+unless the change is documentation-only, in which case they must be skipped;
+they require the change classification and the strict documentation build. PR builds may warm
 independent Julia package caches for the three validation job types.
 
 `logisticloss` checks homogeneous Float32 and Float64 logistic regression with
@@ -440,3 +471,45 @@ iterates, with central differences along coordinate directions; the route predic
 the D-trace residual, a proximal-gradient loop with KKT scores, and the coordinate-descent direction model;
 `Scaled`, `check_symmetric_parameters`, the checks before writes (each leaving the destination and the data
 unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and inference.
+
+## Full validation (nightly)
+
+The `Full validation` workflow (`.github/workflows/full-validation.yml`) uses the `full` tier as its
+inventory and runs with `--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be dispatched manually. It is not
+one of the ordinary pull-request and push-to-master required checks.
+
+The `mode` input selects the run; a scheduled run is `full`:
+- `full`: 3 shards on `ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and
+  1.13, 18 jobs.
+- `focused`: the test names in `files`, one job for each selected platform and Julia version, passed
+  to the runner with `--exact`. Only this mode accepts a `platforms` or `julia` restriction.
+- `release`: `full` on the commit in `expected_sha`, plus a successful CI.yml run on that commit.
+
+The `Plan` job (`scripts/full_validation_plan.py`) validates the inputs and writes the matrix. It
+rejects a `platforms` other than `all` or a `julia` other than `both` outside `focused`, a non-empty
+`files` outside `focused`, and a `focused` run without `files`. `files` holds at most 20 names from
+`tiers.toml`, separated by spaces or tabs. `expected_sha` is 40 lowercase hexadecimal characters,
+is required for `release`, and must equal the commit of the run when given.
+
+The verdict checks are in `scripts/full_validation_verdict.py`. A passing verdict needs:
+- the matrix job result `success` and a `success` conclusion for each planned job;
+- for each planned cell, a log of the current attempt that matches the cell;
+- for `full` and `release`, files with `status=pass` across the 3 shards of each OS and Julia pair
+  that equal the full selection;
+- for `focused`, files with `status=pass` in each cell that equal the requested files; the verdict
+  is `FOCUSED VALIDATION`, not a full validation;
+- for `release`, also a CI.yml run on the commit with event `push` or `workflow_dispatch`,
+  conclusion `success`, and `PR required jobs`, `Frozen benchmark differential / Linux`,
+  `Strict documentation / Linux` and the three `Julia 1.13 / Linux (tests N/3)` jobs all `success`.
+
+A retried run can give a passing verdict only if it reruns all matrix jobs, because each planned cell
+needs a log of the current attempt.
+
+When the verdict job of a scheduled run fails, the `Nightly failure report` job (permission
+`issues: write`) attempts to report it in an issue titled `Nightly full validation failing [<key>]`.
+The key is a hash of the verdict's failure signature when the job can read a valid signature, and
+`verdict-incomplete` otherwise. It looks for issues with the label `nightly-full-validation` and that
+exact title. It comments on the lowest-numbered open match, otherwise reopens the highest-numbered
+closed match and comments, otherwise creates a labeled issue.
+
+The script docstrings and `scripts/test_full_validation_*.py` give the details.

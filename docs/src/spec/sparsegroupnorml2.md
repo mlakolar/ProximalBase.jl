@@ -17,10 +17,22 @@ formula and defines its index set `U`.
 
 Entries outside ``U`` are free in both terms and retain their values in the
 proximal output. A zero weight removes the group ℓ₂ term while the ℓ₁ term
-still acts on that group. The constructor keeps the order of the groups and
-indices and copies the supplied groups and weights. The levels and weights
+still acts on that group. The levels and weights
 are converted to one promoted floating type and checked for nonnegativity
 and NaN.
+
+### [Ownership of group indices and weights](@id sparse-group-norm-l2.constructor.ownership)
+
+The outer constructors preserve group and index order and copy the outer
+group collection. When weights are supplied, they also copy the weights.
+For ordinary index vectors they copy the individual index lists.
+
+### Range groups
+
+**Implementation note.** If the group collection's element type is a
+concrete subtype of `AbstractRange`, the copied collection retains the
+individual range objects. Other collections supply indices that are copied
+into integer vectors.
 
 ### [Default group weights](@id sparse-group-norm-l2.constructor.default-weights)
 
@@ -204,6 +216,7 @@ ranges, layouts, and point-aware scores.
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `sparse-group-norm-l2.constructor.default-weights` | `guaranteed` | [Default-weight constructor](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/src/functions/sparsegroupnorml2.jl#L55-L60) and [Float32 and Float64 tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L109-L116) |
+| `sparse-group-norm-l2.constructor.ownership` | `guaranteed` | [Outer constructors](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sparsegroupnorml2.jl#L47-L59) and [Changes to supplied group and weight vectors](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sparsegroupnorml2.jl#L109-L133) |
 | `sparse-group-norm-l2.prox.invalid-step` | `guaranteed` | [Empty-group regression](@ref spec-sparsegroupnorml2-empty-step-regression) and [array and compact validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L308-L331) |
 | `sparse-group-norm-l2.oracles.symmetric-arguments` | `precondition` | [Proximal and KKT point tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L369-L381) and [gradient dispatch regression](@ref spec-sparsegroupnorml2-score-regression) |
 | `sparse-group-norm-l2.kkt.entry-classification` | `characterized` | [Working-type regression](@ref spec-sparsegroupnorml2-score-regression) and [nonfinite KKT tests](https://github.com/mlakolar/ProximalBase.jl/blob/bf8c6f6c5111aec1b0f46a6f160aa5040b83ae28/test/sparsegroupnorml2.jl#L571-L598) |

@@ -13,6 +13,11 @@ import migration_checks as m
 
 
 REFERENCE = m.AUDIT / "post-baseline-sparsegroupnorml2.json"
+ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?: (.*)|$)")
+SETEXT_UNDERLINE = re.compile(r"^ {0,3}(={3,}|-{3,})[ \t]*$")
+NAMED_HEADING = re.compile(r"\[.+\]\(@id\s+(.+?)\s*\)")
+LIST_PREFIX = re.compile(r"^ {0,3}(?:[-+*]|[0-9]+[.)])(?: |$)")
+OTHER_BLOCK = re.compile(r"^ {0,3}(?:>|!!!\s|\?\?\?\s|\[\^[^\]]+\]:|(?:[-*_][ \t]*){3,}$)")
 
 
 @dataclass(frozen=True)
@@ -39,17 +44,77 @@ def authored_blob(revision, path, root):
     return text
 
 
+def authored_headings(page):
+    """Yield heading offsets without changing the authored section bytes."""
+    lines = page.splitlines(keepends=True)
+    opened = None
+    list_indent = 0
+    list_blank = False
+    block_start = True
+    offset = 0
+    for i, raw in enumerate(lines):
+        start, offset = offset, offset + len(raw)
+        line = raw.rstrip("\n")
+        if opened is not None:
+            # Julia Markdown closes a top-level fence with the same run at column zero.
+            if line.startswith(opened) and not line.startswith(opened + opened[0]):
+                opened = None
+                block_start = True
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if list_indent and (not line or indent >= list_indent):
+            # A list parses its indented body separately and ends after two empty lines.
+            if not line and list_blank:
+                list_indent = 0
+                block_start = True
+            list_blank = not line
+            continue
+        if list_indent:
+            list_indent = 0
+            block_start = True
+        item = LIST_PREFIX.match(line)
+        if item:
+            list_indent = item.end()
+            list_blank = False
+            continue
+        fence = m.FENCE.match(line)
+        if fence and indent < 4 and not line.startswith("\t") and fence[1][0] not in fence[2]:
+            opened = fence[1]
+            continue
+        heading = ATX_HEADING.fullmatch(line)
+        if heading:
+            title = re.sub(r" +#+$", "", (heading[2] or "").strip())
+            yield start, len(heading[1]), title
+            block_start = True
+            continue
+        if block_start and re.match(r"^ {0,3}\S", line) and not OTHER_BLOCK.match(line) and i + 1 < len(lines):
+            underline = SETEXT_UNDERLINE.fullmatch(lines[i + 1].rstrip("\n"))
+            if underline:
+                yield start, 1 if underline[1][0] == "=" else 2, line.strip()
+        block_start = not line.strip() or bool(SETEXT_UNDERLINE.fullmatch(line))
+
+
 def authored_section(page, path, anchor):
     if not anchor:
         raise ValueError(f"expected a named section in {path}")
-    section = m.section_text(page, anchor)
-    # A fenced copy can contain the same section text as the authored heading.
-    layout = m.located_destination_blocks(page, path)
-    heading = section.split("\n", 1)[0].rstrip()
-    headings = [first for block, first, _ in layout if block.kind == "heading" and block.text == heading]
-    if len(headings) != 1 or not page.startswith(section, headings[0]):
+    headings = list(authored_headings(page))
+    matches = []
+    for i, (_, _, title) in enumerate(headings):
+        named = NAMED_HEADING.fullmatch(title)
+        if named:
+            title = "`" + named[1] + "`"
+        try:
+            fragment, _ = m.heading_anchor("# " + title)
+        except ValueError:
+            continue
+        if fragment == anchor:
+            matches.append(i)
+    if len(matches) != 1:
         raise ValueError(f"cannot locate a unique authored section for {path}#{anchor}")
-    return section, headings[0], layout
+    index, = matches
+    start, depth, _ = headings[index]
+    end = next((offset for offset, level, _ in headings[index + 1:] if level <= depth), len(page))
+    return page[start:end], start, m.located_destination_blocks(page, path)
 
 
 def locate(span, page):
@@ -179,8 +244,9 @@ def check(reference, candidate, plan, root=m.ROOT):
                         for block in m.blocks(guide_section, guide))
     if not example_count or example_count != examples["count"]:
         raise ValueError("reference guide example count differs from the published inventory")
-    # Markdown before the section can change whether the examples execute.
-    if original_guide != current_guide:
+    current_section, _, _ = authored_section(current_guide, guide, anchor)
+    # Separating newlines belong to the section boundary.
+    if guide_section.rstrip("\n") != current_section.rstrip("\n"):
         findings.append(f"{examples['scope']}: retained examples or their guide context changed")
     return dict(reference=revision, candidate=candidate, passages=len(sources),
                 guide_examples=example_count, findings=findings)

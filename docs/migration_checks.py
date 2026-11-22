@@ -926,9 +926,9 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     """Bind one original block to an exact sequence of reviewed upstream diffs.
 
     Each event replaces a contiguous span in one file. The tracked parent ledger
-    can establish a prior exact move to that file for a current upstream action.
+    can establish a prior exact move to that file. A historical receipt for a
+    moved frozen block uses the same proof and returns the Git-verified span.
     Hashes must join exactly across events.
-    The final hash remains bound to the ledger's current destination.
     """
     if record is None:
         raise ValueError("missing valid upstream receipt")
@@ -957,9 +957,9 @@ def validate_upstream(old, row, record, root=ROOT, *, current=True):
     source = [old]
     scope = None
     if path != old.path:
-        if not current:
-            raise ValueError("migration bases require upstream edits in the original file")
-        if row.get("action") != "upstream":
+        if not current and not anchor:
+            raise ValueError("a post-move migration basis requires a named section")
+        if current and row.get("action") != "upstream":
             raise ValueError("post-move receipts require an upstream ledger action")
         if move_after:
             source = validate_upstream_moved_basis(old, destinations[0], record, move_after, root)

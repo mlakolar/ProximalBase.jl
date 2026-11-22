@@ -46,6 +46,35 @@
         "86b25264e1260bc8d0fbb6d6593f9c421c1bad2bf10fd49b7d29350b0814c5f4"
       ],
       "evidence": "family_map_pr_review@0e871c202b6673e717c3bb6a61ab4042ef1578c2 verified the retained Git receipt and its complete terminal span against the reviewed move."
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros::134",
+      "baseline_sha": "eead3297223521c9735359be7a38dc56c8152b4c7e2cfd24a3c9f19339d3e13d",
+      "upstream_sha": "6cc81f1b8195f403397ab05d954eacd0bed6061ab315abe476f8f2efa1eb8194",
+      "source_shas": [
+        "a63dd230ec9a3fa667b56130a4b9da2cd0e55450d8631f232a40365543dc1233"
+      ],
+      "evidence": "routine_pages_author@c947031688d238d944be6151cc8a2ffe4bbc83fd verified the recorded verbatim move, the exact #1118 edit, and its terminal passage."
+    },
+    {
+      "block_id": "docs/src/migration.md::Compatibility and migration / Retained and removed scope::5",
+      "baseline_sha": "96d2afeb2f25a60e902c5936e873c50df93f6f1de3932c33078c55963efcfeed",
+      "upstream_sha": "fcad2247a41a0035332970788aad5e5c6a66cc21bab4552bc4f16cf7e5f69482",
+      "source_shas": [
+        "9e6724086e206314b2549228e62b06f6a9c571a24d96d51e85c473eb3bd2eb79"
+      ],
+      "evidence": "routine_pages_author@7e7e669d84186f7cd88cbf56794597e797fc5cb0 verified the retained #1132 receipt, complete prior history and terminal passage."
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::44",
+      "baseline_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "upstream_sha": "4b9a8461e54959b4ae408f7b3ede4e4e53e9d99ceb45530fcb459391179cacf9",
+      "source_shas": [
+        "45fddf50e00bbab85a4140f50d34c86abb8639877904bde508e0532fab7623d0",
+        "434103469e7281bde81a916cb8c931ef8858a85b5b69163653ec4e05d9a1db3d",
+        "745302944d5ea58b7010b8c701b074bf43799c40c8c9bb9fe03420037d265012"
+      ],
+      "evidence": "reconcile_pr_review@64daf198c56f41fb88560f789fb4c934868f356f verified the named prior move, the exact #1115 Git edit, and all three terminal passages."
     }
   ]
 }

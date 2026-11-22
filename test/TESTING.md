@@ -416,17 +416,34 @@ unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and i
 
 The `Full validation` workflow (`.github/workflows/full-validation.yml`) runs the `full` tier,
 which is the union of all four tiers in `tiers.toml`, in 3 shards on every combination of
-`ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and 1.13, so 18 jobs. It
-runs daily at 09:23 UTC and on manual dispatch, with `--check-bounds=yes`. Each job saves a log
-that begins with a `PB_FULL_VALIDATION` line giving the commit, OS, Julia minor version and
-shard, followed by the runner's `PB_TEST_FILE_TIME` lines. The log artifacts are kept for 30 days.
+`ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and 1.13, so 18 jobs, all
+with `--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be started manually. Each
+job writes a log that begins with a `PB_FULL_VALIDATION` line giving the commit, OS, Julia minor
+version and shard, followed by the runner's `PB_TEST_FILE_TIME` and `PB_TEST_SHARD_TIME` lines. A
+job requests 30-day retention for the log it uploads, as the artifact
+`full-validation-log-<os>-<julia>-<shard>-attempt-<n>`; a job that ends before the upload step
+leaves no artifact.
 
-The `Full validation verdict` job reads those logs with `scripts/full_validation_verdict.py`. It
-passes only when all 18 cells are present, each log carries the tested commit and the header for
-its own cell, each cell ran the expected Julia minor version, and for every OS and Julia pair the
-files with `status=pass` across the 3 shards equal the full selection with no file in two shards.
-It also requires every matrix job to have succeeded, so a timeout or cancellation fails the run
-even when the saved logs look complete. The job summary lists the commit, the exact Julia version,
-the machine, the shards completed, the files passed, the failing files and the five slowest files
-for each pair. `scripts/test_full_validation_verdict.py` tests the verdict on synthetic logs and
-checks that the workflow matrix matches the script's expected cells.
+The `Full validation verdict` job reads those logs and the conclusions of the run attempt's jobs
+with `scripts/full_validation_verdict.py`. It passes only when all of the following hold.
+- Each of the 18 jobs named `Full / <os> / Julia <julia> (shard <n>/3)` appears once in the
+  current run attempt with conclusion `success`, and no other `Full / ...` job appears.
+- All 18 log artifacts of the current attempt are present, each with the tested commit, the
+  header for its own cell, a Julia release of the cell's minor version, and a platform that agrees
+  with the cell's OS.
+- In each log the file list printed after the runner line, its announced count, the unique
+  `PB_TEST_FILE_TIME` records and the closing `PB_TEST_SHARD_TIME` line agree, and every elapsed
+  time is finite and non-negative.
+- For every OS and Julia pair, the files with `status=pass` across the 3 shards equal the full
+  selection, with no file in two shards. The manifest must give at least one file per shard.
+
+The verdict job also requires the aggregate result of the 18 test jobs to be `success`. The job
+summary lists the commit, the exact Julia version, the machine, each shard's job conclusion, the
+failing files and the five slowest files for each pair. In that table, "Shards completed" counts
+the shards of the pair whose job concluded `success` and whose log passed every check above;
+"Files passed" counts the selected files with `status=pass` in the pair's logs.
+
+A retry must re-run all jobs. Re-running only the failed jobs starts a new attempt in which the
+other cells' artifacts remain on the earlier attempt, so the verdict finds those cells missing and
+fails. `scripts/test_full_validation_verdict.py` tests the verdict on synthetic logs and checks
+that the workflow matrix, job name and artifact name match the script's expected cells.

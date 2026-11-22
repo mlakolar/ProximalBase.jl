@@ -51,7 +51,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: full-validation-log-${{ matrix.os }}-${{ matrix.julia }}-${{ matrix.shard }}
+          name: full-validation-log-${{ matrix.os }}-${{ matrix.julia }}-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: full-validation-logs/full-validation-${{ matrix.os }}-${{ matrix.julia }}-${{ matrix.shard }}.log
           retention-days: 30
           if-no-files-found: error
@@ -60,6 +60,9 @@ jobs:
     needs: [test]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -68,16 +71,27 @@ jobs:
         run: python3 -B scripts/test_full_validation_verdict.py
       # With a pattern, a run that produced no log artifact may download nothing
       # instead of failing; the verdict script then reports each expected cell as missing.
+      # Only artifacts of this run attempt are downloaded. Re-running only the failed
+      # jobs leaves the other cells' artifacts on an earlier attempt, so the verdict fails;
+      # a retry must re-run all jobs.
       - name: Download the cell logs
         uses: actions/download-artifact@v8
         with:
-          pattern: full-validation-log-*
+          pattern: full-validation-log-*-attempt-${{ github.run_attempt }}
           path: logs
           merge-multiple: false
+      - name: Fetch the job conclusions of this run attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            --jq '.jobs[] | {name, conclusion}' > jobs.jsonl
       - name: Check the full selection in every cell
         run: |
           # GITHUB_SHA is set by the runner; on pull_request it is the tested merge commit.
           python3 scripts/full_validation_verdict.py --logs logs --tiers test/tiers.toml \
+            --jobs jobs.jsonl --attempt "$GITHUB_RUN_ATTEMPT" \
             --expected-commit "$GITHUB_SHA" --summary "$GITHUB_STEP_SUMMARY"
       - name: Require every matrix job to succeed
         env:

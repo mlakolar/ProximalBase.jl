@@ -178,6 +178,28 @@ within `(n + 4) eps` of it and `4K` subnormal spacings, as a scaled group's sum 
 bit for bit for the Float32 data with a Float64 destination that the file tests), `Scaled` (its rounded effective step:
 overflowing, underflowing to zero with a finite and an infinite level, subnormal, and a negative step rounding to `-0`),
 the refused methods and the zero-group screen (also at an infinite weight with infinite or `NaN` gradient entries).
+`groupscad` checks `GroupSCAD` in Float32/64 against a BigFloat minimization of the radial objective that does not use the
+package (the scalar reference of `scad_reference.jl`, a candidate comparison at 512 bits that is repeated at 4096 bits
+for near-ties, at the group norm computed in 512-bit BigFloat), with the same objective tolerance as `groupmcp` except that
+`κ = max(1, (a - 1)/(a - 1 - γ))` for finite `a` and `γ < a - 1`, and 1 otherwise, and the same stable-decision checks of the
+kept group, `+0` and the entries in between. It covers the worked examples, the copied group inside the middle piece
+(`γ = 1e-20`: the fused value is `p(r)`, not the plateau), exactly representable ties for both cutoffs of the nonconvex
+steps (`γ ≥ a - 1`), group sizes 1 to 512 with shapes near 2, 3.7, 1000, 1e10 and infinite and steps below, at and above `a - 1`
+with norms at each knot of the decisions (`γλ`, `λ`, `(1 + γ)λ`, `aλ` and the two tie cutoffs) one rounding either side, permuted
+and noncontiguous groups with entries in no group, singleton groups against `SCAD` (the decisions, bit for bit where the
+output is zero or the input, and the points in between within `(8κ + 8)` ulps and a subnormal spacing), the cold-path
+counterexamples (an underflowing or overflowing product of level and weight, a step below the subnormal range, the ratio `r/λ`
+above the exponent range), the value of the middle piece at `a` near `floatmax`, the parameter-type rule of the constructors
+(`a` converted to the type of the level and the weights, refused where it rounds to 2 or overflows), the copies made by the outer
+constructors, view-backed groups and lists accepted by the typed constructor, the default weight of a large Float16 group,
+scaling by powers of two across the ordinary and scaled paths (bit for bit in Float64), each endpoint row of the contract and the
+precedence of `NaN` over `Inf`, `a = Inf` against `GroupNormL2`, `SparseIterate`, `BlockIterate`, matrix and compact-block
+arguments, refusals with each destination compared to a sentinel copy (shapes, extent, compact lengths, group number, step also
+with a group fixed by its parameters, aliasing, offset axes, a complex input, a complex compact output and non-floating
+destinations), zero allocations on the ordinary paths, the infinite-weight and input-type-overflow reproducers, a seeded sweep
+of extreme scales, the fused value against the value at the stored output (as for `groupmcp`), `Scaled` (its rounded effective
+step, as for `groupmcp`), the refused methods and the zero-group screen. `scad_reference.jl` holds the BigFloat helpers of the
+scalar and the group tests; it is not a test file.
 `norml2` checks `NormL2` against BigFloat: values on arrays and on the three
 iterates (stored zeros, empty iterates, symmetric off-diagonal multiplicity, huge and
 subnormal entries), proximal operators, invalid steps, the symmetric-iterate
@@ -343,6 +365,9 @@ The observation was taken before two testsets of the file were shortened, so the
 The provisional weight of `groupmcp` is 60 seconds. It rounds up, with margin for the CI runner, the Discovery observations
 of the file, 46.0 seconds on Julia 1.10.13 and 43.6 seconds on Julia 1.13.4, before a CI run of the file exists.
 
+The provisional weight of `groupscad` is 60 seconds, the weight of `groupmcp`. The Discovery observations of the file are
+about 40 seconds on Julia 1.10.13 and 1.13.4 (the runs recorded with the pull request), before a CI run of the file exists.
+
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
 Update the affected weights and record the timing sources. If a new test has
@@ -383,7 +408,7 @@ section of `docs/src/spec/poissonloss.md` lists the cases.
 ## SCAD coverage
 
 `scad` checks the globally minimizing scalar prox against independent BigFloat objectives
-and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
+(the helpers of `scad_reference.jl`) and a bounded numerical search. It covers Float32/64, steps on both sides of the curvature
 transition, exact ties, parameter and input endpoints, dense and iterate oracles, stored zeros
 and aliasing, per-entry step reads, pre-write refusals and supported Scaled paths.
 

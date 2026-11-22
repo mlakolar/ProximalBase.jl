@@ -2,7 +2,9 @@ module CIContractTest
 using Test, TOML, LinearAlgebra
 const root=dirname(@__DIR__)
 const TT=Main.TestTiers
-workflow=read(joinpath(root,".github","workflows","CI.yml"),String)
+# A Windows checkout can convert line endings to CRLF; the job-block patterns below expect LF.
+normalize_newlines(text)=replace(text,"\r\n"=>"\n")
+workflow=normalize_newlines(read(joinpath(root,".github","workflows","CI.yml"),String))
 
 # The text of one top-level job, up to the next job or comment at the same indent.
 function job_block(name)
@@ -24,6 +26,7 @@ function check_partition(names,w,count)
 end
 
 @testset "minimal required CI contract" begin
+    @test normalize_newlines(replace(workflow,"\n"=>"\r\n"))==workflow
     @test occursin("name: PR required jobs",workflow)
     @test occursin("name: PR merge gate",workflow)
     @test occursin("version: '1.13'",workflow)

@@ -285,7 +285,9 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 
 ## CI sharding
 
-The full declared inventory is split across six Linux runners on Julia 1.13.
+In `CI.yml` runs that select package tests, the full declared inventory is split across six
+Linux runners on Julia 1.13. The `Full validation` workflow below uses three shards for each
+OS and Julia pair.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
@@ -311,8 +313,9 @@ and runs each selected file in a fresh Julia process with bounds checks enabled.
 
 The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
 time in seconds. The current values are the medians, rounded to one decimal
-second, of the `PB_TEST_FILE_TIME` records of 8 successful Julia 1.13.4 CI runs
-of the 62-file inventory on 2026-11-22: [44982626333](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982626333), [44982979326](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982979326), [44983012139](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44983012139), [44984893045](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984893045), [44984940280](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984940280), [44984973795](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984973795), [44985870372](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44985870372), [44986482294](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44986482294).
+second, of the passing `PB_TEST_FILE_TIME` records of the 62 retained files in 8 successful
+Julia 1.13.4 CI runs on 2026-11-22. Each run has one record per retained file; the one record of
+`groupscad`, a file of an unmerged pull request in run 44982626333, is excluded. The runs: [44982626333](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982626333), [44982979326](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982979326), [44983012139](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44983012139), [44984893045](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984893045), [44984940280](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984940280), [44984973795](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984973795), [44985870372](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44985870372), [44986482294](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44986482294).
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

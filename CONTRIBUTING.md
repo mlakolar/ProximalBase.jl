@@ -74,8 +74,10 @@ doctests and isolated Literate examples. The classifier is `scripts/ci_changes.p
 the test and benchmark lanes were skipped (`docs_only=true`) or succeeded
 (`docs_only=false`).
 Job-specific Julia caches are reused on subsequent runs. Reproduce one
-shard with `julia scripts/test.jl --shard=1/3` (or `2/3`, `3/3`).
-GPU, cross-platform and release automation remain deferred. No release or
+shard with `julia scripts/test.jl --shard=1/6` (or `2/6` to `6/6`).
+Scheduled and manual cross-platform runs, focused native runs and release
+validation use `.github/workflows/full-validation.yml` (see `test/TESTING.md`);
+they are not required checks. GPU automation remains deferred. No release or
 ProximalSolvers pin/source change is implied.
 
 ## Julia performance and correctness

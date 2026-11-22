@@ -207,7 +207,7 @@ end
     if (floatmin(T) <= λ <= floatmax(T)) & isfinite(a * λ)
       s = _indexed_sumabs2(x, G, T)
       if isfinite(s) & _squares_normal(s, length(G), T)
-        return (_scad_value(λ, a, sqrt(s)), true)
+        return (_scad_stored_value(λ, a, sqrt(s)), true)
       elseif iszero(s) && _l2_all_zero(x, G, T)
         return (zero(T), false)
       end
@@ -305,7 +305,11 @@ end
 # Ordinary path (O = true: Float32 or Float64 throughout, the step equal to its conversion to T): a step with 0 < γ < Inf, a level
 # λ = λ0 w (rounded once) of at least floatmin/eps with a finite kink aλ, and a finite sum of squares that _squares_normal
 # accepts. t is the scalar kernel at the computed norm r and the rounded level λ; the group is copied for t == r, set to
-# +0 for t == 0, and otherwise scaled by t / r.
+# +0 for t == 0, and otherwise scaled by t / r. The scaling loops are those of the shared kernels (_l2_scale!, _gmcp_scale!);
+# for y === x they are called with x for both arguments, so that the compiler knows that the arrays coincide and vectorizes the
+# loop without the runtime overlap test that fails (and leaves a scalar loop) for two names of one array. The loops are also
+# vectorized over the entries of a group in any order of its indices, as the indices of a group are distinct: the constructors
+# check that the groups are disjoint, and _group_of rejects an index that occurs twice, also within a group.
 @inline function _gscad_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false)) where {O, V}
   T = float(eltype(y))
   if O
@@ -318,15 +322,18 @@ end
           t = _scad_magnitude(r, λ, a, γ)
           if t == r
             _l2_copy!(y, x, G)
-            return V ? _scad_value(λ, a, r) : T(_L2_RECOMPUTE)
+            return V ? _scad_stored_value(λ, a, r) : T(_L2_RECOMPUTE)
           elseif iszero(t)
             return T(_l2_zero!(y, G))
           end
           q = t / r
-          V || (_l2_scale!(y, x, G, q); return T(_L2_RECOMPUTE))
-          sy = _gmcp_scale!(y, x, G, q)
-          (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
-          return _scad_value(λ, a, sqrt(sy))
+          if V
+            sy = y === x ? _gmcp_scale!(x, x, G, q) : _gmcp_scale!(y, x, G, q)
+            (isfinite(sy) & _squares_normal(sy, length(G), T)) || return T(_L2_RECOMPUTE)
+            return _scad_stored_value(λ, a, sqrt(sy))
+          end
+          y === x ? _l2_scale!(x, x, G, q) : _l2_scale!(y, x, G, q)
+          return T(_L2_RECOMPUTE)
         elseif iszero(s) && _l2_zero_group(x, G, T)
           return T(_l2_zero!(y, G))
         end
@@ -433,7 +440,7 @@ end
     w = @inbounds f.w[k]
     s = _gscad_shrink!(y, x, G, f.λ0, w, f.a, γ, Val(O), Val(V))
     if V
-      # the kernel returns the two codes or a term that is not negative (_scad_value at a finite positive level); any
+      # the kernel returns the two codes or a term that is not negative (_scad_stored_value at a finite positive level); any
       # other value is added, so that it is not dropped
       if s == _L2_RECOMPUTE
         t, c = _gscad_term_outofline(f.λ0, w, f.a, y, G, T)

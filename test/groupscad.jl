@@ -872,6 +872,86 @@ end
   @test y == x && fused_close(v, g(y), 2, 2) && close_value(v, refterm(x[1:2], 1, 1, T(3.7)) + refterm(x[3:4], 1, 1, T(3.7)), 2, 2)
 end
 
+# the norm of a group that is zeroed, soft-thresholded, on the middle piece or kept, as in benchmark/groupscad/run.jl
+function regime_norm(regime, γ, a, λ)
+  convex = γ < a - 1
+  keep_cut = convex ? a * λ : max(a * λ, (a + 1 + γ) * λ / 2, γ * λ, λ * sqrt(γ * (a + 1)))
+  regime === :zero ? γ * λ / 2 :
+  regime === :soft ? (convex ? (γ + 1 / 2) * λ : (γ + (a + 1 + γ) / 2) * λ / 2) :
+  regime === :middle ? (convex ? ((1 + γ) + a) * λ / 2 : (1 + a) * λ / 2) : 2keep_cut
+end
+
+# 4096 entries in groups of m entries (ranges or permuted index vectors); regime is one of the four, or :mixed (each group
+# draws its own); the groups of the point have the norm of their regime along a random direction
+function regime_case(rng, ::Type{T}, m, layout, step, regime) where {T}
+  K = 4096 ÷ m
+  perm = layout === :perm ? randperm(rng, 4096) : collect(1:4096)
+  groups = layout === :perm ? [perm[(k-1)*m+1:k*m] for k in 1:K] : [(k-1)*m+1:k*m for k in 1:K]
+  a, λ0 = T(3.7), T(0.75)
+  γ = (a - 1) * T(step)
+  x = zeros(T, 4096)
+  for G in groups
+    reg = regime === :mixed ? rand(rng, (:zero, :soft, :middle, :kept)) : regime
+    d = randn(rng, m)
+    x[G] = T.(regime_norm(reg, Float64(γ), Float64(a), Float64(λ0)) .* d ./ sqrt(sum(abs2, d)))
+  end
+  GroupSCAD(λ0, groups, ones(T, K); a), x, γ
+end
+
+@testset "in place and out of place agree bit for bit ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(70 + sizeof(T))
+  steps = (1 // 2, 1 // 1, 3 // 2)
+  for m in (1, 4, 32, 512, 4096), layout in (:range, :perm), step in steps, regime in (:zero, :soft, :middle, :kept, :mixed)
+    f, x, γ = regime_case(rng, T, m, layout, step, regime)
+    y = similar(x)
+    prox!(y, f, x, γ)
+    xi = copy(x)
+    @test prox!(xi, f, xi, γ) === xi && isequal(xi, y)
+    # the fused value and the stored point
+    y2 = similar(x)
+    v = value_and_prox!(y2, f, x, γ)
+    xi2 = copy(x)
+    vi = value_and_prox!(xi2, f, xi2, γ)
+    @test isequal(xi2, y2) && isequal(xi2, y) && isequal(vi, v)
+    @test fused_close(v, f(y2), m, length(f.groups))
+    # compact blocks: out === u and out !== u, for the first, a middle and the last group
+    for k in unique((1, cld(length(f.groups), 2), length(f.groups)))
+      u = x[f.groups[k]]
+      out = similar(u)
+      prox_block!(out, f, u, k, γ)
+      uu = copy(u)
+      @test prox_block!(uu, f, uu, k, γ) === uu && isequal(uu, out)
+    end
+  end
+end
+
+@testset "the value of the ordinary path equals the branch-free scalar form ($T)" for T in (Float32, Float64)
+  # f(x) uses the branch-based _scad_stored_value; the sum of _scad_value at the same norms, in the same order, is the same number
+  rng = Xoshiro(71 + sizeof(T))
+  for m in (1, 4, 32), layout in (:range, :perm), step in (1 // 2, 3 // 2)
+    f, x, γ = regime_case(rng, T, m, layout, step, :mixed)
+    ref = zero(T)
+    for (k, G) in enumerate(f.groups)
+      s = ProximalBase._indexed_sumabs2(x, G, T)
+      ref += ProximalBase._scad_value(f.λ0 * f.w[k], f.a, sqrt(s))
+    end
+    @test isequal(f(x), ref)
+  end
+end
+
+@testset "zero allocations of the in-place paths ($T)" for T in (Float32, Float64)
+  rng = Xoshiro(72 + sizeof(T))
+  for m in (32, 512, 4096), layout in (:range, :perm), step in (1 // 2, 3 // 2), regime in (:soft, :mixed)
+    f, x, γ = regime_case(rng, T, m, layout, step, regime)
+    xi = copy(x)
+    @test allocs(prox!, xi, f, xi, γ) == 0
+    @test allocs(value_and_prox!, xi, f, xi, γ) == 0
+    u = x[f.groups[1]]
+    @test allocs(prox_block!, u, f, u, 1, γ) == 0
+    @test allocs(f, x) == 0
+  end
+end
+
 @testset "Scaled ($T)" for T in (Float32, Float64)
   f = GroupSCAD(T(0.5), [1:2, 3:4], T[1, 2])
   x = T[1.2, 1.6, -3, 0.5]

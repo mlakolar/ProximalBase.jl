@@ -169,6 +169,24 @@ that happens to pass.
   · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
   · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
 
+- The `KronQuadratic` sentence added by #1132 ends with “with `Float32` or
+  `Float64`”. This could qualify both dense matrices and symmetric iterates,
+  or symmetric iterates alone. The current input check requires matching
+  precision on both routes. The wording awaits review.
+  [Migration sentence](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/docs/src/migration.md#L26-L27)
+  · [Input checks](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/src/functions/kronquadratic.jl#L149-L164)
+
+- The GroupMCP zero-group screen describes the margin “for finite `v`,
+  `λ0` and `w_k`”. Finiteness of the gradient could refer to the stored
+  entries or to the entries after conversion to the working type. The
+  shared screen classifies the converted entries. Tests of the shared
+  screen exercise finite integers that become infinite after conversion.
+  The wording awaits the owner's decision.
+  [GroupMCP failure behavior](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/docs/src/spec/groupmcp.md#L148-L153)
+  · [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533)
+  · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145)
+  · [Mixed-width tests](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1240)
+
 ## SparseGroupNormL2 decisions recorded in #1123
 
 The owner approved three wordings and statuses in

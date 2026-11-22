@@ -285,12 +285,19 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 
 ## CI sharding
 
-The full declared inventory is split across three Linux/current-Julia runners.
+The full declared inventory is split across three Linux runners on Julia 1.13.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
 index. Within each shard, files run in their original sorted selection order.
 Each declared test is assigned to exactly one of the three full CI shards.
+A pull request or master push whose changed paths are all documentation skips
+the three shards and the benchmark differential; the strict docs build and the
+repository hygiene check still run. Top-level `*.md` files, `docs/**` `.md`,
+`.svg`, `.png` and `.mmd` files and `docs/audit/**` `.tsv`, `.json`, `.csv`
+and `.txt` files count as documentation. Any other path, an empty change set
+and a manual run execute the shards. `scripts/ci_changes.py` classifies the
+change and `scripts/test_ci_changes.py` tests it.
 The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
 

@@ -4,8 +4,9 @@ Keep git focused on maintained Julia/Python source, tests, benchmark **drivers**
 and small curated documentation. Agents may produce extensive diagnostics in
 their local worktrees; those outputs must not be committed to the package.
 
-The required CI gate runs `scripts/check_repo_hygiene.py` on the **resulting
-changed tree** (not all historical files). It rejects:
+The required CI gate runs `scripts/check_repo_hygiene.py` in the
+change-classification job on the **resulting changed tree** (not all historical
+files). It rejects:
 
 - Any newly added or modified tracked file larger than **1 MiB**, or more than
   **5 MiB combined changed file contents** in one pull request/push.

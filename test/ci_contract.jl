@@ -18,17 +18,42 @@ end
 @testset "minimal required CI contract" begin
     @test occursin("name: PR required jobs",workflow)
     @test occursin("name: PR merge gate",workflow)
-    @test occursin("version: '1'",workflow)
+    @test occursin("version: '1.13'",workflow)
+    @test !occursin("version: '1'",workflow)
     @test occursin("--check-bounds=yes",workflow)
     @test occursin("shard: [1, 2, 3]",workflow)
-    @test occursin("needs: [test, benchmark, docs]",workflow)
+    @test occursin("needs: [changes, test, benchmark, docs]",workflow)
     @test occursin("BENCHMARK_RESULT:",workflow)
     @test occursin("DOCS_RESULT:",workflow)
     @test occursin("PB_CHECK_ONLY: '1'",workflow)
     @test occursin("docs/make.jl",workflow)
     @test !occursin("continue-on-error",workflow)
+    @test !occursin("pull_request_target:",workflow)
+    @test !occursin("paths-ignore",workflow)
+    @test occursin("cancel-in-progress: \${{ github.event_name == 'pull_request' }}",workflow)
     rules=TOML.parsefile(joinpath(root,".github","tier-rules.toml"))
     @test Set(keys(rules["platforms"]))==Set(["linux"])
+    @test rules["platforms"]["linux"]["julia"]=="1.13"
+end
+@testset "documentation-only classification fails closed" begin
+    @test occursin("name: Change classification / Linux",workflow)
+    @test occursin("CHANGES_RESULT: \${{ needs.changes.result }}",workflow)
+    @test occursin("DOCS_ONLY: \${{ needs.changes.outputs.docs_only }}",workflow)
+    @test occursin("TEST_RESULT:",workflow)
+    @test occursin("test \"\$CHANGES_RESULT\" = success",workflow)
+    @test occursin("test \"\$DOCS_RESULT\" = success",workflow)
+    @test occursin("true)  test \"\$TEST_RESULT\" = skipped; test \"\$BENCHMARK_RESULT\" = skipped ;;",workflow)
+    @test occursin("false) test \"\$TEST_RESULT\" = success; test \"\$BENCHMARK_RESULT\" = success ;;",workflow)
+    @test occursin("*)     echo \"unclassified change: '\$DOCS_ONLY'\"; exit 1 ;;",workflow)
+    # The test and benchmark jobs each depend on `changes` and run when the classification is 'false'.
+    for job in ("test","benchmark")
+        section=match(Regex("^  \\Q"*job*"\\E:\\n(.*?)(?=^  \\S)","ms"),workflow)
+        @test section !== nothing
+        @test section !== nothing && occursin("needs: [changes]",section.captures[1])
+        @test section !== nothing && occursin("if: needs.changes.outputs.docs_only == 'false'",section.captures[1])
+    end
+    @test count("docs_only == 'false'",workflow)==2
+    @test !occursin("docs_only == 'true'",workflow)
 end
 @testset "shards cover the complete supported inventory exactly once" begin
     inv=TT.inventory()

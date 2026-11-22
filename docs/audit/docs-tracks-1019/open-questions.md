@@ -12,13 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `LinearFunction` range paragraph gives the bound
-  `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)` without defining `n`. It could count
-  nonzero products or all entries in the argument or its storage. The recovery
-  tests count nonzero products. The intended scope awaits the owner's decision.
-  [Source](../../../src/functions/linear.jl)
-  · [Tests](../../../test/linear_value_recovery.jl)
-
 - The `NormL2` range text says the sums visit “each off-diagonal symmetric
   coordinate twice”. This could count contributions to the squared norm or
   visits to the stored entry. The ordinary sum doubles a stored off-diagonal
@@ -112,6 +105,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Norm accuracy](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrt_leastsquares.md#L56-L63) could compare with the loss at unrounded `Xβ` or with the mathematical norm at the stored or supplied kernel operands | Compare with the exact scaled norm for the stored or supplied predictor or supplied residual. The precision and layout hypotheses apply to the operands and the bound is stated for `Float32` and `Float64`. `characterized`. | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L78-L83) · [Proof](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L114-L122) · [Tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L310-L346) |
+
+## LinearFunction decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Absolute error bound](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/linear.md#L72-L83) could count nonzero products or all positions | The error analysis counts the nonzero products entering the accumulator. Each zero product returns the accumulator unchanged. The bound applies in the stated homogeneous configurations and requires `n < 2^50` for `Float64`. `characterized`. | [Recovery analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/linear.jl#L200-L218) · [Zero-product exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L319-L325) · [Sparse reference comparison](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/linear_sparse_value.jl#L614-L621) · [Other storage recovery tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/linear_value_recovery.jl#L5-L10) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

@@ -75,12 +75,23 @@ coefficient at a zero does not prevent it) as exponent-separated terms, each pro
 formed from its two factors without scaling one before the other acts. The sum is then
 collapsed to one value with its own exponent, and `d` is added to that value in its own
 units, so that when the compensated sum of the products cancels to zero the value is `d`,
-and a small `d` is not absorbed by the larger terms. The accuracy is the absolute bound
+and a small `d` is not absorbed by the larger terms.
+
+### [Absolute error of sparse matrix value recovery](@id linear-function.value.sparse-matrix-recovery-error)
+
+For homogeneous `Float32` or `Float64` inputs and result type `T`, let `n`
+count the nonzero products entering the recovery accumulator. The constant
+`d` is added after the dot and is excluded from this count. The bound
+assumes `n < 2^50` for `Float64` data and applies at any supported length
+for `Float32` data. The accuracy is the absolute bound
 `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)`, not relative to a dot much smaller than its terms, and the
-returned value is finite when the exact value plus `B` is within the range of the type. When the
+returned value is finite when adding `B` to the magnitude of the exact result
+gives at most `floatmax(T)`. When the
 products lie far beyond the range, so that `B` exceeds it, there is no guarantee of a finite
 value: extreme cancellation can give an infinity for a finite exact value (see
 [Overflow and underflow of values](../numerics.md#Overflow-and-underflow-of-values)).
+
+### Comparisons with other storage
 
 For a dense `c` that is not a `Diagonal`, `f(Matrix(x))` and `dot(c, x) + d` take the
 ordinary `dot`, which visits all positions, so a `NaN`
@@ -172,6 +183,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `linear-function.value.sparse-matrix-diagonal` | `characterized` | [Ordinary diagonal traversal](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/linear.jl#L252-L275), [diagonal recovery traversal](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/linear.jl#L276-L293), and [coefficient reads and values for Float32 and Float64](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/sparse_value_cost.jl#L244-L269) |
+| `linear-function.value.sparse-matrix-recovery-error` | `characterized` | [Recovery traversal](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/linear.jl#L158-L169), [Zero-product exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L319-L325), [Accumulator error analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/linear.jl#L200-L218), and [Sparse reference comparison](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/linear_sparse_value.jl#L614-L621) |
 
 ## [History](@id spec-linear-history)
 

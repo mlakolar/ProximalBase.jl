@@ -15,6 +15,8 @@ import migration_checks as m
 REFERENCE = m.AUDIT / "post-baseline-sparsegroupnorml2.json"
 ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?: (.*)|$)")
 SETEXT_UNDERLINE = re.compile(r"^ {0,3}(={3,}|-{3,})[ \t]*$")
+NAMED_HEADING = re.compile(r"\[.+\]\(@id\s+(.+?)\s*\)")
+LIST_PREFIX = re.compile(r"^ {0,3}(?:[-+*]|[0-9]+[.)]) +(?=\S)")
 
 
 @dataclass(frozen=True)
@@ -45,18 +47,28 @@ def authored_headings(page):
     """Yield heading offsets without changing the authored section bytes."""
     lines = page.splitlines(keepends=True)
     opened = None
+    list_indent = 0
     offset = 0
     for i, raw in enumerate(lines):
         start, offset = offset, offset + len(raw)
         line = raw.rstrip("\n")
         fence = m.FENCE.match(line)
         if opened is not None:
-            # Julia Markdown closes a fence with the same delimiter run.
-            if fence and fence[1] == opened and line.startswith(opened):
+            # Match the opening indentation and delimiter run for fenced content.
+            if fence and line[:fence.end(1)] == opened:
                 opened = None
             continue
-        if fence and not line.startswith(("    ", "\t")) and fence[1][0] not in fence[2]:
-            opened = fence[1]
+        indent = len(line) - len(line.lstrip(" "))
+        item = LIST_PREFIX.match(line)
+        if item:
+            list_indent = item.end()
+        elif line.strip() and indent < list_indent:
+            list_indent = 0
+        if fence and indent < list_indent + 4 and not line.startswith("\t") and fence[1][0] not in fence[2]:
+            # Julia Markdown closes a fence at column zero of its block.
+            opened = " " * list_indent + fence[1]
+            continue
+        if list_indent and indent >= list_indent:
             continue
         heading = ATX_HEADING.fullmatch(line)
         if heading:
@@ -74,11 +86,15 @@ def authored_section(page, path, anchor):
     headings = list(authored_headings(page))
     matches = []
     for i, (_, _, title) in enumerate(headings):
+        named = NAMED_HEADING.fullmatch(title)
+        if named:
+            title = "`" + named[1] + "`"
         try:
-            m.section_text("# " + title, anchor)
+            fragment, _ = m.heading_anchor("# " + title)
         except ValueError:
             continue
-        matches.append(i)
+        if fragment == anchor:
+            matches.append(i)
     if len(matches) != 1:
         raise ValueError(f"cannot locate a unique authored section for {path}#{anchor}")
     index, = matches

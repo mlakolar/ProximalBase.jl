@@ -144,9 +144,12 @@ class PostBaselineSpanTests(unittest.TestCase):
 
     def test_unrelated_section_before_the_guide_section_is_allowed(self):
         heading = "## [Family guide](@id family-guide)"
-        before = "## Another family\n\n```text\n" + heading + "\n```\n\n"
-        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
-        self.assertEqual(self.check()["findings"], [])
+        for before in ("```text\n" + heading + "\n```\n\n",
+                       "- Item\n\n  ```text\n  Outside example.\n  ```\n\n"):
+            with self.subTest(before=before):
+                preceding = "## Another family\n\n" + before
+                self.write(self.guide_path, self.guide.replace(heading, preceding + heading, 1))
+                self.assertEqual(self.check()["findings"], [])
 
     def test_one_byte_inside_the_guide_section_changes_example_context(self):
         self.write(self.guide_path, self.guide.replace("Compact groups", "Compact Groups", 1))
@@ -154,7 +157,9 @@ class PostBaselineSpanTests(unittest.TestCase):
 
     def test_duplicate_guide_section_heading_is_rejected(self):
         for heading in ("## [Family guide](@id family-guide)", "  ## [Another title](@id family-guide)",
-                        "[Another title](@id family-guide)\n---", "## family guide ##"):
+                        "[Another title](@id family-guide)\n---", "## family guide ##",
+                        "## [Another title](@id family--guide)", "## [Another title](@id family-guide )",
+                        "## family- guide"):
             with self.subTest(heading=heading):
                 self.write(self.guide_path, self.guide + f"\n{heading}\n\nDuplicate.\n")
                 with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
@@ -166,6 +171,19 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
         with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
             self.check()
+
+    def test_preceding_top_level_fence_closes_at_column_zero(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "  ```text\n  Outside example.\n"
+        for closer in ("```", "  ```"):
+            with self.subTest(closer=closer):
+                guide = self.guide.replace(heading, before + closer + "\n\n" + heading, 1)
+                self.write(self.guide_path, guide)
+                if closer.startswith(" "):
+                    with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                        self.check()
+                else:
+                    self.assertEqual(self.check()["findings"], [])
 
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path

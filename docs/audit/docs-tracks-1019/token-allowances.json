@@ -224,8 +224,8 @@
       ],
       "dest": "docs/src/spec/indnonnegative.md#spec-indnonnegative-endpoints",
       "dest_sha": "25cc0b651b994e45a1c4c9c7d1f2fbcb4852259599462fe239c03c204c6fb47b",
-      "reviewer": "routine_pages_author@cf41dc760fd47233c8fd23ab70b1f1514e7406c9",
-      "evidence": "routine_pages_author@cf41dc760fd47233c8fd23ab70b1f1514e7406c9 verified that the linked shared rule removes a duplicate explanation. The constructor and both operator spellings remain in the scaling guide.",
+      "reviewer": "routine_pages_author@c947031688d238d944be6151cc8a2ffe4bbc83fd",
+      "evidence": "routine_pages_author@c947031688d238d944be6151cc8a2ffe4bbc83fd verified that the linked shared rule removes a duplicate explanation. The constructor and both operator spellings remain in the scaling guide.",
       "changes": {
         "tokens": {
           "removed": {

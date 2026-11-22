@@ -2,69 +2,8 @@ module SCADTest
 
 using Test, ProximalBase, OffsetArrays, Random
 
-function scad_penalty(λ, a, v)
-  t = abs(v)
-  iszero(λ) && return zero(t)
-  isnan(t) && return t
-  iszero(t) && return zero(t)
-  isinf(λ) && return λ
-  (t <= λ || isinf(a)) && return λ * t
-  t >= a * λ && return (a + 1) * λ^2 / 2
-  # Integrate the linearly decreasing slope from λ to t by its trapezoid.
-  λ^2 + (t - λ) * (λ + (a * λ - t) / (a - 1)) / 2
-end
-
-function scad_objective(λ, a, t, γ, u)
-  L, A, V, G, U = BigFloat.((λ, a, t, γ, u))
-  scad_penalty(L, A, U) + (U - V)^2 / (2G)
-end
-
-# Enumerate endpoints and interior vertices of the objective polynomials.
-# This uses the individual coefficients, independently of the step regimes
-# and candidate comparisons in the proximal implementation.
-function scad_reference(λ, a, v, γ)
-  L, A, V, G = BigFloat.((λ, a, v, γ))
-  t = abs(V)
-  c2 = inv(2G)
-  c1 = -t / G
-  pieces = ((zero(L), L, c2, c1 + L),
-            (L, A * L, c2 - inv(2(A - 1)), c1 + A * L / (A - 1)),
-            (A * L, max(t, A * L), c2, c1))
-  best = zero(t)
-  cost(u) = scad_penalty(L, A, u) + (u - t)^2 / (2G)
-  hbest = cost(best)
-  for (lo, hi, q, b) in pieces
-    vertex = q > 0 ? clamp(-b / (2q), lo, hi) : lo
-    for u in (lo, vertex, hi)
-      h = cost(u)
-      if h < hbest || (h == hbest && u < best)
-        best, hbest = u, h
-      end
-    end
-  end
-  iszero(best) ? best : copysign(best, V), hbest
-end
-
-# Search the full feasible magnitude range, then refine the best grid cell
-# without using the stationary-point formulas.
-function scad_search(λ, a, t, γ)
-  objective(u) = scad_objective(λ, a, t, γ, u)
-  grid = range(zero(t), abs(t); length = 1025)
-  i = argmin(map(objective, grid))
-  lo, hi = grid[max(1, i - 1)], grid[min(length(grid), i + 1)]
-  best = objective(grid[i])
-  for _ in 1:80
-    l, r = (2lo + hi) / 3, (lo + 2hi) / 3
-    hl, hr = objective(l), objective(r)
-    best = min(best, hl, hr)
-    if hl <= hr
-      hi = r
-    else
-      lo = l
-    end
-  end
-  best
-end
+include("scad_reference.jl")
+using .SCADReferenceTest
 
 function check_case(f, v::T, γ; check_point = false) where {T}
   want, best = scad_reference(f.λ, f.a, v, γ)

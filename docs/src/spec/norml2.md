@@ -42,9 +42,10 @@ The [shared range guarantees](@ref numerical-value-range) describe the squared-r
 
 `NormL2` values recompute a sum of squares that overflows or falls below the normal
 range from the squared-residual kernel above, in units of the largest stored entry.
-On a `SparseIterate` and a `SymmetricSparseIterate` both the ordinary sum and that
-recomputation visit the stored entries only, each off-diagonal symmetric coordinate
-twice ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
+**Implementation note.** On a `SparseIterate` or `SymmetricSparseIterate`, the
+ordinary sum and recovery work from stored entries only. Each stored
+off-diagonal symmetric coordinate occupies one slot and contributes with
+multiplicity two to the squared norm ([#808](https://github.com/mlakolar/ProximalBase.jl/issues/808)).
 
 ## [Endpoint clauses](@id spec-norml2-endpoints)
 

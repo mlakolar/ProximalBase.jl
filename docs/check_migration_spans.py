@@ -13,6 +13,8 @@ import migration_checks as m
 
 
 REFERENCE = m.AUDIT / "post-baseline-sparsegroupnorml2.json"
+ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?: (.*)|$)")
+SETEXT_UNDERLINE = re.compile(r"^ {0,3}(={3,}|-{3,})[ \t]*$")
 
 
 @dataclass(frozen=True)
@@ -39,23 +41,50 @@ def authored_blob(revision, path, root):
     return text
 
 
+def authored_headings(page):
+    """Yield heading offsets without changing the authored section bytes."""
+    lines = page.splitlines(keepends=True)
+    opened = None
+    offset = 0
+    for i, raw in enumerate(lines):
+        start, offset = offset, offset + len(raw)
+        line = raw.rstrip("\n")
+        fence = m.FENCE.match(line)
+        if opened is not None:
+            # Julia Markdown closes a fence with the same delimiter run.
+            if fence and fence[1] == opened and line.startswith(opened):
+                opened = None
+            continue
+        if fence and not line.startswith(("    ", "\t")) and fence[1][0] not in fence[2]:
+            opened = fence[1]
+            continue
+        heading = ATX_HEADING.fullmatch(line)
+        if heading:
+            title = re.sub(r" +#+$", "", (heading[2] or "").strip())
+            yield start, len(heading[1]), title
+        elif re.match(r"^ {0,3}\S", line) and i + 1 < len(lines):
+            underline = SETEXT_UNDERLINE.fullmatch(lines[i + 1].rstrip("\n"))
+            if underline:
+                yield start, 1 if underline[1][0] == "=" else 2, line.strip()
+
+
 def authored_section(page, path, anchor):
     if not anchor:
         raise ValueError(f"expected a named section in {path}")
-    section = m.section_text(page, anchor)
-    # A fenced copy can contain the same section text as the authored heading.
-    layout = m.located_destination_blocks(page, path)
-    headings = []
-    for block, first, _ in layout:
-        if block.kind == "heading":
-            try:
-                m.section_text(block.text, anchor)
-            except ValueError:
-                continue
-            headings.append(first)
-    if len(headings) != 1 or not page.startswith(section, headings[0]):
+    headings = list(authored_headings(page))
+    matches = []
+    for i, (_, _, title) in enumerate(headings):
+        try:
+            m.section_text("# " + title, anchor)
+        except ValueError:
+            continue
+        matches.append(i)
+    if len(matches) != 1:
         raise ValueError(f"cannot locate a unique authored section for {path}#{anchor}")
-    return section, headings[0], layout
+    index, = matches
+    start, depth, _ = headings[index]
+    end = next((offset for offset, level, _ in headings[index + 1:] if level <= depth), len(page))
+    return page[start:end], start, m.located_destination_blocks(page, path)
 
 
 def locate(span, page):

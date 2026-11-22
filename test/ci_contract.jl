@@ -32,7 +32,8 @@ end
     @test occursin("version: '1.13'",workflow)
     @test !occursin("version: '1'",workflow)
     @test occursin("--check-bounds=yes",workflow)
-    @test occursin("shard: [1, 2, 3]",workflow)
+    @test occursin("shard: [1, 2, 3, 4, 5, 6]",workflow)
+    @test occursin("--shard=\${{ matrix.shard }}/6",workflow)
     @test occursin("needs: [changes, test, benchmark, docs]",workflow)
     @test occursin("BENCHMARK_RESULT:",workflow)
     @test occursin("DOCS_RESULT:",workflow)
@@ -94,8 +95,8 @@ end
         m=match(r"^    if: >-\n((?:      [^\n]*\n)+)    needs:"m,block)
         m === nothing ? "" : join(strip.(split(chomp(m.captures[1]),'\n'))," ")
     end
-    # The skipped test and benchmark lanes of a documentation-only run must not skip
-    # publication; gate, docs, cancellation and the event decide it.
+    # The intentionally skipped test and benchmark lanes do not by themselves make a
+    # publication job ineligible; the listed predicates govern its job-level condition.
     status="!cancelled() && needs.gate.result == 'success' && needs.docs.result == 'success' && "
     @test job_if(deploy)==status*"github.event_name == 'push' && github.ref == 'refs/heads/master'"
     @test job_if(job_block("publish-preview"))==status*"github.event_name == 'pull_request' && "*
@@ -124,6 +125,7 @@ end
     @test !isempty(selected)
     @test Set(keys(inv.weights))==Set(selected)
     @test all(w -> w isa Real && !(w isa Bool) && isfinite(w) && w > 0, values(inv.weights))
+    check_partition(selected,inv.weights,6)
     check_partition(selected,inv.weights,3)
     check_partition(selected,inv.weights,2)
     check_partition(selected[1:2:end],inv.weights,3)

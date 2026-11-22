@@ -48,7 +48,7 @@ changed path is an added, modified or deleted regular, non-executable file that
 is a top-level `*.md` file, a `.md`, `.svg`, `.png` or `.mmd` file under
 `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
 `docs/audit/docs-tracks-1019/` (suffixes are case-sensitive). When the job
-succeeds with `docs_only=true`, the three package-test shards and the frozen
+succeeds with `docs_only=true`, the six package-test shards and the frozen
 benchmark differential are skipped. When it succeeds with `docs_only=false`
 they are eligible to run in parallel with strict documentation validation, on
 Linux with Julia 1.13. The strict documentation job is scheduled independently

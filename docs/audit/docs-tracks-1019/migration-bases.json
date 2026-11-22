@@ -64,6 +64,17 @@
         "9e6724086e206314b2549228e62b06f6a9c571a24d96d51e85c473eb3bd2eb79"
       ],
       "evidence": "routine_pages_author@7e7e669d84186f7cd88cbf56794597e797fc5cb0 verified the retained #1132 receipt, complete prior history and terminal passage."
+    },
+    {
+      "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / [Overflow and underflow of values](@id Overflow-and-underflow-of-values) / [Range guarantees](@id numerical-value-range)::44",
+      "baseline_sha": "08e24ffbf91b3e8896226628f21f34b69d83fe95b5d2ec00b1e44c557ddb26c4",
+      "upstream_sha": "4b9a8461e54959b4ae408f7b3ede4e4e53e9d99ceb45530fcb459391179cacf9",
+      "source_shas": [
+        "45fddf50e00bbab85a4140f50d34c86abb8639877904bde508e0532fab7623d0",
+        "434103469e7281bde81a916cb8c931ef8858a85b5b69163653ec4e05d9a1db3d",
+        "745302944d5ea58b7010b8c701b074bf43799c40c8c9bb9fe03420037d265012"
+      ],
+      "evidence": "reconcile_pr_review@64daf198c56f41fb88560f789fb4c934868f356f verified the named prior move, the exact #1115 Git edit, and all three terminal passages."
     }
   ]
 }

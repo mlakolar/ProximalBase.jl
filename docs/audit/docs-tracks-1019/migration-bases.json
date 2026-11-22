@@ -55,6 +55,15 @@
         "a63dd230ec9a3fa667b56130a4b9da2cd0e55450d8631f232a40365543dc1233"
       ],
       "evidence": "routine_pages_author@c947031688d238d944be6151cc8a2ffe4bbc83fd verified the recorded verbatim move, the exact #1118 edit, and its terminal passage."
+    },
+    {
+      "block_id": "docs/src/migration.md::Compatibility and migration / Retained and removed scope::5",
+      "baseline_sha": "96d2afeb2f25a60e902c5936e873c50df93f6f1de3932c33078c55963efcfeed",
+      "upstream_sha": "fcad2247a41a0035332970788aad5e5c6a66cc21bab4552bc4f16cf7e5f69482",
+      "source_shas": [
+        "9e6724086e206314b2549228e62b06f6a9c571a24d96d51e85c473eb3bd2eb79"
+      ],
+      "evidence": "routine_pages_author@7e7e669d84186f7cd88cbf56794597e797fc5cb0 verified the retained #1132 receipt, complete prior history and terminal passage."
     }
   ]
 }

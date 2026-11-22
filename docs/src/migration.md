@@ -10,21 +10,42 @@ API. This development reduction is not a release announcement.
 
 ## Retained and removed scope
 
-The [function library](function_library.md) is exhaustive. Norms and group penalties
-other than `NormL1`, `NormL2`, `NormLinf`, `GroupNormL2`, `GroupNormLinf` and `SparseGroupNormL2`, nonconvex penalties,
-robust-loss families, Poisson families other than `PoissonLoss`, constraints and indicators other than
-`IndNonnegative`, `IndBox`, `IndBallLinf`, `IndBallL1`, `IndBallL2` and `IndBallL0`,
-spectral/nuclear families, generic composition/sum wrappers, LMO, second-order
-frameworks and GPU extensions were removed. They have no replacement capability
-implied by this manual. `BlockIterate` retains grouped **storage**; the group-lasso
-penalty `GroupNormL2` and the norm `NormL2` were restored separately (#900), and
-the norm `NormLinf` (#946) and the group norm `GroupNormLinf` (#956). The restored indicators are
-`IndNonnegative` (#948), `IndBox` (#949), `IndBallLinf` (#954), `IndBallL1` (#955)
-and `IndBallL2` (#950). `IndBallL0(s; diagonal = true)` (#1084) is restored for
-dense vectors and matrices, `SparseIterate`, dense `Symmetric`, and
-`SymmetricSparseIterate` with `Float32` or `Float64`.
-The smooth `KronQuadratic` (#1059) is restored for dense matrices and
-`SymmetricSparseIterate` with `Float32` or `Float64`.
+The [#850 reduction](https://github.com/mlakolar/ProximalBase.jl/pull/850) landed on
+November 10, 2026 (Pacific time). It removed the other norms, group and nonconvex
+penalties, logistic, Poisson and robust-loss families, constraints and indicators,
+spectral and nuclear families, generic composition and sum wrappers, LMO,
+second-order frameworks and GPU extensions. Among the norms and related penalties,
+it retained `NormL1` and `SqrNormL2`. It also retained grouped storage through
+`BlockIterate`.
+
+Later changes restored `NormL2` and `GroupNormL2` ([#901](https://github.com/mlakolar/ProximalBase.jl/pull/901)),
+`ElasticNet` ([#909](https://github.com/mlakolar/ProximalBase.jl/pull/909)),
+`NormL0` ([#951](https://github.com/mlakolar/ProximalBase.jl/issues/951), [restore commit](https://github.com/mlakolar/ProximalBase.jl/commit/fc13ace163d219da0668b7f18be54ce6043edbf7)),
+`NormLinf` ([#957](https://github.com/mlakolar/ProximalBase.jl/pull/957)),
+`NormL1Nonneg` ([#998](https://github.com/mlakolar/ProximalBase.jl/pull/998)),
+`GroupNormLinf` ([#999](https://github.com/mlakolar/ProximalBase.jl/pull/999)),
+`SCAD` ([#1043](https://github.com/mlakolar/ProximalBase.jl/pull/1043)),
+`MCP` ([#1046](https://github.com/mlakolar/ProximalBase.jl/pull/1046)),
+`SparseGroupNormL2` ([#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076)) and
+`GroupMCP` ([#1142](https://github.com/mlakolar/ProximalBase.jl/pull/1142)).
+
+The restored indicators are `IndNonnegative` ([#996](https://github.com/mlakolar/ProximalBase.jl/pull/996)),
+`IndBox` ([#1020](https://github.com/mlakolar/ProximalBase.jl/pull/1020)),
+`IndBallLinf` ([#1024](https://github.com/mlakolar/ProximalBase.jl/pull/1024)),
+`IndBallL1` ([#955](https://github.com/mlakolar/ProximalBase.jl/issues/955), [restore commit](https://github.com/mlakolar/ProximalBase.jl/commit/b07983a88bf0d67a5b626721f58f06b057b6f91d)) and
+`IndBallL2` ([#1022](https://github.com/mlakolar/ProximalBase.jl/pull/1022)).
+With matching `Float32` or `Float64` element types, `IndBallL0(s; diagonal = true)`
+([#1062](https://github.com/mlakolar/ProximalBase.jl/pull/1062)) supports dense vectors
+and matrices, `SparseIterate`, dense `Symmetric`, and `SymmetricSparseIterate`.
+
+Later PRs also restored `LogDetLoss` ([#1032](https://github.com/mlakolar/ProximalBase.jl/pull/1032)),
+`LogisticLoss` ([#1033](https://github.com/mlakolar/ProximalBase.jl/pull/1033)) and
+`PoissonLoss` ([#1133](https://github.com/mlakolar/ProximalBase.jl/pull/1133)).
+With matching `Float32` or `Float64` element types, the smooth `KronQuadratic`
+(#1059, [PR #1132](https://github.com/mlakolar/ProximalBase.jl/pull/1132)) supports
+dense matrices and `SymmetricSparseIterate`.
+
+See the [function library](function_library.md) for the current inventory.
 
 Keep two function objects for `f(x)+g(x)`; no generic function-object sum is
 retained. Compute mathematical gradient mappings in caller code. Coordinate

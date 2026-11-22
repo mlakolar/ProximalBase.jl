@@ -157,12 +157,6 @@ all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
 
-The #1063 test inventory says the historical snapshot at `879e067` “added a
-provisional 40-second weight”. This could refer to the measured checkout or
-to the later weight based on its timing. The measured checkout used a weight
-of 35 seconds and #1063 landed with 40 seconds. The wording awaits the owner's
-decision. [Test inventory](../../../test/TESTING.md#ci-sharding)
-
 Heading compatibility retains explicit IDs and authored link/citation targets.
 The uncited original API heading's two automatic fragments remain the only
 approved retirements; the complete frozen snapshots remain unchanged. Later
@@ -201,3 +195,9 @@ IDs are added.
 
 Clause conversion, the remaining owner decisions and final acceptance are tracked
 in [#1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019).
+
+## Test calibration decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [56-file sharding snapshot](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/TESTING.md#L309-L313) could assign the 40-second weight to the measured checkout or the merged PR | The measured checkout used 35 seconds. The Julia 1.13.4 run observed 38.971 seconds. #1063 landed with a provisional 40-second weight. Implementation note. | [Measured weight](https://github.com/mlakolar/ProximalBase.jl/blob/9ef0db982e264d00452c4877f1e58dd1d91778e3/test/tiers.toml#L103) · [Shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339/job/136054574400) · [Landed weight](https://github.com/mlakolar/ProximalBase.jl/blob/735de29173bd3e547c5d40039d3f27aece83d915/test/tiers.toml#L108) |

@@ -285,6 +285,14 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 
 ## CI sharding
 
+**Correction to the historical 56-file paragraph below.** The
+[measured checkout](https://github.com/mlakolar/ProximalBase.jl/blob/9ef0db982e264d00452c4877f1e58dd1d91778e3/test/tiers.toml#L103)
+used a 35-second weight for `norml0offdiag` when assigning the shard. The
+[Julia 1.13.4 shard](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339/job/136054574400)
+observed 38.971 seconds. [#1063](https://github.com/mlakolar/ProximalBase.jl/pull/1063)
+landed with the [40-second provisional weight](https://github.com/mlakolar/ProximalBase.jl/blob/735de29173bd3e547c5d40039d3f27aece83d915/test/tiers.toml#L108)
+after rounding that observation up to the next five seconds.
+
 The full declared inventory is split across three Linux runners on Julia 1.13.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each

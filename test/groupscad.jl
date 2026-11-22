@@ -649,7 +649,7 @@ end
   fresh = prox(f, s, 0.0)
   @test fresh isa SparseIterate && isequal(fresh[1], 0.0) && !signbit(fresh[1])
   fresh2 = SparseIterate(Float64, 1)
-  @test prox!(fresh2, f, [-0.0], 0.0) === fresh2 && isequal(fresh2[1], 0.0) && nnz(fresh2) == 0
+  @test prox!(fresh2, f, [-0.0], 0.0) === fresh2 && isequal(fresh2[1], 0.0) && nactive(fresh2) == 0
 end
 
 @testset "BlockIterate with an inactive block ($T)" for T in (Float32, Float64)

@@ -85,7 +85,7 @@ taken, so a tie with zero gives `+0`. The middle piece has positive, zero or neg
 `a - 1`; the scalar contract owns the comparisons. Groups with nonfinite entries follow the [endpoint table](@ref spec-groupscad-endpoints).
 
 **Computed result.** When the input, the destination, the parameters and the step are `Float32` or `Float64`, the decisions
-are made by the scalar kernel in floating-point arithmetic on the computed norm and the level as formed, and can round near a cutoff:
+use floating-point arithmetic on the computed norm and the level as formed, and can round near a cutoff:
 for `a = 3`, `γ = 5`, ``\lambda_k=1`` and `r = sqrt(20.0)` the
 result is `+0`. The stored entries ``q\,u_i`` are rounded, so the stored direction can change: for ``\lambda_k=1``,
 `γ = 1` and `[1.5, nextfloat(0.0)]` the result is `[0.5, 0.0]`. ``t_*`` can round to `r` inside the middle piece, as for the

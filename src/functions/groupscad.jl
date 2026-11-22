@@ -53,7 +53,7 @@ true
 julia> prox_block(f, [1.8, 2.4], 1, 1.0) ≈ [1.552941176470588, 2.070588235294118]
 true
 
-julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ = 1 (computed exactly) gives +0
+julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # the computed norm equals γλ = 1, which gives +0
 2-element Vector{Float64}:
  0.0
  0.0

@@ -322,8 +322,9 @@ V="$(julia --startup-file=no -e 'print(VERSION)')" && [ -n "$V" ] && export V &&
 
 1. Smoke checks, per Julia version (seconds to minutes; the SHAs may be unset with `PB_CHECK_ONLY=1`). They generate
    the reduced input profile `small` into a directory of this version, check the prototypes against S, and run all eight
-   harness groups on the smallest case of each element type with 2 rounds and 2 ADMM repeats, then the evaluator; they
-   are not the campaign. A repeat uses a new `SMOKE` (the harness refuses to rewrite its files):
+   harness groups with 2 rounds and 2 ADMM repeats on the smallest selected case of each element type (for the ADMM
+   groups the smallest Float64 lasso instance; the outputs group adds two controls), then the evaluator; they are not
+   the campaign. A repeat uses a new `SMOKE` (the harness refuses to rewrite its files):
 
    ```
    PB_CHECK_ONLY=1 PB_INPUTS="$SMOKE/$V/inputs" julia --threads=1 --project=. "$D/generate.jl" &&

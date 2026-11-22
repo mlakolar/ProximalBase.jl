@@ -294,9 +294,13 @@ Each declared test is assigned to exactly one of the three full CI shards.
 A pull request or master push whose changed paths are all documentation skips
 the three shards and the benchmark differential; the strict docs build and the
 repository hygiene check still run. Top-level `*.md` files, `docs/**` `.md`,
-`.svg`, `.png` and `.mmd` files and `docs/audit/**` `.tsv`, `.json`, `.csv`
-and `.txt` files count as documentation. Any other path, an empty change set
-and a manual run execute the shards. `scripts/ci_changes.py` classifies the
+`.svg`, `.png` and `.mmd` files and `.tsv`, `.json`, `.csv` and `.txt` files
+under `docs/audit/docs-tracks-1019/` count as documentation, provided each is
+an added, modified or deleted regular file without the execute bit; an
+execute-bit change, a symlink or a submodule entry on either side does not
+count. Markdown can contain Documenter blocks that execute, and the strict docs
+job validates them. Any other path, an empty change set and a manual run
+execute the shards. `scripts/ci_changes.py` classifies the
 change and `scripts/test_ci_changes.py` tests it.
 The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
@@ -365,11 +369,12 @@ each test-file subprocess, including startup and compilation. Its `status` is
 subprocess throws. `PB_TEST_SHARD_TIME` records the total wall-clock seconds
 for the selected files, including runner overhead, and uses `shard=all` for
 unsharded runs. Find both records in the GitHub Actions test job logs and the
-`package-validation-logs-linux-current-julia-shard-*` artifacts.
+`package-validation-logs-linux-julia-1.13-shard-*` artifacts.
 
-The inventory/partition contract is checked by `ci_contract`. All three
-shards, the frozen differential check, and the strict documentation build are
-required by the existing PR verdict and merge gate. PR builds may warm
+The inventory/partition contract is checked by `ci_contract`. The PR verdict
+and merge gate require the three shards and the frozen differential check
+unless the change is documentation-only, in which case they must be skipped;
+they require the change classification and the strict documentation build. PR builds may warm
 independent Julia package caches for the three validation job types.
 
 `logisticloss` checks homogeneous Float32 and Float64 logistic regression with

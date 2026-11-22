@@ -57,12 +57,16 @@ whether the change is documentation-only. Three independent test shards cover
 the complete retained inventory with bounds checks, and the frozen benchmark
 differential runs beside the strict docs build on separate Linux runners. A
 change counts as documentation-only when every changed path, including both
-sides of a rename and each deletion, is a top-level `*.md` file, a `docs/**`
-`.md`, `.svg`, `.png` or `.mmd` file, or a `docs/audit/**` `.tsv`, `.json`,
-`.csv` or `.txt` file. For such a change the test shards and the benchmark
-are skipped, and the hygiene checks and the strict docs build run. Any other
-change, an empty change set, a push without a usable previous commit and a
-manual run execute all lanes. The classifier is `scripts/ci_changes.py`, with
+sides of a rename and each deletion, is an added, modified or deleted regular
+file without the execute bit (an execute-bit change, a symlink or a submodule
+entry on either side is not), and the path is a top-level `*.md` file, a
+`docs/**` `.md`, `.svg`, `.png` or `.mmd` file, or a `.tsv`, `.json`, `.csv`
+or `.txt` file under `docs/audit/docs-tracks-1019/`, which the docs job's
+checks read. Markdown under `docs/` can contain Documenter blocks that
+execute, and the strict docs build validates them. For a documentation-only
+change the test shards and the benchmark are skipped, and the hygiene checks
+and the strict docs build run. Any other change, an empty change set, a push
+without a usable previous commit and a manual run execute all lanes. The classifier is `scripts/ci_changes.py`, with
 tests in `scripts/test_ci_changes.py`. The required checks remain
 `PR required jobs` and `PR merge gate`; they fail unless the lanes the
 classification calls for have passed and the others were skipped.

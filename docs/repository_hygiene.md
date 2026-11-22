@@ -6,7 +6,18 @@ their local worktrees; those outputs must not be committed to the package.
 
 The required CI gate runs `scripts/check_repo_hygiene.py` in the
 change-classification job on the **resulting changed tree** (not all historical
-files). It rejects:
+files). The files compared are those changed between the checked-out commit
+and the classifier's base:
+
+- For a pull request, the tested merge commit and its first parent, so the
+  files that the pull request changes against its base.
+- For a push to master with a usable `before` commit, `before` and the pushed
+  commit, so the files that differ across the whole push.
+- For a push without a usable `before` commit (all zeros, missing or not
+  fetchable) and for a manual run, the checked-out commit and its first parent,
+  so the files of the last commit.
+
+The check rejects:
 
 - Any newly added or modified tracked file larger than **1 MiB**, or more than
   **5 MiB combined changed file contents** in one pull request/push.

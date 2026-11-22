@@ -3,11 +3,13 @@
 
 The classifier compares the checked-out HEAD with the base the event is
 validated against: the first parent of the pull-request merge commit, or the
-`before` commit of a master push. It writes `docs_only=true|false` to
-`GITHUB_OUTPUT`. A change counts as documentation-only only when the change set
-is non-empty and every changed path, including both sides of a rename and every
-deleted path, is on the allowlist below. Any other situation, including an
-unusable base, is reported as `docs_only=false`. An unexpected event, a failed
+`before` commit of a master push. It writes `docs_only=true|false` and
+`base=<sha>` (empty when no base is usable) to `GITHUB_OUTPUT`. A change counts
+as documentation-only when the change set is non-empty and every changed path,
+including both sides of a rename and each deleted path, is on the allowlist
+below and is an added, modified or deleted regular file without the execute
+bit. Any other situation, including an unusable base, is reported as
+`docs_only=false`. An unexpected event, a malformed `before` value, a failed
 git command or any other error exits nonzero and writes no output.
 
 No third-party Python dependencies.
@@ -19,13 +21,20 @@ import re
 import subprocess
 import sys
 from pathlib import PurePosixPath
+from typing import NamedTuple
 
-# 100644/100755 are regular files; 000000 is the new mode of a deletion.
-# Symlinks (120000) and submodules (160000) are not documentation.
-DOCS_MODES = frozenset({"100644", "100755", "000000"})
+# Allowed (status, old mode, new mode) triples from `git diff --raw`. Mode
+# 000000 marks the absent side of an add (A) or delete (D). The execute bit,
+# symlinks (120000), submodules (160000) and type changes are not documentation.
+DOCS_TRANSITIONS = frozenset({
+    ("M", "100644", "100644"),
+    ("A", "000000", "100644"),
+    ("D", "100644", "000000"),
+})
 # Allowed anywhere under docs/ (rendered pages and their images).
 DOCS_SUFFIXES = frozenset({".md", ".svg", ".png", ".mmd"})
-# Allowed under docs/audit/ in addition: data files that the docs job checks read.
+# Allowed under this directory in addition: data files that the docs job checks read.
+AUDIT_DATA_DIR = ("docs", "audit", "docs-tracks-1019")
 AUDIT_DATA_SUFFIXES = frozenset({".tsv", ".json", ".csv", ".txt"})
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ZERO_SHA = "0" * 40
@@ -35,14 +44,21 @@ class ClassificationError(Exception):
     """The event or the repository state cannot be classified."""
 
 
+class Change(NamedTuple):
+    path: str
+    old_mode: str
+    new_mode: str
+    status: str
+
+
 def git(*args: str, check: bool = True) -> bytes:
     return subprocess.run(
         ["git", *args], check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     ).stdout
 
 
-def changed_paths(base: str, head: str) -> list[tuple[str, str]]:
-    """Return (path, new_mode) for each path changed between two commits.
+def changed_paths(base: str, head: str) -> list[Change]:
+    """Return a Change for each path that differs between two commits.
 
     Without rename detection, a rename is a deletion of the old path plus an
     addition of the new path, so both paths are returned.
@@ -58,26 +74,27 @@ def changed_paths(base: str, head: str) -> list[tuple[str, str]]:
         fields = meta.decode("ascii").split()
         if not fields[0].startswith(":") or len(fields) != 5:
             raise ClassificationError(f"unexpected git diff --raw entry: {meta!r}")
-        result.append((os.fsdecode(raw_path), fields[1]))
+        result.append(Change(os.fsdecode(raw_path), fields[0][1:], fields[1], fields[4]))
     return result
 
 
-def is_docs_path(path: str, new_mode: str) -> bool:
-    if new_mode not in DOCS_MODES:
+def is_docs_path(change: Change) -> bool:
+    if (change.status, change.old_mode, change.new_mode) not in DOCS_TRANSITIONS:
         return False
-    parts = PurePosixPath(path).parts
-    suffix = PurePosixPath(path).suffix
+    pure = PurePosixPath(change.path)
+    parts, suffix = pure.parts, pure.suffix
     if len(parts) == 1:
         return suffix == ".md"
     if parts[0] != "docs":
         return False
     if suffix in DOCS_SUFFIXES:
         return True
-    return len(parts) >= 3 and parts[1] == "audit" and suffix in AUDIT_DATA_SUFFIXES
+    return parts[: len(AUDIT_DATA_DIR)] == AUDIT_DATA_DIR and len(parts) > len(AUDIT_DATA_DIR) \
+        and suffix in AUDIT_DATA_SUFFIXES
 
 
-def classify(paths: list[tuple[str, str]]) -> bool:
-    return bool(paths) and all(is_docs_path(p, m) for p, m in paths)
+def classify(changes: list[Change]) -> bool:
+    return bool(changes) and all(is_docs_path(change) for change in changes)
 
 
 def _commit_available(sha: str) -> bool:
@@ -99,6 +116,9 @@ def base_for_event(event_name: str, env) -> str | None:
         return parents[0]
     if event_name == "push":
         before = env.get("PUSH_BEFORE_SHA", "")
+        if before == "":
+            print("push has no previous commit (missing before)")
+            return None
         if not SHA_PATTERN.match(before):
             raise ClassificationError(f"PUSH_BEFORE_SHA is not a 40-digit lowercase hex SHA: {before!r}")
         if before == ZERO_SHA:
@@ -132,26 +152,29 @@ def main() -> int:
         if base is None:
             docs_only, reason = False, "no usable base commit"
         else:
-            paths = changed_paths(base, head)
-            for path, mode in paths:
-                print(f"  {'docs' if is_docs_path(path, mode) else 'code'}  {mode}  {path}")
-            docs_only = classify(paths)
-            if not paths:
+            changes = changed_paths(base, head)
+            for change in changes:
+                verdict = "docs" if is_docs_path(change) else "code"
+                # The name is escaped and follows fixed text, so the printed
+                # line does not begin with the file name.
+                print(f"  path {verdict} {change.status} {change.old_mode}>{change.new_mode} {change.path!r}")
+            docs_only = classify(changes)
+            if not changes:
                 reason = "empty change set"
             elif docs_only:
-                reason = f"all {len(paths)} changed path(s) are documentation"
+                reason = f"all {len(changes)} changed path(s) are documentation"
             else:
                 reason = "at least one changed path is not documentation"
     except (ClassificationError, subprocess.CalledProcessError) as error:
-        detail = getattr(error, "stderr", b"") or b""
-        print(f"error: {error} {detail.decode(errors='replace').strip()}", file=sys.stderr)
+        detail = (getattr(error, "stderr", b"") or b"").decode(errors="replace").strip()
+        print(f"error: {error} {detail!r}", file=sys.stderr)
         return 1
     value = "true" if docs_only else "false"
     print(f"docs_only={value} ({reason})")
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"docs_only={value}\n")
+            handle.write(f"docs_only={value}\nbase={base or ''}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

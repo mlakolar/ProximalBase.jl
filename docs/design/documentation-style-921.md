@@ -269,3 +269,5 @@ check. Review the rendered quick reference and first-use pages as well as the
 Markdown diff. No numerical performance campaign is needed for an editorial
 change; ordinary repository CI remains required. Report executed validation
 separately from any check that was unavailable in the editing environment.
+
+This sentence is a CI probe and is never merged.

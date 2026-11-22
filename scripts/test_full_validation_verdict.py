@@ -1065,7 +1065,7 @@ class WorkflowTextTests(unittest.TestCase):
     def test_release_evidence_step(self):
         verdict = self.jobs["verdict"]
         self.assertIn("if: needs.plan.outputs.mode == 'release'", verdict)
-        # Every page of the run list, filtered by event and conclusion before the jobs are requested.
+        # The run list is paginated, and the event and conclusion filter precedes the jobs requests.
         self.assertRegex(verdict, r'gh api --paginate "repos/\$GITHUB_REPOSITORY/actions/workflows/CI\.yml/runs\?head_sha=\$GITHUB_SHA&per_page=100"')
         self.assertIn('select((.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")', verdict)
         self.assertIn("run_attempt}", verdict)

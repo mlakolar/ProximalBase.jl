@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-"""Verdict for the full-validation matrix, in three modes.
+"""Verdict for the full-validation matrix: `full` (the default without `--plan`), `focused` or `release`.
 
-Reads the per-cell logs downloaded from the
-`full-validation-log-<os>-<julia>-<shard>-attempt-<n>` artifacts and the job
-conclusions of the same workflow run attempt.  The logs sit in one directory
-per artifact when several artifacts match the download pattern, and directly in
-the log directory when one matches; the script accepts both layouts.  The job
-conclusions are checked against the expected job names, and the passing timing
-records of each OS and Julia pair against the expected files.
+Reads the cell logs of one run attempt (one directory per artifact, or one flat log file) and the
+job list of that attempt.  With `--plan plan.json` the cells, mode and requested files come from
+the plan; without it the script expects the 18 cells of the nightly run.  A `focused` verdict
+requires the requested files to pass in each planned cell.  A `release` verdict also takes
+`--ci-runs` and requires a successful CI.yml run on the commit with the jobs in `CI_REQUIRED_JOBS`.
+`--signature` writes the failure signature when there are problems.
 
-Without `--plan` the script checks the nightly full validation: 18 cells, and
-the full test selection (the union of all four tiers in `test/tiers.toml`) for
-each OS and Julia pair.  The cell constants below are the matrix of the full
-and release modes; `full_validation_plan.py` builds its matrix from the same
-constants, and the tests compare the generated entries.  With `--plan` the
-cells, the mode and the requested files come from the `plan.json` that
-`full_validation_plan.py` wrote, and the script compares the plan's labels with
-the job names it derives.  A `focused` plan checks that the files with
-`status=pass` equal the requested files in each planned cell and reports
-`FOCUSED VALIDATION`.  A `release` plan checks the full matrix and also needs
-`--ci-runs`: a CI.yml run on the candidate commit with event `push` or
-`workflow_dispatch`, conclusion `success`, and the jobs in `CI_REQUIRED_JOBS`
-(the `PR required jobs` job, the frozen benchmark, the strict documentation
-build and the three Julia 1.13 test shards) all successful.
-
-The script imports only the standard library and needs Python 3.11 or newer
-(`tomllib`).
+The script imports only the standard library and needs Python 3.11 or newer (`tomllib`).
 """
 from __future__ import annotations
 

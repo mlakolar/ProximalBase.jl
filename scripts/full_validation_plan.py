@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
 """Validate the inputs of the Full validation workflow and emit its plan.
 
-The `plan` job runs this script after the checkout and the unit tests of the
-plan script.  The workflow passes the inputs through the environment
-(`PB_MODE`, `PB_PLATFORMS`, `PB_JULIA`, `PB_FILES`, `PB_EXPECTED_SHA`) and the
-runner supplies `GITHUB_SHA`.  An empty value stands for the default, which is
-what a scheduled run supplies.  The script
-
-* checks the inputs, including the file names against the full selection of
-  `test/tiers.toml`, although the choice inputs are also constrained in the
-  workflow UI.  The `full` and `release` modes take every platform and both
-  Julia versions; only `focused` accepts a restriction;
-* appends `matrix` (compact JSON with an `include` list of
-  `{os, julia, shard, shards, label}`), `mode` and `files` to `GITHUB_OUTPUT`;
-* writes `plan.json`, which the verdict job reads.
-
-The workflow runs a focused selection with the test runner's `--exact` option,
-so the validated names select those files and no others.  `files` may be
-separated by spaces and tabs; other whitespace is rejected.
+The inputs arrive in the environment (`PB_MODE`, `PB_PLATFORMS`, `PB_JULIA`, `PB_FILES`,
+`PB_EXPECTED_SHA`, plus `GITHUB_SHA`); an empty value stands for the default.  The script appends
+`matrix`, `mode` and `files` to `GITHUB_OUTPUT` and writes `plan.json` for the verdict job.
+`full` and `release` need all platforms and both Julia versions; `focused` takes a restriction and
+a list of test names separated by spaces or tabs, which the workflow passes to the runner with
+`--exact`.
 
 It imports only the standard library and `full_validation_verdict`.
 """
@@ -117,7 +106,7 @@ def make_plan(inputs, github_sha, selection):
     if mode == "focused":
         if not tokens:
             problems.append("focused mode needs files: a space-separated list of test names from test/tiers.toml")
-    elif tokens:
+    elif values["files"]:
         problems.append(f"files must be empty in {shown(mode)} mode; it applies to focused mode only")
     if tokens and mode == "focused":
         problems.extend(check_files(tokens, selection))

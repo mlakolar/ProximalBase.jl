@@ -160,6 +160,14 @@ class PlanTests(unittest.TestCase):
         self.assertProblem("files must be empty in 'full' mode", files="alpha")
         self.assertProblem("files must be empty in 'release' mode", mode="release", files="alpha", expected_sha=SHA)
 
+    def test_whitespace_only_files_outside_focused_mode(self):
+        for mode, extra in (("full", {}), ("release", {"expected_sha": SHA})):
+            for text in (" ", "\t", " \t "):
+                with self.subTest(mode=mode, text=text):
+                    self.assertProblem(f"files must be empty in '{mode}' mode", mode=mode, files=text, **extra)
+        self.assertProblem("files must be empty in 'full' mode", files=" ")
+        self.assertEqual(make(mode="full", files="")["files"], [])
+
     def test_unknown_file(self):
         found = self.assertProblem("file 'omega' is not a test name in the full selection", mode="focused", files="alpha omega")
         self.assertEqual(len(found), 1)

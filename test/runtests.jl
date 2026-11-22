@@ -27,7 +27,8 @@ for arg in ARGS
     end
 end
 selected = TestTiers.select(manifest,tier)
-# With --exact every selector is a manifest name of the tier; otherwise it is a name prefix.
+# With --exact every positional selector is a manifest name of the tier; otherwise it is a name prefix.
+exact && isempty(selectors) && error("--exact needs at least one test name")
 for selector in selectors
     if exact
         selector in selected || error("no test file named $selector in tier $tier")

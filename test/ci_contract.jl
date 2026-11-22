@@ -217,6 +217,7 @@ end
     @test_throws "no test file named no_such_file in tier full" list_output(["--list", "--tier=full", "--exact", "no_such_file"])
     @test_throws "no test file named indball in tier full" list_output(["--list", "--tier=full", "--exact", "core_functions", "indball"])
     @test_throws "no test file named ../x in tier full" list_output(["--list", "--tier=full", "--exact", "../x"])
+    @test_throws "--exact needs at least one test name" list_output(["--list", "--tier=full", "--exact"])
     # The tier named on the command line limits the names that exist.
     @test_throws "no test file named no_such_file in tier quick" list_output(["--list", "--tier=quick", "--exact", "no_such_file"])
     @test BLAS.get_num_threads() == threads

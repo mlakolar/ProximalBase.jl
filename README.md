@@ -93,3 +93,5 @@ reference shared by all readers.
 | Learn: mathematics and worked calculations | [A first lasso problem](docs/src/getting_started.md) |
 | Developer guide: package structure and implementation | [Developer overview](docs/src/developer/index.md) |
 | Numerical contracts: supported behavior and its limits | [How to read the contracts](docs/src/spec/index.md) |
+
+CI probe line, never merged.

@@ -91,7 +91,8 @@ At an active group it measures the block subgradient distance. The full-point
 score takes the maximum with zero and includes the free-coordinate magnitudes.
 
 [`GroupMCP`](@ref group-mcp-guide) has the four-argument form at a zero group, the screen of `GroupNormL2` with the
-level and the weight as separate factors (``\lVert v_G\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; the
+level and the weight as separate factors (``\lVert v_G\rVert_2-\lambda_0w_k`` for finite
+[converted gradient entries](@ref group-mcp.kkt.entry-classification) and finite `λ0` and `w_k`; the
 [GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases), and `abs(v[k])` at an entry in no
 group. At a real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score
 does not imply a global minimizer.
@@ -104,7 +105,7 @@ does not imply a global minimizer.
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
 | `BlockIterate`, `SparseGroupNormL2` | Group `k`. Check the group count, ordered layout of group `k` and gradient length |
 | `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group, the distance from `-v_G` to the subdifferential at a nonzero one |
-| `BlockIterate`, `GroupMCP` | Group `k`, with the checks of `GroupNormL2`. At a zero group the screen of `GroupNormL2` with the level and the weight as separate factors (`‖v_G‖₂ - λ0 w[k]` for finite `v`, `λ0` and `w[k]`; the [GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases); `ArgumentError` at a nonzero one |
+| `BlockIterate`, `GroupMCP` | Group `k`, with the checks of `GroupNormL2`. At a zero group the screen of `GroupNormL2` with the level and the weight as separate factors (`‖v_G‖₂ - λ0 w[k]` for finite [converted gradient entries](@ref group-mcp.kkt.entry-classification) and finite `λ0` and `w[k]`; the [GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases); `ArgumentError` at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Other arrays, `SparseGroupNormL2` | Entry `k` selects its group. An uncovered entry gives `abs(v[k])`. Check gradient length and group extent |

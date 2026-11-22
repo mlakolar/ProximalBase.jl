@@ -12,34 +12,11 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The LogDetLoss endpoint paragraph says a positive finite step accepts
-  finite inputs. It could describe the input check or imply that every
-  finite matrix yields a result. The extreme-range test uses a finite
-  matrix and checks a failure before writes. The scope of “accepts”
-  awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
-  · [Tests](../../../test/logdet.jl)
+## GroupMCP decision
 
-- The SparseGroupNormL2 definition says the constructor “copies the
-  supplied groups and weights”. For a collection with a concrete range
-  element type, this could promise an independent copy of each supplied
-  range or a copy of the outer collection. `_own_groups` copies the outer
-  vector and retains the range objects. The ownership test mutates the
-  supplied index vectors and weight vector. The copy requirement for
-  range objects awaits the owner's decision.
-  [Definition](../../src/spec/sparsegroupnorml2.md#spec-sparsegroupnorml2-definition)
-  · [Ownership implementation](../../../src/block_iterate.jl#L119-L127)
-  · [Tests](../../../test/sparsegroupnorml2.jl#L109-L136)
-
-- The GroupMCP zero-group screen describes the margin “for finite `v`,
-  `λ0` and `w_k`”. Finiteness of the gradient could refer to the stored
-  entries or to the entries after conversion to the working type. The
-  shared screen classifies the converted entries. Tests of the shared
-  screen exercise finite integers that become infinite after conversion.
-  The wording awaits the owner's decision.
-  [GroupMCP failure behavior](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/docs/src/spec/groupmcp.md#L148-L153)
-  · [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533)
-  · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145)
-  · [Mixed-width tests](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1240)
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Gradient finiteness in the zero-group screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/docs/src/spec/groupmcp.md#L148-L153) could refer to stored or converted entries | The screen classifies entries after conversion to the working type. A finite stored entry that overflows in the conversion is treated as infinite. `characterized`. | [GroupMCP dispatch](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/functions/groupmcp.jl#L514-L533) · [Shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/src/numerical_kernels.jl#L1134-L1145) · [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a6b16d63d9c5102b1ac82d9995014145681d4343/test/kkt_block.jl#L1233-L1241) |
 
 ## Migration scope decisions
 
@@ -106,6 +83,18 @@ that happens to pass.
 |:--|:--|:--|
 | [All-NaN projection](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/indballl2.md#L63-L67) could apply to every radius or only to positive finite ones | The all-NaN rule applies at a positive finite radius. A zero radius fills with positive zeros. An infinite radius copies the input. `guaranteed`. | [Radius branches](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl2.jl#L171-L182) · [Radius endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl2.jl#L239-L257) |
 
+## LogDetLoss decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Positive-step input wording](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/logdet.md#L43-L50) could describe the finiteness check or promise success for every finite input | At a positive finite step the input check requires finite entries. `precondition`. Later working-range checks can reject a finite matrix before any writes. `characterized`. | [Input check and range failures](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/logdet.jl#L121-L169) · [Preserved destination test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/logdet.jl#L195-L197) |
+
+## SparseGroupNormL2 ownership decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Copying groups and weights](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sparsegroupnorml2.md#L18-L23) could promise a copy of each range object or only of the outer collection | The outer constructors copy the outer collection, supplied weights and ordinary index vectors. `guaranteed`. The concrete range element-type path keeps the individual range objects. Implementation note. | [Outer constructors](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sparsegroupnorml2.jl#L47-L59) · [Concrete range path](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/block_iterate.jl#L119-L126) · [Ownership tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sparsegroupnorml2.jl#L109-L136) |
+
 ## SparseGroupNormL2 decisions recorded in #1123
 
 The owner approved three wordings and statuses in
@@ -168,12 +157,6 @@ all-pass six-check report before starting a migration change.
 The supplemental removed-lines report also protects later text during moves.
 See `upstream.json`, `baseline.json` and `review.md`.
 
-The #1063 test inventory says the historical snapshot at `879e067` “added a
-provisional 40-second weight”. This could refer to the measured checkout or
-to the later weight based on its timing. The measured checkout used a weight
-of 35 seconds and #1063 landed with 40 seconds. The wording awaits the owner's
-decision. [Test inventory](../../../test/TESTING.md#ci-sharding)
-
 Heading compatibility retains explicit IDs and authored link/citation targets.
 The uncited original API heading's two automatic fragments remain the only
 approved retirements; the complete frozen snapshots remain unchanged. Later
@@ -212,3 +195,9 @@ IDs are added.
 
 Clause conversion, the remaining owner decisions and final acceptance are tracked
 in [#1019](https://github.com/mlakolar/ProximalBase.jl/issues/1019).
+
+## Test calibration decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [56-file sharding snapshot](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/TESTING.md#L309-L313) could assign the 40-second weight to the measured checkout or the merged PR | The measured checkout used 35 seconds. The Julia 1.13.4 run observed 38.971 seconds. #1063 landed with a provisional 40-second weight. Implementation note. | [Measured weight](https://github.com/mlakolar/ProximalBase.jl/blob/9ef0db982e264d00452c4877f1e58dd1d91778e3/test/tiers.toml#L103) · [Shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339/job/136054574400) · [Landed weight](https://github.com/mlakolar/ProximalBase.jl/blob/735de29173bd3e547c5d40039d3f27aece83d915/test/tiers.toml#L108) |

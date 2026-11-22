@@ -401,3 +401,5 @@ the recomputed values, the margin at a zero group, and the scores of `kkt_violat
 domains; a historical acceptance goal for a removed family is not evidence for
 this implementation. New numerical claims need independent calculations,
 FP32/FP64 checks, exceptional inputs and regression tests.
+
+See [a missing section](@ref pb-probe-anchor-that-does-not-exist).

@@ -54,8 +54,8 @@ and update the contract family map and navigation.
 CI gates pull requests and master pushes with Julia 1.13 on Linux. A
 change-classification job runs the repository hygiene checks and classifies
 the changed paths. Three independent test shards cover the complete retained
-inventory with bounds checks, and the frozen benchmark differential runs beside
-the strict docs build on separate Linux runners. A non-empty change is
+inventory with bounds checks, and the frozen benchmark differential and the
+strict docs build are eligible to run in parallel on separate Linux runners. A non-empty change is
 documentation-only when every changed path, including both sides of a rename
 and each deletion, is an added, modified or deleted regular file without the
 execute bit (an execute-bit change, a symlink or a submodule entry on either
@@ -63,11 +63,12 @@ side is not), and the path is a top-level `*.md` file, a `.md`, `.svg`, `.png`
 or `.mmd` file under `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
 `docs/audit/docs-tracks-1019/`. Suffixes are matched case-sensitively. When
 the classification job succeeds with `docs_only=true`, the test shards and the
-benchmark are skipped and the strict docs build runs. When it succeeds with
+benchmark are skipped; the strict docs build is scheduled independently and is
+still required. When it succeeds with
 `docs_only=false`, they run: this covers any other change, an empty change set,
 a push without a usable previous commit and a manual run. The strict docs build
-validates the executable Documenter blocks of the Markdown it builds, and only
-that Markdown. The classifier is `scripts/ci_changes.py`, with tests in
+runs the executable Documenter blocks of the Markdown pages it builds, docstring
+doctests and isolated Literate examples. The classifier is `scripts/ci_changes.py`, with tests in
 `scripts/test_ci_changes.py`. The required checks remain `PR required jobs` and
 `PR merge gate`; they fail unless the classification and docs lanes succeed and
 the test and benchmark lanes were skipped (`docs_only=true`) or succeeded

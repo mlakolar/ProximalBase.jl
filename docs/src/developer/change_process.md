@@ -50,19 +50,20 @@ is a top-level `*.md` file, a `.md`, `.svg`, `.png` or `.mmd` file under
 `docs/audit/docs-tracks-1019/` (suffixes are case-sensitive). When the job
 succeeds with `docs_only=true`, the three package-test shards and the frozen
 benchmark differential are skipped. When it succeeds with `docs_only=false`
-they run concurrently with strict documentation validation, on Linux with
-Julia 1.13. The strict documentation job validates the executable Documenter
-blocks of the Markdown it builds, and only that Markdown. The
+they are eligible to run in parallel with strict documentation validation, on
+Linux with Julia 1.13. The strict documentation job is scheduled independently
+of the classification; it runs the executable Documenter blocks of the Markdown
+pages it builds, docstring doctests and isolated Literate examples. The
 `PR required jobs` verdict and `PR merge gate` require the classification and
 documentation lanes, and either both skipped lanes (documentation-only) or both
 successful lanes (any other change). There is no LTS/cross-platform/GPU matrix
 in the required checks. HTML and job-specific logs are retained as artifacts.
-On master pushes, a deployment job waits for the merge gate and publishes
-only when the fetched `refs/heads/master` tip equals its commit at the time of
-the check: it then retrieves the validated HTML artifact and calls
-`docs/deploy.jl` to publish development documentation, and otherwise skips the
-publication. Same-repository non-draft PRs publish their validated HTML
-artifact to an isolated `gh-pages` preview through a separate job that never
+On master pushes, a deployment job becomes eligible after `gate` and `docs`
+succeed. Its publication steps run only if the fetched `refs/heads/master` tip
+equals its commit at the time of the check: they then retrieve the validated
+HTML artifact and call `docs/deploy.jl` to publish development documentation.
+After `gate` and `docs` succeed, same-repository non-draft PRs publish their
+validated HTML artifact to an isolated `gh-pages` preview through a separate job that never
 executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass
 required gates because local docs passed.
 

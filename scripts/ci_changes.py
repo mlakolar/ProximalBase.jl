@@ -3,8 +3,10 @@
 
 The classifier compares the checked-out HEAD with the base the event is
 validated against: the first parent of the pull-request merge commit, or the
-`before` commit of a master push. When `GITHUB_OUTPUT` is set, it appends
-`docs_only=true|false` and `base=<sha>` (empty when no base is usable).
+`before` commit of a master push. After a successful classification, when
+`GITHUB_OUTPUT` names a file, it appends `docs_only=true|false` and
+`base=<sha>` (empty when no base is usable). A failed fetch of `before` is
+tolerated and gives `docs_only=false`.
 
 A change set is documentation-only when it is non-empty and every path that
 `git diff --raw --no-renames --ignore-submodules=none` reports (a rename
@@ -13,8 +15,9 @@ an added, modified or deleted regular file without the execute bit. Any other
 result, including an unusable base, is `docs_only=false`. The allowlist is a
 path rule; it does not say which files Documenter builds.
 
-An unexpected event, a malformed `before` value or a failed git command exits
-nonzero before any output is written.
+An unexpected event, a malformed `before` value or a failed `git diff` exits
+nonzero without writing `GITHUB_OUTPUT` records; diagnostics may still be
+printed.
 
 No third-party Python dependencies.
 """

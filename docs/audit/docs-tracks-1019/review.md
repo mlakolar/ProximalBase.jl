@@ -915,3 +915,20 @@ five replacement spans intact.
 
 The audit retains 2,162 original block identities and 159 prior events.
 It now holds 77 receipts with 164 events.
+
+## Reconciliation after the six-shard CI update
+
+[#1189](https://github.com/mlakolar/ProximalBase.jl/pull/1189) landed as
+`94255a9f2958feb0617abb7d256d210558e42d36` with first parent
+`a0bd0aa099c731bba4d24c49dad4092e221cb1db`.
+Independent review `sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36` verified three exact same-file
+transitions in the contributor instructions, developer change process, and
+test inventory. Each existing receipt gains one event. The test inventory
+replaced its historical calibration paragraphs, including the correction
+from [#1192](https://github.com/mlakolar/ProximalBase.jl/pull/1192), with
+the new calibration. The approved historical distinction between the
+35-second measured weight and the 40-second landed weight remains in
+[the decisions table](open-questions.md#test-calibration-decision).
+
+The audit retains 2,162 original block identities and 164 prior events.
+It now holds 77 receipts with 167 events.

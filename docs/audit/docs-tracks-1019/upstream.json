@@ -2493,11 +2493,38 @@
             "c073a75244371474c84f1279e9754b71d52451091fbd5ab494f3ba139348d38e",
             "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
           ]
+        },
+        {
+          "pull_request": 1189,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1189",
+          "before_commit": "a0bd0aa099c731bba4d24c49dad4092e221cb1db",
+          "after_commit": "94255a9f2958feb0617abb7d256d210558e42d36",
+          "before_blob": "a5a50c0d43eac46abcc8b0aa44c25945ef1bed26",
+          "after_blob": "197e31d14ae9a42b625eccbb98bc95b8deda2574",
+          "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36",
+          "source_shas": [
+            "fb2236276315a4037317a6948494d9d86e36101864acc82158d21a96d118e5b7",
+            "8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097",
+            "648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7",
+            "74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a",
+            "864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285",
+            "804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807",
+            "b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce",
+            "aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9",
+            "c073a75244371474c84f1279e9754b71d52451091fbd5ab494f3ba139348d38e",
+            "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
+          ],
+          "replacement_shas": [
+            "75cd4bc4b033bcf908f19786cee3fe8b5db563654701ef57ea152a0f6cc4c903",
+            "18a1be0557ae8378e6232daccf5c518b8efe6ab88a30f5ff3c5c19cc6a34d06e",
+            "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
+          ]
         }
       ],
-      "dest": "test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding",
-      "dest_sha": "fb2236276315a4037317a6948494d9d86e36101864acc82158d21a96d118e5b7;8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097;648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7;74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a;864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285;804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807;b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce;aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9;c073a75244371474c84f1279e9754b71d52451091fbd5ab494f3ba139348d38e;a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66",
-      "reviewer": "sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015"
+      "dest": "test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding",
+      "dest_sha": "75cd4bc4b033bcf908f19786cee3fe8b5db563654701ef57ea152a0f6cc4c903;18a1be0557ae8378e6232daccf5c518b8efe6ab88a30f5ff3c5c19cc6a34d06e;a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66",
+      "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36"
     },
     {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15",
@@ -2819,11 +2846,23 @@
           "reviewer": "sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015",
           "source_sha": "37bf31007441ac576f3f174410b9c9307897d01394108b4cfa734af32304b4b8",
           "replacement_sha": "bec32acf81ff8e6471e7d494764f5679b5a96951c217fb8c05d546c09bef3aca"
+        },
+        {
+          "pull_request": 1189,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1189",
+          "before_commit": "a0bd0aa099c731bba4d24c49dad4092e221cb1db",
+          "after_commit": "94255a9f2958feb0617abb7d256d210558e42d36",
+          "before_blob": "3ea1bded33d1e90c167eb5e761ff364ef229e4a2",
+          "after_blob": "af9b9c8d6866ac8e785e7053d6bcfc93c785d818",
+          "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36",
+          "source_sha": "bec32acf81ff8e6471e7d494764f5679b5a96951c217fb8c05d546c09bef3aca",
+          "replacement_sha": "a9a5845972a89cb1193f6cae67de39396b07e8fd43df447d73ca7e91abd39279"
         }
       ],
       "dest": "CONTRIBUTING.md",
-      "dest_sha": "bec32acf81ff8e6471e7d494764f5679b5a96951c217fb8c05d546c09bef3aca",
-      "reviewer": "sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015"
+      "dest_sha": "a9a5845972a89cb1193f6cae67de39396b07e8fd43df447d73ca7e91abd39279",
+      "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36"
     },
     {
       "block_id": "docs/repository_hygiene.md::Repository hygiene and performance evidence::3",
@@ -2867,11 +2906,23 @@
           "reviewer": "sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015",
           "source_sha": "917602b1815b324f64bb61c61f1592702585ee06393778a5a40a3db8d5be6a25",
           "replacement_sha": "58eddc82055e6788a28fd275776398a0ce5150777d49e9bb98ed42b2f2f53732"
+        },
+        {
+          "pull_request": 1189,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1189",
+          "before_commit": "a0bd0aa099c731bba4d24c49dad4092e221cb1db",
+          "after_commit": "94255a9f2958feb0617abb7d256d210558e42d36",
+          "before_blob": "74c7e4aba01ab3835a55932b80c6d34fbef05ce7",
+          "after_blob": "43a0898d162ea3f94bd0df71373a5b173cb895fc",
+          "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36",
+          "source_sha": "58eddc82055e6788a28fd275776398a0ce5150777d49e9bb98ed42b2f2f53732",
+          "replacement_sha": "360272f8bafd34d5cdaab5ac1c02aea7159197e2439069470f06f0c92dcd4a44"
         }
       ],
       "dest": "docs/src/developer/change_process.md",
-      "dest_sha": "58eddc82055e6788a28fd275776398a0ce5150777d49e9bb98ed42b2f2f53732",
-      "reviewer": "sparsegroup_receipt_review@72996eca9c38ea7e1051e3bf49fca43825703015"
+      "dest_sha": "360272f8bafd34d5cdaab5ac1c02aea7159197e2439069470f06f0c92dcd4a44",
+      "reviewer": "sparsegroup_receipt_review@94255a9f2958feb0617abb7d256d210558e42d36"
     }
   ]
 }

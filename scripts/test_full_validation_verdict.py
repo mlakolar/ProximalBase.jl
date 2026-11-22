@@ -643,9 +643,9 @@ class ReleaseTests(Harness):
         self.assertFails("job 'Strict documentation / Linux' concluded ['failure'], expected success")
 
     def test_missing_ci_job(self):
-        self.write_ci_runs([with_job(ci_run(), "Julia 1.13 / Linux (tests 2/3)", None), with_job(ci_run(id=2), "PR required jobs", None)])
+        self.write_ci_runs([with_job(ci_run(), "Julia 1.13 / Linux (tests 2/6)", None), with_job(ci_run(id=2), "PR required jobs", None)])
         self.write_all()
-        self.assertFails("job 'Julia 1.13 / Linux (tests 2/3)' is absent", "job 'PR required jobs' is absent")
+        self.assertFails("job 'Julia 1.13 / Linux (tests 2/6)' is absent", "job 'PR required jobs' is absent")
 
     def test_pull_request_run_does_not_qualify(self):
         self.write_ci_runs([ci_run(event="pull_request")])

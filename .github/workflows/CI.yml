@@ -39,9 +39,8 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: python3 scripts/ci_changes.py
       # The classifier's base is the first parent of a pull-request merge
-      # commit or the `before` commit of a push. It is empty when a push has
-      # no usable `before` commit and for a manual run; when the classifier
-      # succeeds with an empty base, the check falls back to HEAD^1, which exists unless HEAD is a root commit. The check
+      # commit or the `before` commit of a push. When the classifier succeeds
+      # with an empty base, the check falls back to HEAD^1, which exists unless HEAD is a root commit. The check
       # inspects the added, copied, modified and renamed blobs (ACMR) in the
       # range.
       - name: Check repository hygiene

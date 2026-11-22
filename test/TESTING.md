@@ -301,14 +301,9 @@ side does not count) and is a top-level `*.md` file, a `.md`, `.svg`, `.png` or
 `.mmd` file under `docs/`, or a `.tsv`, `.json`, `.csv` or `.txt` file under
 `docs/audit/docs-tracks-1019/`; suffixes are matched case-sensitively. The
 strict docs build runs the executable Documenter blocks of the Markdown pages it
-builds, docstring doctests and the isolated Literate examples; other allowlisted
-files are not executed. When the job succeeds with `docs_only=false`
-(any other path, an empty change set, a push without a usable `before` commit
-or a manual run), the shards run. On a push whose `before` value is empty or
-names a commit that cannot be fetched, the classifier selects full validation
-and the docs job's migration-scope step fails, so the protected checks fail
-rather than pass. An all-zero `before` makes that step compare with the empty
-tree instead.
+builds, docstring doctests and the isolated Literate examples. When the job
+succeeds with `docs_only=false` (any other path, an empty change set, a push
+without a usable `before` commit or a manual run), the shards run.
 `scripts/ci_changes.py` classifies the change and `scripts/test_ci_changes.py`
 tests it.
 The runner validates the complete inventory and weight table before selection,

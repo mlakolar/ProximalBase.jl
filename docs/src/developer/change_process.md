@@ -60,10 +60,11 @@ successful lanes (any other change). There is no LTS/cross-platform/GPU matrix
 in the required checks. HTML and job-specific logs are retained as artifacts.
 On master pushes, a deployment job becomes eligible after `gate` and `docs`
 succeed. Its publication steps run only if the fetched `refs/heads/master` tip
-equals its commit at the time of the check: they then retrieve the validated
-HTML artifact and call `docs/deploy.jl` to publish development documentation.
-After `gate` and `docs` succeed, same-repository non-draft PRs publish their
-validated HTML artifact to an isolated `gh-pages` preview through a separate job that never
+equals its commit at the time of the check: the job then attempts to retrieve
+the validated HTML artifact and publish development documentation with
+`docs/deploy.jl`. After `gate` and `docs` succeed, a separate job for
+same-repository non-draft PRs becomes eligible to publish their validated HTML
+artifact to an isolated `gh-pages` preview through a separate job that never
 executes PR code. Local `docs/make.jl` only validates/builds. Do not bypass
 required gates because local docs passed.
 

@@ -136,11 +136,73 @@ class PostBaselineSpanTests(unittest.TestCase):
         self.write(self.guide_path, guide)
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
 
-    def test_fence_before_the_guide_section_also_changes_example_context(self):
+    def test_unrelated_section_after_the_guide_section_is_allowed(self):
+        for heading in ("## Another family", "  ## Another family ##", "Another family\n---"):
+            with self.subTest(heading=heading):
+                self.write(self.guide_path, self.guide + f"\n{heading}\n\nAnother example.\n")
+                self.assertEqual(self.check()["findings"], [])
+
+    def test_unrelated_section_before_the_guide_section_is_allowed(self):
         heading = "## [Family guide](@id family-guide)"
-        decoy = "  " + heading + "\n\n```text\nExample explanation\n````\n\n"
-        self.write(self.guide_path, self.guide.replace(heading, decoy + heading, 1))
+        for before in ("```text\n" + heading + "\n```\n\n",
+                       "-   Item\n\n  ```text\n  Outside example.\n  ```\n\n"):
+            with self.subTest(before=before):
+                preceding = "## Another family\n\n" + before
+                self.write(self.guide_path, self.guide.replace(heading, preceding + heading, 1))
+                self.assertEqual(self.check()["findings"], [])
+
+    def test_one_byte_inside_the_guide_section_changes_example_context(self):
+        self.write(self.guide_path, self.guide.replace("Compact groups", "Compact Groups", 1))
         self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_list_or_quote_followed_by_rule_stays_in_the_guide_section(self):
+        after = "\n## Another family\n\nAnother example.\n"
+        for block in ("- Extra item.", "> Extra quote."):
+            with self.subTest(block=block):
+                self.write(self.guide_path, self.guide + f"\n{block}\n---\n" + after)
+                self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_paragraph_continuation_followed_by_rule_stays_in_the_guide_section(self):
+        extra = "A paragraph.\nAdditional guidance.\n---\n\n## Another family\n"
+        self.write(self.guide_path, self.guide + "\n" + extra)
+        self.assertTrue(any("guide context changed" in line for line in self.check()["findings"]))
+
+    def test_duplicate_guide_section_heading_is_rejected(self):
+        for heading in ("## [Family guide](@id family-guide)", "  ## [Another title](@id family-guide)",
+                        "[Another title](@id family-guide)\n---", "## family guide ##",
+                        "## [Another title](@id family--guide)", "## [Another title](@id family-guide )",
+                        "## family- guide"):
+            with self.subTest(heading=heading):
+                self.write(self.guide_path, self.guide + f"\n{heading}\n\nDuplicate.\n")
+                with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                    self.check()
+
+    def test_preceding_fence_with_a_longer_apparent_closer_hides_the_section(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "```text\nUnrelated text.\n````\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+            self.check()
+
+    def test_preceding_top_level_fence_closes_at_column_zero(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "  ```text\n  Outside example.\n"
+        for closer in ("```", "  ```"):
+            with self.subTest(closer=closer):
+                guide = self.guide.replace(heading, before + closer + "\n\n" + heading, 1)
+                self.write(self.guide_path, guide)
+                if closer.startswith(" "):
+                    with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+                        self.check()
+                else:
+                    self.assertEqual(self.check()["findings"], [])
+
+    def test_list_ends_before_fence_after_two_empty_lines(self):
+        heading = "## [Family guide](@id family-guide)"
+        before = "- Item\n\n\n  ```text\n  Outside example.\n  ```\n\n"
+        self.write(self.guide_path, self.guide.replace(heading, before + heading, 1))
+        with self.assertRaisesRegex(ValueError, "cannot locate a unique authored section"):
+            self.check()
 
     def test_committed_raw_line_endings_are_checked(self):
         spec = self.root / self.spec_path

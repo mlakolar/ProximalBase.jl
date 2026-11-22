@@ -407,9 +407,9 @@ new clause labels.
 
 The check compares protected token and example counts within each reviewed
 passage. A split also preserves the original words. Each replacement occupies
-its own occurrence in the contract. This spec-only pilot uses the exact
-published guide file to preserve both example bodies and their Markdown
-context. Take any intentional protected change to separate review. Run the
+its own occurrence in the contract. The exact published SparseGroupNormL2
+guide section preserves both example bodies and the Markdown context within
+that section. Take any intentional protected change to separate review. Run the
 command alongside the six preservation checks and the removed-lines report.
 
 After the final Phase 5 blocking acceptance, retire the six temporary migration

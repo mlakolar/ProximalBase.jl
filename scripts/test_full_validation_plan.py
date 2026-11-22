@@ -77,18 +77,55 @@ class PlanTests(unittest.TestCase):
         for platform, os_names in oses.items():
             for julia, versions in julias.items():
                 with self.subTest(platform=platform, julia=julia):
-                    full = make(mode="full", platforms=platform, julia=julia)
-                    self.assertEqual(cells(full), [(o, j, s) for o in os_names for j in versions for s in (1, 2, 3)])
                     focused = make(mode="focused", files="alpha", platforms=platform, julia=julia)
                     self.assertEqual(cells(focused), [(o, j, 1) for o in os_names for j in versions])
                     for entry in focused["matrix"]["include"]:
                         self.assertEqual(entry["shards"], 1)
                         self.assertEqual(entry["label"], f"Focused / {entry['os']} / Julia {entry['julia']}")
+                    for mode, extra in (("full", {}), ("release", {"expected_sha": SHA})):
+                        if (platform, julia) == ("all", "both"):
+                            self.assertEqual(len(make(mode=mode, platforms=platform, julia=julia, **extra)["matrix"]["include"]), 18)
+                        else:
+                            self.assertTrue(problems_of(mode=mode, platforms=platform, julia=julia, **extra))
+
+    def test_full_and_release_reject_a_restriction(self):
+        self.assertProblem("full mode needs platforms=all, not 'linux'; use focused mode for a restricted run",
+                           mode="full", platforms="linux")
+        self.assertProblem("full mode needs julia=both, not '1.13'; use focused mode", mode="full", julia="1.13")
+        self.assertProblem("full mode needs platforms=all", platforms="windows")
+        self.assertEqual(len(problems_of(mode="full", platforms="macos", julia="1.10")), 2)
+
+    def test_every_accepted_input_is_accepted_by_the_verdict(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "plan.json"
+        selection = sorted(SELECTION)
+        accepted = 0
+        for mode in v.MODES:
+            for platform in plan.PLATFORM_CHOICES:
+                for julia in plan.JULIA_CHOICES:
+                    inputs = {"mode": mode, "platforms": platform, "julia": julia}
+                    if mode == "focused":
+                        inputs["files"] = "alpha kkt"
+                    if mode == "release":
+                        inputs["expected_sha"] = SHA
+                    try:
+                        result = plan.make_plan(inputs, SHA, selection)
+                    except plan.PlanInputError:
+                        continue
+                    accepted += 1
+                    path.write_text(json.dumps(result))
+                    with self.subTest(**inputs):
+                        loaded = v.load_plan(path, selection)
+                        self.assertEqual(loaded.mode, mode)
+                        self.assertEqual(loaded.cells, cells(result))
+        # focused: 4 platforms x 3 versions; full and release: only all/both.
+        self.assertEqual(accepted, 12 + 1 + 1)
 
     def test_full_labels_keep_the_job_name_format(self):
-        result = make(mode="full", platforms="windows", julia="1.13")
-        self.assertEqual([c["label"] for c in result["matrix"]["include"]],
-                         [f"Full / windows-latest / Julia 1.13 (shard {n}/3)" for n in (1, 2, 3)])
+        result = make(mode="full")
+        self.assertEqual([c["label"] for c in result["matrix"]["include"][:3]],
+                         [f"Full / ubuntu-latest / Julia 1.10 (shard {n}/3)" for n in (1, 2, 3)])
 
     def test_julia_versions_are_strings(self):
         for entry in make()["matrix"]["include"]:
@@ -104,9 +141,15 @@ class PlanTests(unittest.TestCase):
 
     # Files.
     def test_focused_files_are_normalized(self):
-        result = make(mode="focused", files="  alpha\tgamma\n beta  ")
+        result = make(mode="focused", files="  alpha\tgamma \t beta  ")
         self.assertEqual(result["files"], ["alpha", "gamma", "beta"])
         self.assertEqual(plan.outputs_text(result).splitlines()[-1], "files=alpha gamma beta")
+
+    def test_files_are_separated_by_spaces_and_tabs_only(self):
+        for text in ("alpha\ngamma", "alpha\r\ngamma", "alpha\x0bgamma", "alpha\x0cgamma", "alpha\u00a0gamma",
+                     "alpha\u2003gamma", "alpha\u3000gamma", "alpha \n"):
+            with self.subTest(text=text):
+                self.assertProblem("files may be separated by spaces and tabs only", mode="focused", files=text)
 
     def test_focused_needs_files(self):
         self.assertProblem("focused mode needs files", mode="focused")
@@ -127,7 +170,7 @@ class PlanTests(unittest.TestCase):
                 self.assertProblem("is not a plain test name", mode="focused", files=token)
 
     def test_wildcards_and_prefix_syntax(self):
-        for token in ("*", "kkt*", "kkt_?", "[ab]lpha", "{alpha,beta}", "ALPHA", "-alpha", "--tier=full"):
+        for token in ("*", "kkt*", "kkt_?", "[ab]lpha", "{alpha,beta}", "ALPHA", "-alpha", "--tier=full", "--exact"):
             with self.subTest(token=token):
                 self.assertProblem("is not a plain test name", mode="focused", files=token)
 
@@ -142,12 +185,11 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(make(mode="focused", files=" ".join(names))["files"], names)
         self.assertProblem("lists 21 names, at most 20 are allowed", mode="focused", files=" ".join(names + ["bulk_21"]))
 
-    def test_prefix_collision_with_an_unrequested_name(self):
-        self.assertProblem("file 'elastic' is a prefix of ['elastic_extremes']", mode="focused", files="elastic")
-        self.assertProblem("file 'kkt' is a prefix of ['kkt_block']", mode="focused", files="kkt alpha")
-        # Requesting every longer name as well removes the collision.
+    def test_a_name_that_prefixes_a_longer_name_is_accepted(self):
+        # The workflow selects names with the runner's --exact option, so the longer neighbor does not run.
+        self.assertEqual(make(mode="focused", files="elastic")["files"], ["elastic"])
+        self.assertEqual(make(mode="focused", files="kkt alpha")["files"], ["kkt", "alpha"])
         self.assertEqual(make(mode="focused", files="elastic elastic_extremes")["files"], ["elastic", "elastic_extremes"])
-        self.assertEqual(make(mode="focused", files="kkt_block")["files"], ["kkt_block"])
 
     def test_untrusted_text_cannot_start_a_workflow_command_or_run_long(self):
         found = problems_of(mode="focused", files="::error::x " + "y" * 500)
@@ -224,17 +266,20 @@ class MainTests(unittest.TestCase):
         self.assertEqual(plan_file["files"], ["kkt_block", "minimal_math"])
         self.assertEqual(cells(plan_file), [("windows-latest", "1.13", 1)])
 
-    def test_real_manifest_prefix_pairs_are_rejected_when_incomplete(self):
+    def test_real_manifest_names_that_prefix_other_names_are_accepted(self):
         names = v.load_selection(ROOT / "test" / "tiers.toml")
         pairs = [(a, b) for a in names for b in names if a != b and b.startswith(a)]
-        self.assertTrue(pairs, "the manifest has no prefix pair; the check would be untested")
+        self.assertTrue(pairs, "the manifest has no prefix pair; the case would be untested")
         a, b = pairs[0]
-        code, output, _, err = self.run_main({"GITHUB_SHA": SHA, "PB_MODE": "focused", "PB_FILES": a})
-        self.assertEqual(code, 1)
-        self.assertIsNone(output)
-        self.assertIn(f"file '{a}' is a prefix of", err)
-        code, _, _, err = self.run_main({"GITHUB_SHA": SHA, "PB_MODE": "focused", "PB_FILES": " ".join(sorted({a} | {n for n in names if n.startswith(a)}))})
+        code, output, plan_file, err = self.run_main({"GITHUB_SHA": SHA, "PB_MODE": "focused", "PB_FILES": a})
         self.assertEqual((code, err), (0, ""))
+        self.assertIn(f"files={a}\n", output)
+        self.assertEqual(plan_file["files"], [a])
+        # The Windows demonstration of the review: indballl0 is a prefix of indballl0_reference.
+        code, _, plan_file, err = self.run_main({"GITHUB_SHA": SHA, "PB_MODE": "focused", "PB_PLATFORMS": "windows",
+                                                 "PB_FILES": "ci_contract indballl0 core_functions"})
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(plan_file["files"], ["ci_contract", "indballl0", "core_functions"])
 
     def test_invalid_inputs_write_nothing(self):
         code, output, plan_file, err = self.run_main({"GITHUB_SHA": SHA, "PB_MODE": "focused", "PB_FILES": "../x"})

@@ -160,25 +160,25 @@ end
         @test parts(standard,inv.weights,2)==[["s"],["q"]]
     end
 end
-@testset "runner filters by prefix before sharding" begin
-    function list_output(args)
-        # Load the list-only runner in its own module with its own arguments.
-        runner = Module(gensym(:ListRunner))
-        Core.eval(runner, :(const ARGS = $args))
-        Core.eval(runner, :(include(path) = Base.include($runner, path)))
-        mktemp() do _, output
-            redirect_stdout(output) do
-                threads = BLAS.get_num_threads()
-                try
-                    Base.include(runner, joinpath(@__DIR__, "runtests.jl"))
-                finally
-                    BLAS.set_num_threads(threads)
-                end
+function list_output(args)
+    # Load the list-only runner in its own module with its own arguments.
+    runner = Module(gensym(:ListRunner))
+    Core.eval(runner, :(const ARGS = $args))
+    Core.eval(runner, :(include(path) = Base.include($runner, path)))
+    mktemp() do _, output
+        redirect_stdout(output) do
+            threads = BLAS.get_num_threads()
+            try
+                Base.include(runner, joinpath(@__DIR__, "runtests.jl"))
+            finally
+                BLAS.set_num_threads(threads)
             end
-            seekstart(output)
-            read(output, String)
         end
+        seekstart(output)
+        read(output, String)
     end
+end
+@testset "runner filters by prefix before sharding" begin
     inv = TT.inventory()
     selected = filter(n -> startswith(n, "indball") || startswith(n, "kkt"),
                       TT.select(inv, "quick"))
@@ -191,6 +191,31 @@ end
     end
     @test BLAS.get_num_threads() == threads
     @test_throws "no test file matches no_matching_prefix" list_output([cases; "no_matching_prefix"])
+    @test BLAS.get_num_threads() == threads
+end
+@testset "runner --exact selects exactly the named files" begin
+    inv = TT.inventory()
+    full = TT.select(inv, "full")
+    @test "indballl0" in full && "indballl0_reference" in full
+    listed(output) = split(last(split(chomp(output), '\n')))
+    threads = BLAS.get_num_threads()
+    # Prefix mode keeps matching both names; --exact lists only the named one.
+    prefix = list_output(["--list", "--tier=full", "indballl0"])
+    @test listed(prefix) == ["indballl0", "indballl0_reference"]
+    exact = list_output(["--list", "--tier=full", "--exact", "indballl0"])
+    @test listed(exact) == ["indballl0"]
+    @test occursin("; 1 files;", exact)
+    @test !occursin("PB_TEST_", exact)
+    several = list_output(["--list", "--tier=full", "--exact", "kkt_block", "indballl0", "core_functions"])
+    @test listed(several) == sort(["kkt_block", "indballl0", "core_functions"])
+    sharded = list_output(["--list", "--tier=full", "--exact", "kkt_block", "indballl0", "--shard=1/1"])
+    @test listed(sharded) == ["indballl0", "kkt_block"]
+    # An unknown name, an abbreviation and a path are errors in exact mode.
+    @test_throws "no test file named no_such_file in tier full" list_output(["--list", "--tier=full", "--exact", "no_such_file"])
+    @test_throws "no test file named indball in tier full" list_output(["--list", "--tier=full", "--exact", "core_functions", "indball"])
+    @test_throws "no test file named ../x in tier full" list_output(["--list", "--tier=full", "--exact", "../x"])
+    # The tier named on the command line limits the names that exist.
+    @test_throws "no test file named no_such_file in tier quick" list_output(["--list", "--tier=quick", "--exact", "no_such_file"])
     @test BLAS.get_num_threads() == threads
 end
 @testset "manifest rejects unclassified tests" begin

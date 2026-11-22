@@ -573,7 +573,7 @@ class PlanFileTests(Harness):
 def ci_run(**overrides):
     """A CI.yml run that qualifies as release evidence, with its jobs; overrides replace fields."""
     run = {
-        "id": 101, "head_sha": COMMIT, "event": "push", "conclusion": "success",
+        "id": 101, "run_attempt": 1, "head_sha": COMMIT, "event": "push", "conclusion": "success",
         "html_url": "https://github.com/example/repo/actions/runs/101",
         "jobs": [{"name": name, "conclusion": "success"} for name in v.CI_REQUIRED_JOBS]
                 + [{"name": "Change classification / Linux", "conclusion": "success"}],
@@ -607,7 +607,7 @@ class ReleaseTests(Harness):
         self.assertEqual(code, 0, out)
         self.assertIn("RELEASE VALIDATION: PASS", out)
         self.assertIn("## Release validation", out)
-        self.assertIn("CI.yml run on this commit: https://github.com/example/repo/actions/runs/101", out)
+        self.assertIn("CI.yml run on this commit: https://github.com/example/repo/actions/runs/101 (attempt 1)", out)
         self.assertNotIn("FULL VALIDATION", out)
 
     def test_workflow_dispatch_run_qualifies(self):
@@ -623,8 +623,9 @@ class ReleaseTests(Harness):
     def test_no_ci_run(self):
         self.write_ci_runs([])
         self.write_all()
-        self.assertFails("no CI.yml run on commit " + COMMIT + " qualifies",
-                         "gh workflow run CI.yml --ref <ref>")
+        self.assertFails("no CI.yml run on candidate commit " + COMMIT + " qualifies",
+                         "gh workflow run CI.yml --ref <ref>",
+                         "rerun all release matrix jobs or dispatch a fresh release run")
 
     def test_ci_run_on_another_commit(self):
         self.write_ci_runs([ci_run(head_sha="b" * 40)])
@@ -803,6 +804,125 @@ class SignatureTests(Harness):
             self.assertRegex(line, regex)
 
 
+class LogLayoutTests(Harness):
+    """One matching artifact downloads into the log directory itself; several into one directory each."""
+
+    label = "FOCUSED VALIDATION"
+
+    def flatten(self):
+        """Move each log file of the per-artifact directories to the top level, as a single match does."""
+        for directory in sorted(self.logs.iterdir()):
+            for path in directory.iterdir():
+                path.rename(self.logs / path.name)
+            directory.rmdir()
+
+    def test_several_matches_use_one_directory_each(self):
+        self.configure(mode="focused", files="alpha")
+        self.write_all()
+        self.assertTrue(all(entry.is_dir() for entry in self.logs.iterdir()))
+        code, out = self.run_verdict()
+        self.assertEqual(code, 0, out)
+
+    def test_one_match_sits_at_the_top_level(self):
+        self.configure(mode="focused", files="alpha", platforms="linux", julia="1.13")
+        self.write_all()
+        self.flatten()
+        self.assertEqual([p.name for p in self.logs.iterdir()], ["full-validation-ubuntu-latest-1.13-1.log"])
+        code, out = self.run_verdict()
+        self.assertEqual(code, 0, out)
+        self.assertIn("FOCUSED VALIDATION: PASS", out)
+        self.assertIn("| ubuntu-latest | 1.13.9 | x86_64-linux-gnu | 1:success | 1/1 | 1/1 | none |", out)
+
+    def test_one_match_of_a_full_plan_with_one_cell_uploaded(self):
+        self.configure(mode="full")
+        self.write_all(skip=set(self.cells) - {("macos-latest", "1.13", 2)})
+        self.flatten()
+        out = self.assertFails_as("FULL VALIDATION")
+        self.assertNotIn("unexpected entry", out)
+        self.assertNotIn("macos-latest / Julia 1.13 / shard 2/3: no log artifact", out)
+        self.assertIn("macos-latest / Julia 1.13 / shard 1/3: no log artifact", out)
+        self.assertEqual(out.count("(missing cell)"), 17)
+
+    def test_multi_cell_plan_with_one_uploaded_log(self):
+        self.configure(mode="focused", files="alpha")
+        keep = ("windows-latest", "1.10", 1)
+        self.write_all(skip=set(self.cells) - {keep})
+        self.flatten()
+        out = self.assertFails("windows-latest / Julia 1.13 / shard 1/1: no log artifact")
+        self.assertEqual(out.count("(missing cell)"), 5)
+        self.assertNotIn("unexpected entry", out)
+        self.assertIn("| windows-latest | 1.10.9 | x86_64-w64-mingw32 | 1:success | 1/1 | 1/1 | none |", out)
+
+    def test_zero_matches(self):
+        self.configure(mode="focused", files="alpha", platforms="linux", julia="1.13")
+        out = self.assertFails("ubuntu-latest / Julia 1.13 / shard 1/1: no log artifact")
+        self.assertIn("holds no full-validation-log-* artifact", out)
+        self.logs.rmdir()
+        self.assertFails("does not exist")
+
+    def test_top_level_log_of_an_unplanned_cell(self):
+        self.configure(mode="focused", files="alpha", platforms="linux", julia="1.13")
+        self.write_all()
+        self.write_cell("windows-latest", "1.10", 1)
+        self.flatten()
+        self.assertFails("full-validation-log-windows-latest-1.10-1-attempt-2 is outside the expected cells of attempt 2")
+
+    def test_top_level_log_and_directory_for_one_cell(self):
+        self.configure(mode="focused", files="alpha", platforms="linux", julia="1.13")
+        self.write_all()
+        (self.logs / "full-validation-ubuntu-latest-1.13-1.log").write_text("x")
+        self.assertFails("expected exactly one log file")
+
+    def test_unrecognized_top_level_entries_are_stray(self):
+        self.configure(mode="focused", files="alpha", platforms="linux", julia="1.13")
+        self.write_all()
+        self.flatten()
+        (self.logs / "notes.txt").write_text("x")
+        (self.logs / "full-validation-ubuntu-latest-1.13-1.log.bak").write_text("x")
+        self.assertFails("unexpected entry notes.txt", "unexpected entry full-validation-ubuntu-latest-1.13-1.log.bak")
+
+    def assertFails_as(self, label):
+        self.label = label
+        return self.assertFails()
+
+
+class RoundTripTests(Harness):
+    """The plan the planner accepts, with complete synthetic logs and jobs, gives PASS in each mode."""
+
+    def passes(self, label, **inputs):
+        self.setUp()
+        self.configure(**inputs)
+        self.label = label
+        if inputs.get("mode") == "release":
+            self.ci_runs_path = self.root / "ci_runs.json"
+            self.ci_runs_path.write_text(json.dumps([ci_run()]))
+        self.write_all()
+        code, out = self.run_verdict()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"{label}: PASS", out)
+
+    def test_full(self):
+        self.passes("FULL VALIDATION", mode="full")
+        self.assertEqual(len(self.cells), 18)
+
+    def test_release(self):
+        self.passes("RELEASE VALIDATION", mode="release", expected_sha=COMMIT)
+
+    def test_focused_in_every_restriction(self):
+        for platform in plan_script.PLATFORM_CHOICES:
+            for julia in plan_script.JULIA_CHOICES:
+                with self.subTest(platform=platform, julia=julia):
+                    self.passes("FOCUSED VALIDATION", mode="focused", files="alpha gamma", platforms=platform, julia=julia)
+
+    def test_focused_layout_with_one_cell(self):
+        self.passes("FOCUSED VALIDATION", mode="focused", files="beta", platforms="macos", julia="1.10")
+        self.assertEqual(len(self.cells), 1)
+
+
+# The workflow tests below are source-text checks. They read the block forms that this workflow
+# uses (two-space job keys, `run:` with a `|` block or on one line, `env:` entries) and
+# representative names and headers. They are not a YAML validator, and they do not run the
+# issue lookup and creation of the report job.
 def uncommented(text):
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
@@ -822,7 +942,7 @@ def job_blocks(text):
 
 
 def run_blocks(text):
-    """The text of every `run:` step: a one-line command or an indented block."""
+    """The text of each `run:` step written as a one-line command or as a `|` or `>` block."""
     blocks, lines = [], text.splitlines()
     for index, line in enumerate(lines):
         match = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", line)
@@ -865,13 +985,14 @@ class WorkflowTextTests(unittest.TestCase):
             self.assertRegex(self.text, rf"      {name}:\n(?:        .*\n)*?        type: string\n        default: ''\n")
         self.assertIn("cron: '23 9 * * *'", self.text)
 
-    def test_inputs_reach_the_scripts_through_env_only(self):
+    def test_inputs_reach_the_scripts_through_env(self):
         for block in run_blocks(self.text):
             for needle in ("${{ inputs.", "${{ github.event.inputs."):
                 self.assertNotIn(needle, block)
-            # No expression of any kind is interpolated into a script.
+            # The run blocks of this workflow hold no expression at all.
             self.assertNotIn("${{", block)
         references = [line for line in self.text.splitlines() if "inputs." in line and "${{" in line]
+        # The five plan inputs; the verdict job output `needs.verdict.outputs.attempt` is not an input.
         self.assertEqual(len(references), 5)
         for line in references:
             self.assertRegex(line, r"^          PB_[A-Z_]+: \$\{\{ inputs\.[a-z_]+ \}\}$")
@@ -896,7 +1017,8 @@ class WorkflowTextTests(unittest.TestCase):
         self.assertIn("name: ${{ matrix.label }}", test)
         self.assertIn("--check-bounds=yes", test)
         self.assertIn('"--tier=full", "--shard=" * ENV["PB_SHARD"] * "/" * ENV["PB_SHARDS"]', test)
-        self.assertIn('split(ENV["PB_FILES"])', test)
+        # Focused names reach the runner as exact selectors built from the environment.
+        self.assertIn('ENV["PB_MODE"] == "focused" && append!(args, ["--exact"; String.(split(ENV["PB_FILES"]))])', test)
         for needle in ("PB_MODE: ${{ needs.plan.outputs.mode }}", "PB_FILES: ${{ needs.plan.outputs.files }}",
                        "PB_SHARDS: ${{ matrix.shards }}", "shard=%s/%s mode=%s shards=%s"):
             self.assertIn(needle, test)
@@ -911,9 +1033,14 @@ class WorkflowTextTests(unittest.TestCase):
                     .replace("${{ github.run_attempt }}", "7"))
         self.assertEqual(rendered, v.artifact_name("ubuntu-latest", "1.10", 1, 7))
         self.assertIn("pattern: full-validation-log-*-attempt-${{ github.run_attempt }}", self.text)
+        # The upload path names the file that the verdict script recognizes at the top level.
+        path = re.search(r"^          path: (full-validation-logs/.*)$", self.text, re.M).group(1)
+        rendered_path = (path.replace("${{ matrix.os }}", "ubuntu-latest").replace("${{ matrix.julia }}", "1.10")
+                         .replace("${{ matrix.shard }}", "1"))
+        self.assertTrue(v.LOG_FILE_RE.fullmatch(rendered_path.split("/")[-1]))
 
     def test_header_format_matches_the_script(self):
-        # The header the test step prints must satisfy the verdict script's header checks.
+        # A header built from the test step's printf format satisfies the verdict script's header pattern.
         match = re.search(r"printf '(PB_FULL_VALIDATION [^']*?)\\n'", self.text)
         self.assertIsNotNone(match)
         template = match.group(1)
@@ -926,18 +1053,27 @@ class WorkflowTextTests(unittest.TestCase):
         verdict = self.jobs["verdict"]
         self.assertIn("needs: [plan, test]", verdict)
         self.assertIn("if: always()", verdict)
+        self.assertIn("attempt: ${{ github.run_attempt }}", verdict)
         self.assertIn("PLAN_RESULT: ${{ needs.plan.result }}", verdict)
         self.assertIn('"$PLAN_RESULT" != "success"', verdict)
         for needle in ("--jobs jobs.jsonl", '--attempt "$GITHUB_RUN_ATTEMPT"', '--aggregate "$TEST_RESULT"',
                        "--plan plan/plan.json", "--signature signature.txt", '--expected-commit "$GITHUB_SHA"',
                        "name: full-validation-plan", "persist-credentials: false"):
             self.assertIn(needle, verdict)
-        # Release evidence is fetched and passed in release mode only.
+        self.assertIn("name: full-validation-signature-attempt-${{ github.run_attempt }}", verdict)
+
+    def test_release_evidence_step(self):
+        verdict = self.jobs["verdict"]
         self.assertIn("if: needs.plan.outputs.mode == 'release'", verdict)
-        self.assertIn("workflows/CI.yml/runs?head_sha=$GITHUB_SHA", verdict)
+        # Every page of the run list, filtered by event and conclusion before the jobs are requested.
+        self.assertRegex(verdict, r'gh api --paginate "repos/\$GITHUB_REPOSITORY/actions/workflows/CI\.yml/runs\?head_sha=\$GITHUB_SHA&per_page=100"')
+        self.assertIn('select((.event == "push" or .event == "workflow_dispatch") and .conclusion == "success")', verdict)
+        self.assertIn("run_attempt}", verdict)
+        # The jobs come from the attempt that the run record reports.
+        self.assertIn('actions/runs/$id/attempts/$attempt/jobs?per_page=100"', verdict)
+        self.assertLess(verdict.index("select((.event"), verdict.index("attempts/$attempt/jobs"))
         self.assertIn('if [ "$PB_MODE" = "release" ]; then\n            extra=(--ci-runs ci_runs.json)', verdict)
         self.assertIn('"${extra[@]}"', verdict)
-        self.assertIn("name: full-validation-signature-attempt-${{ github.run_attempt }}", verdict)
 
     def test_report_job(self):
         report = self.jobs["report"]
@@ -948,7 +1084,25 @@ class WorkflowTextTests(unittest.TestCase):
         self.assertIn("Nightly full validation failing [$hash]", report)
         self.assertIn("verdict-incomplete", report)
         self.assertIn("--body-file", report)
-        self.assertIn("pattern: full-validation-signature-attempt-${{ github.run_attempt }}", report)
+        # The artifact and the links name the attempt that produced the signature.
+        self.assertIn("pattern: full-validation-signature-attempt-${{ needs.verdict.outputs.attempt }}", report)
+        self.assertIn("PRODUCING_ATTEMPT: ${{ needs.verdict.outputs.attempt }}", report)
+        self.assertIn('link="$RUN_URL/attempts/$PRODUCING_ATTEMPT"', report)
+        self.assertNotIn("github.run_attempt", report)
+
+    def test_report_job_deduplicates_through_the_labeled_issue_list(self):
+        report = self.jobs["report"]
+        self.assertIn("label=nightly-full-validation", report)
+        self.assertIn('gh label create "$label"', report)
+        self.assertIn("2>/dev/null || true", report)
+        self.assertIn('gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&labels=$label&per_page=100"', report)
+        self.assertIn("select(.pull_request == null)", report)
+        self.assertIn('.title == $title and .state == "open"', report)
+        self.assertIn('.title == $title and .state == "closed"', report)
+        self.assertIn('gh issue reopen "$closed"', report)
+        self.assertIn('--label "$label"', report)
+        self.assertNotIn("gh issue list", report)
+        self.assertNotIn("--search", report)
 
     def test_permissions_are_confined(self):
         head = self.text.split("\njobs:\n")[0]
@@ -959,8 +1113,11 @@ class WorkflowTextTests(unittest.TestCase):
             self.assertNotIn("permissions:", self.jobs[name])
         self.assertIn("permissions:\n      contents: read\n      actions: read\n", self.jobs["verdict"])
         self.assertNotIn("issues:", self.jobs["verdict"])
-        self.assertIn("permissions:\n      contents: read\n      issues: write\n      actions: read\n", self.jobs["report"])
-        self.assertEqual(self.text.count("actions: read"), 2)
+        # The report job requests issues: write and nothing else.
+        self.assertIn("permissions:\n      issues: write\n    steps:", self.jobs["report"])
+        self.assertNotIn("contents:", self.jobs["report"])
+        self.assertNotIn("actions: read", self.jobs["report"])
+        self.assertEqual(self.text.count("actions: read"), 1)
         self.assertEqual(self.text.count("issues: write"), 1)
         self.assertEqual(self.text.count("contents: write"), 0)
 

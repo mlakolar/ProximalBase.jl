@@ -3,20 +3,26 @@
 
 Reads the per-cell logs downloaded from the
 `full-validation-log-<os>-<julia>-<shard>-attempt-<n>` artifacts and the job
-conclusions of the same workflow run attempt. The job conclusions are checked
-against the expected job names, and the passing timing records of each OS and
-Julia pair against the expected files.
+conclusions of the same workflow run attempt.  The logs sit in one directory
+per artifact when several artifacts match the download pattern, and directly in
+the log directory when one matches; the script accepts both layouts.  The job
+conclusions are checked against the expected job names, and the passing timing
+records of each OS and Julia pair against the expected files.
 
 Without `--plan` the script checks the nightly full validation: 18 cells, and
 the full test selection (the union of all four tiers in `test/tiers.toml`) for
-each OS and Julia pair.  The cells below mirror the matrix of the full and
-release modes in `.github/workflows/full-validation.yml`;
-`test_full_validation_verdict.py` compares the two texts.  With `--plan` the
+each OS and Julia pair.  The cell constants below are the matrix of the full
+and release modes; `full_validation_plan.py` builds its matrix from the same
+constants, and the tests compare the generated entries.  With `--plan` the
 cells, the mode and the requested files come from the `plan.json` that
-`full_validation_plan.py` wrote.  A `focused` plan checks that exactly the
-requested files passed in each planned cell and reports `FOCUSED VALIDATION`.
-A `release` plan checks the full matrix and also needs `--ci-runs`: a CI.yml
-run on the same commit that passed the benchmark and documentation jobs.
+`full_validation_plan.py` wrote, and the script compares the plan's labels with
+the job names it derives.  A `focused` plan checks that the files with
+`status=pass` equal the requested files in each planned cell and reports
+`FOCUSED VALIDATION`.  A `release` plan checks the full matrix and also needs
+`--ci-runs`: a CI.yml run on the candidate commit with event `push` or
+`workflow_dispatch`, conclusion `success`, and the jobs in `CI_REQUIRED_JOBS`
+(the `PR required jobs` job, the frozen benchmark, the strict documentation
+build and the three Julia 1.13 test shards) all successful.
 
 The script imports only the standard library and needs Python 3.11 or newer
 (`tomllib`).
@@ -42,8 +48,8 @@ JOB_PREFIX = "Full / "
 FOCUSED_PREFIX = "Focused / "
 MODES = ("full", "focused", "release")
 MAX_FOCUSED_FILES = 20
-# The CI.yml jobs that a release needs on the released commit: the PR required jobs
-# and the jobs behind them that carry the frozen benchmark and the strict docs build.
+# The CI.yml jobs that a release needs on the candidate commit: `PR required jobs`, the
+# frozen benchmark, the strict documentation build and the three Julia 1.13 test shards.
 CI_EVENTS = ("push", "workflow_dispatch")
 CI_REQUIRED_JOBS = (
     "PR required jobs",
@@ -73,6 +79,8 @@ SHARD_TIME_RE = re.compile(
     r"^PB_TEST_SHARD_TIME shard=(?P<shard>\S+) files=(?P<count>\d+) elapsed_s=(?P<elapsed>\S+)\s*$"
 )
 NAME_RE = re.compile(r"\S+")
+# The log file of a cell, as the test step names it.
+LOG_FILE_RE = re.compile(r"full-validation-(?P<os>[a-z]+-latest)-(?P<julia>1\.[0-9]+)-(?P<shard>[0-9]+)\.log")
 
 
 class TiersError(Exception):
@@ -357,7 +365,7 @@ def parse_log(cell, text, expected_commit, header_extra=None):
 
 
 def check_announced_files(cell, lines, runner_index, announced_count):
-    """The line after the runner line lists the shard's files; compare it with the records."""
+    """The first nonblank line after the runner line lists the shard's files; compare it with the records."""
     following = [line for line in lines[runner_index + 1 :] if line.strip()]
     if not following:
         cell.problem("no file list follows the 'ProximalBase minimal tests' line")
@@ -380,15 +388,26 @@ def check_announced_files(cell, lines, runner_index, announced_count):
         cell.problem(f"the runner line announces {announced_count} files, found {len(cell.results)} timing records")
 
 
-def find_cell_logs(logs_dir):
-    """Map artifact directory name -> list of files inside it; also return stray entries."""
+def find_cell_logs(logs_dir, attempt):
+    """Map artifact name -> list of log files; also return stray entries.
+
+    The download action writes one directory per artifact when several artifacts
+    match, and the files of a single match directly into the target directory.  A
+    top-level `full-validation-<os>-<julia>-<shard>.log` is therefore filed under the
+    artifact name of its cell; the download pattern selects the current attempt.
+    """
     found, stray = {}, []
     root = Path(logs_dir)
     if not root.is_dir():
         return found, stray
     for entry in sorted(root.iterdir()):
         if entry.is_dir() and entry.name.startswith(ARTIFACT_PREFIX):
-            found[entry.name] = sorted(p for p in entry.rglob("*") if p.is_file())
+            found.setdefault(entry.name, []).extend(sorted(p for p in entry.rglob("*") if p.is_file()))
+            continue
+        match = LOG_FILE_RE.fullmatch(entry.name) if entry.is_file() else None
+        if match:
+            name = artifact_name(match["os"], match["julia"], int(match["shard"]), attempt)
+            found.setdefault(name, []).append(entry)
         else:
             stray.append(entry.name)
     return found, stray
@@ -464,7 +483,7 @@ def evaluate(logs_dir, selection, expected_commit, attempt, job_records, plan=No
     if unexpected_job:
         global_classes.add("unexpected-job")
 
-    found, stray = find_cell_logs(logs_dir)
+    found, stray = find_cell_logs(logs_dir, attempt)
     if not Path(logs_dir).is_dir():
         problems.append(f"log directory {logs_dir} does not exist; no test artifacts were downloaded")
         global_classes.add("no-logs")
@@ -613,10 +632,10 @@ def check_ci_runs(runs, commit):
             return [], run
         rejected.append(f"run {run.get('id')!r}: {reason}")
     problems = [
-        f"no CI.yml run on commit {commit} qualifies: it needs event push or workflow_dispatch, "
+        f"no CI.yml run on candidate commit {commit} qualifies: it needs event push or workflow_dispatch, "
         f"conclusion success and the jobs {', '.join(repr(j) for j in CI_REQUIRED_JOBS)} all successful. "
-        "Dispatch CI.yml on the release ref with `gh workflow run CI.yml --ref <ref>`, wait for it, "
-        "then rerun release validation."
+        "Dispatch CI.yml on a ref that points at the candidate commit with `gh workflow run CI.yml --ref <ref>`, "
+        "wait for it, then rerun all release matrix jobs or dispatch a fresh release run."
     ]
     problems.extend(rejected[:5])
     return problems, None
@@ -639,7 +658,7 @@ def signature_lines(rows, global_classes):
 
 
 def signature_text(lines):
-    """The lines followed by `signature-hash: <12 hex>`, the SHA-256 of the lines joined by newlines."""
+    """The lines followed by `signature-hash: <12 hex>`, from the SHA-256 of the lines, each followed by a newline."""
     body = "".join(line + "\n" for line in lines)
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:SIGNATURE_HASH_LENGTH]
     return f"{body}signature-hash: {digest}\n"
@@ -736,7 +755,8 @@ def main(argv=None):
             if evidence is None:
                 classes.add("ci-run-missing")
             else:
-                notes.append(f"CI.yml run on this commit: {evidence.get('html_url') or evidence.get('id')}")
+                attempt_note = f" (attempt {evidence['run_attempt']})" if evidence.get("run_attempt") else ""
+                notes.append(f"CI.yml run on this commit: {evidence.get('html_url') or evidence.get('id')}{attempt_note}")
         # A problem class that adds nothing to a more specific one is dropped from the signature.
         if any(row["failing_names"] or row["classes"] for row in rows):
             classes.discard("aggregate-not-success")

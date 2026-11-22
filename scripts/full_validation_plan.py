@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Validate the inputs of the Full validation workflow and emit its plan.
 
-The `plan` job runs this script first.  The workflow passes every input through
-the environment (`PB_MODE`, `PB_PLATFORMS`, `PB_JULIA`, `PB_FILES`,
-`PB_EXPECTED_SHA`) and the runner supplies `GITHUB_SHA`.  An empty value stands
-for the default, which is what a scheduled run supplies.  The script
+The `plan` job runs this script after the checkout and the unit tests of the
+plan script.  The workflow passes the inputs through the environment
+(`PB_MODE`, `PB_PLATFORMS`, `PB_JULIA`, `PB_FILES`, `PB_EXPECTED_SHA`) and the
+runner supplies `GITHUB_SHA`.  An empty value stands for the default, which is
+what a scheduled run supplies.  The script
 
 * checks the inputs, including the file names against the full selection of
-  `test/tiers.toml`, even though the choice inputs are also constrained in the
-  workflow UI;
+  `test/tiers.toml`, although the choice inputs are also constrained in the
+  workflow UI.  The `full` and `release` modes take every platform and both
+  Julia versions; only `focused` accepts a restriction;
 * appends `matrix` (compact JSON with an `include` list of
   `{os, julia, shard, shards, label}`), `mode` and `files` to `GITHUB_OUTPUT`;
 * writes `plan.json`, which the verdict job reads.
+
+The workflow runs a focused selection with the test runner's `--exact` option,
+so the validated names select those files and no others.  `files` may be
+separated by spaces and tabs; other whitespace is rejected.
 
 It imports only the standard library and `full_validation_verdict`.
 """
@@ -35,6 +41,7 @@ PLATFORM_CHOICES = ("all", *PLATFORMS)
 JULIA_CHOICES = ("both", *verdict.JULIAS)
 DEFAULTS = {"mode": "full", "platforms": "all", "julia": "both", "files": "", "expected_sha": ""}
 FILE_NAME_RE = re.compile(r"[a-z0-9_]+")
+SEPARATOR_RE = re.compile(r"[ \t]+")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHOWN_LENGTH = 60
 
@@ -47,6 +54,19 @@ class PlanInputError(Exception):
         self.problems = list(problems)
 
 
+def split_files(text):
+    """Split `files` on spaces and tabs; return (names, problems).
+
+    Other whitespace, such as a newline, is a problem: the names reach the test
+    runner as separate arguments, and a list with another separator is more likely
+    a paste error than a request.
+    """
+    other = sorted({ch for ch in text if ch.isspace() and ch not in " \t"})
+    if other:
+        return [], [f"files may be separated by spaces and tabs only; found {shown(''.join(other))}"]
+    return [token for token in SEPARATOR_RE.split(text) if token], []
+
+
 def shown(text):
     """A bounded repr, so that untrusted text stays on one line of bounded length."""
     text = str(text)
@@ -54,7 +74,11 @@ def shown(text):
 
 
 def check_files(tokens, selection):
-    """Return the problems of the requested file names."""
+    """Return the problems of the requested file names.
+
+    A name is exact: the workflow selects it with the runner's `--exact` option, so a
+    name that is a prefix of a longer name selects only itself.
+    """
     problems = []
     if len(tokens) > verdict.MAX_FOCUSED_FILES:
         problems.append(f"files lists {len(tokens)} names, at most {verdict.MAX_FOCUSED_FILES} are allowed")
@@ -64,23 +88,13 @@ def check_files(tokens, selection):
         if not FILE_NAME_RE.fullmatch(token):
             problems.append(
                 f"file {shown(token)} is not a plain test name: use lowercase letters, digits and "
-                "underscores only; paths, wildcards and prefixes are not accepted"
+                "underscores only (no paths or wildcards)"
             )
         elif token not in known:
             problems.append(f"file {shown(token)} is not a test name in the full selection of test/tiers.toml")
         if token in seen:
             problems.append(f"file {shown(token)} is listed more than once")
         seen.add(token)
-    if problems:
-        return problems
-    # The runner selects by name prefix, so a requested name also selects every longer name.
-    for token in tokens:
-        longer = sorted(n for n in selection if n != token and n.startswith(token) and n not in seen)
-        if longer:
-            problems.append(
-                f"file {token!r} is a prefix of {longer}, and the test runner selects by prefix: "
-                "also list those names, or the run would test files that were not requested"
-            )
     return problems
 
 
@@ -91,8 +105,7 @@ def make_plan(inputs, github_sha, selection):
     platforms = values["platforms"].strip() or DEFAULTS["platforms"]
     julia = values["julia"].strip() or DEFAULTS["julia"]
     expected_sha = values["expected_sha"]
-    tokens = values["files"].split()
-    problems = []
+    tokens, problems = split_files(values["files"])
 
     if mode not in verdict.MODES:
         problems.append(f"mode {shown(mode)} is not one of {', '.join(verdict.MODES)}")
@@ -106,7 +119,7 @@ def make_plan(inputs, github_sha, selection):
             problems.append("focused mode needs files: a space-separated list of test names from test/tiers.toml")
     elif tokens:
         problems.append(f"files must be empty in {shown(mode)} mode; it applies to focused mode only")
-    if tokens and (mode == "focused"):
+    if tokens and mode == "focused":
         problems.extend(check_files(tokens, selection))
 
     if expected_sha:
@@ -119,11 +132,15 @@ def make_plan(inputs, github_sha, selection):
     elif mode == "release":
         problems.append("release mode needs expected_sha, the commit to validate")
 
-    if mode == "release":
+    if mode in ("full", "release"):
         if platforms != "all":
-            problems.append(f"release mode needs platforms=all, not {shown(platforms)}")
+            problems.append(
+                f"{mode} mode needs platforms=all, not {shown(platforms)}; use focused mode for a restricted run"
+            )
         if julia != "both":
-            problems.append(f"release mode needs julia=both, not {shown(julia)}")
+            problems.append(
+                f"{mode} mode needs julia=both, not {shown(julia)}; use focused mode for a restricted run"
+            )
 
     if problems:
         raise PlanInputError(problems)
@@ -151,7 +168,7 @@ def make_plan(inputs, github_sha, selection):
                         ),
                     }
                 )
-    if mode != "focused" and platforms == "all" and julia == "both":
+    if mode != "focused":
         cells = sorted((c["os"], c["julia"], c["shard"]) for c in include)
         if cells != sorted(verdict.expected_cells()):
             raise PlanInputError(["the full matrix differs from the verdict script's expected cells"])

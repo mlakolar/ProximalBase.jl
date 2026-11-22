@@ -64,7 +64,13 @@ including implicit zeros of a `SparseIterate`.
 
 | Case | Retained behavior |
 |:--|:--|
-| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN scalar step throws before writes, also for `α * IndBallL2(r)` with `α ≥ 0`, which is the indicator itself. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. At positive finite radius, a single infinite entry gives the signed radius at that coordinate and zeros elsewhere, and multiple infinite entries or any NaN give an all-NaN projection. |
+| `IndBallL2` | Projects at any nonnegative scalar step, including zero and infinity. A negative or NaN scalar step throws before writes, also for `α * IndBallL2(r)` with `α ≥ 0`, which is the indicator itself. A NaN entry gives value NaN at any radius. Zero radius projects to positive zeros. Infinite radius copies the input, and the value is zero if the input has no NaN. For a positive finite radius, see [Non-finite entries at a positive finite radius](@ref ind-ball-l2.prox.nonfinite-positive-radius). |
+
+### [Non-finite entries at a positive finite radius](@id ind-ball-l2.prox.nonfinite-positive-radius)
+
+At a positive finite radius, a single infinite entry with no NaN gives the signed
+radius at that coordinate and zeros elsewhere. At that same radius, multiple
+infinite entries or any NaN give an all-NaN projection.
 
 ## [Failure behavior](@id spec-indballl2-failures)
 
@@ -95,6 +101,7 @@ These existing tests contain the numerical checks for this family. Their asserti
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
 | `ind-ball-l2.value-and-prox.stored-output` | `guaranteed` | [Generic fused implementation](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl2.jl#L107-L110), [matching floating-vector paths](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/src/functions/indballl2.jl#L132-L203), [stored four-entry result tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl2.jl#L136-L163), and [finite-range stored-result tests](https://github.com/mlakolar/ProximalBase.jl/blob/3a14f44b7ac11a8bfc7ffbe1e97c75b253120231/test/indballl2.jl#L203-L235) |
+| `ind-ball-l2.prox.nonfinite-positive-radius` | `guaranteed` | [Radius branches](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl2.jl#L171-L182), [Non-finite projection](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl2.jl#L304-L317), and [Zero, positive finite and infinite radii](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl2.jl#L239-L257) |
 
 ## [History](@id spec-indballl2-history)
 

@@ -12,12 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The IndBallL2 endpoint row says multiple infinite entries or any NaN give
-  an all-NaN projection. That sentence could inherit the positive finite
-  radius qualifier or apply to all radii. The tests check zero-radius fill,
-  infinite-radius copy, and positive finite radius separately. The qualifier
-  awaits the owner's decision. [Tests](../../../test/indballl2.jl)
-
 - The LogDetLoss endpoint paragraph says a positive finite step accepts
   finite inputs. It could describe the input check or imply that every
   finite matrix yields a result. The extreme-range test uses a finite
@@ -105,6 +99,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Infinite-step text](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/groupnorml2.md#L53-L68) could be a separate case or fall under the finite-step qualifier | Give the infinite step a separate row. With a positive finite level and weight, an infinite step fills the group with `+0`. `guaranteed`. | [Infinite-step exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L907-L923) · [Array result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L216-L217) · [Compact positive-zero result](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnorml2.jl#L271-L276) |
+
+## IndBallL2 decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [All-NaN projection](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/indballl2.md#L63-L67) could apply to every radius or only to positive finite ones | The all-NaN rule applies at a positive finite radius. A zero radius fills with positive zeros. An infinite radius copies the input. `guaranteed`. | [Radius branches](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl2.jl#L171-L182) · [Radius endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl2.jl#L239-L257) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

@@ -12,52 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `GroupNormLinf` optimality section says a zero group's signed margin
-  and full-point distance are “equal where `v_G` has one nonzero entry”.
-  This could include negative margins or apply only to nonnegative margins.
-  The same paragraph gives zero distance for a negative margin. The scoring
-  branches and tests distinguish the two values. The scope of equality
-  awaits the owner's decision.
-  [Guide](../../src/group_penalty.md#Optimality-scores-2)
-  · [Source](../../../src/functions/groupnormlinf.jl)
-  · [Tests](../../../test/groupnormlinf.jl)
-
-- The `SqrNormL2` endpoint text says “`NaN` at a zero residual, `Inf`
-  elsewhere” at infinite level with finite `v` and `x`. “Elsewhere” could
-  refer to a nonzero residual that is not `NaN` or include a `NaN` center.
-  The constructor accepts a `NaN` center and the score helpers propagate its
-  `NaN`. The tests exercise `NaN` centers and infinite levels separately.
-  The wording awaits the owner's decision.
-  [Source](../../../src/functions/sqrnorml2.jl) · [Tests](../../../test/kkt_point.jl)
-
-- The `LeastSquaresLoss` range text says “For strided `Float32` and `Float64`
-  vectors”. This could describe the caller's coefficients `β` or the operands
-  of the squared-residual kernel, including the predictor or residual. The
-  coefficient methods use an internal work vector, and the fast value kernel
-  dispatches on strided operands of a common type. The scope of the phrase
-  awaits the owner's decision. [Source](../../../src/functions/leastsquares.jl)
-  · [Tests](../../../test/leastsquares_predictor.jl)
-
-- The matrix predictor sentence added by #1115 says both oracles reuse “the same
-  squared-residual recovery”. This could refer to both oracles retrying an
-  overflowing subtraction or to their use of the same range kernel on different
-  operands. The value-only oracle can retry with the original predictor and
-  response. The fused oracle uses the stored residual, and the overflow test
-  gives a finite value for the former and `Inf` for the latter. The scope of
-  “same” awaits the owner's decision.
-  [Source](../../../src/functions/leastsquares_predictor.jl)
-  · [Tests](../../../test/leastsquares_predictor.jl)
-
-- The `SqrtLeastSquaresLoss` range text uses “`v` the exact value”. This
-  could mean the loss from unrounded `Xβ` or the exact norm at the stored or
-  supplied predictor or residual. The same paragraph leaves open whether
-  the precision and layout conditions apply to the caller's coefficients and
-  design or to the operands of the sum. Its length-and-epsilon condition can
-  also be read to cover precisions beyond `Float32` and `Float64`, which the
-  kernel proof names. The scope of the bound awaits the owner's decision.
-  [Source](../../../src/functions/sqrt_leastsquares.jl)
-  · [Tests](../../../test/sqrt_leastsquares.jl)
-
 - The `LinearFunction` range paragraph gives the bound
   `B = 4 n eps(T) (sum |cᵢxᵢ| + |d|)` without defining `n`. It could count
   nonzero products or all entries in the argument or its storage. The recovery
@@ -89,13 +43,6 @@ that happens to pass.
   [Guide](../../src/group_penalty.md#group-l2-endpoints)
   · [Tests](../../../test/groupnorml2.jl)
 
-- The GroupNormLinf accuracy row describes the margin as a computed sum
-  minus the coefficient. It could refer only to ordinary subtraction or also
-  to overflow. The non-finite row and source give positive infinity when
-  the sum overflows, including at an infinite coefficient. The scope of the
-  subtraction wording awaits the owner's decision.
-  [Source](../../../src/functions/groupnormlinf.jl)
-
 - The IndBallL2 endpoint row says multiple infinite entries or any NaN give
   an all-NaN projection. That sentence could inherit the positive finite
   radius qualifier or apply to all radii. The tests check zero-radius fill,
@@ -108,14 +55,6 @@ that happens to pass.
   matrix and checks a failure before writes. The scope of “accepts”
   awaits the owner's decision. [Source](../../../src/functions/logdet.jl)
   · [Tests](../../../test/logdet.jl)
-
-- The GroupNormLinf endpoint table says the rules apply in order and lists
-  identity cases before the invalid-step error. The ordering could include
-  negative and NaN steps or apply after step validation. The public array
-  and compact paths check the step before writing, and the tests exercise
-  that failure. The table's scope awaits the owner's decision.
-  [Source](../../../src/functions/groupnormlinf.jl)
-  · [Tests](../../../test/groupnormlinf.jl)
 
 - The SparseGroupNormL2 definition says the constructor “copies the
   supplied groups and weights”. For a collection with a concrete range
@@ -146,6 +85,33 @@ that happens to pass.
 | [Retained and removed scope](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/migration.md#L11-L25) could describe the #850 reduction or the current inventory | Date the #850 reduction and keep the historical list of removals. Record later restorations with the corresponding PRs and link to the function library for the current inventory. Implementation note. | [#850 merge](https://github.com/mlakolar/ProximalBase.jl/commit/2b373c546e247781d9514a7000ef3e010343ca4c) · [Exports at #850](https://github.com/mlakolar/ProximalBase.jl/blob/2b373c546e247781d9514a7000ef3e010343ca4c/src/ProximalBase.jl#L18-L25) · [Exports at review](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/ProximalBase.jl#L18-L28) |
 | [IndBallL0 input precision](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/migration.md#L23-L25) could qualify every listed representation or only the symmetric sparse one | Place the homogeneous precision requirement before the list of representations. `precondition`. | [Source](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/indballl0.jl#L80-L88) · [Rejection tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl0.jl#L324-L367) · [Supported inputs](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/indballl0.jl#L653-L680) |
 | [KronQuadratic input precision](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/docs/src/migration.md#L26-L27) could qualify both representations or only the symmetric iterate | Put the matching `Float32` or `Float64` requirement before the dense and symmetric-iterate routes. `precondition`. | [Both input checks](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/src/functions/kronquadratic.jl#L149-L164) · [Dense and symmetric-iterate validation tests](https://github.com/mlakolar/ProximalBase.jl/blob/d4edbeaef1538a0b2c2328b0f7a9b4c928857197/test/kronquadratic.jl#L511-L549) |
+
+## GroupNormLinf decisions
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Zero-group scores](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/group_penalty.md#L482-L489) could agree for every one-entry gradient or only when the margin is nonnegative | In exact arithmetic a zero margin gives zero distance. With one nonzero gradient entry a positive margin equals the distance. A negative margin gives zero distance. `characterized`. | [Margin and distance](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L422-L445) · [Signed margin](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1117-L1131) · [Distance comparison](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1344-L1363) |
+| [Accuracy row](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/kkt_violation.md#L53-L54) could describe subtraction for ordinary sums or also describe overflow | A finite sum of magnitudes uses subtraction. If the sum overflows, the margin is `+Inf`, including when the coefficient is infinite. `guaranteed`. | [Before subtraction](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L436-L445) · [Overflow tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L1143-L1149) |
+| [Ordered endpoints](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/groupnormlinf.md#L115-L127) could put invalid steps after identity cases or apply the ordered group rules after step validation | Direct array and compact calls validate the step before the per-group exits. `characterized` for the ordering. | [Array validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L347-L350) · [Compact validation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/groupnormlinf.jl#L406-L415) · [Invalid-step sentinel tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/groupnormlinf.jl#L483-L500) |
+
+## SqrNormL2 decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Infinite-level endpoint](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrnorml2.md#L82-L88) could use “elsewhere” for every nonzero residual or only for nonzero residuals other than `NaN` | With finite `v` and `x` in the working type, a nonzero residual other than `NaN` gives an `Inf` entry score. A `NaN` center or a zero residual gives a `NaN` entry score, which propagates in the full-point maximum. `characterized`. | [Gradient arithmetic](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L203-L211) · [Point-aware score](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L382-L390) · [Separate endpoint tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/kkt_point.jl#L465-L474) |
+
+## LeastSquaresLoss decisions
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Strided-vector range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L49-L52) could qualify the caller's coefficients or the operands of the kernel | The strided vectors are the kernel operands. Coefficient calls form the predictor in the loss's work array. Implementation note. | [Coefficient and kernel paths](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares.jl#L87-L131) · [Guard tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L980-L1005) |
+| [Matrix predictor range clause](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/leastsquares.md#L50-L52) could promise that both oracles retry an overflowing subtraction or describe a shared guard with different operands | The value-only oracle can retry from its supplied predictor and response. The fused oracle uses its stored residual, which can give an infinite value after subtraction overflow. `characterized`. | [Matrix oracle value routes](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/leastsquares_predictor.jl#L281-L313) · [Overflow test](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/leastsquares_predictor.jl#L1353-L1366) |
+
+## SqrtLeastSquaresLoss decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Norm accuracy](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/sqrt_leastsquares.md#L56-L63) could compare with the loss at unrounded `Xβ` or with the mathematical norm at the stored or supplied kernel operands | Compare with the exact scaled norm for the stored or supplied predictor or supplied residual. The precision and layout hypotheses apply to the operands and the bound is stated for `Float32` and `Float64`. `characterized`. | [Coefficient evaluation](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L78-L83) · [Proof](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrt_leastsquares.jl#L114-L122) · [Tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/sqrt_leastsquares.jl#L310-L346) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

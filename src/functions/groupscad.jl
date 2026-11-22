@@ -26,10 +26,10 @@ The type of the function is `float(promote_type(typeof(λ0), eltype(w)))`, or
 not above 2 is refused, and so is a finite supplied shape that converts to `Inf`.
 
 [`prox`](@ref) takes a nonnegative **scalar** step `γ`. In exact arithmetic, for
-finite positive `λₖ`, `a` and `γ` and a nonzero group norm `r = ‖u[Gₖ]‖₂`, it
+finite positive `λₖ`, `a` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it
 replaces `u[Gₖ]` by `(t/r) u[Gₖ]`, where `t` is a global minimizer of the scalar
 SCAD proximal problem at `r` (the smaller magnitude at a tie, `+0` at a zero
-minimizer). The computed decisions compare the rounded norm, level and cutoffs,
+minimizer). The computed decisions use floating-point arithmetic and can round near a cutoff,
 and the stored entries are rounded; see the
 [rounding clause](@ref spec-groupscad-ordinary). At `a = Inf` each group follows
 the rules of [`GroupNormL2`](@ref). [`prox_block`](@ref) takes a compact vector in
@@ -53,7 +53,7 @@ true
 julia> prox_block(f, [1.8, 2.4], 1, 1.0) ≈ [1.552941176470588, 2.070588235294118]
 true
 
-julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r ≈ γλ = 1 gives +0
+julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ = 1 (computed exactly) gives +0
 2-element Vector{Float64}:
  0.0
  0.0
@@ -70,7 +70,8 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r ≈ γλ = 1 gives +0
   value is 0. An infinite weight, or an infinite level with positive weight,
   fixes a group at `+0`, including at zero step.
 - [`kkt_violation`](@ref) has, at a zero group, the rounded signed screen of
-  `GroupNormL2` for the local condition `‖v_G‖₂ ≤ λₖ`, and `abs(v[i])` for entries
+  `GroupNormL2` for the local condition `‖v_G‖₂ ≤ λₖ` (finite positive level and weight and finite
+  entries of `v`; see the contract for the other cases), and `abs(v[i])` for entries
   in no group; at a real array point it throws an `ArgumentError` at a nonzero
   group and in the full-point form. A nonpositive score is not a proof of that
   condition and does not imply a global minimizer.

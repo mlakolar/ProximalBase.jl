@@ -99,7 +99,7 @@ does not imply a global minimizer.
 [`GroupSCAD`](@ref group-scad-guide) has the same four-argument form at a zero group (the
 [GroupSCAD failure behavior](@ref spec-groupscad-failures) gives the other cases) and `abs(v[k])` at an entry in no
 group; at a real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. For finite positive
-factors the zero-group score is a rounded signed screen of the local condition `‖v_G‖₂ ≤ λ₀w[k]`: a nonpositive score is not a
+factors and finite gradient entries the zero-group score is a rounded signed screen of the local condition `‖v_G‖₂ ≤ λ₀w[k]`: a nonpositive score is not a
 proof of that condition and does not imply a global minimizer.
 
 | Iterate | Four-argument form (`k` is the index) |

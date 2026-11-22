@@ -645,7 +645,7 @@ are stated in the contract. The type trait `isconvex` is false.
 
 ### Proximal operator: radial SCAD
 
-In exact arithmetic, for finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a nonzero norm
+In exact arithmetic, for finite positive ``\lambda_k`` and `a`, a finite positive step ``\gamma`` and a finite nonzero norm
 ``r=\lVert x_{G_k}\rVert_2``, the proximal operator replaces the norm of the group by a global minimizer ``t_*`` of
 ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar [`SCAD`](@ref spec-scad-ordinary)
 proximal operator gives at the input ``r``, along the direction of the group: the group is kept when
@@ -679,7 +679,7 @@ stored output, up to the order of the sums of squares (see the [GroupSCAD result
 At a zero group, `kkt_violation(g, v, x, k)` is the screen of `GroupNormL2` with the level and the weight as separate
 factors (``\lVert v_{G_k}\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; see the
 [failure behavior](@ref spec-groupscad-failures) for the other cases), and an entry in no group scores `abs(v[k])`. At a
-real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. For finite positive factors the
+real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. For finite positive factors and finite gradient entries the
 score is a rounded signed screen of the local condition ``\lVert v_{G_k}\rVert_2\le\lambda_k``: a nonpositive score is not a
 proof of that condition and does not imply a global minimizer of the nonconvex objective.
 

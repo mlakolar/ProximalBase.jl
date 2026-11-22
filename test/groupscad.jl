@@ -440,9 +440,9 @@ end
 end
 
 @testset "rounded decisions and stored entries" begin
-  # a rounded cutoff: the exact comparison at r = sqrt(20.0) keeps the group, and the rounded cutoff gives +0
-  @test prox_block(GroupSCAD(1.0, [1:1], [1.0]; a = 3.0), [sqrt(20.0)], 1, 5.0) == [0.0]
-  # the stored entries are rounded: the direction of the group is not exact
+  # the stored Float64 radius sqrt(20.0) is above the exact cutoff, and the rounded cutoff gives +0
+  @test isequal(prox_block(GroupSCAD(1.0, [1:1], [1.0]; a = 3.0), [sqrt(20.0)], 1, 5.0), [0.0])
+  # the stored entries are rounded: the stored direction can change
   @test prox_block(GroupSCAD(1.0, [1:2], [1.0]), [1.5, nextfloat(0.0)], 1, 1.0) == [0.5, 0.0]
 end
 

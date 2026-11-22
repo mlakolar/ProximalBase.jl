@@ -76,18 +76,18 @@ output: it equals `f(y)` up to the order in which sums of squares are accumulate
 
 ## [Ordinary-path clauses](@id spec-groupscad-ordinary)
 
-**Exact-arithmetic target.** For positive finite `λ0`, `w_k` and `γ`, a finite `a` and a nonzero group with norm
+**Exact-arithmetic target.** For positive finite `λ0`, `w_k` and `γ`, a finite `a` and a group with finite nonzero norm
 ``r=\lVert u_{G_k}\rVert_2``, the target replaces the group by ``(t_*/r)\,u_{G_k}``, where ``t_*`` is a global minimizer of
 ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the one that the scalar `SCAD`
 [proximal rule](@ref spec-scad-ordinary) selects at the input `r`: the group is unchanged when ``t_*=r``, `+0` when
 ``t_*=0``, and otherwise scaled by ``t_*/r``, which is below one. At a tie between minimizers the smaller magnitude is
 taken, so a tie with zero gives `+0`. The middle piece has positive, zero or negative curvature as `γ` passes through
-`a - 1`; the scalar contract owns the comparisons.
+`a - 1`; the scalar contract owns the comparisons. Groups with nonfinite entries follow the [endpoint table](@ref spec-groupscad-endpoints).
 
 **Computed result.** When the input, the destination, the parameters and the step are `Float32` or `Float64`, the decisions
-are the comparisons of the scalar kernel on the computed norm, the level as formed and the cutoffs, each rounded. A group
-within that rounding of a cutoff can take either side: for `a = 3`, `γ = 5`, ``\lambda_k=1`` and `r = sqrt(20.0)` the
-result is `+0`. The stored entries ``q\,u_i`` are rounded, so the direction of the group is not exact: for ``\lambda_k=1``,
+are made by the scalar kernel in floating-point arithmetic on the computed norm and the level as formed, and can round near a cutoff:
+for `a = 3`, `γ = 5`, ``\lambda_k=1`` and `r = sqrt(20.0)` the
+result is `+0`. The stored entries ``q\,u_i`` are rounded, so the stored direction can change: for ``\lambda_k=1``,
 `γ = 1` and `[1.5, nextfloat(0.0)]` the result is `[0.5, 0.0]`. ``t_*`` can round to `r` inside the middle piece, as for the
 input `[1.2, 1.6]` with `λ_k = 1`, `γ = 1e-20` and `a = 3.7`: the group is then unchanged, and its value is
 ``p_{\lambda_k,a}`` at `r`, below the plateau.
@@ -185,7 +185,7 @@ call with a `SymmetricSparseIterate` point that passes the shared argument check
 An instance with a positively weighted group of finite positive level and finite shape is nonconvex (see Traits). The target of the proximal map is a global minimizer of the radial problem in exact arithmetic (see the
 ordinary-path clauses for the computed result), and `GroupSCAD` carries no statement about the global minimization of an objective
 that contains it. At a zero group the score is a rounded signed screen of the local condition ``\lVert v_{G_k}\rVert_2\le\lambda_k``
-(for finite positive factors); a nonpositive score is not a proof of that condition and does not imply a global minimizer. The score
+(for finite positive factors and finite gradient entries); a nonpositive score is not a proof of that condition and does not imply a global minimizer. The score
 at a nonzero group and the full-point form are not implemented.
 
 `Scaled(GroupSCAD(...), α)` multiplies the value by `α` and calls the proximal operator with the effective step

@@ -38,8 +38,8 @@ Vector(x)
 ## [Compact block buffers](@id block-proximal-oracle)
 
 The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
-and invokes `prox_block!`. [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref) and [`SparseGroupNormL2`](@ref)
-are the built-in group implementations.
+and invokes `prox_block!`. [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`SparseGroupNormL2`](@ref)
+and [`GroupMCP`](@ref) are the built-in group implementations.
 `k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
 These methods check the group, buffer lengths, real one-based storage, step and overlap
 before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
@@ -90,6 +90,12 @@ point-aware forms. At a zero group it screens the soft-thresholded gradient.
 At an active group it measures the block subgradient distance. The full-point
 score takes the maximum with zero and includes the free-coordinate magnitudes.
 
+[`GroupMCP`](@ref group-mcp-guide) has the four-argument form at a zero group, the screen of `GroupNormL2` with the
+level and the weight as separate factors (``\lVert v_G\rVert_2-\lambda_0w_k`` for finite `v`, `λ0` and `w_k`; the
+[GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases), and `abs(v[k])` at an entry in no
+group. At a real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score
+does not imply a global minimizer.
+
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
@@ -98,10 +104,12 @@ score takes the maximum with zero and includes the free-coordinate magnitudes.
 | `BlockIterate`, `GroupNormL2` | Group `k`. The block score: the group screen at a zero group, the mismatch at a nonzero one. The group count, the layout of group `k` and the full gradient length are checked |
 | `BlockIterate`, `SparseGroupNormL2` | Group `k`. Check the group count, ordered layout of group `k` and gradient length |
 | `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group, the distance from `-v_G` to the subdifferential at a nonzero one |
+| `BlockIterate`, `GroupMCP` | Group `k`, with the checks of `GroupNormL2`. At a zero group the screen of `GroupNormL2` with the level and the weight as separate factors (`‖v_G‖₂ - λ0 w[k]` for finite `v`, `λ0` and `w[k]`; the [GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases); `ArgumentError` at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Other arrays, `SparseGroupNormL2` | Entry `k` selects its group. An uncovered entry gives `abs(v[k])`. Check gradient length and group extent |
 | Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of zero, of `abs(v[i])` over the entries in no group and of the distances of the groups, and the three-argument form throws `ArgumentError` |
+| Other arrays, `GroupMCP` | Entry index selects its group, with the checks of `GroupNormL2`. At a zero group the screen of the `BlockIterate`, `GroupMCP` row, `abs(v[k])` for an entry in no group; `ArgumentError` at a nonzero group and in the full-point form |
 | Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument

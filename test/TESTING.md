@@ -365,8 +365,8 @@ The observation was taken before two testsets of the file were shortened, so the
 The provisional weight of `groupmcp` is 60 seconds. It rounds up, with margin for the CI runner, the Discovery observations
 of the file, 46.0 seconds on Julia 1.10.13 and 43.6 seconds on Julia 1.13.4, before a CI run of the file exists.
 
-The provisional weight of `groupscad` is 60 seconds, the weight of `groupmcp`. The Discovery observations of the file are
-about 40 seconds on Julia 1.10.13 and 1.13.4 (the runs recorded with the pull request), before a CI run of the file exists.
+The provisional weight of `groupscad` is 75 seconds. It rounds up, with margin for the CI runner, the Discovery observations
+of the file, 65.8 seconds on Julia 1.10.13 and 44.3 seconds on Julia 1.13.4, before a CI run of the file exists.
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.

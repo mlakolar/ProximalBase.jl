@@ -293,8 +293,8 @@
       "block_id": "docs/src/numerics.md::[Numerical contract](@id numerics) / NaN, infinities and zeros / [Infinite penalties at zero step](@id infinite-penalty-at-zero-step)::173",
       "baseline_sha": "86a541b8dd81822bc801889d83e7d217571410b39f5d6c1ea4a2dd05e36a961e",
       "dest": "docs/src/numerics.md#infinite-penalty-at-zero-step;docs/src/numerics.md#infinite-penalty-at-zero-step;docs/src/numerics.md#infinite-penalty-at-zero-step;docs/src/numerics.md#infinite-penalty-at-zero-step;docs/src/numerics.md#infinite-penalty-at-zero-step",
-      "dest_sha": "3692ab4649a787fac1ba6e438597437599b24791ae0d8decc1512a5fe5c546b6;01fd9a15c5f42103a0f361b32c1dc4dac0b6a1771d9491326d8166b2cf4eed48;92f31e20a33b5b45f47e0ffb5627fa6852d0b3510df533ed0a48264941f8c4fa;eac9e27542e05830195e37dafa345c42ba14eaa41585bf5b1f2f6ac17edfc364;6ab9723de53e1a0fdc31399e80842460ebcc8e9487cd695d65a4b8f2675ade0d",
-      "reviewer": "sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81",
+      "dest_sha": "7dbd256191155cf33720c2f3f5ad8d49709adced112b35a90188889e70c4e705;01fd9a15c5f42103a0f361b32c1dc4dac0b6a1771d9491326d8166b2cf4eed48;92f31e20a33b5b45f47e0ffb5627fa6852d0b3510df533ed0a48264941f8c4fa;eac9e27542e05830195e37dafa345c42ba14eaa41585bf5b1f2f6ac17edfc364;6ab9723de53e1a0fdc31399e80842460ebcc8e9487cd695d65a4b8f2675ade0d",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
       "events": [
         {
           "pull_request": 1023,
@@ -348,6 +348,30 @@
           ],
           "replacement_shas": [
             "3692ab4649a787fac1ba6e438597437599b24791ae0d8decc1512a5fe5c546b6",
+            "01fd9a15c5f42103a0f361b32c1dc4dac0b6a1771d9491326d8166b2cf4eed48",
+            "92f31e20a33b5b45f47e0ffb5627fa6852d0b3510df533ed0a48264941f8c4fa",
+            "eac9e27542e05830195e37dafa345c42ba14eaa41585bf5b1f2f6ac17edfc364",
+            "6ab9723de53e1a0fdc31399e80842460ebcc8e9487cd695d65a4b8f2675ade0d"
+          ]
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "2eeab6b6adb06e523ed1b4e3ec6ce6393062d60a",
+          "after_blob": "d277f1b968d8834fdd34e21b19975821ecdb7e2a",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_shas": [
+            "3692ab4649a787fac1ba6e438597437599b24791ae0d8decc1512a5fe5c546b6",
+            "01fd9a15c5f42103a0f361b32c1dc4dac0b6a1771d9491326d8166b2cf4eed48",
+            "92f31e20a33b5b45f47e0ffb5627fa6852d0b3510df533ed0a48264941f8c4fa",
+            "eac9e27542e05830195e37dafa345c42ba14eaa41585bf5b1f2f6ac17edfc364",
+            "6ab9723de53e1a0fdc31399e80842460ebcc8e9487cd695d65a4b8f2675ade0d"
+          ],
+          "replacement_shas": [
+            "7dbd256191155cf33720c2f3f5ad8d49709adced112b35a90188889e70c4e705",
             "01fd9a15c5f42103a0f361b32c1dc4dac0b6a1771d9491326d8166b2cf4eed48",
             "92f31e20a33b5b45f47e0ffb5627fa6852d0b3510df533ed0a48264941f8c4fa",
             "eac9e27542e05830195e37dafa345c42ba14eaa41585bf5b1f2f6ac17edfc364",
@@ -476,11 +500,23 @@
           "reviewer": "sparsegroup_receipt_review@bc9e888d09e5fc3c3feb35905dd7a14e70657fa5",
           "source_sha": "1b7febc1913a1a104857744a4e0f79ab32a8edc2373f0a726257ddededca4f23",
           "replacement_sha": "ec8113074b58f91deef41dafb97b0dac1d9b2c8bc5a8cc815eee285380af46c3"
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "62195295c86bca936a388d1ad8e0f60530f67e29",
+          "after_blob": "fa5f537b109a68e8d5602b64b35ab50a239623f5",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_sha": "ec8113074b58f91deef41dafb97b0dac1d9b2c8bc5a8cc815eee285380af46c3",
+          "replacement_sha": "b89260f37771e029c85d52b8ee242d83426e883cd0b2f780d2d88badfdcb77b3"
         }
       ],
       "dest": "test/TESTING.md#Minimal-supported-test-inventory",
-      "dest_sha": "ec8113074b58f91deef41dafb97b0dac1d9b2c8bc5a8cc815eee285380af46c3",
-      "reviewer": "sparsegroup_receipt_review@bc9e888d09e5fc3c3feb35905dd7a14e70657fa5"
+      "dest_sha": "b89260f37771e029c85d52b8ee242d83426e883cd0b2f780d2d88badfdcb77b3",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343"
     },
     {
       "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt) / Unsupported cases::22",
@@ -678,11 +714,23 @@
           "source_sha": "6a90028b055ab77e6934161597853295fdca84c32bab8be8824ed999c0841ad8",
           "reviewer": "sparsegroup_receipt_review@d3b671e8ecd8f88b56f2716feb21ee5730fcd7be",
           "replacement_sha": "5bf968ac1391b6fe539a3a784334f093f9693f99a46b0b0048512e228d835179"
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "b4e08fb31001ea509983a9d1c094bbee455668e5",
+          "after_blob": "c0530071935482bc13b86fb62bca73027a2f30c9",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_sha": "5bf968ac1391b6fe539a3a784334f093f9693f99a46b0b0048512e228d835179",
+          "replacement_sha": "6b6752655aa9ac3e598699a46d7a0fb3b12a1ca71a99c50fe94b5c88d49bcf60"
         }
       ],
       "dest": "docs/src/api/coverage.md#API-coverage-matrix",
-      "dest_sha": "5bf968ac1391b6fe539a3a784334f093f9693f99a46b0b0048512e228d835179",
-      "reviewer": "sparsegroup_receipt_review@d3b671e8ecd8f88b56f2716feb21ee5730fcd7be"
+      "dest_sha": "6b6752655aa9ac3e598699a46d7a0fb3b12a1ca71a99c50fe94b5c88d49bcf60",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343"
     },
     {
       "block_id": "docs/src/api/coverage.md::API coverage matrix::30",
@@ -1038,11 +1086,23 @@
           "reviewer": "sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81",
           "source_sha": "84a1b87ae0a66c3af2124a344c318270e6a811e12d4d4e36471e1cdbffb3b5fa",
           "replacement_sha": "cfb73da87b515b884ce52d8c114189dad22d04ffb3ee3f4a23afcc0f4e456ce1"
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "61021887e0ecba0bda7f06547735c90416001b8e",
+          "after_blob": "f9754d3d9327b3c7aa41ffb85c12ee1488735aa3",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_sha": "cfb73da87b515b884ce52d8c114189dad22d04ffb3ee3f4a23afcc0f4e456ce1",
+          "replacement_sha": "ba98c52dc4b645911cac3771cc40a436e6281c825ed2c001811caca0ba954581"
         }
       ],
       "dest": "docs/src/block_iterate.md#Construction-and-partitions",
-      "dest_sha": "cfb73da87b515b884ce52d8c114189dad22d04ffb3ee3f4a23afcc0f4e456ce1",
-      "reviewer": "sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81"
+      "dest_sha": "ba98c52dc4b645911cac3771cc40a436e6281c825ed2c001811caca0ba954581",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343"
     },
     {
       "block_id": "docs/src/calculus.md::[Scaling a function](@id scaling-guide) / [Scoring optimality](@id scaled-kkt)::12",
@@ -1418,11 +1478,23 @@
           "reviewer": "sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81",
           "source_sha": "436055eea46e6a6d8ded07b2404b0177e02d686c9b1968525698dac074670f65",
           "replacement_sha": "8b306a38d8657bdbb68238f583c96090ca334a0ceacfa00c0d8a6e96f3cd3cab"
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "888d158f7dfc697e1b3e5f58864a255abb8d14cc",
+          "after_blob": "527f9fe607dad089018b583b1faf912588dffce0",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_sha": "8b306a38d8657bdbb68238f583c96090ca334a0ceacfa00c0d8a6e96f3cd3cab",
+          "replacement_sha": "1e033768aab501d39d6cc6de82ad956ee8827600ecb0848ff2aebdb9af2f8971"
         }
       ],
       "dest": "docs/src/iterate_oracles.md#block-proximal-oracle",
-      "dest_sha": "8b306a38d8657bdbb68238f583c96090ca334a0ceacfa00c0d8a6e96f3cd3cab",
-      "reviewer": "sparsegroup_receipt_review@c05fa857647970ea849b14bebad1865ecafe3a81"
+      "dest_sha": "1e033768aab501d39d6cc6de82ad956ee8827600ecb0848ff2aebdb9af2f8971",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343"
     },
     {
       "block_id": "docs/src/iterate_oracles.md::Coordinate and block operations / [Scoring a coordinate](@id kkt-screens)::19",
@@ -2342,11 +2414,44 @@
             "aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9",
             "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
           ]
+        },
+        {
+          "pull_request": 1142,
+          "merged": true,
+          "pull_request_url": "https://github.com/mlakolar/ProximalBase.jl/pull/1142",
+          "before_commit": "d4edbeaef1538a0b2c2328b0f7a9b4c928857197",
+          "after_commit": "a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "before_blob": "62195295c86bca936a388d1ad8e0f60530f67e29",
+          "after_blob": "fa5f537b109a68e8d5602b64b35ab50a239623f5",
+          "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343",
+          "source_shas": [
+            "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862",
+            "8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097",
+            "648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7",
+            "74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a",
+            "864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285",
+            "804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807",
+            "b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce",
+            "aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9",
+            "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
+          ],
+          "replacement_shas": [
+            "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862",
+            "8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097",
+            "648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7",
+            "74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a",
+            "864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285",
+            "804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807",
+            "b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce",
+            "aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9",
+            "c073a75244371474c84f1279e9754b71d52451091fbd5ab494f3ba139348d38e",
+            "a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66"
+          ]
         }
       ],
-      "dest": "test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding",
-      "dest_sha": "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862;8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097;648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7;74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a;864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285;804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807;b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce;aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9;a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66",
-      "reviewer": "sparsegroup_receipt_review@735de29173bd3e547c5d40039d3f27aece83d915"
+      "dest": "test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding;test/TESTING.md#CI-sharding",
+      "dest_sha": "6a19b27b53111f277e020b49921357d15c42c74f3afac525fc563d4f1d2fe862;8f7f3fd747736976b5c268a0a8f3815a33492de1ec541431cf25376db64d9097;648a2c960b33558ae3cd758498ee63f09c8ae9a61141557153eaada28fe5bbd7;74d12cd7f131a4d7d59f6f40992ce5c977c78a4b709cd40aaec7e52599e4604a;864e5d9ff15871f24c8a938b9cb44462f0aa5d57aa83ed5afdfc66a5a0f1c285;804209d08d9d3330b0117020381d3747002797714d42d27b6ec399594d42f807;b68e1ff88c6c5f1b1c0f6391b0bf2685897424c50fbc4427476e0f271fdd01ce;aa9fc7e2e805d19e18f6842555489071806fea7f35ab48db70bcfe6e98cfc1e9;c073a75244371474c84f1279e9754b71d52451091fbd5ab494f3ba139348d38e;a115233125cae51772fd19413699a95302d376205985ad32463e1d6d9e16ce66",
+      "reviewer": "reconcile_pr_review@a6b16d63d9c5102b1ac82d9995014145681d4343"
     },
     {
       "block_id": "docs/src/smooth.md::[Smooth array functions](@id Smooth-array-functions) / [Least-squares loss](@id Least-squares-loss) / [Least squares at a predictor or residual that the caller holds](@id Least-squares-at-a-predictor-or-residual-that-the-caller-holds)::15",

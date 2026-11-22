@@ -5,10 +5,11 @@
     python3 benchmark/groupscad/summarize.py CAND LEGACY    # two processes: median X/R of CAND over median X/R of LEGACY
 
 Per case and round the ratios come from ratios.csv; the summary is the median over rounds, with the minimum and maximum.
-With two directories, a case is compared only when the outputs of X in the two processes agree (outputs/*.bin): nonfinite
+With two directories, a case appears only when both directories have it, and is compared only when the outputs of X in the two processes agree (outputs/*.bin): nonfinite
 entries and values must be equal (NaN with NaN, infinities of the same sign); finite vector entries must agree within
 16 (m + 8) kappa eps(T) times the largest finite magnitude of the candidate vector and be zero in both or in neither;
-finite values must agree within 16 (m + K) eps(T) relative; kappa is (a - 1)/(a - 1 - gamma) for the step below a - 1 and 1 otherwise. The outputs compared are those of the first input of each case. Cases whose ratio exceeds 1.05 are
+finite values must agree within 16 (m + K) eps(T) relative; kappa is (a - 1)/(a - 1 - gamma) for the step below a - 1 and 1 otherwise. In the two-directory output, ratio_of_medians is the median over rounds of the candidate's X/R divided by the median X/R of the
+legacy directory, and min and max are the candidate's smallest and largest round X/R divided by that legacy median. The outputs compared are those of the first input of each case. Cases whose ratio exceeds 1.05 are
 marked with '!'. The memory and allocations of X are those of its last row in raw.csv (the last round).
 """
 import array

@@ -20,11 +20,12 @@
 # (index vectors); shape a = 3.7, level 0.75, unit weights; steps γ = (a - 1)/2 (below a - 1: convex middle piece),
 # a - 1 (at a - 1: affine middle piece) and 3(a - 1)/2 (above a - 1: nonconvex middle piece); regimes zero (every group
 # zeroed), soft (every group at the soft-thresholding point of the first piece), middle (every group on the middle piece:
-# the interior root for the step below a - 1, and the midpoint of the middle piece, which the other two steps send to
-# +0, otherwise) and kept (every group kept). The target norm of each regime is placed in the middle of its interval of
-# norms (half the zero cutoff; between γλ and the end of the soft interval; between (1 + γ)λ and aλ; twice the largest
-# cutoff); the inputs are these targets along random directions, converted to T, so that implementations that decide on
-# the computed norm take the same branches. Each case has PB_INPUTS (default 8) inputs with the same target norms and
+# the interior root for the step below a - 1, and for the other two steps the midpoint of the middle piece, which they send
+# to +0) and kept (every group kept). The target norm of each regime is placed in the middle of its interval of
+# norms (half the zero cutoff; between γλ and the end of the soft interval; between (1 + γ)λ and aλ for the step below
+# a - 1 and between λ and aλ otherwise; twice the largest cutoff); the inputs are these targets along random directions,
+# converted to T, which keeps each input away from the rounding of a threshold. This does not make two implementations
+# take the same branches where their contracts differ. Each case has PB_INPUTS (default 8) inputs with the same target norms and
 # independently drawn directions; the setup of each timed sample selects the next input of the pool (outside the timing),
 # and the three roles read the same arrays.
 #

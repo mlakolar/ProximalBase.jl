@@ -50,7 +50,7 @@ positively weighted group of finite positive level and finite shape are nonconve
 
 The value, `prox`, `prox!` and `value_and_prox!` take one-based real arrays: `Array` (a matrix is indexed linearly by
 the groups), `SparseIterate` and `BlockIterate`, read and written by indexing their entries. The destination of `prox!`
-and `value_and_prox!` has a floating-point element type; `prox` allocates one. The step is a nonnegative real scalar.
+and `value_and_prox!` has a concrete floating-point element type; `prox` allocates one. The step is a nonnegative real scalar.
 `prox_block!(out, f, u, k, γ)` and the allocating `prox_block(f, u, k, γ)` take compact vectors in the order of
 `groups[k]` and do not change an iterate. `BlockIterate(p, f)`, `BlockIterate(T, p, f)` and `BlockIterate(x, f)` take
 the groups of `f`, which must then partition the entries, with the copying rule of the constructors above.
@@ -82,7 +82,7 @@ global minimizer of ``p_{\lambda_k,a}(t)+(t-r)^2/(2\gamma)`` over ``t\ge0``, the
 ``t_*=0``, and otherwise scaled by ``t_*/r``, which is below one. At a tie between minimizers the smaller magnitude is
 taken, so a tie with zero gives `+0`. The middle piece has positive, zero or negative curvature as `γ` passes through
 `a - 1`; the scalar contract owns the comparisons. ``t_*`` can round to `r` inside the middle piece, as for the input
-`[1.2, 1.6]` with `γ = 1e-20` and `a = 3.7`: the group is then unchanged, and its value is ``p_{\lambda_k,a}`` at `r`,
+`[1.2, 1.6]` with `λ_k = 1`, `γ = 1e-20` and `a = 3.7`: the group is then unchanged, and its value is ``p_{\lambda_k,a}`` at `r`,
 below the plateau.
 
 When the input, the destination, the parameters and the step are `Float32` or `Float64`, the decisions are those of
@@ -92,7 +92,8 @@ carries the rounding of the sum of squares, and a group within that rounding of 
 The value of such a group is ``p_{\lambda_k,a}`` at its computed norm, up to rounding.
 
 At `a = Inf` each group follows the rules of [`GroupNormL2`](groupnorml2.md) at the coefficient ``\lambda_k``: soft
-group shrinkage and the value ``\lambda_k\lVert x_{G_k}\rVert_2``.
+group shrinkage and, for finite positive stored `λ0` and `w_k`, the value ``\lambda_k\lVert x_{G_k}\rVert_2``; the
+[endpoint table](@ref spec-groupscad-endpoints) gives the other cases (a hard group at a zero input has the value zero).
 
 ## [Range clauses](@id spec-groupscad-range)
 
@@ -101,8 +102,10 @@ For positive finite stored `λ0` and `w_k`, the decisions above do not require t
 infinity, and an underflowing one is not treated as a stored zero. A scaled norm is the recovery route, when needed,
 for a group whose sum of squares overflows or underflows the input type. On that route the norm and the level are
 formed as significands and exponents: ``r\le\lambda_k`` is decided on those parts and gives the soft-thresholding
-point; when the exponent of ``r/\lambda_k`` is above the exponent range of the recovery type, the group is unchanged;
-otherwise the scalar kernel decides the problem scaled by a power of two. The stored result is limited by the range
+point; with ``r=m_r2^{e_r}`` and ``\lambda_k=m_\lambda2^{e_\lambda}`` (significands in ``[1/2,1)``), when ``e_r-e_\lambda`` is above
+`exponent(floatmax(R)) + 1` for the recovery type `R` the group is unchanged; otherwise the scalar kernel decides the problem
+scaled by ``2^{-e_\lambda}``. The difference ``e_r-e_\lambda`` can be at the end of the range while ``r/\lambda_k`` is outside it
+(`r = floatmax(Float64)`, ``\lambda_k=1/2``: ``e_r-e_\lambda=1024``, and the scalar kernel runs at ``r/2^{e_\lambda}=r``). The stored result is limited by the range
 of the destination type. `Float64` examples, each with its own parameters:
 
 ```@example group_scad
@@ -138,7 +141,7 @@ Steps are nonnegative and not `NaN`.
 | `w_k = 0` (see Zero weights above) | Unchanged | `0` |
 | `w_k = Inf`, or `λ0 = Inf` and `w_k > 0` | `+0` at every valid step, `γ = 0` and `γ = Inf` included | `0` at a zero group, `NaN` at a `NaN` entry, `Inf` otherwise |
 | `λ0 = 0`, finite `w_k > 0` | Identity | `0`, also at nonfinite entries |
-| Positive finite `λ0`, `w_k`; `γ = 0` | Identity, signed zeros kept | As the rows below |
+| Positive finite `λ0`, `w_k`; `γ = 0` | Identity, signed zeros kept (see Storage below) | As the rows below |
 | Positive finite `λ0`, `w_k`; `γ = Inf` | `+0` | As the rows below |
 | Positive finite `λ0`, `w_k`; finite `γ > 0`; a `NaN` entry | Every entry `NaN` | `NaN` |
 | Same, a `±Inf` entry and no `NaN` | Unchanged | The plateau ``(a+1)\lambda_k^2/2`` for finite `a` (`Inf` at `a = Inf`) |
@@ -146,6 +149,11 @@ Steps are nonnegative and not `NaN`.
 | Same, finite nonzero group | The ordinary and range clauses above | ``p_{\lambda_k,a}`` at the norm |
 
 At `a = Inf` the rows are those of `GroupNormL2` at the level `λ0` and the weight `w_k`, which the group map and the term of that function give.
+
+**Storage.** "Unchanged", "Identity" and "signed zeros kept" refer to the values stored in the destination under the
+[storage rule](../iterates.md#Active-coordinates-are-deliberate-state) of the iterates. A dense destination, and an active coordinate of a
+`SparseIterate` or `BlockIterate`, keep a `-0.0`; a zero written to an absent coordinate of a `SparseIterate` leaves it absent,
+and it reads `+0`.
 
 ## [Failure behavior](@id spec-groupscad-failures)
 
@@ -156,7 +164,8 @@ count. The public constructors check the level, the weights and the shape before
 `ArgumentError` for complex weights. The array
 oracles and `prox_block!` throw before any write: an `ArgumentError` for a negative or `NaN` step (also when a group of
 the function is fixed at `+0` by its parameters), entries that are not
-real, a destination whose element type is not floating point, a detected partial overlap and offset axes; a
+real, a destination whose element type is not a concrete floating-point type (an integer or an abstract type such as
+`AbstractFloat`), a detected partial overlap and offset axes; a
 `DimensionMismatch` for different shapes, groups beyond the argument and a compact length that differs from the group;
 a `BoundsError` for a group number out of range or a `Bool`. A `SymmetricSparseIterate` argument or output of a
 proximal oracle with a scalar step throws an `ArgumentError` before any write.
@@ -170,14 +179,16 @@ call with a `SymmetricSparseIterate` point that passes the shared argument check
 
 ## [Limitations and non-guarantees](@id spec-groupscad-limitations)
 
-The function is nonconvex: the proximal map returns a global minimizer of the radial problem, and `GroupSCAD` carries no
-statement about the global minimization of an objective that contains it. The zero-group screen is a first-order score: a
+An instance with a positively weighted group of finite positive level and finite shape is nonconvex (see Traits; at `a = Inf`
+or with a zero level the penalty is convex). The proximal map returns a global minimizer of the radial problem, and
+`GroupSCAD` carries no statement about the global minimization of an objective that contains it. The zero-group screen is a first-order score: a
 zero value is a stationarity condition at best and does not imply a global minimizer. The score at a nonzero group and
 the full-point form are not implemented.
 
 `Scaled(GroupSCAD(...), α)` multiplies the value by `α` and calls the proximal operator with the effective step
-``\alpha\gamma`` as rounded, as for the scalar `SCAD`; the rounded step then follows this page (a step that rounds to
-zero or `Inf` takes the zero-step or infinite-step row). A zero `α` throws an `ArgumentError`. There is no compact block
+``\alpha\gamma`` as rounded, as for the scalar `SCAD`; the rounded step is passed through the ordered endpoint table (a step
+that rounds to zero or `Inf` is a zero or infinite step there, after the rows of zero weight, hard weight or level and zero
+level: a hard group stays `+0` at a step that rounds to zero). A zero `α` throws an `ArgumentError`. There is no compact block
 method and no point-aware score under `Scaled` (`MethodError`).
 
 ```@example group_scad

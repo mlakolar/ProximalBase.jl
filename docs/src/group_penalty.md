@@ -631,9 +631,12 @@ p_{\lambda,a}(t)=\begin{cases}\lambda t, & 0\le t\le\lambda,\\ \lambda t-(t-\lam
 with the effective coefficient ``\lambda_k=\lambda_0w_k`` for finite positive `λ0` and `w_k`, and the formula for ``p``
 as written for finite positive ``\lambda`` and finite `a`. A group with zero weight is unpenalized; other stored zero or
 infinite levels and weights follow the [endpoint table](@ref spec-groupscad-endpoints). The shape `a > 2` is not
-rescaled by the weights. The constructors follow those of [`GroupNormL2`](@ref group-l2-guide), with the default
-weights ``w_k=\sqrt{\lvert G_k\rvert}`` and the keyword `a = 3.7`; `a` is converted to the type of the level and the
-weights, so `GroupSCAD(1f0, groups)` stays `Float32`. The type trait `isconvex` is false.
+rescaled by the weights. The constructors copy the groups and the weights as those of [`GroupNormL2`](@ref group-l2-guide)
+do. The type is `float(promote_type(typeof(λ0), eltype(w)))` (`float(typeof(λ0))` without weights; integer levels and
+weights give `Float64`), `a` is converted to it, and the keyword defaults to `a = 3.7`, so `GroupSCAD(1f0, groups)` stays
+`Float32`. The default weights ``w_k=\sqrt{\lvert G_k\rvert}`` take the root in at least `Float64` before the conversion to the
+type (`GroupNormL2` converts the group size first, so a group of 65536 indices with a `Float16` level has the weight 256
+here); see the [parameter type rule](@ref spec-groupscad-definition). The type trait `isconvex` is false.
 
 | Constructor | Meaning |
 |:--|:--|

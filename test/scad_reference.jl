@@ -1,6 +1,7 @@
 module SCADReferenceTest
 # Independent BigFloat reference for the proximal operator and the value of the smoothly clipped absolute deviation
-# penalty (SCAD), for finite λ > 0, a > 2 and γ > 0 (the endpoint conventions belong to the callers),
+# penalty (SCAD), for finite data v, level λ > 0, shape a > 2 and step γ > 0 (the endpoint conventions and the infinite
+# shape, whose prox is a soft threshold, belong to the callers),
 #
 #     p(t) = λt                                   0 ≤ t ≤ λ,
 #     p(t) = λ² + (t - λ)(λ + (aλ - t)/(a - 1))/2  λ < t ≤ aλ,
@@ -19,7 +20,8 @@ module SCADReferenceTest
 #     objectives are compared at that precision. Candidates whose objectives agree to within 2^-(bits - 40) of their size
 #     are recomputed at 4096 bits when the precision is below 4096 (exact ties and near-ties of enormous dynamic
 #     range); candidates that still agree to that tolerance are a tie.
-#   * `scad_reference` returns the minimizer and the minimum of the objective.
+#   * `scad_reference` returns the selected minimizer (of minimum magnitude among the candidates whose objectives are tied
+#     at the tolerance above) and the smallest computed objective, which can be below the objective at that minimizer.
 #
 # `scad_search` is a bounded numerical search of the same objective (a grid followed by ternary refinement) that does not
 # use the vertex formulas; it exists to check the analytic reference. `scad_objective` is the full objective.
@@ -80,8 +82,8 @@ end
 """
     scad_reference(λ, a, v, γ; bits = nothing) -> (u, objective)
 
-Proximal point `u` of the SCAD penalty with parameters `λ`, `a` at `v` and step `γ`, and the minimum of the objective,
-by minimizing the full objective over the pieces of the penalty (finite `λ > 0`, `a > 2`, `γ > 0`). See the header of this
+Proximal point `u` of the SCAD penalty with parameters `λ`, `a` at `v` and step `γ`, and the smallest computed value of the
+objective, by minimizing the full objective over the pieces of the penalty (finite `v`, `λ > 0`, `a > 2`, `γ > 0`). See the header of this
 file for the conventions (ties, precision).
 """
 function scad_reference(λ, a, v, γ; bits::Union{Nothing, Integer} = nothing)
@@ -95,8 +97,8 @@ function scad_reference(λ, a, v, γ; bits::Union{Nothing, Integer} = nothing)
   (iszero(u) ? u : copysign(u, V)), h
 end
 
-# Search the full feasible magnitude range, then refine the best grid cell
-# without using the stationary-point formulas.
+# Search the magnitudes in [0, |t|], where a minimizer lies because the penalty is nondecreasing, then refine the best
+# grid cell without using the stationary-point formulas.
 function scad_search(λ, a, t, γ)
   objective(u) = scad_objective(λ, a, t, γ, u)
   grid = range(zero(t), abs(t); length = 1025)

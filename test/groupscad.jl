@@ -116,8 +116,9 @@ end
 dense(x) = Array(x)
 snapshot(x::AbstractArray) = copy(Array(x))
 
-# the norms at which the decisions of the scalar kernel change, for λ > 0: γλ, λ, (1 + γ)λ, aλ and the two cutoffs of the
-# ties of the nonconvex case, (a + 1 + γ)λ/2 and λ√(γ(a + 1)); a = Inf has the first two
+# candidate norms for the targets of the tests, for λ > 0: γλ, λ, (1 + γ)λ, aλ and the two cutoffs of the ties of the nonconvex
+# case, (a + 1 + γ)λ/2 and λ√(γ(a + 1)); a = Inf has the first two. Which of them changes the decision depends on γ and a (the tie
+# cutoffs apply for γ ≥ a - 1), and the tests use all of them as targets
 function knots(λ, a, γ)
   setprecision(BigFloat, PREC) do
     isinf(a) && return [big(γ) * λ, λ]
@@ -130,7 +131,7 @@ end
     f = GroupSCAD(T(0.5), [1:2, [3, 5, 7]])
     @test f isa GroupSCAD{T}
     @test f.a === T(3.7)
-    @test f.w == T[sqrt(T(2)), sqrt(T(3))]             # default √|Gₖ| in T
+    @test f.w == T[sqrt(T(2)), sqrt(T(3))]             # default √|Gₖ|: the root in at least Float64, converted to T (the same values here as the root in T)
     @test GroupSCAD(T(0.5), [1:2], T[3]).w == T[3]
     @test GroupSCAD(T(0.5), [1:2]; a = 2.5).a === T(2.5)
     @test GroupSCAD(T(0.5), [1:2]; a = T(Inf)).a === T(Inf)
@@ -198,14 +199,14 @@ end
   @test isequal(prox(e, [1.0, -0.0, NaN], 2.0), [1.0, -0.0, NaN])
 end
 
-# the output y of a soft point, y = t u/r with the norm of y t = r - γλ 
+# the norm of a soft point y = t u/r is t = r - γλ
 norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
 
 @testset "worked examples ($T)" for T in (Float32, Float64)
   a = T(3.7)
   f = GroupSCAD(one(T), [1:2], T[1]; a)                        # λ = 1
   pb(f, u, γ) = prox_block(f, T.(u), 1, T(γ))
-  # γ = 1 < a - 1 (curvature 1.7): the pieces of the proximal map
+  # γ = 1 < a - 1 (a - 1 - γ = 1.7 > 0): the pieces of the proximal map
   @test pb(f, [3, 4], 1) == T[3, 4]                           # r = 5 ≥ aλ: kept
   @test all(isequal(zero(T)), pb(f, [0.6, 0.8], 1))           # r = γλ: +0
   @test pb(f, [0.9, 1.2], 1) ≈ T[0.3, 0.4]                    # r = 1.5 ≤ (1 + γ)λ: soft, t* = 0.5
@@ -214,7 +215,7 @@ norm_close(y, t, r) = isapprox(sqrt(sum(abs2, Float64.(y))), t; rtol = 1e-4)
   for u in ([3, 4], [0.6, 0.8], [0.9, 1.2], [1.8, 2.4])
     @test check_group(pb(f, u, 1), T.(u), 1, 1, a, 1)
   end
-  # γ = 4 ≥ a - 1 (curvature -1.3): the left minimum (soft) or the right one (the point)
+  # γ = 4 ≥ a - 1 (a - 1 - γ = -1.3 ≤ 0): the left minimum (soft) or the right one (the point)
   for (r, expect) in ((3, :zero), (5, :keep), (4.5, :keep), (4.2, :soft))
     u = T[3, 4] .* T(r / 5)
     y = pb(f, u, 4)
@@ -292,6 +293,16 @@ end
     @test (z == y || check_group(z, u, λ0, w, a, γ)) && fused_close(v, g(z), n, 1)
   end
   @test nok == ncase
+  # a deterministic group of 4096 entries (default weight 64) at each candidate knot of three steps
+  let n = 4096, λ0 = one(T), w = T(64), a = T(3.7), rng = Xoshiro(4096 + sizeof(T))
+    for γ in (T(5), T(100), T(200)), c in knots(biglevel(λ0, w), a, γ)
+      u = vector_with_norm(rng, T, n, c)
+      f = GroupSCAD(λ0, [1:n], [w]; a)
+      y = prox_block(f, u, 1, γ)
+      @test check_group(y, u, λ0, w, a, γ)
+      @test close_value(f(u), refterm(u, λ0, w, a), n, 1)
+    end
+  end
   # several groups in one array: permuted, noncontiguous, with entries in no group before, between and after
   groups = [[5, 2], 7:9, [1], [12, 10, 11]]
   w = T[1, 0.5, 2, 1]
@@ -326,7 +337,7 @@ end
 
 @testset "knots, plateau and shapes near 2 ($T)" for T in (Float32, Float64)
   rng = Xoshiro(5 + sizeof(T))
-  # the norms at the knots of each step regime, one rounding either side, for a few shapes and group sizes
+  # target norms 1 ± 4eps(T) times each candidate knot (the vectors are rounded after scaling), for a few shapes and group sizes
   for a in (nextfloat(T(2)), T(2) + 64eps(T), T(3), T(3.7), T(10)), λ0 in (one(T), T(0.6))
     crit = a - 1
     for γ in (T(0.3), one(T), prevfloat(crit), crit, nextfloat(crit), crit + 1, T(30)), n in (1, 2, 5)
@@ -346,7 +357,7 @@ end
   for γ in (T(0.5), T(1.5), T(1.9))
     @test prox_block(f, T[30, 40], 1, γ) == T[30, 40]
   end
-  # a near 2: the middle piece is almost a concave quadratic with slope λ at λ and 0 at aλ
+  # a near 2: the middle piece is a concave quadratic with slope λ at λ and 0 at aλ, here on a short interval
   g = GroupSCAD(one(T), [1:1], T[1]; a = nextfloat(T(2)))
   @test g(T[1]) == T(1)
   @test g(T[nextfloat(T(2))]) ≈ T(1.5) rtol = 4eps(T)
@@ -415,9 +426,9 @@ end
   u3 = [3.0 * 2.0^600, 4.0 * 2.0^600]
   @test prox_block(f3, u3, 1, 1.0) == u3
   @test check_group(prox_block(f3, u3, 1, 1.0), u3, 2.0^-600, 2.0^-600, 3.7, 1.0)
-  # the value there overflows (r λ ≈ 1e609 in the first piece), and a value far below the subnormal range is zero
+  # f(u2) overflows (r λ ≈ 1e609 in the first piece); f3(u3) is the plateau 2.35 λ² ≈ 2^-2399, which rounds to zero
   @test close_value(f(u2), refterm(u2, 2e154, 1e154, 3.7), 2, 1) && f(u2) === Inf
-  @test close_value(f3(u3), refterm(u3, 2.0^-600, 2.0^-600, 3.7), 2, 1)
+  @test f3(u3) === 0.0
   @test value_and_prox!(similar(u2), f, u2, 1.0) === 0.0
 end
 
@@ -461,7 +472,7 @@ end
     @test h([0.9e308]) ≈ 4.95e307 rtol = 1e-14
     @test close_value(h([0.9e308]), refterm([0.9e308], 1, 1, 1e308), 1, 1)
   end
-  # a level at floatmax with a second group whose plateau overflows: Inf, not NaN
+  # a level 2^E below floatmax, with a second group whose linear term r λ overflows (both norms are below their levels): Inf, not NaN
   E = exponent(floatmax(T))
   λ = ldexp(one(T), E)
   g = GroupSCAD(λ, [1:1, 2:2], T[1, 4])
@@ -482,8 +493,8 @@ end
 @testset "scaling by powers of two ($T)" for T in (Float32, Float64)
   # prox(GroupSCAD(2^j λ0), 2^j u, γ) = 2^j prox(GroupSCAD(λ0), u, γ) across the ordinary and scaled paths; the unit-scale
   # sums of squares of these groups are exact (those of the scaled inputs can leave the range) and the inputs are not
-  # within rounding of the cutoffs of the decisions; bitwise in Float64, and in Float32 bitwise for zero and kept groups,
-  # within two ulps for the points in between
+  # within rounding of the cutoffs of the decisions; bitwise (isequal, signed zeros included) in Float64, and in Float32 bitwise
+  # for zero and kept groups, within two ulps for the points in between
   E = exponent(floatmax(T))
   for (u, γ, a) in ((T[3, 4], T(1), T(3.7)), (T[1.5, 2], T(1), T(3.7)), (T[1, 2, 2], T(3), T(3)), (T[1, 2, 2], T(4), T(2.5)),
                     (T[0.75, 1], T(1), T(3.7)), (T[3, 4], T(10), T(3)), (T[3, 4], T(30), T(3)), (T[6, 8], T(12), T(3)),
@@ -494,7 +505,7 @@ end
       s = T(2)^j
       y = prox_block(GroupSCAD(s, [1:length(u)], T[1]; a), s .* u, 1, γ)
       if T === Float64 || all(v -> iszero(v) || v in u, y0)
-        @test y == s .* y0
+        @test isequal(y, s .* y0)
       else
         # Float32 points in between: the scaled path forms the factor in Float64
         @test all(i -> abs(y[i] - s * y0[i]) <= 2eps(abs(s * y0[i])), eachindex(y))
@@ -623,6 +634,47 @@ end
   @test check_group(prox(GroupSCAD(1.0, [1:2]), Float32[1.2, 1.6], 0.1)[1:2], Float32[1.2, 1.6], 1.0, sqrt(2.0), 3.7, 0.1)
 end
 
+@testset "signed zeros under the storage rule" begin
+  f = GroupSCAD(1.0, [1:1], [1.0])
+  # dense destinations keep a stored -0.0 at a zero step, and so does an active coordinate of a sparse destination
+  @test isequal(prox(f, [-0.0], 0.0), [-0.0])
+  s = SparseIterate(Float64, 1)
+  activate!(s, 1)
+  s[1] = -0.0
+  @test signbit(s[1])
+  act = SparseIterate(Float64, 1)
+  activate!(act, 1)
+  @test prox!(act, f, [-0.0], 0.0) === act && signbit(act[1])
+  # a zero written to an absent coordinate leaves it absent: a fresh sparse destination reads +0
+  fresh = prox(f, s, 0.0)
+  @test fresh isa SparseIterate && isequal(fresh[1], 0.0) && !signbit(fresh[1])
+  fresh2 = SparseIterate(Float64, 1)
+  @test prox!(fresh2, f, [-0.0], 0.0) === fresh2 && isequal(fresh2[1], 0.0) && nnz(fresh2) == 0
+end
+
+@testset "BlockIterate with an inactive block ($T)" for T in (Float32, Float64)
+  groups = [1:2, 3:4, 5:6]
+  f = GroupSCAD(T(0.6), groups, T[1, 1, 0.5])
+  x = T[1.5, -0.2, 0, 0, 4, -3]                 # the block 2 is inactive
+  b = BlockIterate(x, f)
+  @test !isactive(b, 2) && nactive(b) == 2
+  for γ in (T(0.5), T(3), T(0))
+    y = prox(f, x, γ)
+    yb = prox(f, b, γ)
+    @test yb isa BlockIterate && isapprox(Vector(yb), y; rtol = 0, atol = 8eps(T) * maximum(abs, x))
+    @test isequal(Vector(yb)[3:4], y[3:4])
+    @test f(b) ≈ f(x)
+    z = similar(b)
+    @test value_and_prox!(z, f, b, γ) ≈ f(Vector(z))
+    bc = copy(b)
+    @test prox!(bc, f, bc, γ) === bc && isapprox(Vector(bc), y; rtol = 0, atol = 8eps(T) * maximum(abs, x))
+  end
+  # a compact call on the inactive block, from the iterate's own (zero) block
+  out = fill(T(7), 2)
+  @test prox_block!(out, f, blockview(b, 2), 2, one(T)) === out && all(isequal(zero(T)), out)
+  @test !isactive(b, 2)
+end
+
 @testset "preflight refusals leave outputs unchanged ($T)" for T in (Float32, Float64)
   f = GroupSCAD(one(T), [1:2, 3:4], T[1, 1])
   hard = GroupSCAD(one(T), [1:2, 3:4], T[Inf, 1])
@@ -659,6 +711,19 @@ end
     @test_throws ArgumentError op(yi, f, [1, 0, 0, 1], one(T))
     @test yi == zeros(Int, 4)
   end
+  # an abstract floating-point element type is refused before the entries in no group are written
+  fa = GroupSCAD(one(T), [2:2], T[1])
+  for op in (prox!, value_and_prox!), step in (T(0.5), one(T), T(0))
+    ya = AbstractFloat[99.0, 99.0]
+    @test_throws ArgumentError op(ya, fa, T[1, 2], step)
+    @test ya == AbstractFloat[99.0, 99.0]
+    yb = AbstractFloat[99.0, 99.0]
+    @test_throws ArgumentError op(yb, fa, T[1, 2], T(Inf))
+    @test yb == AbstractFloat[99.0, 99.0]
+  end
+  oa = AbstractFloat[99.0]
+  @test_throws ArgumentError prox_block!(oa, fa, T[2], 1, one(T))
+  @test oa == AbstractFloat[99.0]
   out = fill(T(7), 2)
   for k in (0, 3, -1, true)
     @test_throws BoundsError prox_block!(out, f, T[1, 2], k, one(T))

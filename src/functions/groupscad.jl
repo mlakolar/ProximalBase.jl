@@ -22,8 +22,8 @@ false.
 
 The type of the function is `float(promote_type(typeof(λ0), eltype(w)))`, or
 `float(typeof(λ0))` without weights, and `a` is converted to it: the default
-`a = 3.7` does not promote a `Float32` function. A value of `a` that is not
-above 2, or is not finite, after the conversion is refused.
+`a = 3.7` does not promote a `Float32` function. A converted shape that is
+not above 2 is refused, and so is a finite supplied shape that converts to `Inf`.
 
 [`prox`](@ref) takes a nonnegative **scalar** step `γ`. For finite positive
 `λₖ`, `a` and `γ` and a finite nonzero group norm `r = ‖u[Gₖ]‖₂`, it replaces
@@ -58,7 +58,7 @@ julia> prox_block(f, [0.6, 0.8], 1, 1.0)  # r = γλ gives +0
 ```
 
 # Edge cases
-- Real, one-based arrays and floating-point destinations are required.
+- Real, one-based arrays and destinations of a concrete floating-point element type are required.
   Negative or `NaN` steps fail before writes.
 - Exact in-place use (`y === x`, `out === u`) is supported; other overlaps
   detected by `Base.mightalias` are rejected.
@@ -140,14 +140,16 @@ _checkparams(f::GroupSCAD, x) = (_check_group_extent(f, x); true)
 _checkparams(::GroupSCAD, ::SymmetricSparseIterate) = true
 
 @noinline _gscad_float_error(op, S) = throw(ArgumentError(
-  "$(nameof(op)) with GroupSCAD needs a floating-point destination, got element type $S"))
+  "$(nameof(op)) with GroupSCAD needs a destination with a concrete floating-point element type, got $S"))
+@inline _gscad_concrete_float(::Type{S}) where {S} = isconcretetype(S) && S <: AbstractFloat
 @noinline _gscad_alias_error() = throw(ArgumentError("GroupSCAD supports exact input/output aliasing (y === x) only"))
 
-# The checks of GroupNormL2's array oracles, a floating-point destination (a scaled group would otherwise fail its
-# conversion part way through the writes), and the alias check of the compact blocks
+# The checks of GroupNormL2's array oracles, a destination of a concrete floating-point element type (an integer or
+# abstract element type could fail the conversion of a scaled group part way through the writes), and the alias check
+# of the compact blocks
 @inline function _gscad_check_arrays(op, f, y::AbstractArray, x::AbstractArray, γ::Real)
   _check_group_arrays(f, y, x, γ)
-  eltype(y) <: AbstractFloat || _gscad_float_error(op, eltype(y))
+  _gscad_concrete_float(eltype(y)) || _gscad_float_error(op, eltype(y))
   (y === x || !Base.mightalias(y, x)) || _gscad_alias_error()
   nothing
 end
@@ -359,9 +361,9 @@ end
 #    finite a and γ of R, and the group is copied;
 #  * otherwise r′ = ldexp(mt, et - el) is a normal number in [1/2, floatmax(R)] and t′ is the scalar kernel at (r′, ml, a, γ),
 #    the problem scaled by 2^-el; the group is copied for t′ == r′, set to +0 for t′ == 0 and otherwise scaled by t′ / r′.
-# The decisions are those of the scalar kernel on the computed norm and the level as formed. For R = Float32 or Float64,
-# r′ ≥ 1/2 and ml ≥ 1/2 are above floatmin(R)/eps(R), where the small-magnitude branch of _scad_magnitude starts, so
-# _scad_prox is called directly.
+# The decisions are those of the scalar kernel on the computed norm and the level as formed. R is at least Float64. For
+# R = Float64, r′ ≥ 1/2 and ml ≥ 1/2 are above floatmin(R)/eps(R), where the small-magnitude branch of _scad_magnitude
+# starts; a wider R has only the generic _scad_magnitude, which is _scad_prox. _scad_prox is called directly.
 @noinline function _gscad_shrink_values!(y, x, G, λ0, w, a, γ::Real)
   T = float(eltype(y))
   R = _recovery_type(_working_type(T, γ, λ0, w), float(eltype(x)))
@@ -464,7 +466,7 @@ _value_and_prox_unchecked!(y::AbstractArray, f::GroupSCAD, x::AbstractArray, γ:
 
 function prox_block!(out::AbstractVector, f::GroupSCAD, u::AbstractVector, k::Integer, γ::Real)
   m = _check_group_block(out, f, u, k, γ)
-  eltype(out) <: AbstractFloat || _gscad_float_error(prox_block!, eltype(out))
+  _gscad_concrete_float(eltype(out)) || _gscad_float_error(prox_block!, eltype(out))
   G = Base.OneTo(m)
   w = @inbounds f.w[k]
   if isinf(f.a)

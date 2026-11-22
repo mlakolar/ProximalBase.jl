@@ -78,9 +78,7 @@ When a heading is renamed or its content moves, retain a forwarding stub for
 an explicit `@id` or a heading with an authored incoming link or source citation.
 Check the manual, docstrings, repository entry documents and examples before
 retiring an automatic heading fragment. Generated self-permalinks and navigation
-links do not require a stub. Record an uncited automatic heading's retirement
-and its successor in the migration audit; preserve the frozen inventory as
-evidence of the earlier page.
+links do not require a stub.
 
 ## Review and validation
 

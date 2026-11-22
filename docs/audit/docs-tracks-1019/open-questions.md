@@ -1,5 +1,11 @@
 # Documentation migration open questions
 
+**Closed.** These historical questions and decisions are frozen, with
+no further edits expected. The owner approved the
+[Phase 5 acceptance record](https://github.com/mlakolar/ProximalBase.jl/issues/1019#issuecomment-7075157741)
+at `8a5fac060a5618cedac05563267212e2e3b15bd6`.
+[Owner sign-off](https://github.com/mlakolar/ProximalBase.jl/issues/1019#issuecomment-7081858154)
+
 ## Numerical policy
 
 No numerical-policy discrepancy was identified in the verbatim `NormL1` pilot

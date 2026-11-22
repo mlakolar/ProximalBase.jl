@@ -255,8 +255,6 @@ xh = [2.0, -3.0, 0.25]
 @assert kkt_violation(h, vh, [0.0, 0.0, 0.0], 3) ≈ 0.8 - 0.5 * 2.0
 ```
 
-### Weights, shapes and representations
-
 The weights, shapes, supported representations and unsupported combinations now live in
 [Supported arguments](@ref spec-elasticnet-arguments).
 
@@ -299,25 +297,10 @@ f = NormL1Nonneg(0.5, [1.0, 2.0])
 f([2.0, 1.0])
 ```
 
-### The domain
-
-The numerical details and executed checks are in the
-[NormL1Nonneg contract](@ref spec-norml1nonneg-definition).
-
-### Weights, shapes and representations
-
-The numerical details and executed checks are in the
-[NormL1Nonneg contract](@ref spec-norml1nonneg-arguments).
-
-### Steps and endpoint rules
-
-The numerical details and executed checks are in the
-[NormL1Nonneg contract](@ref spec-norml1nonneg-endpoints).
-
-### KKT scores, restriction and scaling
-
-The numerical details and executed checks are in the
-[NormL1Nonneg contract](@ref spec-norml1nonneg-ordinary).
+The numerical contract covers the [domain](@ref spec-norml1nonneg-definition),
+[weights, shapes and representations](@ref spec-norml1nonneg-arguments),
+[steps and endpoint rules](@ref spec-norml1nonneg-endpoints), and
+[KKT scores, restriction and scaling](@ref spec-norml1nonneg-ordinary).
 
 ## [Minimax concave penalty](@id mcp-guide)
 

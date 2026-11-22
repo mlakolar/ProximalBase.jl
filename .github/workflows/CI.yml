@@ -51,24 +51,24 @@ jobs:
           python3 scripts/check_repo_hygiene.py --base "${BASE:-HEAD^1}"
   # The validation lanes run concurrently.
   test:
-    name: Julia 1.13 / Linux (tests ${{ matrix.shard }}/3)
+    name: Julia 1.13 / Linux (tests ${{ matrix.shard }}/6)
     needs: [changes]
     if: needs.changes.outputs.docs_only == 'false'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1.13'
       - uses: julia-actions/cache@v3
-      - name: Test declared minimal inventory (shard ${{ matrix.shard }}/3)
+      - name: Test declared minimal inventory (shard ${{ matrix.shard }}/6)
         run: |
           set -o pipefail
-          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; test_args=["--shard=${{ matrix.shard }}/3"], julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests-shard-${{ matrix.shard }}.log"
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test(; test_args=["--shard=${{ matrix.shard }}/6"], julia_args=["--check-bounds=yes"])' 2>&1 | tee "${RUNNER_TEMP}/pb-package-tests-shard-${{ matrix.shard }}.log"
       - name: Preserve package validation logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -266,9 +266,10 @@ jobs:
   publish-preview:
     name: Publish PR documentation preview
     # !cancelled() replaces the implicit success() check, so the intentionally
-    # skipped test and benchmark jobs upstream of gate do not skip this job; a
-    # cancelled workflow still stops it. The explicit results require gate and
-    # docs to have succeeded, and the event conditions still apply.
+    # skipped test and benchmark jobs upstream of gate do not by themselves skip
+    # this job. The condition becomes false when GitHub reevaluates it after a
+    # cancellation. The gate and docs results and the event conditions are
+    # additional requirements.
     if: >-
       !cancelled() &&
       needs.gate.result == 'success' &&
@@ -333,8 +334,9 @@ jobs:
   deploy-docs:
     name: Publish validated documentation
     # As for publish-preview: !cancelled() replaces the implicit success()
-    # check, and the explicit results and event conditions decide eligibility.
-    # The publication steps below also require this commit to be the master tip.
+    # check, and the gate and docs results and event conditions are additional
+    # requirements. The publication steps below also require this commit to
+    # equal the fetched master tip at the time of the freshness check.
     if: >-
       !cancelled() &&
       needs.gate.result == 'success' &&

@@ -285,13 +285,13 @@ legacy/full. No retained failure is skipped to accommodate the reduction.
 
 ## CI sharding
 
-The full declared inventory is split across three Linux runners on Julia 1.13.
+The full declared inventory is split across six Linux runners on Julia 1.13.
 The runner assigns selected files longest-processing-time first. It considers
 files in descending weight order, breaking ties by file name, and assigns each
 file to the shard with the smallest cumulative weight, breaking ties by shard
 index. Within each shard, files run in their original sorted selection order.
-Each declared test is assigned to exactly one of the three full CI shards.
-When the change-classification job succeeds with `docs_only=true`, the three
+Each declared test is assigned to exactly one of the six CI shards.
+When the change-classification job succeeds with `docs_only=true`, the six
 shards and the benchmark differential are skipped; the repository hygiene check
 has already passed in that job, and the independently scheduled strict docs
 build is still required. A non-empty change is documentation-only
@@ -310,53 +310,9 @@ The runner validates the complete inventory and weight table before selection,
 and runs each selected file in a fresh Julia process with bounds checks enabled.
 
 The `[weights]` entries in `tiers.toml` estimate test-file subprocess wall
-time in seconds. The initial snapshot uses medians of three measurements,
-rounded to one decimal second, from these Julia 1.13.4 GitHub Actions runs of
-the 50-file inventory.
-[44576422943](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44576422943/attempts/1),
-[44578529805](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578529805/attempts/1),
-and [44578535495](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44578535495/attempts/1).
-
-The 51-file snapshot used provisional weights of 30 seconds for
-`logisticloss` and 140 seconds for the expanded `numerical_recovery`.
-Both use a single observation rounded up to the next five seconds. The
-observed wall times were 27.848 and 135.210 seconds, respectively, on Julia
-1.13.4. [51-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44592628040/attempts/1)
-
-The 53-file snapshot used provisional weights of 80 seconds for
-`kkt_smooth`, 15 seconds for `scad`, and 145 seconds for the expanded
-`numerical_recovery`. Each rounded one observation
-up to the next five seconds. The measured times were 78.011, 13.374,
-and 142.804 seconds on Julia 1.13.4. [53-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44604834492/attempts/1)
-
-The 54-file snapshot uses provisional weights of 35 seconds for
-`groupnormlinf`, 85 for `kkt_smooth`, 15 for `scad`, and 150 for
-`numerical_recovery`. Each rounds one observation from the successor
-checkout up to the next five seconds. The measured times were 33.898,
-84.136, 14.302, and 149.517 seconds on Julia 1.13.4.
-[54-file calibration run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44615346170/attempts/1)
-
-The 55-file snapshot adds a provisional 15-second weight for `mcp`. This
-rounds the slower of two passing Julia 1.13.4 observations, 10.808 and
-14.887 seconds, up to the next five seconds. The second file passed before
-a newer master push cancelled its workflow.
-[Upstream PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44631092792/attempts/1)
-and [master shard log](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44633118421/job/135944670781).
-
-A historical 56-file snapshot, from commit 879e067, added a provisional 40-second weight for
-`norml0offdiag`; later snapshots cover more files.
-This rounds up to the next five seconds one Julia 1.13.4 observation, 38.971
-seconds, from CI at commit 879e067 (shard 1/3 of
-[run 44665776339](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44665776339)).
-
-The weight of `groupnormlinf` is 125 seconds, replacing the 35-second snapshot weight. It rounds one observation of
-`test/groupnormlinf.jl`, 122.629 seconds on Julia 1.13.4 (shard 3/3), up to the next five seconds, from the run of the pull request that added
-the nonzero-group and full-point scores of `kkt_violation` for `GroupNormLinf`.
-[PR run](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44663113969/attempts/1).
-The observation was taken before two testsets of the file were shortened, so the weight is conservative.
-
-The provisional weight of `groupmcp` is 60 seconds. It rounds up, with margin for the CI runner, the Discovery observations
-of the file, 46.0 seconds on Julia 1.10.13 and 43.6 seconds on Julia 1.13.4, before a CI run of the file exists.
+time in seconds. The current values are the medians, rounded to one decimal
+second, of the `PB_TEST_FILE_TIME` records of 8 successful Julia 1.13.4 CI runs
+of the 62-file inventory on 2026-11-22: [44982626333](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982626333), [44982979326](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44982979326), [44983012139](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44983012139), [44984893045](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984893045), [44984940280](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984940280), [44984973795](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44984973795), [44985870372](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44985870372), [44986482294](https://github.com/mlakolar/ProximalBase.jl/actions/runs/44986482294).
 
 After a significant inventory or runtime change, collect fresh timings from
 representative successful CI runs with a matching inventory and Julia version.
@@ -365,7 +321,7 @@ no representative timings yet, assign an explicit conservative provisional
 weight and record its justification.
 
 Locally, run all tests with `julia scripts/test.jl`, or reproduce a CI shard
-with `julia scripts/test.jl --shard=1/3` (similarly `2/3` and `3/3`).
+with `julia scripts/test.jl --shard=1/6` (similarly `2/6` to `6/6`).
 
 Positional arguments of the runner select files by name prefix. With `--exact`, each positional
 selector must equal a manifest name of the selected tier, at least one is required, an unknown
@@ -383,7 +339,7 @@ unsharded runs. Find both records in the GitHub Actions test job logs and the
 `package-validation-logs-linux-julia-1.13-shard-*` artifacts.
 
 The inventory/partition contract is checked by `ci_contract`. The PR verdict
-and merge gate require the three shards and the frozen differential check
+and merge gate require the six shards and the frozen differential check
 unless the change is documentation-only, in which case they must be skipped;
 they require the change classification and the strict documentation build. PR builds may warm
 independent Julia package caches for the three validation job types.
@@ -463,7 +419,7 @@ The verdict checks are in `scripts/full_validation_verdict.py`. A passing verdic
   is `FOCUSED VALIDATION`, not a full validation;
 - for `release`, also a CI.yml run on the commit with event `push` or `workflow_dispatch`,
   conclusion `success`, and `PR required jobs`, `Frozen benchmark differential / Linux`,
-  `Strict documentation / Linux` and the three `Julia 1.13 / Linux (tests N/3)` jobs all `success`.
+  `Strict documentation / Linux` and the six `Julia 1.13 / Linux (tests N/6)` jobs all `success`.
 
 A retried run can give a passing verdict only if it reruns all matrix jobs, because each planned cell
 needs a log of the current attempt.

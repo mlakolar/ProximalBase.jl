@@ -53,7 +53,7 @@ and update the contract family map and navigation.
 
 CI gates pull requests and master pushes with Julia 1.13 on Linux. A
 change-classification job runs the repository hygiene checks and classifies
-the changed paths. Three independent test shards cover the complete retained
+the changed paths. Six independent test shards cover the complete retained
 inventory with bounds checks, and the frozen benchmark differential and the
 strict docs build are eligible to run in parallel on separate Linux runners. A non-empty change is
 documentation-only when every changed path, including both sides of a rename

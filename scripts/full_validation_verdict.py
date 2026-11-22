@@ -32,15 +32,13 @@ FOCUSED_PREFIX = "Focused / "
 MODES = ("full", "focused", "release")
 MAX_FOCUSED_FILES = 20
 # The CI.yml jobs that a release needs on the candidate commit: `PR required jobs`, the
-# frozen benchmark, the strict documentation build and the three Julia 1.13 test shards.
+# frozen benchmark, the strict documentation build and the six Julia 1.13 test shards.
 CI_EVENTS = ("push", "workflow_dispatch")
 CI_REQUIRED_JOBS = (
     "PR required jobs",
     "Frozen benchmark differential / Linux",
     "Strict documentation / Linux",
-    "Julia 1.13 / Linux (tests 1/3)",
-    "Julia 1.13 / Linux (tests 2/3)",
-    "Julia 1.13 / Linux (tests 3/3)",
+    *(f"Julia 1.13 / Linux (tests {n}/6)" for n in range(1, 7)),
 )
 SIGNATURE_HASH_LENGTH = 12
 # Substrings of the platform triple that `Sys.MACHINE` reports for each runner OS.

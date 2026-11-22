@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" role="img" aria-labelledby="title description">
+  <title id="title">Intermediate and final exponents</title>
+  <desc id="description">Exponent 1032 exceeds the Float64 finite exponent range. Exponent 1020 fits.</desc>
+  <rect width="480" height="240" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="15" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="24" y="28" fill="#192438" text-anchor="start">Intermediate and final exponents</text>
+    <rect x="192" y="65" width="236" height="107" rx="6" fill="#f8e8df" />
+    <polyline points="54.00,133.00 428.00,133.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="192.00,63.00 192.00,174.00" fill="none" stroke="#aa4b20" stroke-width="2" />
+    <circle cx="100" cy="133" r="4.5" fill="#1e55b3" />
+    <text x="100" y="158" fill="#1e55b3" text-anchor="middle">1020</text>
+    <circle cx="376" cy="133" r="4.5" fill="#aa4b20" />
+    <text x="376" y="158" fill="#aa4b20" text-anchor="middle">1032</text>
+    <text x="100" y="109" fill="#1e55b3" text-anchor="middle">exact result</text>
+    <text x="376" y="109" fill="#aa4b20" text-anchor="middle">a × b</text>
+    <text x="192" y="194" fill="#586577" text-anchor="middle">2¹⁰²⁴ exceeds the finite range</text>
+  </g>
+</svg>

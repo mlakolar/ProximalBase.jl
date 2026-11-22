@@ -12,13 +12,6 @@ readings, source/test evidence, and the owner's decision here before converting
 that statement into a classified clause. Do not infer a decision from an example
 that happens to pass.
 
-- The `NormL2` range text says the sums visit “each off-diagonal symmetric
-  coordinate twice”. This could count contributions to the squared norm or
-  visits to the stored entry. The ordinary sum doubles a stored off-diagonal
-  square, and recovery uses a multiplicity. The wording awaits the owner's
-  decision. [Source](../../../src/functions/sqrnorml2.jl)
-  · [Tests](../../../test/norml2.jl)
-
 - The NormLinf range paragraph calls τ* the root of the level equation
   at the rounded radius. If the radius rounds to zero, every level at or above
   the largest magnitude solves the equation. The statement could refer to the
@@ -111,6 +104,12 @@ that happens to pass.
 | Source question | Approved wording and status | Evidence |
 |:--|:--|:--|
 | [Absolute error bound](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/linear.md#L72-L83) could count nonzero products or all positions | The error analysis counts the nonzero products entering the accumulator. Each zero product returns the accumulator unchanged. The bound applies in the stated homogeneous configurations and requires `n < 2^50` for `Float64`. `characterized`. | [Recovery analysis](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/linear.jl#L200-L218) · [Zero-product exit](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/numerical_kernels.jl#L319-L325) · [Sparse reference comparison](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/linear_sparse_value.jl#L614-L621) · [Other storage recovery tests](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/linear_value_recovery.jl#L5-L10) |
+
+## NormL2 decision
+
+| Source question | Approved wording and status | Evidence |
+|:--|:--|:--|
+| [Symmetric value traversal](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/docs/src/spec/norml2.md#L43-L47) could count visits to a stored off-diagonal coordinate or its contributions to the squared norm | Each off-diagonal coordinate occupies one stored entry, with multiplicity two in the squared norm. Implementation note. | [Ordinary sum and recovery multiplicity](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/src/functions/sqrnorml2.jl#L63-L94) · [Dense-reference comparisons](https://github.com/mlakolar/ProximalBase.jl/blob/11fd9eff56e2bc15947f2eaccd746eb8cea6f0ed/test/norml2.jl#L161-L173) |
 
 ## SparseGroupNormL2 decisions recorded in #1123
 

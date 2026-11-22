@@ -508,7 +508,7 @@ kkt_violation(f::GroupSCAD, g::AbstractArray, i::Integer) =
   "kkt_violation(f, v, x) is not implemented for GroupSCAD; use kkt_violation(f, v, x, k) at a zero group or an entry in no group"))
 
 # The screen of a zero group, that of GroupNormL2 with the level and the weight passed as factors (‖v[G]‖₂ - λ0 wₖ for
-# finite v, λ0 and wₖ; ‖v[G]‖₂ for a zero weight; GroupNormL2's rules for NaN and infinite values otherwise); a nonzero
+# entries of v finite after conversion to W, and finite λ0 and wₖ; ‖v[G]‖₂ for a zero weight; GroupNormL2's rules for NaN and infinite values otherwise); a nonzero
 # group throws an ArgumentError.
 @inline function _gscad_zero_score(f::GroupSCAD, g, x, k, ::Type{W}) where {W}
   G = @inbounds f.groups[k]

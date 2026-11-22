@@ -234,7 +234,7 @@ numerical targets are the homogeneous ones in Supported arguments.
 
 | Clause ID | Status | Evidence |
 |:--|:--|:--|
-| `group-scad.kkt.entry-classification` | `characterized` | [GroupSCAD dispatch to the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/1c5667c979f52a1d79ada76383fbc201ae3743b0/src/functions/groupscad.jl#L510-L533), [Working-type conversion in the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/src/numerical_kernels.jl#L1134-L1145), and [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/test/kkt_block.jl#L1233-L1241) |
+| `group-scad.kkt.entry-classification` | `characterized` | [GroupSCAD dispatch to the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/1c5667c979f52a1d79ada76383fbc201ae3743b0/src/functions/groupscad.jl#L510-L533), [Working-type conversion in the shared screen](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/src/numerical_kernels.jl#L1134-L1145), [Shared mixed-width checks](https://github.com/mlakolar/ProximalBase.jl/blob/a0bd0aa099c731bba4d24c49dad4092e221cb1db/test/kkt_block.jl#L1233-L1241), and [GroupSCAD gradient conversion tests](https://github.com/mlakolar/ProximalBase.jl/blob/8f882440c7db8d5200f42bfef95407d675e905bc/test/groupscad.jl#L938-L951) |
 
 [`test/groupscad.jl`](https://github.com/mlakolar/ProximalBase.jl/blob/master/test/groupscad.jl) compares the proximal
 map with a BigFloat minimization of the radial objective that does not use the package, at the group norm computed in 512-bit

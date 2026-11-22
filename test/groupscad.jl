@@ -942,6 +942,8 @@ end
   # conversion to W is infinite there
   @test kkt_violation(f, UInt128[big128], Float32[0], 1) === Inf32
   @test kkt_violation(f, [10^6], Float16[0], 1) === Inf16
+  # the entry is converted before the subtraction: a residual formed in a wider type would be 0 here
+  @test kkt_violation(GroupSCAD(1e6, [1:1], [1.0]), [10^6], Float16[0], 1) === Inf16
   # an entry in no group is converted in the same way
   @test kkt_violation(f, UInt128[0, big128], Float32[0, 0], 2) === Inf32
   # entries that fit are scored as finite entries in W (here Float64: the Float64 gradient is not narrowed)

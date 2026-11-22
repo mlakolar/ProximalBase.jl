@@ -503,8 +503,8 @@ group and of the distance of every group, a zero group included, where the dista
 entries. Under `Scaled` it has the routes of `GroupNormL2`. The three-argument form and a `SymmetricSparseIterate` throw an `ArgumentError`.
 
 [`GroupMCP`](@ref) and [`GroupSCAD`](@ref) have `kkt_violation(f, v, x, k)` at a zero group, the screen of `GroupNormL2` with the level and the
-weight as separate factors (`norm(v_G) - λ0*w_G` for finite `v`, `λ0` and `w_G`; its numerical contract gives the other
-cases), and `abs(vₖ)` at an entry in no group. At a real array point (a `BlockIterate` included) they throw an
+weight as separate factors (`norm(v_G) - λ0*w_G` for finite `λ0` and `w_G` and entries of `v` that are finite after conversion
+to the working type `float(promote_type(eltype(v), eltype(x)))`; its numerical contract gives the other cases), and `abs(vₖ)` at an entry in no group. At a real array point (a `BlockIterate` included) they throw an
 `ArgumentError` at a nonzero group and in the full-point form, and `kkt_violation(f, v, i)` throws an `ArgumentError`. A
 zero score does not imply a global minimizer. Under `Scaled` they have no point-aware score (`MethodError`).
 

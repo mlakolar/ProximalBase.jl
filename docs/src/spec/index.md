@@ -44,6 +44,7 @@ apply alongside each entry.
 | `PoissonLoss` | [Numerical contract](poissonloss.md) | Authored contract |
 | `SqrtLeastSquaresLoss` | [Numerical contract](sqrt_leastsquares.md) | Verbatim migration |
 | `QuadraticFunction` | [Numerical contract](quadratic.md) | Verbatim migration |
+| `KronQuadratic` | [Numerical contract](kronquadratic.md) | Authored contract |
 | `LinearFunction` and `ZeroFunction` | [Numerical contract](linear.md) | Verbatim migration |
 | `NormL2` | [Numerical contract](norml2.md) | Verbatim migration |
 | `NormLinf` | [Numerical contract](normlinf.md) | Verbatim migration |

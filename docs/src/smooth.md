@@ -429,6 +429,120 @@ x = [2.0, -1]
 prox(f,x,0.5)
 ```
 
+## [Kronecker quadratic](@id Kronecker-quadratic)
+
+```math
+q(X)=\frac12\langle X,AXB\rangle_F+\langle C,X\rangle_F
+=\frac12\operatorname{vec}(X)^\top(B\otimes A)\operatorname{vec}(X)+\operatorname{vec}(C)^\top\operatorname{vec}(X).
+```
+
+[`KronQuadratic(A, B, C)`](@ref KronQuadratic) takes a ``p\times p`` matrix `A`,
+a ``q\times q`` matrix `B` and a ``p\times q`` matrix `C`, zero when omitted.
+`A` and `B` are nonempty, finite and exactly symmetric, `C` is finite, and the
+three share one element type, `Float32` or `Float64`. The constructor copies
+them; [`ProximalBase.kronquadratic_data`](@ref) returns the copies. The
+``pq\times pq`` matrix ``B\otimes A`` is not formed: the oracles use the
+products ``AX`` and ``(AX)B``. At a symmetric iterate with ``n`` nonzero
+active values, both calls take an accumulating route when ``32n\leq p^2``: the
+gradient accumulates ``AX`` over the active coordinates, and a value-only call
+accumulates ``AX`` and ``BX`` without forming ``(AX)B``. Above that cutoff they
+form ``AX`` from a dense copy and then ``(AX)B``. The cutoff is a measured
+tradeoff near the crossover: in exclusive sweeps for ``p\geq200``, the
+accumulating routes ran below the cutoff at 0.045–0.835 (value-only) and
+0.511–0.881 (gradient) of the time of a straightforward dense implementation;
+see the measured performance in `benchmark/README.md`.
+
+The gradient depends on the argument. A ``p\times q`` matrix `X`, including a
+view, a `SparseIterate` or a `Symmetric` wrapper, has the gradient
+``AXB+C``. A [`SymmetricSparseIterate`](@ref) `X` (``p=q``) varies over
+symmetric matrices only, and its gradient is the derivative over that space
+with the Frobenius inner product:
+
+```math
+\nabla q(X)=\tfrac12(AXB+BXA)+C.
+```
+
+This is the full-matrix gradient `G` that the coordinate form
+[`kkt_violation(g, G, X, k)`](@ref kkt_violation) reads at a symmetric iterate,
+for a penalty `g` that supports that form, such as `NormL1`. One coordinate
+``(r,c)``, ``r\neq c``, moves the two entries ``X_{rc}`` and ``X_{cr}``
+together, so the derivative of ``q`` along that coordinate is
+``2\,\nabla q(X)_{rc}``; on the diagonal it is ``\nabla q(X)_{rr}``. When `C`
+is supplied, symmetric-iterate calls require it to be exactly symmetric and
+throw `ArgumentError` before writes otherwise. The two entries of each
+mirrored pair of the gradient compare equal when the result is not `NaN`, a
+`NaN` occurs in both positions, and their signs of zero can differ where those
+of `C` do; `issymmetric` holds for results without `NaN`. `matrixview(X)` is a matrix argument and gets
+``AXB+C``.
+
+```@example library_kronquadratic
+using ProximalBase, LinearAlgebra
+A = [1.0 0; 0 1]
+B = [1.0 0; 0 2]
+f = KronQuadratic(A, B)
+X = [0.0 1; 1 0]
+S = SymmetricSparseIterate(X)
+@assert gradient(f, X) == A * X * B == [0 2; 1 0]
+@assert gradient(f, S) == (A * X * B + B * X * A) / 2 == [0 1.5; 1.5 0]
+@assert f(S) == f(X) == 1.5
+gradient(f, S)
+```
+
+The value is the same formula for both arguments. `issmooth` is true;
+`isproximable`, `isseparable` and `isconvex` are false. ``q`` is convex when
+`A` and `B` are both positive semidefinite or both negative semidefinite,
+which the constructor does not check. The exact product
+``\|A\|_2\|B\|_2`` of the spectral norms is the largest eigenvalue magnitude
+of ``B\otimes A``, a Lipschitz constant of the gradient; `lipschitz(f)` returns
+the product of the two computed norms in working precision, which can round
+below the exact product and can overflow to `Inf` (or be `NaN` when one norm
+overflows and the other is zero) at extreme finite inputs.
+
+**D-trace loss.** For covariance matrices ``\Sigma_x`` and ``\Sigma_y``, the
+loss ``\frac12\operatorname{tr}(\Sigma_x\Delta\Sigma_y\Delta)-\operatorname{tr}((\Sigma_y-\Sigma_x)\Delta)``
+of a symmetric ``\Delta`` is `KronQuadratic(Σx, Σy, Σx - Σy)` at a
+`SymmetricSparseIterate`. For positive-definite ``\Sigma_x`` and ``\Sigma_y``
+its gradient vanishes, in exact arithmetic, at
+``\Delta^\star=\Sigma_x^{-1}-\Sigma_y^{-1}``, the difference of the precision
+matrices; the example checks a floating-point tolerance:
+
+```@example library_kronquadratic
+Σx = [2.0 1; 1 2]
+Σy = [1.0 0; 0 1]
+loss = KronQuadratic(Σx, Σy, Σx - Σy)
+Δ = SymmetricSparseIterate(inv(Symmetric(Σx)) - inv(Symmetric(Σy)))
+@assert maximum(abs, gradient(loss, Δ)) < 1e-14
+Matrix(Δ)
+```
+
+**Coordinate-descent direction model.** Around a positive-definite
+``\Theta`` with ``W=\Theta^{-1}``, the loss
+``w[\operatorname{tr}(S\Theta)-\log\det\Theta]`` of
+[`LogDetLoss(S, w)`](@ref LogDetLoss) has the second-order model
+``w[\operatorname{tr}((S-W)D)+\frac12\operatorname{tr}(WDWD)]`` in the
+direction ``D``, which is `KronQuadratic(w * W, W, w * (S - W))` evaluated at
+the direction ``D``, not at the new point ``\Theta+D``. The same model written
+as a function of the new point ``Z=\Theta+D`` has a different linear term:
+`KronQuadratic(w * W, W, w * (S - 2W))` at ``Z``, up to a constant, when
+``W\Theta W=W``. The constructor checks the matrices passed to it, the
+weighted products included: the first two arguments must be exactly symmetric,
+and all three must have finite entries and one supported precision, so use a
+weight `w` of the precision of `W` and `S`. A symmetric-iterate call also needs
+the third argument, when supplied, to be exactly symmetric; a matrix argument
+does not. A computed `inv(Θ)` of a dense matrix can have unequal mirrored
+entries; pass, for example, `Matrix(Symmetric(inv(Θ), :L))`.
+
+The oracles write scratch matrices that `f` owns: do not call them
+concurrently on one object (see the [ownership table](@ref numerical-usage)).
+A gradient destination must be independent of the argument and of the data:
+as for the other built-in gradients, `G === X` throws and other overlapping
+views are unsupported (see the [numerical contract](@ref spec-kronquadratic-preconditions)). Values and gradients use ordinary
+working-precision arithmetic, without the range recovery of other quadratic
+values: the selected kernel rounds its operations in the working precision
+(fused multiply-adds round once), so a result can be subnormal, zero or
+nonfinite where the exact value is not, depending on the route and the order
+of the operations. See the [KronQuadratic numerical contract](@ref spec-kronquadratic).
+
 ## [Stationarity scores for least squares and quadratics](@id smooth-kkt)
 
 `kkt_violation(f, v, x)` returns `‖v + ∇f(x)‖∞` for `LeastSquaresLoss` and

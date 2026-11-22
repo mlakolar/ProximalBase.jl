@@ -12,6 +12,8 @@ LogisticLoss
 PoissonLoss
 SqrNormL2
 QuadraticFunction
+KronQuadratic
+ProximalBase.kronquadratic_data
 ZeroFunction
 LinearFunction
 ```

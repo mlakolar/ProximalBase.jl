@@ -9,8 +9,10 @@ reference before timing, while the timed samples rotate through the input pool (
 some inputs are not timed). A BenchmarkTools run that throws the `InexactError` of `sizehint!` (or ends with fewer than three samples) is repeated
 (`PB_RETRIES` attempts in all, default 3, at least 1; `PB_SAMPLES` at least 3); a repeated run and every cell-round whose attempts were
 exhausted are listed in `failures.csv`, and an exhausted cell-round is left out of `raw.csv` and `ratios.csv` for all roles.
-`summarize.py` compares every input only for directories that declare their inputs and have `outputs_all/`, reports an
-incomplete or incompatible comparison as `incompatible`, and labels a first-input-only comparison of older directories as such.
+`summarize.py` compares every input for directories in the current format (declared inputs and `outputs_all/`), after checking
+that the first-input file and the `outputs_all/` file of each case are present with exactly the expected byte length; it
+reports a missing, truncated or inconsistent record as `incompatible` and falls back to the first input only for a
+recognizable older directory (neither declared inputs nor `outputs_all/`), which it labels as such.
 
 The verification of X against the BigFloat radial map uses `test/scad_reference.jl` of the tree that holds `run.jl`,
 whichever tree `PB_SOURCE` names.

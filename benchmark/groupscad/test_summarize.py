@@ -79,6 +79,31 @@ class AgreeAll(unittest.TestCase):
         b = make(self.root, "b", [1.0, 2.0], [1.0, 2.0], 2)
         self.assertEqual(self.result(a, b)[0], "incompatible")
 
+    def test_a_missing_all_input_file_is_incompatible_not_a_first_input_comparison(self):
+        a = make(self.root, "a", [1.0], [1.0, 2.0], 2)
+        b = make(self.root, "b", [1.0], [1.0, 2.0], 2)
+        os.remove(os.path.join(b, "outputs_all", CASE.replace("/", "_") + ".bin"))
+        for status in (self.result(a, b), self.result(b, a)):
+            self.assertEqual(status[0], "incompatible")
+
+    def test_a_file_truncated_by_one_byte_is_incompatible_and_does_not_raise(self):
+        for directory_file in ("outputs_all", "outputs"):
+            a = make(self.root, "a" + directory_file, [1.0], [1.0, 2.0], 2)
+            b = make(self.root, "b" + directory_file, [1.0], [1.0, 2.0], 2)
+            path = os.path.join(b, directory_file, CASE.replace("/", "_") + ".bin")
+            with open(path, "rb") as f:
+                raw = f.read()
+            with open(path, "wb") as f:
+                f.write(raw[:-1])
+            for status in (self.result(a, b), self.result(b, a)):
+                self.assertEqual(status[0], "incompatible")
+
+    def test_a_current_directory_with_only_one_marker_is_incompatible(self):
+        a = make(self.root, "a", [1.0], [1.0, 2.0], 2)
+        b = make(self.root, "b", [1.0], [1.0, 2.0], 2)
+        os.remove(os.path.join(b, "verification.csv"))
+        self.assertEqual(self.result(a, b)[0], "incompatible")
+
     def test_an_older_directory_is_compared_on_the_first_input_and_says_so(self):
         a = make(self.root, "a", [1.0], None, None, columns=False)
         b = make(self.root, "b", [1.0], [1.0, 2.0], 2)

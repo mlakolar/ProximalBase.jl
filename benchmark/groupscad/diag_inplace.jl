@@ -41,8 +41,9 @@
 #   * the paired ratios of probes, as the median over the repetitions with the minimum and maximum.
 # Probes are timed in a rotating order that is reversed in alternate repetitions (PB_REPS repetitions, default 8, at least 8;
 # PB_SAMPLES samples per run, default 200, at least 3; PB_SECONDS cap, default 0.05). A run that throws the InexactError of
-# sizehint! (see run.jl: a first sample longer than the cap; the frame is checked) or has fewer than three samples is repeated,
-# up to 3 attempts; a probe that fails in a repetition is recorded as NaN and left out of the medians. Section 1 probes:
+# sizehint! (see run.jl: a first sample longer than the cap; the stack has a sizehint! frame and a BenchmarkTools frame) or has
+# fewer than three samples (whatever the reason) is repeated, up to 3 attempts; BenchmarkTools 1.8.0 is the
+# version of the campaigns; a probe that fails in a repetition is recorded as NaN and left out of the medians. Section 1 probes:
 #   X_inplace, XC_inplace (A/A), L_inplace, R_inplace   prox!(x, f, x, γ) of the baseline, its second compilation, the legacy
 #                                                       tree and GroupNormL2
 #   X3_inplace                                          a third compilation of the baseline (A/A: the spread among compilations)
@@ -169,9 +170,10 @@ function timed_run(b)
     for attempt in 1:RETRIES
         try
             t = run(b)
-            length(t.times) >= 3 && return median(t).time      # fewer samples: a stalled first sample on Julia 1.13
+            length(t.times) >= 3 && return median(t).time      # fewer than three samples: repeated (see run.jl)
         catch e
-            e isa InexactError && any(fr -> fr.func === :sizehint!, stacktrace(catch_backtrace())) || rethrow()   # see run.jl
+            st = stacktrace(catch_backtrace())
+            e isa InexactError && any(fr -> fr.func === :sizehint!, st) && any(fr -> occursin("BenchmarkTools", string(fr.file)), st) || rethrow()   # see run.jl
         end
     end
     NaN
@@ -417,7 +419,12 @@ function run_case(io_times, io_ratios, id, d, nentries, section)
     end
     println("== ", id)
     for name in names
-        med = median(filter(!isnan, times[name]))
+        good = filter(!isnan, times[name])
+        if isempty(good)                         # every attempt of every repetition failed: report it, do not abort the run
+            @printf("   %-22s %10s ns   (no timing: every trial failed)\n", name, "NaN")
+            continue
+        end
+        med = median(good)
         per = name == "c_scalar" ? med / TOTAL : med / nentries
         @printf("   %-22s %10.1f ns   %8.3f ns/%s\n", name, med, per, name == "c_scalar" ? "call" : "entry")
     end
@@ -425,6 +432,12 @@ function run_case(io_times, io_ratios, id, d, nentries, section)
         haskey(times, a) && haskey(times, b) || continue
         ratios = times[a] ./ times[b]
         ratios = filter(!isnan, ratios)
+        if isempty(ratios)                       # a probe of the pair has no timing in any repetition
+            line = @sprintf("   %-22s / %-22s no ratio (no repetition has both timings)", a, b)
+            println(line)
+            println(io_ratios, id, "  ", line)
+            continue
+        end
         line = @sprintf("   %-22s / %-22s median %.3f  [min %.3f, max %.3f]", a, b, median(ratios), minimum(ratios), maximum(ratios))
         println(line)
         println(io_ratios, id, "  ", line)

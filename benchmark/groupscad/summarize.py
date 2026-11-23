@@ -6,9 +6,11 @@
 
 Per case and round the ratios come from ratios.csv; the summary is the median over rounds, with the minimum and maximum.
 With two directories, a case appears only when both directories have it. When both have outputs_all/ and declare the same number
-of inputs in verification.csv, the case is compared on every input, and a file with a different number of records, the wrong
-record width or an inconsistent first record gives agree = incompatible. Older directories (without outputs_all/ or without the
-declared count) are compared on the first input only, and the column "compared" says so. Outputs agree when nonfinite
+of inputs in verification.csv, the case is compared on every input; for such a current-format directory the first-input file and
+the outputs_all file of the case must be present with exactly the byte length of one and of n records (the first record of
+outputs_all equal to the first-input file), and any violation, also a directory with only one of the two markers, gives
+agree = incompatible. Only a recognizable older directory (neither declared inputs nor outputs_all/) is compared on the first
+input, and the column "compared" says so. Outputs agree when nonfinite
 entries and values are equal (NaN with NaN, infinities of the same sign); finite vector entries agree within
 16 (m + 8) kappa eps(T) times the largest finite magnitude of the candidate vector and are zero in both or in neither;
 finite values agree within 16 (m + K) eps(T) relative; kappa is (a - 1)/(a - 1 - gamma) for the step below a - 1 and 1 otherwise.
@@ -49,16 +51,6 @@ def memory(directory):
     return out
 
 
-def outputs(directory, case):
-    T = case.split("/")[1]
-    code = "f" if T == "Float32" else "d"
-    data = array.array(code)
-    path = os.path.join(directory, "outputs", case.replace("/", "_") + ".bin")
-    with open(path, "rb") as f:
-        data.frombytes(f.read())
-    return data
-
-
 def agree(case, a, b):
     parts = case.split("/")
     T, m, step, op = parts[1], int(parts[2][1:]), parts[4], parts[6]
@@ -87,19 +79,24 @@ def agree(case, a, b):
                for x, y in zip(rest_a, rest_b) if math.isfinite(x) and math.isfinite(y))
 
 
-def outputs_all(directory, case):
-    path = os.path.join(directory, "outputs_all", case.replace("/", "_") + ".bin")
-    if not os.path.exists(path):
-        return None
+def _record_file(path, case, expected):
+    """(values, reason): the values of a binary record file, or None and the reason when the file is missing or its byte length
+    is not exactly that of `expected` values."""
     code = "f" if case.split("/")[1] == "Float32" else "d"
     data = array.array(code)
+    if not os.path.isfile(path):
+        return None, "%s is missing" % path
     with open(path, "rb") as f:
-        data.frombytes(f.read())
-    return data
+        raw = f.read()
+    if len(raw) != expected * data.itemsize:
+        return None, "%s has %d bytes, expected %d" % (path, len(raw), expected * data.itemsize)
+    data.frombytes(raw)
+    return data, ""
 
 
 def declared_inputs(directory):
-    """The number of inputs of each case that run.jl declares in verification.csv (None for a directory without the column)."""
+    """The number of inputs of each case that run.jl declares in verification.csv (None for a directory without the file or
+    without the column)."""
     path = os.path.join(directory, "verification.csv")
     if not os.path.exists(path):
         return None
@@ -116,30 +113,53 @@ def record_width(case):
     return {"value": 1, "value_and_prox": 1 + TOTAL}.get(op, TOTAL)
 
 
+def _load(directory, case):
+    """The saved outputs of a case in one directory: (kind, first, all, n, reason). The kind is "current" for a directory in the
+    format of run.jl (verification.csv with the column "inputs", and outputs_all/), "legacy" for one with neither of the two, and
+    "incompatible" when a current directory lacks a required record or one has the wrong byte length, or when it has only one of
+    the two markers. A current directory needs, for the case, the declared count n >= 1, a first-input file of exactly one record
+    and an outputs_all file of exactly n records, the first of which equals the first-input file."""
+    w = record_width(case)
+    first, reason = _record_file(os.path.join(directory, "outputs", case.replace("/", "_") + ".bin"), case, w)
+    if first is None:
+        return "incompatible", None, None, None, reason
+    declared = declared_inputs(directory)
+    has_all = os.path.isdir(os.path.join(directory, "outputs_all"))
+    if declared is None and not has_all:
+        return "legacy", first, None, None, ""
+    if declared is None or not has_all:
+        return "incompatible", first, None, None, "only one of the declared inputs and outputs_all/ is present in %s" % directory
+    n = declared.get(case)
+    if n is None or n < 1:
+        return "incompatible", first, None, n, "the case has no declared count of inputs (%s) in %s" % (n, directory)
+    all_inputs, reason = _record_file(os.path.join(directory, "outputs_all", case.replace("/", "_") + ".bin"), case, n * w)
+    if all_inputs is None:
+        return "incompatible", first, None, n, reason
+    if all_inputs[:w].tobytes() != first.tobytes():
+        return "incompatible", first, None, n, "the first record of outputs_all differs from the first-input file in %s" % directory
+    return "current", first, all_inputs, n, ""
+
+
 def agree_all(case, cand, legacy):
     """(status, compared, reason) of the saved outputs of a case in two directories.
 
-    Both directories with outputs_all/ and the same declared number of inputs n >= 1: every input is compared, after the
-    files are checked to have exactly n records of the expected width, a first-input file of one record, and a first record of
-    outputs_all/ equal to it; a violation gives the status "incompatible". Otherwise (an older directory without outputs_all/
-    or without the declared count) only the first input is compared, and "compared" says so.
+    Both directories in the current format with the same declared number of inputs n >= 1: every input is compared. A current
+    directory is checked for the presence and the exact byte length of the first-input file and of the outputs_all file of the
+    case (see _load); a missing or truncated record, or a first record that differs from the first-input file, gives the status
+    "incompatible", never an exception and never a first-input comparison. A recognizable older directory (neither declared
+    inputs nor outputs_all/) is compared on the first input only against any directory whose records are valid, and "compared"
+    says so.
     """
     w = record_width(case)
-    first_a, first_b = outputs(cand, case), outputs(legacy, case)
-    if len(first_a) != w or len(first_b) != w:
-        return "incompatible", "first", "the first-input file has %d and %d values, expected %d" % (len(first_a), len(first_b), w)
-    all_a, all_b = outputs_all(cand, case), outputs_all(legacy, case)
-    n_a, n_b = declared_inputs(cand), declared_inputs(legacy)
-    if all_a is None or all_b is None or n_a is None or n_b is None:
+    ka, first_a, all_a, na, ra = _load(cand, case)
+    kb, first_b, all_b, nb, rb = _load(legacy, case)
+    for name, kind, reason in (("candidate", ka, ra), ("legacy", kb, rb)):
+        if kind == "incompatible":
+            return "incompatible", "none", "%s: %s" % (name, reason)
+    if ka == "legacy" or kb == "legacy":
         return ("yes" if agree(case, first_a, first_b) else "no"), "first (an older directory)", ""
-    na, nb = n_a.get(case), n_b.get(case)
-    if na is None or nb is None or na != nb or na < 1:
+    if na != nb:
         return "incompatible", "all", "declared inputs %s and %s" % (na, nb)
-    for name, data in (("candidate", all_a), ("legacy", all_b)):
-        if len(data) != na * w:
-            return "incompatible", "all", "%s outputs_all has %d values, expected %d inputs of %d" % (name, len(data), na, w)
-    if all_a[:w].tobytes() != first_a.tobytes() or all_b[:w].tobytes() != first_b.tobytes():
-        return "incompatible", "all", "the first record of outputs_all differs from the first-input file"
     ok = all(agree(case, all_a[i * w:(i + 1) * w], all_b[i * w:(i + 1) * w]) for i in range(na))
     return ("yes" if ok else "no"), "all (%d inputs)" % na, ""
 

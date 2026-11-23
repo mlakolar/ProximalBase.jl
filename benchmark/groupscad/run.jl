@@ -46,13 +46,13 @@
 # expression on their ids.
 #
 # Timing: one BenchmarkTools run per role and round, with the reused benchmark of the case. In BenchmarkTools 1.8.0 (the
-# version of the benchmark environment) `_run` estimates the remaining samples from the time of the first sample (setup
+# version of the campaigns; the project allows other 1.x releases, whose behavior was not examined) `_run` estimates the remaining samples from the time of the first sample (setup
 # included) against the seconds cap and calls sizehint! with that estimate; when the first sample alone took longer than
 # the cap (a stall of the process, for example a garbage collection or a descheduled process on a shared node) the estimate
 # is negative, and sizehint! throws an InexactError on Julia 1.10.13 (observed in the campaign of #1195, and reproduced with a
 # setup that sleeps). On Julia 1.13.4 the same stall did not throw and ended the run with one sample. A run is repeated when
-# it throws an InexactError from sizehint! (the frame is checked; any other exception is raised) or has fewer than three
-# samples; PB_RETRIES is the number of attempts in all (default 3, at least 1), and PB_SAMPLES must be at least 3. A run
+# it throws an InexactError whose stack has a sizehint! frame and a frame in a BenchmarkTools file (the check does not show
+# which called which; any other exception is raised) or has fewer than three samples; PB_RETRIES is the number of attempts in all (default 3, at least 1), and PB_SAMPLES must be at least 3. A run
 # that was repeated, and every cell-round whose attempts were exhausted, is recorded in failures.csv; an exhausted cell-round
 # is left out of raw.csv and ratios.csv for all three roles.
 #
@@ -209,7 +209,7 @@ end
 
 runcheck(p) = (p.setup(); p.op(); p.result())
 
-# BenchmarkTools' run, repeated when it throws an InexactError from sizehint! (see the header) or has fewer than MIN_SAMPLES
+# BenchmarkTools' run, repeated when it throws an InexactError from sizehint! in BenchmarkTools (see the header) or has fewer than MIN_SAMPLES
 # samples; returns (trial, attempts), with trial = nothing when every attempt failed. Any other exception is raised.
 const MIN_SAMPLES = 3
 function timed_run(b, retries)
@@ -218,7 +218,8 @@ function timed_run(b, retries)
             t = run(b)
             length(t.times) >= MIN_SAMPLES && return t, attempt
         catch e
-            e isa InexactError && any(fr -> fr.func === :sizehint!, stacktrace(catch_backtrace())) || rethrow()
+            st = stacktrace(catch_backtrace())
+            e isa InexactError && any(fr -> fr.func === :sizehint!, st) && any(fr -> occursin("BenchmarkTools", string(fr.file)), st) || rethrow()
         end
     end
     nothing, retries

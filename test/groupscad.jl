@@ -957,8 +957,8 @@ end
     f, x, γ = regime_case(rng, T, m, layout, step, regime)
     @test restored_allocs(xi -> prox!(xi, f, xi, γ), x) == 0
     @test restored_allocs(xi -> value_and_prox!(xi, f, xi, γ), x) == 0
-    # the compact block of a group that the proximal map scales (neither copied nor set to zero); in the soft fixtures every group
-    # is scaled, in a mixed fixture the first group may take another branch
+    # the compact block of a group that the proximal map scales (neither copied nor set to zero); the soft fixtures must have one
+    # (asserted below), in a mixed fixture the first group may take another branch
     ys = prox(f, x, γ)
     k = findfirst(G -> x[G] != ys[G] && any(!iszero, ys[G]), f.groups)
     regime === :soft && @test k !== nothing

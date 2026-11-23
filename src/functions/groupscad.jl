@@ -307,12 +307,12 @@ end
 # accepts. t is the scalar kernel at the computed norm r and the rounded level λ; the group is copied for t == r, set to
 # +0 for t == 0, and otherwise scaled by t / r. The scaling loops are those of the shared kernels (_l2_scale!, _gmcp_scale!).
 # The dispatchers choose I: _gscad_prox_all! chooses true (in place) or false once per call, and prox_block! uses the default
-# false, the out-of-place arguments (y, x) of the shared kernels. With I true the loops are called with x for both arguments. For
-# contiguous dense groups the compiled loop is then vectorized, without the runtime overlap test that fails for two names of one
-# array (observed for the Float32 and Float64 groups of benchmark/groupscad). The indices of a group are distinct (the
-# constructors check that the groups are disjoint, and _group_of rejects an index that occurs twice, also within a group), so
-# the stores of one pass are independent; whether the loop over an index vector or another storage is vectorized depends on
-# the compiler.
+# false, the out-of-place arguments (y, x) of the shared kernels. With I true the loops are called with x for both arguments, so
+# that the compiler can vectorize the loop without the runtime overlap test that fails for two names of one array (a vectorized
+# loop was observed for the contiguous dense Float32 and Float64 groups of benchmark/groupscad). The indices of a group are
+# distinct (the constructors check that the groups are disjoint, and _group_of rejects an index that occurs twice, also within a
+# group), so the stores of one pass are independent; whether the loop over an index vector or another storage is vectorized
+# depends on the compiler.
 @inline function _gscad_shrink!(y, x, G, λ0, w, a, γ::Real, ::Val{O}, ::Val{V} = Val(false), ::Val{I} = Val(false)) where {O, V, I}
   T = float(eltype(y))
   if O

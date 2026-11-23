@@ -872,9 +872,9 @@ end
   @test y == x && fused_close(v, g(y), 2, 2) && close_value(v, refterm(x[1:2], 1, 1, T(3.7)) + refterm(x[3:4], 1, 1, T(3.7)), 2, 2)
 end
 
-# the target norm of a group in the zero, soft, middle and kept regimes, as in benchmark/groupscad/run.jl. The middle target is
-# on the middle piece of the penalty only for a step below a - 1; at and above a - 1 it lies between λ and aλ, where the group is
-# sent to +0 (so the middle fixture is a zeroed group there)
+# the norm of the input group in the zero, soft, middle and kept regimes, as in benchmark/groupscad/run.jl. The input norm of
+# the middle regime lies between λ and aλ for every step; its proximal result lies on the middle piece of the penalty for a step
+# below a - 1, and is +0 at and above a - 1 (so the middle fixture is a zeroed group there)
 function regime_norm(regime, γ, a, λ)
   convex = γ < a - 1
   keep_cut = convex ? a * λ : max(a * λ, (a + 1 + γ) * λ / 2, γ * λ, λ * sqrt(γ * (a + 1)))
@@ -942,7 +942,8 @@ end
 end
 
 # the allocation of op(x) on a restored copy of x0: op runs once on a copy (to compile it), the copy is restored, and the
-# measured call runs on the original data, so that the branch that scales is the one measured
+# measured call runs on the original data, so that the branch of the data (for the compact check, a group that is scaled) is the
+# one measured
 function restored_allocs(op::F, x0) where {F}
   x = copy(x0)
   op(x)
@@ -956,8 +957,15 @@ end
     f, x, γ = regime_case(rng, T, m, layout, step, regime)
     @test restored_allocs(xi -> prox!(xi, f, xi, γ), x) == 0
     @test restored_allocs(xi -> value_and_prox!(xi, f, xi, γ), x) == 0
-    u = x[f.groups[1]]
-    @test restored_allocs(uu -> prox_block!(uu, f, uu, 1, γ), u) == 0
+    # the compact block of a group that the proximal map scales (neither copied nor set to zero); in the soft fixtures every group
+    # is scaled, in a mixed fixture the first group may take another branch
+    ys = prox(f, x, γ)
+    k = findfirst(G -> x[G] != ys[G] && any(!iszero, ys[G]), f.groups)
+    regime === :soft && @test k !== nothing
+    if k !== nothing
+      u = x[f.groups[k]]
+      @test restored_allocs(uu -> prox_block!(uu, f, uu, k, γ), u) == 0
+    end
     @test allocs(f, x) == 0
   end
 end

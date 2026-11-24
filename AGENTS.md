@@ -1,5 +1,13 @@
 # Working on ProximalBase.jl
 
+## Release branches and PR targets
+
+- `master` is the 0.7 development line. New families, new public APIs and architectural changes target master.
+- `release/0.6` is feature-frozen. Only demonstrated correctness fixes, focused performance-regression fixes, tests, documentation and release-readiness work are eligible. GroupMCP and GroupSCAD belong to 0.7.
+- Use `release:0.6` and `release:0.7+` to identify the intended scope. A shared fix normally lands on master and is backported by a separate reviewed PR if applicable to 0.6. An urgent release-first fix must be independently forward-ported. Never merge master wholesale into the release branch.
+- Before editing, verify the intended base and current SHA. Review and test each branch-specific diff on its actual target; preserve the existing numerical, CI and performance gates. Do not merge, tag or publish without the maintainer's approval.
+- Keep ProximalSolvers on tested 0.6 pins unless its maintainer explicitly approves a different dependency. Downstream adoption is tracked separately from feature freeze; see #1204 and #527.
+
 ## Find the right owner
 
 - [API coverage](docs/src/api/coverage.md) maps public symbols to their retained operations and tests.

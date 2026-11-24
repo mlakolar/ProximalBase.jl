@@ -3,7 +3,7 @@
 
 The classifier compares the checked-out HEAD with the base the event is
 validated against: the first parent of the pull-request merge commit, or the
-`before` commit of a master push. After a successful classification, when
+`before` commit of a push to master or release/0.6. After a successful classification, when
 `GITHUB_OUTPUT` names a file, it appends `docs_only=true|false` and
 `base=<sha>` (empty when no base is usable). If `before` is still
 unavailable after a fetch attempt, the result is `docs_only=false`.

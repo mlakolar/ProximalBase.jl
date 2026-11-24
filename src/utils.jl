@@ -39,8 +39,8 @@ _checksize(y, x) = size(y) == size(x) || _size_mismatch(size(y), size(x))
 @noinline _size_mismatch(sy, sx) =
   throw(DimensionMismatch("the output has size $sy and the input $sx"))
 
-# v >= 0, false for NaN. The BigFloat method avoids the comparison with an Int literal: for a non-NaN BigFloat, that
-# comparison allocates where Int is wider than the C `long` (Windows).
+# v >= 0 (false for a NaN Real). The BigFloat method avoids the comparison with an Int literal: for a non-NaN
+# BigFloat, that comparison allocates where Int is wider than the C `long` (e.g. 64-bit Windows).
 @inline _isnonneg(v) = v >= 0
 @inline _isnonneg(v::BigFloat) = !isnan(v) && (iszero(v) || !signbit(v))
 

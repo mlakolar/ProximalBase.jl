@@ -513,8 +513,9 @@ scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 
   @test Scaled(Scaled(NormL1(1.0), 2.0), 3.0) isa Scaled
 end
 
-# the nonnegativity predicate of the factors agrees with v >= 0 (false for NaN), and successful validation of prebuilt
-# BigFloat input does not allocate
+# the nonnegativity predicate of the factors agrees with v >= 0 (false for NaN) on the values below, and the successful
+# checks of the prebuilt BigFloat scalar and dense vector measured at the end do not allocate (an array type whose
+# indexing copies its elements can allocate)
 @testset "nonnegativity predicate" begin
   for T in (BigFloat, Float64, Float32)
     vals = T[0, -0.0, NaN, Inf, -Inf, 1, -1, 2, nextfloat(zero(T)), -nextfloat(zero(T)), T(2)^-100, -T(2)^-100]
@@ -539,8 +540,9 @@ end
       @test_throws ArgumentError PB._checknonneg("α", v)
     end
   end
-  # elements that are not Real keep the semantics of all(>=(0), v): missing >= 0 is missing, all returns false at the
-  # first false predicate (ArgumentError), and missing when none is false, which `||` rejects with a TypeError
+  # elements that are not Real keep the semantics of all(>=(0), v), where missing >= 0 is missing: all returns false
+  # at the first comparison that is false (ArgumentError); if none is false and at least one is missing, it returns
+  # missing, which `||` rejects with a TypeError
   @test_throws ArgumentError PB._checknonneg("α", Any[missing, -1])
   @test_throws TypeError PB._checknonneg("α", Any[missing, 1])
   x = big(2.0)

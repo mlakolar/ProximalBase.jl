@@ -1,5 +1,9 @@
 # Working on ProximalBase.jl
 
+## Release branches and PR targets
+
+Follow the [release branches and PR targets](CONTRIBUTING.md#release-branches-and-pr-targets) policy in CONTRIBUTING.md before choosing a branch or making changes.
+
 ## Find the right owner
 
 - [API coverage](docs/src/api/coverage.md) maps public symbols to their retained operations and tests.

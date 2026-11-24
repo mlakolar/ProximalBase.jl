@@ -703,12 +703,12 @@ end
 
 setprecision(BigFloat, 256) do
 @testset "group screen under directed rounding (BigFloat)" begin
-  # the group screen ‖g‖ - λw through the public kkt_violation, with λw 2^-600 of ‖g‖, g = 2^e, e = -2^61: the exact
+  # the group screen ‖g‖ - λw through the public kkt_violation, with λw 2^-600 of ‖g‖, g = 2^e, e = minus half the MPFR exponent range (-2^61 with a 64-bit C `long`): the exact
   # value is g (1 - 2^-600), which rounds to g to nearest and upward, and to prevfloat(g) downward and toward zero
   for (mode, down) in ((RoundNearest, false), (RoundUp, false), (RoundDown, true), (RoundToZero, true)), p in (256, 512)
     setprecision(BigFloat, p) do
       setrounding(BigFloat, mode) do
-        e = -2^61
+        e = -((Int(Base.MPFR.get_emax()) + 1) ÷ 2)
         g = [ldexp(BigFloat(1), e)]
         f = GroupNormL2(ldexp(BigFloat(1), e - (p == 256 ? 600 : 1112)), [1:1], [BigFloat(1)])
         r = kkt_violation(f, g, zeros(BigFloat, 1), 1)

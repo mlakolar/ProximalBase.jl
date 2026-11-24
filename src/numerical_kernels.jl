@@ -309,10 +309,10 @@ _expsum_start(::Type{R}) where {R<:AbstractFloat} = _ExpSum{R}(zero(R), zero(R),
   s, c = _compensated_add(acc.s, acc.c, ldexp(m, _frame_shift(R, e, acc.ex)))
   _ExpSum{R}(s, c, acc.ex)
 end
-# The shift a - b from one frame to another. The exponents of BigFloat terms reach ±(2^62 - 1), so two of them can
-# differ by more than typemax(Int) (a wrapped shift would scale a negligible part up to Inf): the difference is taken
-# in Int128 and clamped to Int, which loses nothing, as a shift beyond 2^63 binades already scales any significand to
-# 0 (or Inf). Other types keep their Int difference.
+# The shift a - b from one frame to another. The exponents of BigFloat terms reach ±(2^62 - 1) where the C `long` is
+# 64-bit, so two of them can differ by more than typemax(Int) (a wrapped shift would scale a negligible part up to Inf):
+# the difference is taken in Int128 and clamped to Int, which loses nothing, as a shift beyond 2^63 binades already
+# scales any significand to 0 (or Inf). Other types keep their Int difference.
 @inline _frame_shift(::Type, a::Integer, b::Integer) = a - b
 @inline _frame_shift(::Type{BigFloat}, a::Integer, b::Integer) =
   Int(clamp(Int128(a) - Int128(b), Int128(typemin(Int)), Int128(typemax(Int))))

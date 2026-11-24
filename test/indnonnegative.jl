@@ -513,6 +513,37 @@ scale_factors(::Type{T}) where {T} = Any[2, 0, 1, T(2), T(3), T(0.5), 0.5, 2.0, 
   @test Scaled(Scaled(NormL1(1.0), 2.0), 3.0) isa Scaled
 end
 
+# the nonnegativity predicate of the factors agrees with v >= 0 (false for NaN) and a BigFloat check does not allocate
+@testset "nonnegativity predicate" begin
+  for T in (BigFloat, Float64, Float32)
+    vals = T[0, -0.0, NaN, Inf, -Inf, 1, -1, 2, nextfloat(zero(T)), -nextfloat(zero(T)), T(2)^-100, -T(2)^-100]
+    for v in vals
+      @test PB._isnonneg(v) == (v >= 0)
+      if v >= 0
+        @test PB._checknonneg("α", v) === true
+        @test PB._checknonneg("α", T[v, 1]) === true
+      else
+        @test_throws ArgumentError PB._checknonneg("α", v)
+        @test_throws ArgumentError PB._checknonneg("α", T[1, v])
+      end
+    end
+    @test PB._isnonneg(T(NaN)) === false && PB._isnonneg(-zero(T)) === true && PB._isnonneg(zero(T)) === true
+    @test PB._isnonneg(T(Inf)) === true && PB._isnonneg(-T(Inf)) === false && PB._isnonneg(-one(T)) === false
+  end
+  for v in (0, 1, -1, big(0), big(3), big(-3), 0 // 1, 3 // 2, -3 // 2)
+    @test PB._isnonneg(v) == (v >= 0)
+    if v >= 0
+      @test PB._checknonneg("α", v) === true
+    else
+      @test_throws ArgumentError PB._checknonneg("α", v)
+    end
+  end
+  x = big(2.0)
+  xs = [big(2.0), big(0.0), big(Inf)]
+  @test allocs(PB._checknonneg, "α", x) == 0
+  @test allocs(PB._checknonneg, "α", xs) == 0
+end
+
 @testset "Scaled" begin
   @test Scaled(IND, 0) === IND
   @test Scaled(IND, 0.0) === IND

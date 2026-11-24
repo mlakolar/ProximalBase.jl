@@ -310,6 +310,10 @@ end
   v, x = fill(T(2), 127), ones(T, 127)
   check_allocations(() -> QuadraticFunction(A, v, zero(T)), v, x, false)
   check_allocations(() -> LeastSquaresLoss(v, A), v, x, true)
-  V, X = hcat(v, v), hcat(x, x)
-  check_allocations(() -> LeastSquaresLoss(V, A), V, X, true)
+  # a smaller size for the two-column case: Julia allocates arrays above its small-object size with the system
+  # allocator, and on Windows (Julia 1.13) the counted bytes of two allocations of the same such size differed;
+  # arrays this small come from Julia's pools
+  A2 = Matrix{T}(I, 63, 63)
+  V, X = hcat(fill(T(2), 63), fill(T(2), 63)), hcat(ones(T, 63), ones(T, 63))
+  check_allocations(() -> LeastSquaresLoss(V, A2), V, X, true)
 end

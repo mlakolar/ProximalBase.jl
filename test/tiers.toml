@@ -10,7 +10,6 @@ quick = [
   "dropzeros_compaction",
   "elasticnet",
   "elasticnet_extremes",
-  "groupmcp",
   "groupnorml2",
   "groupnormlinf",
   "indballl0",
@@ -81,7 +80,6 @@ core_functions = 13.6
 dropzeros_compaction = 4.0
 elasticnet = 25.3
 elasticnet_extremes = 33.8
-groupmcp = 32.6
 groupnorml2 = 28.6
 groupnormlinf = 97.5
 indballl0 = 16.7

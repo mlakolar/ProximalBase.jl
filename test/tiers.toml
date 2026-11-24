@@ -13,6 +13,7 @@ quick = [
   "groupmcp",
   "groupnorml2",
   "groupnormlinf",
+  "groupscad",
   "indballl0",
   "indballl0_reference",
   "indballl1",
@@ -68,7 +69,7 @@ thorough = []
 full = []
 
 [not_tests]
-files = ["mcp_reference", "runtests", "tiers", "testutils"]
+files = ["mcp_reference", "runtests", "scad_reference", "tiers", "testutils"]
 
 [weights]
 active_handle = 4.0
@@ -84,6 +85,7 @@ elasticnet_extremes = 33.8
 groupmcp = 32.6
 groupnorml2 = 28.6
 groupnormlinf = 97.5
+groupscad = 43.8
 indballl0 = 16.7
 indballl0_reference = 13.7
 indballl1 = 22.4

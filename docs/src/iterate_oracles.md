@@ -39,7 +39,7 @@ Vector(x)
 
 The generic vector `prox_block` allocates a plain floating `Vector` of `length(u)`
 and invokes `prox_block!`. [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`SparseGroupNormL2`](@ref)
-and [`GroupMCP`](@ref) are the built-in group implementations.
+[`GroupMCP`](@ref) and [`GroupSCAD`](@ref) are the built-in group implementations.
 `k` selects `f.groups[k]`, and `u` follows that group's ordered global indices.
 These methods check the group, buffer lengths, real one-based storage, step and overlap
 before writes. Custom extensions must provide these checks themselves. Exact `out === u` is supported by the
@@ -97,6 +97,12 @@ level and the weight as separate factors (``\lVert v_G\rVert_2-\lambda_0w_k`` fo
 group. At a real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. A zero score
 does not imply a global minimizer.
 
+[`GroupSCAD`](@ref group-scad-guide) has the same four-argument form at a zero group (the
+[GroupSCAD failure behavior](@ref spec-groupscad-failures) gives the other cases) and `abs(v[k])` at an entry in no
+group; at a real array point it throws an `ArgumentError` at a nonzero group and in the full-point form. For finite positive
+factors and finite converted gradient entries the zero-group score is a rounded signed screen of the local condition `‖v_G‖₂ ≤ λ₀w[k]`: a nonpositive score is not a
+proof of that condition and does not imply a global minimizer.
+
 | Iterate | Four-argument form (`k` is the index) |
 |:--|:--|
 | `SparseIterate` | Valid coordinate first, then gradient entry count equal to length(x); flat or matrix-shaped gradient of that length is accepted. The coordinate is read from `x` |
@@ -106,11 +112,13 @@ does not imply a global minimizer.
 | `BlockIterate`, `SparseGroupNormL2` | Group `k`. Check the group count, ordered layout of group `k` and gradient length |
 | `BlockIterate`, `GroupNormLinf` | Group `k`, with the checks of `GroupNormL2`. The margin `‖v_G‖₁ - c` at a zero group, the distance from `-v_G` to the subdifferential at a nonzero one |
 | `BlockIterate`, `GroupMCP` | Group `k`, with the checks of `GroupNormL2`. At a zero group the screen of `GroupNormL2` with the level and the weight as separate factors (`‖v_G‖₂ - λ0 w[k]` for finite [converted gradient entries](@ref group-mcp.kkt.entry-classification) and finite `λ0` and `w[k]`; the [GroupMCP failure behavior](@ref spec-groupmcp-failures) gives the other cases); `ArgumentError` at a nonzero one |
+| `BlockIterate`, `GroupSCAD` | Group `k`, with the checks of `GroupNormL2`. At a zero group the screen of `GroupNormL2` with the level and the weight as separate factors (`‖v_G‖₂ - λ0 w[k]` for finite [converted gradient entries](@ref group-scad.kkt.entry-classification) and finite `λ0` and `w[k]`; the [GroupSCAD failure behavior](@ref spec-groupscad-failures) gives the other cases); `ArgumentError` at a nonzero one |
 | Other arrays, scalar penalties | Real one-based axes, then gradient length equal to length(x) (`DimensionMismatch`); entry `k` is read from `x` |
 | Other arrays, `GroupNormL2` | Entry index selects its group; point/gradient lengths and group extent checked. The block score of that group, `abs(v[k])` for an entry in no group (also when `x[k]` is nonzero) |
 | Other arrays, `SparseGroupNormL2` | Entry `k` selects its group. An uncovered entry gives `abs(v[k])`. Check gradient length and group extent |
 | Other arrays, `GroupNormLinf` | Entry index selects its group, with the checks of `GroupNormL2`. The margin at a zero group, the distance at a nonzero group, `abs(v[k])` for an entry in no group; the full-point form is the maximum of zero, of `abs(v[i])` over the entries in no group and of the distances of the groups, and the three-argument form throws `ArgumentError` |
 | Other arrays, `GroupMCP` | Entry index selects its group, with the checks of `GroupNormL2`. At a zero group the screen of the `BlockIterate`, `GroupMCP` row, `abs(v[k])` for an entry in no group; `ArgumentError` at a nonzero group and in the full-point form |
+| Other arrays, `GroupSCAD` | Entry index selects its group, with the checks of `GroupNormL2`. At a zero group the screen of the `BlockIterate`, `GroupSCAD` row, `abs(v[k])` for an entry in no group; `ArgumentError` at a nonzero group and in the full-point form |
 | Any point, `NormL2`, `NormLinf`, `LeastSquaresLoss` and `QuadraticFunction` | No form for an entry or a group: `ArgumentError` that names the full-point form |
 
 At an array that is not a `BlockIterate` and at a `SparseIterate`, where `k` is an entry index, a call of the four-argument

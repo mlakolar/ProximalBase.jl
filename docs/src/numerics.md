@@ -141,6 +141,8 @@ See the [GroupNormL2 range clauses](@ref spec-groupnorml2-range).
 
 See the [GroupMCP range clauses](@ref spec-groupmcp-range).
 
+See the [GroupSCAD range clauses](@ref spec-groupscad-range).
+
 See the [NormLinf range clauses](@ref spec-normlinf-range).
 
 ### [GroupNormLinf clip accuracy](@id groupnormlinf-clip-accuracy)
@@ -235,6 +237,7 @@ all-NaN result or a particular exception.
 | `SparseGroupNormL2` | See the [sparse-group endpoint rules](@ref sparse-group-l2-endpoints). |
 | `GroupNormLinf` | See the [GroupNormLinf endpoint clauses](@ref spec-groupnormlinf-endpoints) |
 | `GroupMCP` | See the [GroupMCP endpoint clauses](@ref spec-groupmcp-endpoints) |
+| `GroupSCAD` | See the [GroupSCAD endpoint clauses](@ref spec-groupscad-endpoints) |
 | `SqrNormL2` | See the [SqrNormL2 endpoint clauses](@ref spec-sqrnorml2-endpoints) |
 | `ElasticNet` | See the [ElasticNet endpoint clauses](@ref spec-elasticnet-endpoints) |
 | `IndBox` | See the [IndBox endpoint clauses](@ref spec-indbox-endpoints) |
@@ -308,7 +311,7 @@ before `NormL1` sees it, and follows the wrapper's existing step arithmetic.
 `ElasticNet` follows this rule for an infinite `λ1`, and implements the
 same zero-step projection for an infinite ridge level `λ2`, the indicator
 of `{0}` in every coordinate. `NormL1Nonneg` applies it to an infinite level (positive-weight entries become `+0`; zero-weight entries are projected onto the orthant, not left unchanged). `GroupNormL2` and `GroupNormLinf` apply the same reading at `γ = 0` to an infinite level (groups with
-a positive weight become `+0`) and to an infinite group weight, and so does `GroupMCP`. `SparseGroupNormL2` also projects
+a positive weight become `+0`) and to an infinite group weight, and so do `GroupMCP` and `GroupSCAD`. `SparseGroupNormL2` also projects
 onto its hard domain at zero step. An infinite ℓ₁ level fixes all covered entries, and an infinite ℓ₂
 level or weight follows the group rules in the [sparse-group endpoint table](@ref sparse-group-l2-endpoints).
 `NormL0`, `NormL2` and `NormLinf` apply

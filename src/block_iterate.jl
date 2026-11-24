@@ -15,6 +15,8 @@
     BlockIterate(x::AbstractVector, f::GroupNormLinf)
     BlockIterate([T = Float64,] p, f::GroupMCP)
     BlockIterate(x::AbstractVector, f::GroupMCP)
+    BlockIterate([T = Float64,] p, f::GroupSCAD)
+    BlockIterate(x::AbstractVector, f::GroupSCAD)
 
 A real vector whose optimization coordinates are ordered groups of entries.
 The nonempty, disjoint groups must partition `1:p`; ranges and reordered

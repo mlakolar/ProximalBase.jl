@@ -24,6 +24,7 @@ step selection and stopping rule.
 | Entry and group sparsity on disjoint groups | [`SparseGroupNormL2(λ1, λ2, groups, w)`](@ref SparseGroupNormL2) | Both terms act on the listed entries. A zero weight removes the group ℓ₂ term. |
 | Sum of maximum magnitudes over disjoint groups | [`GroupNormLinf(λ, groups, w)`](@ref GroupNormLinf) | Unlisted indices are unpenalized; compact vectors use each group's index order; default weights are 1; the optimality score is the margin of the dual norm at a zero group and the distance to the subdifferential at a nonzero one, and the full-point form is the maximum of zero, of `abs(v[i])` over the unlisted indices and of the distances of the groups |
 | Group selection that levels off at large group norms | [`GroupMCP(λ0, groups, w; a)`](@ref GroupMCP) | `isconvex` false; a global radial proximal operator; unlisted indices are unpenalized; default weights are ``\sqrt{\lvert G_k\rvert}``; `kkt_violation` scores zero groups and unlisted indices only |
+| Group selection that levels off at large group norms, with the linear first piece of the lasso | [`GroupSCAD(λ0, groups, w; a)`](@ref GroupSCAD) | `isconvex` false; a radial proximal operator whose exact-arithmetic target is a global minimizer; unlisted indices are unpenalized; default weights are ``\sqrt{\lvert G_k\rvert}``; `kkt_violation` scores zero groups and unlisted indices only |
 | Affine or zero term | [`LinearFunction(c, d)`](@ref LinearFunction), [`ZeroFunction()`](@ref ZeroFunction) | Choose the coefficient shape for your array argument |
 | Nonnegative multiple of an existing function | [`Scaled(f, α)`](@ref Scaled) or `α*f` | Supported operations depend on the inner function |
 
@@ -89,6 +90,6 @@ The symmetric owner is not an array: explicitly choose [`coordinates`](@ref)
 or [`matrixview`](@ref). The [iterate guide](iterates.md) explains active zeros,
 copies and live views.
 
-This manual describes the current minimal 0.6 core. The
+This manual describes the minimal core on the 0.7 development line. The
 [migration guide](migration.md) distinguishes it from archived full-package
 features. Detailed exceptional inputs belong in the [numerical contract](numerics.md).

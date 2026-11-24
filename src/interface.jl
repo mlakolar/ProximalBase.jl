@@ -396,7 +396,7 @@ implements it together with [`value_entry`](@ref).
 
 The vector form allocates a plain floating `Vector` of `length(u)` and calls
 [`prox_block!`](@ref). [`GroupNormL2`](@ref), [`GroupNormLinf`](@ref),
-[`SparseGroupNormL2`](@ref) and [`GroupMCP`](@ref) interpret `k` as their group
+[`SparseGroupNormL2`](@ref), [`GroupMCP`](@ref) and [`GroupSCAD`](@ref) interpret `k` as their group
 number and `u` in that group's order. Custom methods define their own layout and must
 validate it; the allocating wrapper adds no group, shape, parameter or overlap
 checks. A block method alone does not supply full-array operations or traits.
@@ -418,8 +418,8 @@ function prox_block end
     prox_block!(out, f, u, k, γ)
 
 Write the proximal point of compact block `k` into `out` and return `out`.
-[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`SparseGroupNormL2`](@ref) and
-[`GroupMCP`](@ref) provide built-in implementations. Custom functions can implement this hook. Buffers follow the selected group's ordered indices.
+[`GroupNormL2`](@ref), [`GroupNormLinf`](@ref), [`SparseGroupNormL2`](@ref), [`GroupMCP`](@ref) and
+[`GroupSCAD`](@ref) provide built-in implementations. Custom functions can implement this hook. Buffers follow the selected group's ordered indices.
 
 A conforming method validates real one-based vectors, group bounds, exact
 lengths, parameters and the supported step before predictable writes. Exact
@@ -502,11 +502,11 @@ group and of the distance of every group, a zero group included, where the dista
 (zero for finite entries when the sum of the magnitudes of `v_G`, as the call computes it in the working type, is at most `c`) and not the margin: in exact arithmetic, for a positive margin, `distance <= margin <= sqrt(n)*distance` for a group of `n`
 entries. Under `Scaled` it has the routes of `GroupNormL2`. The three-argument form and a `SymmetricSparseIterate` throw an `ArgumentError`.
 
-[`GroupMCP`](@ref) has `kkt_violation(f, v, x, k)` at a zero group, the screen of `GroupNormL2` with the level and the
-weight as separate factors (`norm(v_G) - λ0*w_G` for finite `v`, `λ0` and `w_G`; its numerical contract gives the other
-cases), and `abs(vₖ)` at an entry in no group. At a real array point (a `BlockIterate` included) it throws an
+[`GroupMCP`](@ref) and [`GroupSCAD`](@ref) have `kkt_violation(f, v, x, k)` at a zero group, the screen of `GroupNormL2` with the level and the
+weight as separate factors (`norm(v_G) - λ0*w_G` for finite `λ0` and `w_G` and entries of `v` that are finite after conversion
+to the working type `float(promote_type(eltype(v), eltype(x)))`; its numerical contract gives the other cases), and `abs(vₖ)` at an entry in no group. At a real array point (a `BlockIterate` included) they throw an
 `ArgumentError` at a nonzero group and in the full-point form, and `kkt_violation(f, v, i)` throws an `ArgumentError`. A
-zero score does not imply a global minimizer. Under `Scaled` it has no point-aware score (`MethodError`).
+zero score does not imply a global minimizer. Under `Scaled` they have no point-aware score (`MethodError`).
 
 `LeastSquaresLoss` and `QuadraticFunction` have the full-point form `‖v + ∇f(x)‖∞`. They compute the gradient with
 `gradient!` in the function's scratch type `T` and reduce the residual in

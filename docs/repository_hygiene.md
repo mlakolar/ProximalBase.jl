@@ -11,7 +11,7 @@ that `git diff` reports as added, copied, modified or renamed between the
 checked-out commit and the classifier's base:
 
 - For a pull request, the base is the first parent of the tested merge commit.
-- For a push to master with a usable `before` commit, the base is `before`.
+- For a push to `master` or `release/0.6` with a usable `before` commit, the base is `before`.
 - For a push without a usable `before` commit (all zeros, missing or not
   fetchable) and for a manual run, the base is the first parent of the
   checked-out commit, if that commit has one.

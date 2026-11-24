@@ -398,7 +398,8 @@ unchanged), the overlaps `Base.mightalias` reports, and warmed allocations and i
 
 The `Full validation` workflow (`.github/workflows/full-validation.yml`) uses the `full` tier as its
 inventory and runs with `--check-bounds=yes`. It is scheduled daily at 09:23 UTC and can be dispatched manually. It is not
-one of the ordinary pull-request and push-to-master required checks.
+one of the ordinary pull-request and push-to-master or push-to-release/0.6 required checks.
+Scheduled runs use the default branch (`master`). For a release candidate, dispatch `release` mode on `release/0.6` with the exact `expected_sha`; also obtain the successful full ordinary CI run required below.
 
 The `mode` input selects the run; a scheduled run is `full`:
 - `full`: 3 shards on `ubuntu-latest`, `windows-latest` and `macos-latest` with Julia 1.10 and

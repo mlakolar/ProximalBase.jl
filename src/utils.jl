@@ -39,8 +39,13 @@ _checksize(y, x) = size(y) == size(x) || _size_mismatch(size(y), size(x))
 @noinline _size_mismatch(sy, sx) =
   throw(DimensionMismatch("the output has size $sy and the input $sx"))
 
-_checknonneg(name, v::Real) = v >= 0 || throw(ArgumentError("$name must be nonnegative, got $v"))
-_checknonneg(name, v::AbstractArray) = all(>=(0), v) || throw(ArgumentError("$name must be nonnegative"))
+# v >= 0 (false for a NaN Real). The BigFloat method avoids the comparison with an Int literal: for a non-NaN
+# BigFloat, that comparison allocates where Int is wider than the C `long` (e.g. 64-bit Windows).
+@inline _isnonneg(v) = v >= 0
+@inline _isnonneg(v::BigFloat) = !isnan(v) && (iszero(v) || !signbit(v))
+
+_checknonneg(name, v::Real) = _isnonneg(v) || throw(ArgumentError("$name must be nonnegative, got $v"))
+_checknonneg(name, v::AbstractArray) = all(_isnonneg, v) || throw(ArgumentError("$name must be nonnegative"))
 _checknonneg(name, ::Nothing) = true
 
 # A weight or a bound: a scalar, or the entry i of an array. The bounds check

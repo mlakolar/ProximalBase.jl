@@ -109,7 +109,9 @@ function test_expsum_accumulator(::Type{T}) where {T<:AbstractFloat}
     # BigFloat frames whose exponents differ by more than typemax(Int) (#373 review): the shift is not wrapped, the
     # negligible term scales to 0 in either order and the sum stays finite
     @test PB._frame_shift(Float64, 5, 12) === -7 && PB._frame_shift(BigFloat, 5, 12) === -7
-    Eb = Int(Base.MPFR.get_emax())                                       # 2 Eb + 100 > typemax(Int)
+    # Eb = typemax(Int) ÷ 2 (2^62 - 1 with a 64-bit Int, 2^30 - 1 with a 32-bit Int), independent of the MPFR range:
+    # 2 Eb + 100 > typemax(Int) for either Int width
+    Eb = typemax(Int) ÷ 2
     @test PB._frame_shift(BigFloat, -Eb - 100, Eb) === typemin(Int) && PB._frame_shift(BigFloat, Eb, -Eb - 100) === typemax(Int)
     @test PB._frame_shift(BigFloat, -Eb + 100, Eb) === -2Eb + 100       # a difference within Int is exact
     accb0 = PB._expsum_start(BigFloat)

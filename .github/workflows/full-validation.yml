@@ -1,5 +1,5 @@
 name: Full validation
-# Scheduled and manual validation, separate from the ordinary pull-request and push-to-master
+# Scheduled and manual validation, separate from the ordinary pull-request and branch-push
 # required checks. Modes: `full`, `focused` (named files) and `release` (`full` on an expected
 # SHA plus a successful CI.yml run on it; see CI_REQUIRED_JOBS in
 # scripts/full_validation_verdict.py).

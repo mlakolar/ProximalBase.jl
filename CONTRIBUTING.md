@@ -61,7 +61,7 @@ existing shared-rule owners. Follow the
 [new-family writing rules](docs/src/developer/writing_documentation.md#New-function-families)
 and update the contract family map and navigation.
 
-CI gates pull requests and master pushes with Julia 1.13 on Linux. A
+CI gates pull requests and pushes to `master` and `release/0.6` with Julia 1.13 on Linux. A
 change-classification job runs the repository hygiene checks and classifies
 the changed paths. Six independent test shards cover the complete retained
 inventory with bounds checks, and the frozen benchmark differential and the
@@ -87,7 +87,7 @@ Job-specific Julia caches are reused on subsequent runs. Reproduce one
 shard with `julia scripts/test.jl --shard=1/6` (or `2/6` to `6/6`).
 Scheduled and manual cross-platform runs, focused native runs and release
 validation use `.github/workflows/full-validation.yml` (see `test/TESTING.md`);
-they are not required checks. GPU automation remains deferred. No release or
+they are not required checks. Scheduled full validation runs on the default branch (`master`); dispatch release mode explicitly on `release/0.6` at the exact candidate SHA. Only master pushes publish development documentation; release-branch pushes validate documentation without deploying it. GPU automation remains deferred. No release or
 ProximalSolvers pin/source change is implied.
 
 ## Julia performance and correctness

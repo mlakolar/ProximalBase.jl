@@ -27,6 +27,7 @@ end
 
 @testset "minimal required CI contract" begin
     @test normalize_newlines(replace(workflow,"\n"=>"\r\n"))==workflow
+    @test occursin("branches: [master, release/0.6]",workflow)
     @test occursin("name: PR required jobs",workflow)
     @test occursin("name: PR merge gate",workflow)
     @test occursin("version: '1.13'",workflow)

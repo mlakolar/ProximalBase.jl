@@ -90,6 +90,6 @@ The symmetric owner is not an array: explicitly choose [`coordinates`](@ref)
 or [`matrixview`](@ref). The [iterate guide](iterates.md) explains active zeros,
 copies and live views.
 
-This manual describes the current minimal 0.6 core. The
+This manual describes the minimal core on the 0.7 development line. The
 [migration guide](migration.md) distinguishes it from archived full-package
 features. Detailed exceptional inputs belong in the [numerical contract](numerics.md).

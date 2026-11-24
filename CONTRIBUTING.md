@@ -1,5 +1,13 @@
 # Contributing
 
+## Release branches and PR targets
+
+- `master` is the 0.7 development line. New families, new public APIs and architectural changes target master.
+- `release/0.6` is feature-frozen. Only demonstrated correctness fixes, focused performance-regression fixes, tests, documentation and release-readiness work are eligible. GroupMCP and GroupSCAD belong to 0.7.
+- Use `release:0.6` and `release:0.7+` to identify the intended scope. A shared fix normally lands on master and is backported by a separate reviewed PR if applicable to 0.6. An urgent release-first fix must be independently forward-ported. Never merge master wholesale into the release branch.
+- Before editing, verify the intended base and current SHA. Review and test each branch-specific diff on its actual target; preserve the existing numerical, CI and performance gates. Do not merge, tag or publish without the maintainer's approval.
+- Keep ProximalSolvers on tested 0.6 pins unless its maintainer explicitly approves a different dependency. Downstream adoption is tracked separately from feature freeze; see #1204 and #527.
+
 Use UpperCamelCase for types/modules, snake_case for descriptive functions,
 fields and keyword arguments, and `!` for mutating functions. Keep established
 Julia interface names and mathematical identifiers.
@@ -53,7 +61,7 @@ existing shared-rule owners. Follow the
 [new-family writing rules](docs/src/developer/writing_documentation.md#New-function-families)
 and update the contract family map and navigation.
 
-CI gates pull requests and master pushes with Julia 1.13 on Linux. A
+CI gates pull requests and pushes to `master` and `release/0.6` with Julia 1.13 on Linux. A
 change-classification job runs the repository hygiene checks and classifies
 the changed paths. Six independent test shards cover the complete retained
 inventory with bounds checks, and the frozen benchmark differential and the
@@ -79,7 +87,7 @@ Job-specific Julia caches are reused on subsequent runs. Reproduce one
 shard with `julia scripts/test.jl --shard=1/6` (or `2/6` to `6/6`).
 Scheduled and manual cross-platform runs, focused native runs and release
 validation use `.github/workflows/full-validation.yml` (see `test/TESTING.md`);
-they are not required checks. GPU automation remains deferred. No release or
+they are not required checks. Scheduled full validation runs on the default branch (`master`); dispatch release mode explicitly on `release/0.6` at the exact candidate SHA. Only master pushes publish development documentation; release-branch pushes validate documentation without deploying it. GPU automation remains deferred. No release or
 ProximalSolvers pin/source change is implied.
 
 ## Julia performance and correctness

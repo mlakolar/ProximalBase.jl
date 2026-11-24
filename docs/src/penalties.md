@@ -327,9 +327,7 @@ x = [0.25, -0.75, 2.0, -3.0]
 ```
 
 See the [MCP numerical contract](@ref mcp-contract) for endpoint behavior and
-supported step routes. [`GroupMCP`](@ref GroupMCP) applies the same penalty to
-the Euclidean norms of disjoint groups; see the
-[group minimax concave penalty](@ref group-mcp-guide).
+supported step routes.
 
 ## SCAD penalty
 

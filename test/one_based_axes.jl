@@ -285,10 +285,6 @@ for T in (Float32, Float64)
       check("GroupNormL2 list of groups and weights, $kind", () -> GroupNormL2(one(T), mkvec(kind, groups), T[1, 1]))
       check("GroupNormL2 one group, $kind", () -> GroupNormL2(one(T), [1:2, off([3, 4])]))
       check("GroupNormL2 weights, $kind", () -> GroupNormL2(one(T), groups, off(T[1, 1])))
-      check("GroupMCP list of groups, $kind", () -> GroupMCP(one(T), mkvec(kind, groups)))
-      check("GroupMCP list of groups and weights, $kind", () -> GroupMCP(one(T), mkvec(kind, groups), T[1, 1]))
-      check("GroupMCP one group, $kind", () -> GroupMCP(one(T), [1:2, off([3, 4])]))
-      check("GroupMCP weights, $kind", () -> GroupMCP(one(T), groups, off(T[1, 1])))
       check("BlockIterate list of groups, $kind", () -> BlockIterate(4, mkvec(kind, groups)))
       check("BlockIterate type, list of groups, $kind", () -> BlockIterate(T, 4, mkvec(kind, groups)))
       check("BlockIterate one group, $kind", () -> BlockIterate(4, [1:2, off([3, 4])]))
@@ -298,8 +294,6 @@ for T in (Float32, Float64)
       gl = mkvec(kind, groups)
       check("typed GroupNormL2, offset groups, $kind", () -> GroupNormL2{T, typeof(gs)}(one(T), gs, ones(T, 2)))
       check("typed GroupNormL2, offset list of groups, $kind", () -> GroupNormL2{T, typeof(gl)}(one(T), gl, ones(T, 2)))
-      check("typed GroupMCP, offset groups, $kind", () -> GroupMCP{T, typeof(gs)}(one(T), T(3), gs, ones(T, 2)))
-      check("typed GroupMCP, offset list of groups, $kind", () -> GroupMCP{T, typeof(gl)}(one(T), T(3), gl, ones(T, 2)))
       check("typed BlockIterate, offset groups, $kind",
             () -> BlockIterate{T, typeof(gs)}(zeros(T, 4), gs, [1, 1, 2, 2], nothing, zeros(Int, 2), zeros(Int, 2), 0))
       check("typed BlockIterate, offset list of groups, $kind",
@@ -333,7 +327,6 @@ for T in (Float32, Float64)
     ranges2 = AbstractUnitRange{Int}[1:2, OffsetArrays.IdOffsetRange(1:2, 2)]
     for rs in (ranges, ranges2)
       check("GroupNormL2 group that is a range with offset axes, $(typeof(rs[2]))", () -> GroupNormL2(one(T), rs))
-      check("GroupMCP group that is a range with offset axes, $(typeof(rs[2]))", () -> GroupMCP(one(T), rs))
       check("BlockIterate group that is a range with offset axes, $(typeof(rs[2]))", () -> BlockIterate(4, rs))
     end
     for kind in MATKINDS

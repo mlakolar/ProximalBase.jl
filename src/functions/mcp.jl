@@ -154,12 +154,6 @@ function _mcp_scaled_residual(t::T, γ::T, λ::T) where {T<:AbstractFloat}
   mt, et = _frexp(t)
   mg, eg = _frexp(γ)
   ml, el = _frexp(λ)
-  _mcp_scaled_residual(mt, et, mg, eg, ml, el)
-end
-
-# The same residual from parts m 2^e of t, γ and λ, each significand in [1/2, 1). The exponents are not
-# bounded by the range of T, so a product γλ beyond that range keeps the sign of t - γλ.
-@inline function _mcp_scaled_residual(mt::T, et::Integer, mg::T, eg::Integer, ml::T, el::Integer) where {T<:AbstractFloat}
   shift = eg + el - et
   shift > 2 && return (-one(T), et)
   # A smaller product changes the normalized residual by less than half an
@@ -198,12 +192,6 @@ end
   ml, el = _frexp(λ)
   ma, ea = _frexp(a)
   mg, eg = _frexp(γ)
-  _mcp_keeps_parts(mt, et, ml, el, ma, ea, mg, eg)
-end
-
-# t² > aγλ² from parts m 2^e of t, λ, a and γ, each significand in [1/2, 1), with exponents not bounded by
-# the range of T. For Float32 and Float64 the comparison is exact.
-@inline function _mcp_keeps_parts(mt::T, et::Integer, ml::T, el::Integer, ma::T, ea::Integer, mg::T, eg::Integer) where {T<:Union{Float32,Float64}}
   shift = 2et - 2el - ea - eg
   # The normalized squares are in [1/4,1), the four-factor product in [1/16,1).
   shift >= 2 && return true
@@ -218,13 +206,6 @@ end
   qhi, qlo = _mcp_widemul(widemul(sl, sl), widemul(sa, sg))
   nshift = 2n + shift
   (p >> (128 - nshift), p << nshift) > (qhi, qlo)
-end
-# Other types compare the products of the significands rounded in T.
-@inline function _mcp_keeps_parts(mt::T, et::Integer, ml::T, el::Integer, ma::T, ea::Integer, mg::T, eg::Integer) where {T<:AbstractFloat}
-  shift = 2et - 2el - ea - eg
-  shift >= 2 && return true
-  shift <= -4 && return false
-  ldexp(mt * mt, shift) > (ml * ml) * (ma * mg)
 end
 
 @inline function _mcp_widemul(x::UInt128, y::UInt128)

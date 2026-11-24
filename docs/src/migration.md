@@ -26,8 +26,9 @@ Later changes restored `NormL2` and `GroupNormL2` ([#901](https://github.com/mla
 `GroupNormLinf` ([#999](https://github.com/mlakolar/ProximalBase.jl/pull/999)),
 `SCAD` ([#1043](https://github.com/mlakolar/ProximalBase.jl/pull/1043)),
 `MCP` ([#1046](https://github.com/mlakolar/ProximalBase.jl/pull/1046)),
-`SparseGroupNormL2` ([#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076)) and
-`GroupMCP` ([#1142](https://github.com/mlakolar/ProximalBase.jl/pull/1142)).
+and `SparseGroupNormL2` ([#1076](https://github.com/mlakolar/ProximalBase.jl/pull/1076)).
+The group nonconvex penalties `GroupMCP` and `GroupSCAD` are outside the frozen 0.6
+inventory; they are assigned to 0.7 development (see [#1204](https://github.com/mlakolar/ProximalBase.jl/issues/1204)).
 
 The restored indicators are `IndNonnegative` ([#996](https://github.com/mlakolar/ProximalBase.jl/pull/996)),
 `IndBox` ([#1020](https://github.com/mlakolar/ProximalBase.jl/pull/1020)),

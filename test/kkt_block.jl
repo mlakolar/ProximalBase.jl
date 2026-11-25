@@ -816,7 +816,7 @@ end
 
 # the gradient entry in no group is read once in the working type, which includes the type of the factors
 @testset "an entry in no group is read in the type of the factors" begin
-  tb = ldexp(BigFloat(1), -((Int(1) << 61) + 10))                  # the retained exponent fits an Int
+  tb = ldexp(BigFloat(1), -((Int(Base.MPFR.get_emax()) + 1) ÷ 2 + 10))   # the retained exponent fits an Int
   sb = Scaled(Scaled(GroupNormL2(Inf, [[1]], [1.0]), tb), tb)
   @test sb.f isa Scaled
   g = Int[0, 9007199254740993]                                      # 2^53 + 1 is not a Float64

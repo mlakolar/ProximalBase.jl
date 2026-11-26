@@ -2,9 +2,11 @@
 """Generate the prototype figures of the 0.7 documentation redesign proposal.
 
 Standard library only, in the style of docs/generate_learn_figures.py, which a
-later implementation PR would extend instead of keeping this file. Run with
---check to compare the tracked SVGs with the generated output. The closed forms
-below are checked against ProximalBase by check_figures.jl in this directory.
+later implementation PR would extend instead of keeping this file. Without
+arguments it rewrites the SVG files next to it; --check only compares them with
+the generated output. The closed forms below are written again in Julia in
+check_figures.jl, which checks them against ProximalBase; that check does not read
+the coordinates drawn here.
 """
 import argparse
 import math
@@ -154,8 +156,9 @@ def firm(t):
 def penalties():
     image, plot = figure(
         "Three sparsity penalties (λ = 1)",
-        "The l1 penalty grows linearly. MCP with a = 3 and SCAD with a = 3.7 agree with "
-        "l1 near zero and level off, at 1.5 beyond 3 and at 2.35 beyond 3.7.")
+        "The l1 penalty grows linearly. SCAD with a = 3.7 equals l1 up to one and MCP with a = 3 "
+        "starts with the same slope and bends at once; both level off, MCP at 1.5 beyond 3 and "
+        "SCAD at 2.35 beyond 3.7.")
     sx, sy = axes(plot, (40, 48, 440, 228), (-5, 5), (0, 3.4), [-4, -2, 2, 4], [1, 2, 3], "t", "penalty")
     ts = grid(-5, 5)
     path(plot, [(sx(t), sy(min(l1(t), 3.4))) for t in ts if l1(t) <= 3.4], QUIET, 2, "6 5")
@@ -170,9 +173,10 @@ def penalties():
 def thresholding():
     image, plot = figure(
         "Scalar proximal maps at step γ = 1, λ = 1",
-        "Soft thresholding from NormL1 shifts large inputs toward zero by one. Hard thresholding "
-        "from NormL0 keeps inputs above the square root of two. Firm thresholding from MCP with "
-        "a = 3 joins them and is the identity beyond three.")
+        "Soft thresholding from NormL1 moves inputs of magnitude above one toward zero by one. Hard "
+        "thresholding from NormL0 keeps inputs of magnitude above the square root of two and sets "
+        "the rest to zero. Firm thresholding from MCP with a = 3 is zero up to magnitude one, "
+        "steeper than the identity up to three and the identity beyond.")
     sx, sy = axes(plot, (40, 44, 440, 236), (-4, 4), (-4, 4), [-3, -1, 1, 3], [-3, 3], "v", "prox(v)")
     path(plot, [(sx(-4), sy(-4)), (sx(4), sy(4))], FAINT, 1.2)
     ts = grid(-4, 4, 800)
@@ -201,7 +205,9 @@ def group_shrink():
         "Points inside the disc of radius γλ = 1 map to zero. Points outside move toward the "
         "origin along their own direction, and their length decreases by one.",
         width=540)
-    sx, sy = axes(plot, (80, 44, 300, 236), (-2.6, 2.6), (-2.3, 2.3), [-2, 2], [-2, 2], "x₁", "x₂")
+    # Equal scales on both axes, so that the disc is a circle: 220 px for 5.2 units across, 192 px down.
+    half = 2.6 * 192 / 220
+    sx, sy = axes(plot, (80, 44, 300, 236), (-2.6, 2.6), (-half, half), [-2, 2], [-2, 2], "x₁", "x₂")
     scale = sx(1) - sx(0)
     ET.SubElement(plot, "circle", cx=f"{sx(0):.2f}", cy=f"{sy(0):.2f}", r=f"{scale:.2f}",
                   fill=FILL, stroke=BLUE, **{"stroke-width": "1.5", "stroke-dasharray": "5 4"})
@@ -226,14 +232,15 @@ def group_shrink():
 def projections():
     image, plot = figure(
         "Projections of the same point onto three unit balls",
-        "The point (1.5, 1) projects to (0.75, 0.25) on the l1 ball, to (0.83, 0.55) on the l2 "
-        "ball and to (1, 1) on the box. Each projection is the nearest feasible point.",
+        "The point (1.5, 0.3) projects to (1, 0) on the l1 ball, where its second coordinate "
+        "becomes zero, to (0.98, 0.20) on the l2 ball and to (1, 0.3) on the box. Each "
+        "projection is the nearest point of the set.",
         width=560, height=250)
-    u = (1.5, 1.0)
+    u = (1.5, 0.3)
     panels = [
-        ("IndBallL1(1)", [(1, 0), (0, 1), (-1, 0), (0, -1)], (0.75, 0.25), "(0.75, 0.25)"),
-        ("IndBallL2(1)", None, (u[0] / math.hypot(*u), u[1] / math.hypot(*u)), "(0.83, 0.55)"),
-        ("IndBox(-1, 1)", [(1, 1), (-1, 1), (-1, -1), (1, -1)], (1.0, 1.0), "(1, 1)"),
+        ("IndBallL1(1)", [(1, 0), (0, 1), (-1, 0), (0, -1)], (1.0, 0.0), "(1, 0)"),
+        ("IndBallL2(1)", None, (u[0] / math.hypot(*u), u[1] / math.hypot(*u)), "(0.98, 0.20)"),
+        ("IndBox(-1, 1)", [(1, 1), (-1, 1), (-1, -1), (1, -1)], (1.0, 0.3), "(1, 0.3)"),
     ]
     for i, (name, polygon, z, text) in enumerate(panels):
         left = 22 + 180 * i
@@ -251,7 +258,7 @@ def projections():
         point(plot, sx(z[0]), sy(z[1]), BLUE)
         label(plot, left + 70, 226, name, INK, "middle", "13")
         label(plot, left + 70, 243, f"prox = {text}", BLUE, "middle", "12")
-    label(plot, 540, 28, "○ u = (1.5, 1)", QUIET, "end", "12")
+    label(plot, 540, 28, "○ u = (1.5, 0.3)", QUIET, "end", "12")
     return image
 
 
@@ -300,8 +307,8 @@ def iterates():
         path(plot, [(x0 + 1, 236), (x0 + 1, 241), (x0 + (b - a) * cell - 1, 241),
                     (x0 + (b - a) * cell - 1, 236)], BLUE, 1.5)
         label(plot, x0 + (b - a) * cell / 2, 257, f"group {g + 1}", BLUE, "middle", "11")
-    label(plot, 20, 286, "SymmetricSparseIterate (not shown) stores one value per lower-triangle "
-          "entry of a symmetric matrix.", QUIET, size="11")
+    label(plot, 20, 286, "SymmetricSparseIterate (not shown) does the same for the lower triangle of a "
+          "symmetric matrix.", QUIET, size="11")
     return image
 
 

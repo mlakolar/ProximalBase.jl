@@ -22,7 +22,7 @@ Cost: S is under half a day, M is one to three days.
 
 2. **Capability tables with check marks, split by the reader's filter, short cells.** (M)
    SciPy's [local minimizer table](https://docs.scipy.org/doc/scipy/tutorial/optimize.html)
-   has six columns of ✓ ("Bounds", "Uses Gradient", "Utilizes Sparsity"), one
+   has five columns of ✓ next to the solver name ("Bounds", "Uses Gradient", "Utilizes Sparsity"), one
    instruction sentence above ("Find a solver that meets your requirements using
    the table below") and one legend line ("(✓) = depending on …").
    [Convex.jl](https://jump.dev/Convex.jl/stable/manual/operations/) splits its
@@ -30,8 +30,8 @@ Cost: S is under half a day, M is one to three days.
    defined once. [PETSc](https://petsc.org/release/overview/linear_solve_table/)
    splits its solver tables by kind and puts conditions inline ("only for bs = 2,3,4,5"),
    but leaves blank cells undefined, a weakness to avoid.
-   → [Capability tables](compatibility-tables.md): one table per role, five to
-   seven columns, every cell symbol defined.
+   → [Capability tables](compatibility-tables.md): two tables per role (operations,
+   inputs) with at most eight short columns, every cell symbol defined.
 
 3. **A blunt "is this the right package?" statement.** (S)
    JuMP's [Should you use JuMP?](https://jump.dev/JuMP.jl/stable/should_i_use/) lists
@@ -77,11 +77,14 @@ Cost: S is under half a day, M is one to three days.
    [JAX](https://docs.jax.dev/en/latest/notebooks/Common_Gotchas_in_JAX.html) gives
    each pitfall a heading, the expected behavior, code, the surprising output, the
    reason and the fix.
-   → A "Common pitfalls" page: `LeastSquaresLoss` is ½‖y−Xβ‖² without 1/n;
-   `value_and_prox!` returns the value at the *output*; a gradient output must not be
-   its input; `Scaled(f, α)` multiplies the effective step; nonconvex proximal maps
-   break ties toward zero; `SparseIterate` is a working set, not compressed storage.
-   Each entry links to the rule's owner and does not restate it.
+   → Candidate material: `LeastSquaresLoss` is ½‖y−Xβ‖² without 1/n;
+   `value_and_prox!` returns the value at the *output*; a gradient output must not
+   share memory with its input; for a finite α > 0, `Scaled(f, α)` takes proximal steps
+   of `f` with step αγ; `NormL0`, and `MCP` at a step γ ≥ a, return zero on an exact tie,
+   while `SCAD` picks the minimizer of smaller magnitude;
+   `SparseIterate` is a working set, not compressed storage. The proposal puts these in
+   the "Good to know" lists of the function entries and defers a separate page
+   ([decision 7](README.md#decisions-for-the-maintainer)).
 
 9. **Examples that change one argument at a time.** (M)
    Ceres' [tutorial](https://ceres-solver.github.io/ceres-solver/nnls_tutorial.html)
@@ -105,8 +108,9 @@ Cost: S is under half a day, M is one to three days.
 12. **Shared operation vocabulary with the solver package.** (S)
     ProximalAlgorithms' [algorithm tables](https://juliafirstorder.github.io/ProximalAlgorithms.jl/stable/guide/implemented_algorithms/)
     have an "Oracle" column (`∇f`, `prox_{γg}`).
-    → Use the same operation names as column headers in ProximalBase and in
-    ProximalSolvers' documentation, and link both ways.
+    → Use the operation names as column headers in ProximalBase and link to
+    ProximalSolvers' supported-problems page. Using the same names in ProximalSolvers'
+    documentation would be a suggestion for that package, outside this series.
 
 ## Choices that do not fit ProximalBase
 
@@ -126,8 +130,8 @@ Cost: S is under half a day, M is one to three days.
 - **Large tutorial volumes, numbered user-guide chapters and versioned API trees**
   (JuMP's tutorials, scikit-learn's chapters, PyTorch's version paths). These answer
   problems of scale ProximalBase does not have.
-- **A home page with no code** (Optim.jl, ProximalAlgorithms). This is the problem
-  being solved.
+- **A home page with an install command but no worked example** (Optim.jl,
+  ProximalAlgorithms). A runnable example on Home is what this proposal adds.
 
 ## Diátaxis: a review tool, not a folder layout
 

@@ -1,0 +1,85 @@
+# Pilot 4: IndBallL1.  Independent formula: Euclidean projection onto {‖x‖₁ ≤ r} by sorting (Duchi et al. 2008).
+using ProximalBase, LinearAlgebra, Random
+const PB = ProximalBase
+chk(label, ok) = println("  check ", rpad(label, 60), ok ? "OK" : "FAIL")
+tryshow(label, f) = try; r = f(); println("  ", rpad(label, 56), " -> ", repr(r)); r; catch e; println("  ", rpad(label, 56), " -> THROWS ", typeof(e), ": ", first(split(sprint(showerror, e), '\n'))); nothing; end
+function proj_l1(x, r)
+  sum(abs, x) <= r && return copy(x)
+  u = sort(abs.(x); rev=true); css = cumsum(u)
+  ρ = findlast(j -> u[j] - (css[j] - r)/j > 0, eachindex(u)); θ = (css[ρ] - r)/ρ
+  sign.(x) .* max.(abs.(x) .- θ, 0)
+end
+println("== constructors / validation")
+tryshow("IndBallL1()  (default radius)", () -> IndBallL1())
+println("  IndBallL1().r = ", IndBallL1().r, " (default radius is 1; Int type: ", typeof(IndBallL1().r), ")")
+tryshow("IndBallL1(1.0)", () -> IndBallL1(1.0))
+tryshow("IndBallL1(3)  (Int radius)", () -> typeof(IndBallL1(3)))
+tryshow("IndBallL1(0.0)  (zero radius)", () -> IndBallL1(0.0))
+tryshow("IndBallL1(Inf)", () -> IndBallL1(Inf))
+tryshow("IndBallL1(-1.0)", () -> IndBallL1(-1.0))
+tryshow("IndBallL1(NaN)", () -> IndBallL1(NaN))
+tryshow("IndBallL1(1.0, 2.0)  (extra arg)", () -> IndBallL1(1.0, 2.0))
+tryshow("IndBallL1(1+1im)", () -> IndBallL1(1+1im))
+tryshow("IndBallL1(1.0) == IndBallL1(1.0)", () -> IndBallL1(1.0) == IndBallL1(1.0))
+println("== traits")
+f = IndBallL1(1.0)
+println("  issmooth=", issmooth(f), " isproximable=", isproximable(f), " isseparable=", isseparable(f), " isconvex=", isconvex(f), " iszeropreserving=", iszeropreserving(f))
+println("== value: 0 inside the ball, Inf outside")
+println("  f([0.5,-0.5]) = ", f([0.5,-0.5]), " (on boundary);  f([0.6,-0.5]) = ", f([0.6,-0.5]), ";  f([2.0,-1.0,0.5]) = ", f([2.0,-1.0,0.5]), ";  f([NaN,0.0]) = ", f([NaN,0.0]))
+println("== prox = Euclidean projection (step γ is irrelevant)")
+x = [2.0, -1.0, 0.5]
+p = prox(f, x, 1.0); refp = proj_l1(x, 1.0)
+println("  prox(IndBallL1(1.0), [2.0,-1.0,0.5], 1.0) = ", p, "\n  independent projection                         = ", refp, "\n  ‖prox‖₁ = ", sum(abs, p)); chk("quick-start example vs independent projection", p ≈ refp && p == [1.0, 0.0, 0.0])
+for γ in (0.0, 0.1, 1.0, 100.0, Inf)
+  println("  γ=", γ, ": ", prox(f, x, γ)); end
+chk("prox independent of γ (0, 0.1, 1, 100, Inf)", all(prox(f, x, γ) == p for γ in (0.0, 0.1, 1.0, 100.0, Inf)))
+println("  prox(f, x) default γ: ", prox(f, x))
+tryshow("prox(f, x, -1.0) negative step", () -> prox(f, x, -1.0))
+tryshow("prox(f, x, NaN) NaN step", () -> prox(f, x, NaN))
+tryshow("prox with array step [1.0,1.0,1.0]", () -> prox(f, x, ones(3)))
+Random.seed!(3)
+let bad = 0
+  for t in 1:300
+    n = rand(2:30); r = 10.0^rand(-3:1); xx = randn(n) .* 10.0^rand(-2:2)
+    q = prox(IndBallL1(r), xx, 1.0); rq = proj_l1(xx, r)
+    isapprox(q, rq; rtol=1e-10, atol=1e-12*max(1,maximum(abs, xx))) || (bad += 1)
+  end
+  println("  300 random vectors/radii vs sorting projection: mismatches = ", bad); chk("random comparison", bad == 0)
+end
+out = similar(x)
+r = prox!(out, f, x, 1.0); println("  prox!(out,f,x,1.0) returns out? ", r === out, "; out = ", out)
+v = value_and_prox!(out, f, x, 1.0); println("  value_and_prox!(out,f,x,1.0) = ", v, " (", typeof(v), "): value of the indicator at the projection (zero)"); chk("value_and_prox! returns 0.0", v == 0.0)
+c = copy(x); prox!(c, f, c, 1.0); println("  in-place prox!(c,f,c,1.0): ", c)
+println("  feasible input copied unchanged: ", prox(f, [0.25, -0.25], 1.0))
+println("  zero radius: ", prox(IndBallL1(0.0), x, 1.0), "; infinite radius: ", prox(IndBallL1(Inf), x, 1.0))
+println("  radius 3: ", prox(IndBallL1(3.0), [3.0, -1.0]), "  (docstring example: [2.5, -0.5])")
+tryshow("prox! wrong output length", () -> prox!(zeros(2), f, x, 1.0))
+println("  prox of NaN entry: ", prox(f, [NaN, 1.0], 1.0), "; one infinite entry: ", prox(f, [Inf, 1.0], 1.0), "; two infinite entries: ", prox(f, [Inf, -Inf], 1.0))
+println("== gradient / kkt / block: not supported")
+tryshow("gradient(f, x)", () -> gradient(f, x))
+tryshow("kkt_violation(f, v, x)", () -> kkt_violation(f, [0.1,0.2,0.3], x))
+tryshow("prox_block(f, 2.0, 1, 1.0)", () -> prox_block(f, 2.0, 1, 1.0))
+tryshow("lipschitz(f)", () -> lipschitz(f))
+println("== Scaled")
+println("  typeof(2.0*f) = ", typeof(2.0*f), "  (returns f itself: ", 2.0*f === f, ")"); tryshow("(-1.0)*f", () -> -1.0*f)
+println("== representations")
+M = [2.0 -1.0; 0.5 0.0]
+println("  dense matrix: prox(f, M, 1.0) = ", prox(f, M, 1.0), "  (matrix ℓ1 over all entries; independent: ", reshape(proj_l1(vec(M), 1.0), 2, 2), ")"); chk("matrix = vec projection", prox(f, M, 1.0) ≈ reshape(proj_l1(vec(M), 1.0), 2, 2))
+Ms = [2.0 -1.0; -1.0 0.0]
+println("  Symmetric: ", typeof(prox(f, Symmetric(Ms), 1.0)), " ", prox(f, Symmetric(Ms), 1.0))
+b8 = zeros(8); b8[1:2:5] .= x
+println("  strided view: ", prox(f, view(b8, 1:2:5), 1.0))
+sp = SparseIterate(3); sp[1] = 2.0; sp[2] = -1.0; sp[3] = 0.5
+println("  SparseIterate vector: f(sp) = ", f(sp), "; prox -> ", typeof(prox(f, sp, 1.0)), " ", collect(prox(f, sp, 1.0)), " nactive=", nactive(prox(f, sp, 1.0)))
+tryshow("prox!(dense out, f, SparseIterate, 1.0)", () -> prox!(zeros(3), f, sp, 1.0))
+println("  BlockIterate: ", collect(prox(f, BlockIterate(copy(x), [[1,2],[3]]), 1.0)))
+ss = SymmetricSparseIterate(Ms)
+tryshow("SymmetricSparseIterate value", () -> f(ss))
+tryshow("SymmetricSparseIterate prox", () -> prox(f, ss, 1.0))
+println("  Float32 data: ", prox(f, Float32.(x), 1.0), " eltype ", eltype(prox(f, Float32.(x), 1.0)), "; Float32 radius+data: ", eltype(prox(IndBallL1(1.0f0), Float32.(x), 1.0f0)))
+println("  BigFloat: ", prox(f, BigFloat.(x), 1.0)[1:2], "; with BigFloat radius ", prox(IndBallL1(BigFloat(1)), BigFloat.(x), 1.0)[1])
+println("  Int vector: ", prox(f, [2, -1, 0], 1.0), " eltype ", eltype(prox(f, [2,-1,0], 1.0)))
+tryshow("complex vector", () -> prox(f, [1.0+1im, 2.0], 1.0))
+println("== show / repr")
+println("  repr(IndBallL1(1.0)) = ", repr(IndBallL1(1.0)))
+show(stdout, MIME("text/plain"), IndBallL1(2.5)); println()

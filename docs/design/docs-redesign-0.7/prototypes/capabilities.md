@@ -1,171 +1,197 @@
 # [Capability tables](@id capability-tables)
 
-Find what a function supports. Each role has two tables: the **operations** a
-function provides, and the **storage** it accepts.
+Find what a function implements. Each role has two tables: the **operations**, and
+the kinds of **input** that value and prox accept.
 
 | Symbol | Meaning |
 |:--|:--|
-| ✓ | supported |
-| ◐ | supported with the condition in the numbered note below the table |
-| — | not supported (the call throws an error) |
+| ✓ | implemented for the function's ordinary inputs; the function's entry gives the conditions (shapes, steps, preconditions) |
+| ◐ *a* | implemented with the restriction in note *a* below the table |
+| — | not implemented: the call throws |
 
-*Prototype note: the cells come from the G0 capability audit (probes on Julia 1.13.4,
-compared with independent formulas or with the dense-array result). G4 confirms each
-cell against the test suite before the table is published.*
+*Prototype note: the cells come from the G0 capability probes (Julia 1.13.4, recorded
+in [the verification record](../verification/README.md)), not from a review of every
+test. G4 confirms each cell against the tests before publication.*
 
-**Operations**, as columns:
+**Operation columns**
 
-| Column | Call |
+| Column | Calls |
 |:--|:--|
 | value | `f(x)` |
-| grad | `gradient`, `gradient!`, `value_and_gradient(!)` |
+| grad | `gradient`, `gradient!`, `value_and_gradient`, `value_and_gradient!` |
 | prox | `prox`, `prox!`, `value_and_prox!` |
-| coord | `prox_block(f, xᵢ, i, γ)`: one entry |
-| group | `prox_block(f, u, k, γ)`: the entries `u` of group `k` |
-| score | `kkt_violation`, the optimality score (a coordinate screen, a coordinate or group score, the whole point) |
+| coord | `prox_block(f, xᵢ, i, γ)`: the proximal point of one entry |
+| group | `prox_block(f, u, k, γ)` and `prox_block!(out, f, u, k, γ)`: the proximal point of the entries `u` of group `k`, in a separate buffer |
+| score | `kkt_violation`: the optimality score of a coordinate, a group or the whole point |
 | restrict | `restrict(f, S)` |
 
-**Storage**, as columns: dense vectors and matrices (strided views included),
-*sparse* for [`SparseIterate`](@ref), *block* for [`BlockIterate`](@ref) and
-*symmetric* for [`SymmetricSparseIterate`](@ref).
-Two rules hold for every function and are not repeated in the tables:
-
-- A `Symmetric` matrix is accepted wherever a matrix is; `prox` returns a dense
-  `Matrix`, and a `Symmetric` output is not accepted.
-- The supported precision is `Float64` or `Float32`, used for data, parameters, step
-  and output alike. Other element types and mixed precision may work but are not
-  guaranteed ([precision rules](@ref numerical-usage)).
+**Input columns**: dense vectors, dense matrices (strided views included), *sparse*
+for [`SparseIterate`](@ref), *block* for [`BlockIterate`](@ref), *symmetric* for
+[`SymmetricSparseIterate`](@ref). Unless a note says otherwise, an output of the same
+kind as the input is accepted. `Symmetric` matrix wrappers, element types other than
+`Float64` and `Float32`, and mixed precision are covered in each entry and in the
+[precision rules](@ref numerical-usage), not in these tables.
 
 ## Losses
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| [`LeastSquaresLoss`](@ref entry-leastsquaresloss) | ✓ | ✓ | ✓ | — | — | ◐¹ | ◐² |
-| `LogisticLoss` | ✓ | ✓ | — | — | — | — | — |
-| `PoissonLoss` | ✓ | ✓ | — | — | — | — | — |
-| `SqrtLeastSquaresLoss` | ✓ | — | — | — | — | — | — |
-| `LogDetLoss` | ✓ | ✓ | ✓ | — | — | — | — |
+| [`LeastSquaresLoss`](@ref) | ✓ | ✓ | ✓ | — | — | ◐ *a* | ◐ *b* |
+| [`LogisticLoss`](@ref) | ✓ | ✓ | — | — | — | — | — |
+| [`PoissonLoss`](@ref) | ✓ | ✓ | — | — | — | — | — |
+| [`SqrtLeastSquaresLoss`](@ref) | ✓ | — | — | — | — | — | — |
+| [`LogDetLoss`](@ref) | ✓ | ✓ | ◐ *c* | — | — | — | — |
 
-1. Whole point only.
-2. Vector response only.
+- *a* — whole point only.
+- *b* — vector response only.
+- *c* — a finite nonnegative scalar step.
 
-`LeastSquaresLoss`, `LogisticLoss`, `PoissonLoss` and `SqrtLeastSquaresLoss` also
-evaluate from a predictor ``X\beta`` that you already hold
-([details](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds)).
+The first four also evaluate from a linear predictor that you already hold (for
+`LogisticLoss`, including its offset), and all but `SqrtLeastSquaresLoss` compute a
+gradient from it; see each loss's entry.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
-| `LeastSquaresLoss` | ✓ | ◐³ | ✓ | ✓ | — |
-| `LogisticLoss` | ◐⁴ | — | — | — | — |
-| `PoissonLoss` | ◐⁵ | — | — | — | — |
+| `LeastSquaresLoss` | ✓ | ◐ *d* | ◐ *e* | ✓ | — |
+| `LogisticLoss` | ◐ *f* | — | — | — | — |
+| `PoissonLoss` | ◐ *g* | — | — | — | — |
 | `SqrtLeastSquaresLoss` | ✓ | — | ✓ | ✓ | — |
-| `LogDetLoss` | — | ✓ | ◐⁶ | — | ◐⁶ |
+| `LogDetLoss` | — | ◐ *h* | ◐ *i* | — | ◐ *i* |
 
-3. With an ``n\times k`` response; the coefficients are ``p\times k``.
-4. A dense vector, or a strided view, with the loss's element type.
-5. A dense vector, or a strided view, of `Float64`.
-6. Value, gradient and `prox` with a dense result.
+- *d* — with an ``n\times k`` response; the coefficients are ``p\times k``.
+- *e* — a vector, or a matrix with an ``n\times k`` response.
+- *f* — a dense vector or strided view with the loss's element type.
+- *g* — a dense `Float64` vector or strided view; the loss itself takes `Float64` data.
+- *h* — square, with the element type of ``S``; `gradient!` and `prox!` need a separate strided dense output.
+- *i* — matrix input; value, gradient and `prox` with a dense output.
 
 ## Sparsity penalties
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| [`NormL1`](@ref entry-norml1) | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
-| `ElasticNet` | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
-| `NormL1Nonneg` | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
-| `MCP` | ✓ | — | ✓ | ✓ | — | — | ✓ |
-| `SCAD` | ✓ | — | ✓ | ✓ | — | — | ✓ |
-| `NormL0` | ✓ | — | ✓ | ✓ | — | — | ✓ |
-| `NormL0(λ; diagonal = false)` | ✓ | — | ✓ | — | — | — | — |
+| [`NormL1`](@ref) | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
+| [`ElasticNet`](@ref) | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
+| [`NormL1Nonneg`](@ref) | ✓ | — | ✓ | ✓ | — | ✓ | ✓ |
+| [`MCP`](@ref) | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| [`SCAD`](@ref) | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| [`NormL0`](@ref) | ✓ | — | ✓ | ✓ | — | — | ✓ |
+| `NormL0(λ; diagonal = false)` | ◐ *a* | — | ◐ *a* | — | — | — | — |
+
+- *a* — finite level; square strided `Float32` or `Float64` matrices with finite entries,
+  symmetric by precondition and under the storage preconditions of its entry; prox takes a
+  finite positive scalar step.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
-| `NormL1`, `ElasticNet`, `NormL1Nonneg` | ✓ | ✓ | ✓ | ✓ | ◐¹ |
-| `MCP`, `SCAD`, `NormL0` | ✓ | ✓ | ✓ | ✓ | ◐² |
-| `NormL0(λ; diagonal = false)` | — | ◐³ | — | — | — |
+| `NormL1`, `ElasticNet`, `NormL1Nonneg` | ✓ | ✓ | ✓ | ✓ | ◐ *b* |
+| `MCP`, `SCAD`, `NormL0` | ✓ | ✓ | ✓ | ✓ | ◐ *c* |
+| `NormL0(λ; diagonal = false)` | — | ◐ *a* | — | — | — |
 
-1. Scalar step; weights form a symmetric ``p\times p`` array; optimality per coordinate only.
-2. Scalar step.
-3. Square `Float32` or `Float64` matrices with finite entries.
+- *b* — scalar step; supplied weights must be exactly mirrored (``p^2`` entries in
+  linear order); the score is per coordinate only.
+- *c* — scalar step.
 
 ## Norm and group penalties
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `NormL2` | ✓ | — | ✓ | — | — | ◐¹ | — |
-| `NormLinf` | ✓ | — | ✓ | — | — | ◐¹ | — |
-| [`GroupNormL2`](@ref entry-groupnorml2) | ✓ | — | ✓ | — | ✓ | ◐² | — |
-| `SparseGroupNormL2` | ✓ | — | ✓ | — | ✓ | ◐² | — |
-| `GroupNormLinf` | ✓ | — | ✓ | — | ✓ | ◐² | — |
-| `GroupMCP` | ✓ | — | ✓ | — | ✓ | ◐³ | — |
-| `GroupSCAD` | ✓ | — | ✓ | — | ✓ | ◐³ | — |
+| [`NormL2`](@ref) | ✓ | — | ✓ | — | — | ◐ *a* | — |
+| [`NormLinf`](@ref) | ✓ | — | ✓ | — | — | ◐ *a* | — |
+| [`GroupNormL2`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *b* | — |
+| [`SparseGroupNormL2`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *b* | — |
+| [`GroupNormLinf`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *b* | — |
+| [`GroupMCP`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *c* | — |
+| [`GroupSCAD`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *c* | — |
 
-1. Whole point only.
-2. Per group and whole point.
-3. Zero groups only.
+- *a* — whole point only.
+- *b* — per group and for the whole point; with a `BlockIterate`, its groups must be the
+  function's groups, in the same order.
+- *c* — zero groups and entries in no group only; no whole-point score.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
-| `NormL2`, `NormLinf` | ✓ | ✓ | ✓ | ✓ | ◐⁴ |
-| the five group penalties | ✓ | ◐⁵ | ✓ | ✓ | — |
+| `NormL2`, `NormLinf` | ✓ | ✓ | ✓ | ✓ | ◐ *d* |
+| the five group penalties | ✓ | ◐ *e* | ✓ | ✓ | — |
 
-4. Value only.
-5. Groups refer to linear (column-major) indices.
+- *d* — value only.
+- *e* — groups refer to linear (column-major) indices.
 
 ## Constraints
 
-For a constraint, prox is the Euclidean projection and does not depend on the step.
+For a constraint, prox is the Euclidean projection onto the set.
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `IndBox`, `IndBallLinf` | ✓ | — | ✓ | ✓ | — | — | ✓ |
-| `IndNonnegative` | ✓ | — | ✓ | ✓ | — | ◐¹ | ✓ |
-| [`IndBallL1`](@ref entry-indballl1) | ✓ | — | ✓ | — | — | — | — |
-| `IndBallL2` | ✓ | — | ✓ | — | — | — | — |
-| `IndBallL0` | ✓ | — | ✓ | — | — | — | — |
+| [`IndBox`](@ref), [`IndBallLinf`](@ref) | ✓ | — | ✓ | ✓ | — | — | ◐ *a* |
+| [`IndNonnegative`](@ref) | ✓ | — | ✓ | ✓ | — | ◐ *b* | ✓ |
+| [`IndBallL1`](@ref) | ✓ | — | ✓ | — | — | — | — |
+| [`IndBallL2`](@ref) | ✓ | — | ✓ | — | — | — | — |
+| [`IndBallL0`](@ref) | ✓ | — | ◐ *c* | — | — | — | — |
 
-1. The screen of a coordinate assumed to be zero only.
+- *a* — throws unless every omitted interval contains zero.
+- *b* — the screen of a coordinate assumed to be zero only.
+- *c* — finite counted entries.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
 | `IndBox`, `IndBallLinf`, `IndNonnegative` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `IndBallL1`, `IndBallL2` | ✓ | ✓ | ✓ | ✓ | — |
-| `IndBallL0` | ◐² | ◐² | ◐³ | — | ◐³ |
+| `IndBallL0` | ◐ *d* | ◐ *d* | ◐ *e* | — | ◐ *e* |
 
-2. `Float32` or `Float64` arrays, not views.
-3. The output must be of the same kind as the input.
+- *d* — `Float32` or `Float64` arrays, not views.
+- *e* — the output must be of the same kind as the input.
 
-## Quadratic, linear and scaled functions
+## Quadratic and linear functions
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `SqrNormL2` | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| `QuadraticFunction` | ✓ | ✓ | ◐¹ | — | — | ◐² | ✓ |
-| `KronQuadratic` | ✓ | ✓ | — | — | — | — | — |
-| `LinearFunction` | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| `ZeroFunction` | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
-| `Scaled(f, α)`, `α * f` | as `f` | as `f` | as `f` | as `f` | — | as `f` | as `f` |
+| [`SqrNormL2`](@ref) | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| [`QuadraticFunction`](@ref) | ✓ | ✓ | ◐ *a* | — | — | ◐ *b* | ✓ |
+| [`KronQuadratic`](@ref) | ✓ | ✓ | — | — | — | — | — |
+| [`LinearFunction`](@ref) | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| [`ZeroFunction`](@ref) | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
 
-1. For an indefinite ``A``, only steps with ``1+\gamma\lambda_{\min}(A)>0``; otherwise a `DomainError`.
-2. Whole point only.
+- *a* — for an indefinite ``A``, a step that fails the computed check on its
+  [guarantee page](@ref spec-quadratic) throws `DomainError`; ``A`` must be symmetric
+  (not checked).
+- *b* — whole point only.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
-| `SqrNormL2`, `LinearFunction` | ✓ | ✓ | ✓ | ✓ | ◐³ |
-| `ZeroFunction` | ✓ | ✓ | ✓ | ✓ | ◐⁴ |
-| `QuadraticFunction` | ✓ | — | ✓ | ✓ | — |
-| `KronQuadratic` | — | ✓ | ◐⁵ | — | ✓ |
-| `Scaled(f, α)` | as `f` | as `f` | as `f` | as `f` | as `f` |
+| `SqrNormL2` | ✓ | ✓ | ✓ | ✓ | ◐ *c* |
+| `LinearFunction` | ◐ *d* | ◐ *d* | ◐ *d* | ◐ *d* | ◐ *c* |
+| `ZeroFunction` | ✓ | ✓ | ✓ | ✓ | ◐ *e* |
+| `QuadraticFunction` | ✓ | — | ◐ *f* | ✓ | — |
+| `KronQuadratic` | — | ◐ *g* | ◐ *i* | — | ◐ *h* |
 
-3. No whole-point optimality score.
-4. Value, a coordinate optimality score, and `prox` into a `SymmetricSparseIterate` output only.
-5. Matrix `SparseIterate`.
+- *c* — no whole-point score.
+- *d* — the coefficients must have the shape of the input.
+- *e* — value, a coordinate score, and `prox` into a `SymmetricSparseIterate` output only.
+- *f* — a vector `SparseIterate`.
+- *g* — `gradient!` needs a writable strided output.
+- *h* — square variable, matching element types, and ``C`` exactly symmetric when given.
+- *i* — a matrix `SparseIterate`; value and gradient.
+
+## Scaled functions
+
+`Scaled(f, α)`, written `α * f`, with a finite ``\alpha>0`` provides the operations of
+`f` above except group steps. Zero and infinite scales, scaled indicators (which return
+the indicator itself) and the remaining exceptions follow the
+[scaling rules](@ref scaling-guide). The G0 probes covered `NormL1`,
+`LeastSquaresLoss` and `GroupNormL2` as inner functions only.
+
+## Other operations
+
+- `lipschitz(f)` returns a computed bound on the gradient's Lipschitz constant for
+  `SqrNormL2`, `QuadraticFunction`, `KronQuadratic`, `LeastSquaresLoss`,
+  `LinearFunction`, `ZeroFunction` and their positive multiples. It is `0` for
+  `ZeroFunction` and `LinearFunction` and can be `0` for others, so check before dividing. `LogDetLoss` returns `Inf`. The other functions throw.
+- There is no Hessian or Hessian-vector product in this version.
 
 ## What these tables do not say
 
-- Whether a ProximalSolvers algorithm accepts a function: see the
-  [ProximalSolvers documentation](https://github.com/mlakolar/ProximalSolvers.jl).
+- Whether a ProximalSolvers algorithm accepts a function: see its
+  [supported problems](https://mlakolar.github.io/ProximalSolvers.jl/dev/support/).
 - What happens at extreme or non-finite values: see each function's
-  [guarantees](@ref guarantees).
-- Which ✓ comes with a precondition you must check yourself (for example, symmetric
-  weights on a `SymmetricSparseIterate`): see the function's entry.
+  [guarantees](@ref numerical-contracts-guide).
+- Preconditions that you must check yourself: see the function's entry.

@@ -39,13 +39,19 @@ prox(g, x, 1.0)                       # the second group becomes zero
 
 ### Proximal operator: group soft thresholding
 
+For finite entries, finite parameters and a step ``\gamma>0``,
+
 ```math
 \operatorname{prox}_{\gamma g}(v)_{G_k}=
-\max\Bigl(1-\frac{\gamma\lambda w_k}{\|v_{G_k}\|_2},\ 0\Bigr)\,v_{G_k}.
+\max\Bigl(1-\frac{\gamma\lambda w_k}{\|v_{G_k}\|_2},\ 0\Bigr)\,v_{G_k},
 ```
 
-A group whose norm is at most ``\gamma\lambda w_k`` becomes zero. Any other group
-keeps its direction and its norm decreases by ``\gamma\lambda w_k``.
+with the zero vector for a group whose norm is zero; entries in no group are unchanged.
+A group whose norm is at most ``\gamma\lambda w_k`` becomes zero. Any other group keeps
+its direction and its norm decreases by ``\gamma\lambda w_k``. Infinite levels or
+weights, zero steps and non-finite entries follow the
+[endpoint rules](@ref group-l2-endpoints); for example, an infinite weight sets its
+group to zero even at a zero step.
 
 ![Group soft thresholding in two dimensions.](../../figures/group-shrink.svg)
 
@@ -53,28 +59,50 @@ keeps its direction and its norm decreases by ``\gamma\lambda w_k``.
 |:--|:--|:--|
 | value | `g(x)` | ✓ |
 | proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ scalar step ``\gamma\ge0`` |
-| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ |
-| one group | `prox_block(g, u, k, γ)` on the group's entries `u` | ✓ returns a new vector; does not write into an iterate |
-| optimality score | `kkt_violation(g, v, x, k)`, `(g, v, x)` | ✓ per group or whole point; `k` is an entry index for an array, a group number for a `BlockIterate` |
+| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)` |
+| one group | `prox_block(g, u, k, γ)`, `prox_block!(out, g, u, k, γ)` | ✓ on a separate buffer `u` holding the entries of group `k` |
+| optimality score | `kkt_violation(g, v, x, k)`, `kkt_violation(g, v, x)` | ✓ for one group, or the whole point |
 | one coordinate | `prox_block(g, xᵢ, i, γ)` | — groups are not separable |
 | restriction | `restrict(g, S)` | — |
 | gradient | `gradient(g, x)` | — |
 
+In `kkt_violation(g, v, x, k)`, `k` is an entry index when `x` is an array (the score
+of the group that contains entry `k`, or of entry `k` if it is in no group) and a
+group number when `x` is a `BlockIterate`.
+
+### Updating one group of a `BlockIterate`
+
+`prox_block` and `prox_block!` compute on a separate buffer and do not write into an
+iterate. Copy the group out, compute, and write the result back:
+
+```@example entry-gl
+xb = BlockIterate(copy(x), g)         # the iterate's groups are g's groups
+u = collect(blockview(xb, 1))         # the entries of group 1
+out = similar(u)
+prox_block!(out, g, u, 1, 1.0)        # out must not share memory with xb
+copyto!(blockview(xb, 1), out)
+collect(xb)
+```
+
 ### Inputs and storage
 
 ✓ vectors, matrices (groups use linear indices) and strided views ·
-✓ `SparseIterate` · ✓ `BlockIterate` (its groups must cover every index, so add
-singleton groups for unpenalized entries) ·
+✓ `SparseIterate` ·
+◐ `BlockIterate`: values and proximal steps work for any partition into groups;
+optimality scores need the iterate's groups to be `g`'s groups in the same order.
+A `BlockIterate` must cover every index, so if `g` leaves entries in no group, either
+score a plain array, or give `g` zero-weight singleton groups for those entries and
+build the iterate with `BlockIterate(x, g)` ·
 — `SymmetricSparseIterate`; use `Matrix(x)` instead.
 Element types: `Float64` or `Float32`, the same type for data, parameters, step and
 output ([precision rules](@ref numerical-usage)).
 
 ### Good to know
 
-- To update one group of a `BlockIterate`, compute the block with `prox_block`
-  and write it with `copyto!(blockview(x, k), out)`.
-- The order of indices within a group sets the order of the compact vector
-  `u` passed to `prox_block`: for the group `[4, 1]`, `u = [x[4], x[1]]`.
+- The order of indices within a group sets the order of the buffer `u` for
+  `prox_block`: for the group `[4, 1]`, `u = [x[4], x[1]]`.
+- `prox_block!(u, g, u, k, γ)` may overwrite `u`; another overlap, or an output that
+  shares memory with iterate storage, is not supported.
 - `prox_block` is not available for `Scaled(g, α)`; scale ``\lambda`` instead.
 - Negative and `NaN` steps throw `ArgumentError` before anything is written.
 

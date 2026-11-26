@@ -1,15 +1,18 @@
 # Build a throwaway preview of the proposed navigation with the prototypes in place.
 # From the repository root:
 #   julia --project=docs docs/design/docs-redesign-0.7/preview/build_preview.jl [OUTDIR]
-# The published manual is not touched: pages are copied into a temporary source tree.
+# OUTDIR must not exist or must be empty; without it, a new temporary directory is used.
+# Nothing outside OUTDIR is written or deleted; docs/src is only read and copied to OUTDIR/src.
+# This is a preview, not the strict build: docstring coverage, doctests and the link
+# check are off. Every @example block runs and every cross-reference must resolve.
 using Documenter, Literate, ProximalBase, LinearAlgebra
 
 const ROOT = normpath(joinpath(@__DIR__, "..", "..", "..", ".."))
 const DESIGN = normpath(joinpath(@__DIR__, ".."))
 const OUT = length(ARGS) >= 1 ? abspath(ARGS[1]) : mktempdir()
-const SRC = joinpath(OUT, "src")
-rm(OUT; force=true, recursive=true)
+isdir(OUT) && !isempty(readdir(OUT)) && error("$OUT is not empty; give a new or empty directory")
 mkpath(OUT)
+const SRC = joinpath(OUT, "src")
 cp(joinpath(ROOT, "docs", "src"), SRC)
 rm(joinpath(SRC, "examples"); force=true, recursive=true)
 rm(joinpath(SRC, "developer", "contracts"); force=true, recursive=true)
@@ -48,6 +51,7 @@ function place(prototype, destination)
     text = replace(text, r"\((?:\.\./)+figures/([a-z-]+\.svg)\)" => SubstitutionString("($(prefix)\\1)"))
     # Links to the figure scripts point outside any documentation build: keep the text only.
     text = replace(text, r"\[(`[^`]+`)\]\((?:\.\./)+figures/[a-z_]+\.(?:py|jl)\)" => s"\1")
+    text = replace(text, r"\[([^\]]+)\]\((?:\.\./)+verification/[^)]*\)" => s"\1")
     write(joinpath(SRC, destination), text)
 end
 place("index.md", "index.md")
@@ -61,26 +65,15 @@ place("functions/norml1.md", "proto_norml1.md")
 place("functions/groupnorml2.md", "proto_groupnorml2.md")
 place("functions/indballl1.md", "constraints.md")
 
-# Explicit anchors the prototypes link to; the implementation PRs add them to these pages.
-function anchor!(file, id)
-    path = joinpath(SRC, file)
-    lines = readlines(path; keep=true)
-    title = strip(lines[1])
-    startswith(title, "# [") && return
-    lines[1] = "# [" * title[3:end] * "](@id $id)\n"
-    write(path, join(lines))
-end
-anchor!("extending.md", "extending")
-anchor!("migration.md", "migration")
-anchor!("developer/index.md", "developer-guide")
-anchor!("proximal_gradient.md", "proximal-gradient-tutorial")
-anchor!("coordinate_descent.md", "coordinate-descent-tutorial")
-# The old selection guide is consolidated into the catalog: keep a forwarding page.
-write(joinpath(SRC, "choosing.md"), "# Choose a function or operation\n\nThis page moved to the [function catalog](@ref function-catalog) and [operations](@ref operation-guide).\n")
-# The authoring half of the old contract index becomes a developer page.
+# The old selection guide is consolidated into the catalog. Its page and its explicit
+# anchor stay, as a hidden forwarding page.
+write(joinpath(SRC, "choosing.md"), "# [Choose a function or operation](@id choosing)\n\nThis page moved to the [function catalog](@ref function-catalog) and the [operations guide](@ref operation-guide).\n")
+# The authoring half of the old contract index becomes a developer page with a new
+# anchor; the user overview keeps the old page, its anchor and a forwarding heading.
 let old = read(joinpath(ROOT, "docs", "src", "spec", "index.md"), String)
     body = replace(old, r"^# \[How to read the numerical contracts\]\(@id numerical-contracts-guide\)"m =>
-        "# [How the guarantee pages are written](@id numerical-contracts-guide)")
+        "# [How the guarantee pages are written](@id contract-pages)")
+    body = replace(body, r"^## Family-page schema$"m => "## [Family-page schema](@id contract-pages-schema)")
     # The family map is replaced by the user index; the rest is authoring guidance.
     body = replace(body, r"^## Family map.*?(?=^## Status vocabulary)"ms => "")
     write(joinpath(SRC, "developer", "contract_pages.md"), body)
@@ -89,7 +82,7 @@ end
 spec(name, file) = name => "spec/$file.md"
 DocMeta.setdocmeta!(ProximalBase, :DocTestSetup, :(using ProximalBase, LinearAlgebra); recursive=true)
 makedocs(;
-    root=OUT, source="src", build="build",
+    root=OUT, source="src", build="build", remotes=nothing,
     modules=[ProximalBase], sitename="ProximalBase.jl", checkdocs=:none, doctest=false,
     warnonly=[:missing_docs], linkcheck=false,
     format=Documenter.HTML(prettyurls=false, collapselevel=1, inventory_version="0.7.0-DEV", mathengine=Documenter.KaTeX(),

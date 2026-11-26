@@ -73,8 +73,9 @@ approved, they would become a short section of that guide.
 - **Define a term where it first appears** or link to the glossary. Terms
   such as working set, active zero, compact block, KKT score and zero-preserving
   are not used on Home or in the quick start.
-- **Use symbols with their legend**: ✓ supported, ◐ supported with a condition (stated in
-  a footnote), — not supported. Never leave a capability cell blank.
+- **Use symbols with their legend**: ✓ implemented for ordinary inputs (conditions in the
+  entry), ◐ with a lettered note stating the restriction, — not implemented. Never leave a
+  capability cell blank.
 
 ## Function entries
 

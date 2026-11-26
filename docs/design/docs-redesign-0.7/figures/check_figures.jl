@@ -26,8 +26,9 @@ for u in ([2.0, 1.2], [-1.6, 1.8], [-2.2, -0.9], [0.9, -2.0], [0.45, 0.5])
     @assert prox(GroupNormL2(λ, [1:2], [1.0]), u, γ) ≈ expected
 end
 
-u = [1.5, 1.0]
-@assert prox(IndBallL1(1.0), u, γ) ≈ [0.75, 0.25]
+u = [1.5, 0.3]
+@assert prox(IndBallL1(1.0), u, γ) == [1.0, 0.0]
 @assert prox(IndBallL2(1.0), u, γ) ≈ u ./ norm(u)
-@assert prox(IndBox(-1.0, 1.0), u, γ) == [1.0, 1.0]
+@assert round.(u ./ norm(u); digits=2) == [0.98, 0.20]
+@assert prox(IndBox(-1.0, 1.0), u, γ) == [1.0, 0.3]
 println("All figure closed forms agree with ProximalBase.")

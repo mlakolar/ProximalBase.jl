@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" role="img" aria-labelledby="title description">
   <title id="title">Three sparsity penalties (λ = 1)</title>
-  <desc id="description">The l1 penalty grows linearly. MCP with a = 3 and SCAD with a = 3.7 agree with l1 near zero and level off, at 1.5 beyond 3 and at 2.35 beyond 3.7.</desc>
+  <desc id="description">The l1 penalty grows linearly. SCAD with a = 3.7 equals l1 up to one and MCP with a = 3 starts with the same slope and bends at once; both level off, MCP at 1.5 beyond 3 and SCAD at 2.35 beyond 3.7.</desc>
   <rect width="480" height="260" rx="12" fill="#f7f9fc" />
   <g font-family="system-ui, sans-serif" font-size="14" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
     <text x="20.0" y="28.0" fill="#192438" text-anchor="start" font-size="15">Three sparsity penalties (λ = 1)</text>

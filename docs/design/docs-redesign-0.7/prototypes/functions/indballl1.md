@@ -6,13 +6,13 @@ below, followed by `IndBox`, `IndBallLinf`, `IndNonnegative`, `IndBallL2` and `I
 
 A constraint ``x\in C`` is written as its *indicator function*: zero on ``C`` and
 ``+\infty`` outside. Its proximal operator is the Euclidean projection onto ``C``, the
-nearest point of ``C``, whatever the step.
+nearest point of ``C``, for any step ``\gamma\ge0``.
 
 ![Projections of one point onto three unit balls.](../../figures/projections.svg)
 
 ## [ℓ₁ ball: `IndBallL1`](@id entry-indballl1)
 
-The constraint ``\|x\|_1\le r``. Projecting onto it sets small entries exactly to zero.
+The constraint ``\|x\|_1\le r``. Its projection can set small entries exactly to zero.
 
 ```math
 \iota_{\{\|x\|_1\le r\}}(x)=\begin{cases}0,&\sum_i|x_i|\le r,\\ +\infty,&\text{otherwise,}\end{cases}
@@ -36,29 +36,35 @@ C(x)                    # outside the ball
 ```
 
 ```@example entry-l1ball
-z = prox(C, x)          # the projection; a step may be given but does not matter
+z = prox(C, x)          # the projection; the step may be omitted
 z, sum(abs, z)
 ```
 
 ### Projection
 
-A point inside the ball is returned unchanged. A point outside is soft
-thresholded, ``z_i=\operatorname{sign}(x_i)\max(|x_i|-\tau,0)``, at the level
-``\tau>0`` for which ``\sum_i\max(|x_i|-\tau,0)=r``.
+A point inside the ball is returned unchanged. For a finite point outside a ball of
+positive finite radius, the projection soft thresholds every entry,
+``z_i=\operatorname{sign}(x_i)\max(|x_i|-\tau,0)``, at the level ``\tau>0`` for which
+``\sum_i\max(|x_i|-\tau,0)=r``. Zero and infinite radii, infinite entries and `NaN`
+follow the [endpoint rules](@ref spec-indballl1-endpoints).
 
 | Operation | Call | Supported |
 |:--|:--|:--|
-| value | `C(x)` | ✓ `0.0` or `Inf` |
-| projection | `prox(C, x)`, `prox!(out, C, x)`, with an optional step ``\gamma\ge0`` | ✓ |
-| value at the new point | `value_and_prox!(out, C, x)` | ✓ `0.0` at the projection |
+| value | `C(x)` | ✓ `0.0` inside, `Inf` outside; `NaN` if an entry is `NaN` |
+| projection | `prox(C, x, γ)`, `prox!(out, C, x, γ)` | ✓ any scalar ``\gamma\ge0``, or none; a negative or `NaN` step throws before writing |
+| value at the new point | `value_and_prox!(out, C, x, γ)` | ✓ returns `C(out)`: normally `0.0`, but rounding of the stored projection can give `Inf`, and a `NaN` projection gives `NaN` |
 | gradient, `lipschitz` | | — |
 | one coordinate or group | `prox_block` | — the ball couples all entries |
 | optimality score | `kkt_violation` | — |
 
+`prox!(x, C, x, γ)` may overwrite its input; an output that partly overlaps the input
+is not supported.
+
 ### Inputs and storage
 
 ✓ vectors, matrices and strided views ·
-✓ `SparseIterate` (visits stored entries) ·
+✓ `SparseIterate`: the value, and a projection into another `SparseIterate`, visit
+stored entries, except when the result is filled with `NaN` ·
 ✓ `BlockIterate` (uses the whole vector) ·
 ◐ `Symmetric` matrices: the projection is a dense `Matrix` ·
 — `SymmetricSparseIterate`; use `Matrix(x)`.
@@ -69,12 +75,11 @@ output ([precision rules](@ref numerical-usage)).
 
 - Membership is decided with the computed sum of magnitudes, with no tolerance,
   so rounding can decide a point on the boundary.
-- `α * C` for any `α ≥ 0` is `C` itself, because scaling an indicator does not change it.
+- `α * C` for any finite or infinite `α ≥ 0` is `C` itself, because scaling an
+  indicator does not change it.
 - When the projection cannot use the output array as workspace, it uses a buffer
   stored in `C`. Use a separate `IndBallL1(r)` in each task that may run
   concurrently ([details](@ref IndBallL1)).
-- An infinite entry or a `NaN` entry follows the
-  [endpoint rules](@ref spec-indballl1-endpoints).
 
 **See also:** [`NormL1`](@ref) (the penalty form), [`IndBallL2`](@ref),
 [`IndBox`](@ref) and [`IndBallLinf`](@ref) (other balls),

@@ -1,0 +1,104 @@
+== constructors / validation
+  NormL1()                                             -> NormL1{Int64, Nothing}(1, nothing)
+  NormL1(0.5)                                          -> NormL1{Float64, Nothing}(0.5, nothing)
+  NormL1(0.5, [1.0,2.0])                               -> NormL1{Float64, Vector{Float64}}(0.5, [1.0, 2.0])
+  NormL1(1)  (Int level)                               -> NormL1{Int64, Nothing}(1, nothing)
+  NormL1(0.5, [1,2]) (Int weights)                     -> NormL1{Float64, Vector{Int64}}(0.5, [1, 2])
+  NormL1(-0.1)                                         -> THROWS ArgumentError: ArgumentError: λ0 must be nonnegative, got -0.1
+  NormL1(NaN)                                          -> THROWS ArgumentError: ArgumentError: λ0 must be nonnegative, got NaN
+  NormL1(Inf)                                          -> NormL1{Float64, Nothing}(Inf, nothing)
+  NormL1(0.5, [1.0,-1.0])                              -> THROWS ArgumentError: ArgumentError: the weights must be nonnegative
+  NormL1(0.5, [1.0,NaN])                               -> THROWS ArgumentError: ArgumentError: the weights must be nonnegative
+  NormL1(0.5, [1.0,2.0,3.0])([1.0,2.0]) (weights too long) -> THROWS DimensionMismatch: DimensionMismatch: a parameter array has length 3 and the argument has length 2
+  NormL1(0.5, ones(2,2)) on 2x2 matrix                 -> 2.0
+  NormL1(1+1im)                                        -> THROWS MethodError: MethodError: no method matching NormL1(::Complex{Int64})
+  NormL1(0.5)([1.0+1im])                               -> THROWS ArgumentError: ArgumentError: NormL1 requires real entries
+== traits
+  issmooth=false isproximable=true isseparable=true isconvex=true iszeropreserving=true
+== value  f(x)=λ Σ w|x|
+  g(x) = 1.625   independent 0.5*sum(abs,x) = 1.625
+  check unweighted value                                          OK
+  gw(x) = 2.0   independent λ*Σ w|x| = 2.0
+  check weighted value                                            OK
+== prox  soft-threshold; step γ
+  γ=0.0: prox = [2.0, -1.0, 0.0, 0.25]  independent = [2.0, -1.0, 0.0, 0.25]
+  check prox γ=0.0                                                OK
+  γ=0.1: prox = [1.95, -0.9, 0.0, 0.25]  independent = [1.95, -0.9, 0.0, 0.25]
+  check prox γ=0.1                                                OK
+  γ=1.0: prox = [1.5, 0.0, 0.0, 0.25]  independent = [1.5, -0.0, 0.0, 0.25]
+  check prox γ=1.0                                                OK
+  γ=4.0: prox = [0.0, 0.0, 0.0, 0.25]  independent = [0.0, -0.0, 0.0, 0.25]
+  check prox γ=4.0                                                OK
+  prox(g,x) default γ=1: [1.5, -0.5, 0.0, 0.0]
+  prox!(out,gw,x,1.0) returns out? true; out = [1.5, 0.0, 0.0, 0.25]
+  value_and_prox!(out,gw,x,1.0) = 0.75 (a scalar, Float64); f(out) = 0.75
+  check value_and_prox! returns f at stored output                OK
+  prox!(x,gw,x,1.0) in place on a copy: [1.5, 0.0, 0.0, 0.25]
+  prox with array step [0.1,0.2,0.3,0.4]               -> [1.95, -0.9, 0.0, 0.04999999999999999]
+  check array step formula                                        OK
+  prox with negative step                              -> [2.5, -1.5, 0.0, 0.5]
+  prox with NaN step                                   -> [NaN, NaN, NaN, NaN]
+  prox with step Inf (finite x, positive level)        -> [0.0, 0.0, 0.0, 0.0]
+  prox of NaN entry                                    -> [NaN, 0.5]
+  prox! with wrong output length                       -> THROWS DimensionMismatch: DimensionMismatch: the output has size (3,) and the input (4,)
+  prox with weight length mismatch                     -> THROWS DimensionMismatch: DimensionMismatch: a parameter array has length 2 and the argument has length 4
+  gradient(g, x) (not smooth)                          -> THROWS MethodError: MethodError: no method matching value_and_gradient!(::Vector{Float64}, ::NormL1{Float64, Nothing}, ::Vector{Float64})
+== scalar/coordinate hooks
+  prox_block(gw, 2.0, 1, 1.0) = 1.5  independent 1.5
+  check prox_block i=1                                            OK
+  prox_block(gw, -1.0, 2, 1.0) = 0.0  independent -0.0
+  check prox_block i=2                                            OK
+  prox_block(gw, 0.4, 3, 0.1) = 0.25  independent 0.25
+  check prox_block i=3                                            OK
+  prox_block(gw, 1.0, 4, 3.0) = 1.0  independent 1.0
+  check prox_block i=4                                            OK
+  value_entry(gw, -1.0, 2) = 1.0  independent 1.0
+  prox_block(g, [0.5,1.0], 1, 1.0) (vector/group form) -> THROWS MethodError: MethodError: no method matching prox_block!(::Vector{Float64}, ::NormL1{Float64, Nothing}, ::Vector{Float64}, ::Int64, ::Float64)
+== kkt_violation  (v = gradient of the smooth part, supplied)
+  weights λw = [0.5, 1.0, 1.5, 0.0]  x = [2.0, -1.0, 0.0, 0.25]  v = [0.9, -0.3, 0.8, 0.1]
+  screen kkt_violation(gw,v,1) = 0.4  independent |v|-λw = 0.4
+  check screen 1                                                  OK
+  screen kkt_violation(gw,v,2) = -0.7  independent |v|-λw = -0.7
+  check screen 2                                                  OK
+  screen kkt_violation(gw,v,3) = -0.7  independent |v|-λw = -0.7
+  check screen 3                                                  OK
+  screen kkt_violation(gw,v,4) = 0.1  independent |v|-λw = 0.1
+  check screen 4                                                  OK
+  point kkt_violation(gw,v,x,1) = 1.4  independent 1.4
+  check point form 1                                              OK
+  point kkt_violation(gw,v,x,2) = 1.3  independent 1.3
+  check point form 2                                              OK
+  point kkt_violation(gw,v,x,3) = -0.7  independent -0.7
+  check point form 3                                              OK
+  point kkt_violation(gw,v,x,4) = 0.1  independent 0.1
+  check point form 4                                              OK
+  full-point kkt_violation(gw,v,x) = 1.4  independent 1.4
+  check full-point                                                OK
+== representations (prox at γ=1 against the dense vector result)
+  dense Vector{Float64}      prox ok; result type Vector{Float64}; values [1.5, 0.0, 0.0, 0.25]
+  strided view               prox ok; result type Vector{Float64}; values [1.5, 0.0, 0.0, 0.25]
+  SparseIterate (vector)     prox ok; result type SparseIterate{Float64, 1}; values [1.5, 0.0, 0.0, 0.25]
+  BlockIterate               prox ok; result type BlockIterate{Float64, Vector{Vector{Int64}}}; values [1.5, 0.0, 0.0, 0.25]
+  Float32 vector             prox ok; result type Vector{Float32}; values Float32[1.5, 0.0, 0.0, 0.25]
+  BigFloat vector            prox ok; result type Vector{BigFloat}; values BigFloat[1.5, 0.0, 0.0, 0.25]
+  Vector{Int}                prox ok; result type Vector{Float64}; values [1.5, 0.0, 0.0, 3.0]
+  Float32 data, Float64 NormL1: eltype(prox(g, Float32[2,-1], 1.0)) = Float32
+  Float32 data, Float32 level: eltype(prox(NormL1(0.5f0), Float32[2,-1], 1.0)) = Float32
+  dense 2x2 matrix, entrywise: prox(NormL1(0.5), M, 1.0) = [1.5 -0.5; 0.0 0.0]
+  Symmetric: prox -> Matrix{Float64} [1.5 -0.5; -0.5 0.0]
+  Symmetric same-kind output prox!(similar(S), g, S, 1.0) -> THROWS ArgumentError: ArgumentError: Cannot set a non-diagonal index in a symmetric matrix
+  SparseIterate matrix: prox -> SparseIterate{Float64, 2} nactive(out)=2
+  SymmetricSparseIterate: prox -> SymmetricSparseIterate{Float64} matrixview = [1.5 -0.5; -0.5 0.0]
+  SymmetricSparseIterate with array step               -> THROWS ArgumentError: ArgumentError: a step γ of type Matrix{Float64} is not supported with a SymmetricSparseIterate as the output; use a scalar step, or Matrix(x) or matrixview(x) with a dense output
+  SymmetricSparseIterate kkt_violation(g,v,x) full-point -> THROWS ArgumentError: ArgumentError: kkt_violation(f, v, x) is not defined for a SymmetricSparseIterate and NormL1: use the coordinate form kkt_violation(f, v, x, k)
+  SymmetricSparseIterate NormL1(0.5)(ss) = 2.125  (off-diagonals counted twice: 0.5*(2+0.25+2*1) = 2.125)
+== aliasing
+  in-place prox!(c,g,c,1.0) supported: [1.5, -0.5, 0.0, 0.0]
+  gradient aliasing n/a (no gradient)                  -> nothing
+== types: 2.0*g, g*2.0, α*g
+  typeof(2.0*g) = Scaled{NormL1{Float64, Nothing}, Float64}; (2.0*g)(x) = 3.25 expected 3.25
+== show / repr
+  repr(NormL1(0.5)) = NormL1{Float64, Nothing}(0.5, nothing)
+  repr(NormL1(0.5,[1.0,2.0])) = NormL1{Float64, Vector{Float64}}(0.5, [1.0, 2.0])
+  display:
+NormL1{Float64, Nothing}(0.5, nothing)

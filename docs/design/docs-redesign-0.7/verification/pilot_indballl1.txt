@@ -1,0 +1,67 @@
+== constructors / validation
+  IndBallL1()  (default radius)                            -> IndBallL1(1)
+  IndBallL1().r = 1 (default radius is 1; Int type: Int64)
+  IndBallL1(1.0)                                           -> IndBallL1(1.0)
+  IndBallL1(3)  (Int radius)                               -> IndBallL1{Int64}
+  IndBallL1(0.0)  (zero radius)                            -> IndBallL1(0.0)
+  IndBallL1(Inf)                                           -> IndBallL1(Inf)
+  IndBallL1(-1.0)                                          -> THROWS ArgumentError: ArgumentError: r must be nonnegative, got -1.0
+  IndBallL1(NaN)                                           -> THROWS ArgumentError: ArgumentError: r must be nonnegative, got NaN
+  IndBallL1(1.0, 2.0)  (extra arg)                         -> THROWS MethodError: MethodError: no method matching IndBallL1(::Float64, ::Float64)
+  IndBallL1(1+1im)                                         -> THROWS MethodError: MethodError: no method matching IndBallL1(::Complex{Int64})
+  IndBallL1(1.0) == IndBallL1(1.0)                         -> true
+== traits
+  issmooth=false isproximable=true isseparable=false isconvex=true iszeropreserving=false
+== value: 0 inside the ball, Inf outside
+  f([0.5,-0.5]) = 0.0 (on boundary);  f([0.6,-0.5]) = Inf;  f([2.0,-1.0,0.5]) = Inf;  f([NaN,0.0]) = NaN
+== prox = Euclidean projection (step γ is irrelevant)
+  prox(IndBallL1(1.0), [2.0,-1.0,0.5], 1.0) = [1.0, 0.0, 0.0]
+  independent projection                         = [1.0, -0.0, 0.0]
+  ‖prox‖₁ = 1.0
+  check quick-start example vs independent projection               OK
+  γ=0.0: [1.0, 0.0, 0.0]
+  γ=0.1: [1.0, 0.0, 0.0]
+  γ=1.0: [1.0, 0.0, 0.0]
+  γ=100.0: [1.0, 0.0, 0.0]
+  γ=Inf: [1.0, 0.0, 0.0]
+  check prox independent of γ (0, 0.1, 1, 100, Inf)                 OK
+  prox(f, x) default γ: [1.0, 0.0, 0.0]
+  prox(f, x, -1.0) negative step                           -> THROWS ArgumentError: ArgumentError: the step of IndBallL1 must be nonnegative, got -1.0
+  prox(f, x, NaN) NaN step                                 -> THROWS ArgumentError: ArgumentError: the step of IndBallL1 must be nonnegative, got NaN
+  prox with array step [1.0,1.0,1.0]                       -> THROWS MethodError: MethodError: no method matching prox!(::Vector{Float64}, ::IndBallL1{Float64}, ::Vector{Float64}, ::Vector{Float64})
+  300 random vectors/radii vs sorting projection: mismatches = 0
+  check random comparison                                           OK
+  prox!(out,f,x,1.0) returns out? true; out = [1.0, 0.0, 0.0]
+  value_and_prox!(out,f,x,1.0) = 0.0 (Float64): value of the indicator at the projection (zero)
+  check value_and_prox! returns 0.0                                 OK
+  in-place prox!(c,f,c,1.0): [1.0, 0.0, 0.0]
+  feasible input copied unchanged: [0.25, -0.25]
+  zero radius: [0.0, 0.0, 0.0]; infinite radius: [2.0, -1.0, 0.5]
+  radius 3: [2.5, -0.5]  (docstring example: [2.5, -0.5])
+  prox! wrong output length                                -> THROWS DimensionMismatch: DimensionMismatch: the output has size (2,) and the input (3,)
+  prox of NaN entry: [NaN, NaN]; one infinite entry: [1.0, 0.0]; two infinite entries: [NaN, NaN]
+== gradient / kkt / block: not supported
+  gradient(f, x)                                           -> THROWS MethodError: MethodError: no method matching value_and_gradient!(::Vector{Float64}, ::IndBallL1{Float64}, ::Vector{Float64})
+  kkt_violation(f, v, x)                                   -> THROWS MethodError: MethodError: no method matching kkt_violation(::IndBallL1{Float64}, ::Vector{Float64}, ::Vector{Float64})
+  prox_block(f, 2.0, 1, 1.0)                               -> THROWS MethodError: MethodError: no method matching prox_block(::IndBallL1{Float64}, ::Float64, ::Int64, ::Float64)
+  lipschitz(f)                                             -> THROWS ArgumentError: ArgumentError: IndBallL1 is not smooth
+== Scaled
+  typeof(2.0*f) = IndBallL1{Float64}  (returns f itself: true)
+  (-1.0)*f                                                 -> THROWS ArgumentError: ArgumentError: α must be nonnegative, got -1.0
+== representations
+  dense matrix: prox(f, M, 1.0) = [1.0 0.0; 0.0 0.0]  (matrix ℓ1 over all entries; independent: [1.0 -0.0; 0.0 0.0])
+  check matrix = vec projection                                     OK
+  Symmetric: Matrix{Float64} [1.0 0.0; 0.0 0.0]
+  strided view: [1.0, 0.0, 0.0]
+  SparseIterate vector: f(sp) = Inf; prox -> SparseIterate{Float64, 1} [1.0, 0.0, 0.0] nactive=1
+  prox!(dense out, f, SparseIterate, 1.0)                  -> [1.0, 0.0, 0.0]
+  BlockIterate: [1.0, 0.0, 0.0]
+  SymmetricSparseIterate value                             -> THROWS ArgumentError: ArgumentError: IndBallL1 does not support SymmetricSparseIterate; use a dense matrix such as Matrix(x)
+  SymmetricSparseIterate prox                              -> THROWS ArgumentError: ArgumentError: IndBallL1 does not support SymmetricSparseIterate; use a dense matrix such as Matrix(x)
+  Float32 data: Float32[1.0, 0.0, 0.0] eltype Float32; Float32 radius+data: Float32
+  BigFloat: BigFloat[1.0, 0.0]; with BigFloat radius 1.0
+  Int vector: [1.0, 0.0, 0.0] eltype Float64
+  complex vector                                           -> THROWS ArgumentError: ArgumentError: IndBallL1 requires real entries
+== show / repr
+  repr(IndBallL1(1.0)) = IndBallL1(1.0)
+IndBallL1(2.5)

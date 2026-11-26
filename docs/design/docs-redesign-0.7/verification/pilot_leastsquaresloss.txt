@@ -1,0 +1,108 @@
+== constructors / validation
+  LeastSquaresLoss(y, X)  (response FIRST)               -> LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}
+  LeastSquaresLoss(X, y)  (wrong order)                  -> THROWS MethodError: MethodError: no method matching LeastSquaresLoss(::Matrix{Float64}, ::Vector{Float64})
+  LeastSquaresLoss(y[1:2], X)  (row mismatch)            -> THROWS DimensionMismatch: DimensionMismatch: X has 3 rows and Y has 2
+  LeastSquaresLoss(Int y, Int X) element type            -> LeastSquaresLoss{Float64, Vector{Int64}, Matrix{Int64}, 1, Vector{Float64}}
+  LeastSquaresLoss(Float32 y, Float32 X)                 -> LeastSquaresLoss{Float32, Vector{Float32}, Matrix{Float32}, 1, Vector{Float32}}
+  LeastSquaresLoss(y, sparse(X))                         -> LeastSquaresLoss{Float64, Vector{Float64}, SparseMatrixCSC{Float64, Int64}, 1, Vector{Float64}}
+  LeastSquaresLoss(complex y, X)                         -> THROWS ArgumentError: ArgumentError: LeastSquaresLoss requires real entries
+  LeastSquaresLoss(y, X, extra arg)                      -> THROWS MethodError: MethodError: no method matching LeastSquaresLoss(::Vector{Float64}, ::Matrix{Float64}, ::Float64)
+  LeastSquaresLoss(y)                                    -> THROWS MethodError: MethodError: no method matching LeastSquaresLoss(::Vector{Float64})
+  LeastSquaresLoss with NaN in X (no finiteness check?)  -> LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}
+== traits
+  issmooth=true isproximable=true isseparable=false isconvex=true iszeropreserving=false
+== value, gradient, value_and_gradient
+  f(β) = 9.469999999999999   independent ½‖y−Xβ‖² = 9.469999999999999
+  check value = ½ residual sum of squares (NOT mean, NOT 1/n)       OK
+  gradient(f,β) = [-6.0, -12.1]   independent Xᵀ(Xβ−y) = [-6.0, -12.1]
+  check gradient                                                    OK
+  gradient!(out, f, β)  [destination FIRST]; returns out? true; out = [-6.0, -12.1]
+  check gradient!                                                   OK
+  gradient!(f, out, β) (wrong order)                     -> THROWS MethodError: MethodError: no method matching gradient!(::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Vector{Float64}, ::Vector{Float64})
+  gradient!(β, f, β) aliasing                            -> [-6.0, -12.1]
+  gradient!(b, f, b) with b===β                          -> THROWS ArgumentError: ArgumentError: the gradient must not overwrite x
+  value_and_gradient(f,β) = (9.469999999999999, [-6.0, -12.1])
+  check value_and_gradient                                          OK
+  value_and_gradient!(out,f,β) = 9.469999999999999 (scalar, value at INPUT β); out = [-6.0, -12.1]
+  check value_and_gradient!                                         OK
+  gradient!(zeros(3), f, β) wrong output length          -> THROWS DimensionMismatch: DimensionMismatch: the output has size (3,) and the input (2,)
+  f(zeros(3)) wrong argument length                      -> THROWS DimensionMismatch: DimensionMismatch: incompatible dimensions for matrix multiplication: tried to multiply a matrix of size (3, 2) with a vector of length 3. The second dimension of the matrix: 2, does not match the length of the vector: 3.
+== lipschitz
+  lipschitz(f) = 14.524937810560445   independent σmax(X)² = 14.524937810560445
+  check lipschitz = spectral norm squared (dense)                   OK
+  lipschitz(sparse X LS) = 20.000000000000004  (documented: other matrices use a safe one/inf-norm bound, >= σmax²)
+== scaling:  (1/n) * f
+  typeof((1/n)*f) = Scaled{LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, Float64}
+  ((1/n)*f)(β) = 3.1566666666666663  independent ‖y−Xβ‖²/(2n) = 3.1566666666666663
+  check scaled value                                                OK
+  gradient(fs, β) = [-2.0, -4.033333333333333]  independent [-2.0, -4.033333333333333]
+  check scaled gradient                                             OK
+  lipschitz(fs) = 4.841645936853482  independent 4.841645936853482
+  check scaled lipschitz                                            OK
+  f*(1/n) type: Scaled{LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, Float64}; Scaled(f, 1/n) same type? true
+  (1/n)*f traits: issmooth=true isproximable=true isconvex=true
+== prox  argmin ½‖y−Xz‖² + ‖z−x‖²/(2γ)
+  γ=0.01: prox = [0.7474300041788547, -1.0434600919348096]  independent normal equations = [0.747430004178855, -1.0434600919348098]
+  check prox γ=0.01                                                 OK
+  γ=0.1: prox = [0.7774647887323944, -0.30985915492957744]  independent normal equations = [0.7774647887323944, -0.3098591549295774]
+  check prox γ=0.1                                                  OK
+  γ=1.0: prox = [0.3882352941176471, 0.6858823529411765]  independent normal equations = [0.38823529411764696, 0.6858823529411766]
+  check prox γ=1.0                                                  OK
+  γ=10.0: prox = [0.2232401733672098, 0.9630548497982365]  independent normal equations = [0.22324017336720967, 0.9630548497982366]
+  check prox γ=10.0                                                 OK
+  prox!(out,f,x,γ) returns out? true
+  value_and_prox!(out,f,x0,0.5) = 2.2556974408245254  f(out) = 2.2556974408245254 (scalar f at the proximal point)
+  check value_and_prox! = f(prox)                                   OK
+  in-place prox!(c,f,c,γ) = [0.5084112149532711, 0.4598130841121496] == out? true
+  prox(f, x0, -1.0) negative step                        -> [-0.11914893617021272, 1.4744680851063832]
+  prox(f, x0, 0.0) zero step                             -> [0.6999999999999998, -1.1999999999999997]
+  prox(f, x0, [0.1,0.2]) array step                      -> THROWS MethodError: MethodError: no method matching prox!(::Vector{Float64}, ::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Vector{Float64}, ::Vector{Float64})
+  prox_block(f, 0.5, 1, 0.1) scalar                      -> THROWS MethodError: MethodError: no method matching prox_block(::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Float64, ::Int64, ::Float64)
+  p > n case (wide X): 
+    prox = [0.004285119955623487, 0.16078213839966715, 0.40435445846623214, 0.6087089169324643]  independent = [0.004285119955623348, 0.1607821383996672, 0.4043544584662323, 0.6087089169324641]
+  check prox p>n                                                    OK
+== cache: reset_cache! after in-place data change
+  before change: [0.5084112149532711, 0.4598130841121496]
+  after Xc .*= 2 without reset_cache!: [0.5084112149532711, 0.4598130841121496]
+  after reset_cache!: [0.19498327759197323, 0.36053511705685626]
+  independent for new X: [0.19498327759197318, 0.3605351170568563]
+  check stale prox differs from fresh (cache is real)               OK
+  check fresh prox correct after reset_cache!                       OK
+  value/gradient need no reset: f(β) = 13.079999999999998 independent 13.079999999999998
+== kkt_violation: only the full-point form  ‖v + ∇f(β)‖∞
+  kkt_violation(f,v,β) = 12.2  independent 12.2
+  check full-point score                                            OK
+  kkt_violation(f, v, β, 1) coordinate form              -> THROWS ArgumentError: ArgumentError: kkt_violation of LeastSquaresLoss supports the full-point form kkt_violation(f, v, x) and has no coordinate or group form
+  kkt_violation(f, v, 1) screen form                     -> THROWS ArgumentError: ArgumentError: kkt_violation of LeastSquaresLoss supports the full-point form kkt_violation(f, v, x) and has no coordinate or group form
+== restrict (vector response): omitted coordinates fixed at zero
+  restrict(f,[2])([b]) at b=-0.4: 11.719999999999999  independent f([0,-0.4]) = 11.719999999999999
+  check restrict value                                              OK
+== supplied-predictor oracles (qualified, not exported)
+  PB.value_from_predictor(f, X*β) = 9.469999999999999; PB.value_from_residual(f, X*β−y) = 9.469999999999999
+  check predictor/residual value                                    OK
+  PB.value_and_gradient_from_predictor!(g, d, f, z) = 9.469999999999999; g = [-6.0, -12.1]; d = z−y = [-1.5, -1.5, -3.8]
+  check predictor value+gradient                                    OK
+  PB.leastsquares_data(f) keys/α: (:Y, :X, :α) α = 1.0; with (1/n)*f: α = 0.3333333333333333
+== matrix response Y (n×k), coefficient B (p×k), Frobenius norm
+  fm(B) = 32.4  independent ½‖Y−XB‖_F² = 32.4
+  check matrix value                                                OK
+  gradient(fm,B) ≈ Xᵀ(XB−Y)? true
+  prox(fm,B,0.5) ≈ (XᵀX+I/γ)⁻¹(XᵀY + B/γ)? true
+== representations
+  dense vector                 value=9.47                   gradient type=Vector{Float64}          prox type=Vector{Float64}
+  strided view                 value=9.47                   gradient type=Vector{Float64}          prox type=Vector{Float64}
+  SparseIterate vector         value=9.47                   gradient type=Vector{Float64}          prox type=SparseIterate{Float64, 1}
+  BlockIterate                 value=9.47                   gradient type=Vector{Float64}          prox type=BlockIterate{Float64, Vector{Vector{Int64}}}
+  Float32 vector (Float64 f)   value=9.47                   gradient type=Vector{Float32}          prox type=Vector{Float32}
+  BigFloat vector (Float64 f)  value=9.469999999999999999999999999999999999999999999999999999999999999999999999999983 gradient type=Vector{BigFloat}         prox type=Vector{BigFloat}
+  Vector{Int}                  value=13.0                   gradient type=Vector{Float64}          prox type=Vector{Float64}
+  dense matrix argument (p×p) with vector-response f     -> THROWS MethodError: MethodError: no method matching mul!(::Vector{Float64}, ::Matrix{Float64}, ::Matrix{Float64}, ::Bool, ::Bool)
+  Symmetric argument                                     -> THROWS MethodError: MethodError: no method matching mul!(::Vector{Float64}, ::Matrix{Float64}, ::Symmetric{Float64, Matrix{Float64}}, ::Bool, ::Bool)
+  SymmetricSparseIterate argument (value)                -> THROWS MethodError: MethodError: no method matching (::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}})(::SymmetricSparseIterate{Float64})
+  SymmetricSparseIterate prox                            -> THROWS MethodError: MethodError: no method matching prox(::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::SymmetricSparseIterate{Float64}, ::Float64)
+  Float32 function, Float32 data prox eltype             -> Float32
+  Float64 function, Float32 argument: value type         -> Float32
+  BigFloat function (BigFloat data) value                -> BigFloat
+  BigFloat function prox                                 -> THROWS MethodError: MethodError: no method matching svd!(::Matrix{BigFloat}; full::Bool, alg::LinearAlgebra.DivideAndConquer, atol::Int64, rtol::Int64)
+== show / repr (first 300 chars)
+  LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}([1.0, 2.0, 3.0], [1.0 2.0; 3.0 1.0; 0.0 2.0], [-0.5, 0.5000000298023224, -0.800000011920929], [-0.7414525335518785 -0.6710053207609463; -0.6710053207609463 0.7414525335518785], [14.524937810560445, 4.475062189439554], [-

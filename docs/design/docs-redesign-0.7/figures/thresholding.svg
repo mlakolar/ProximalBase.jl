@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" role="img" aria-labelledby="title description">
   <title id="title">Scalar proximal maps at step γ = 1, λ = 1</title>
-  <desc id="description">Soft thresholding from NormL1 shifts large inputs toward zero by one. Hard thresholding from NormL0 keeps inputs above the square root of two. Firm thresholding from MCP with a = 3 joins them and is the identity beyond three.</desc>
+  <desc id="description">Soft thresholding from NormL1 moves inputs of magnitude above one toward zero by one. Hard thresholding from NormL0 keeps inputs of magnitude above the square root of two and sets the rest to zero. Firm thresholding from MCP with a = 3 is zero up to magnitude one, steeper than the identity up to three and the identity beyond.</desc>
   <rect width="480" height="260" rx="12" fill="#f7f9fc" />
   <g font-family="system-ui, sans-serif" font-size="14" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
     <text x="20.0" y="28.0" fill="#192438" text-anchor="start" font-size="15">Scalar proximal maps at step γ = 1, λ = 1</text>

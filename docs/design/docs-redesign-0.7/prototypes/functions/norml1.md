@@ -22,8 +22,9 @@ unpenalized. With finite positive weights and a finite ``\lambda>0``, ``g`` is a
 | `NormL1(λ, w)` | one weight per entry of ``x``, matched by linear index |
 
 `λ` and the weights must be nonnegative and not `NaN`; `Inf` is allowed. This is
-checked when the object is constructed. The weight array is kept by reference,
-so changing it later changes the function.
+checked when the object is constructed. The weight array is kept by reference and is
+not checked again: if you change it later, it must stay valid, and the function
+changes with it.
 
 ```@example entry-norml1
 using ProximalBase
@@ -44,46 +45,54 @@ prox(h, x, 1.0)
 
 ### Proximal operator: soft thresholding
 
+For finite entries, finite parameters and a step ``\gamma>0``,
+
 ```math
 \operatorname{prox}_{\gamma g}(v)_i=\operatorname{sign}(v_i)\,
 \max\bigl(|v_i|-\gamma\lambda w_i,\ 0\bigr).
 ```
 
-Each entry moves toward zero by its own threshold ``\gamma\lambda w_i`` and stops at zero.
+Each entry moves toward zero by its own threshold ``\gamma\lambda w_i`` and stops at
+zero. Infinite levels or weights, zero steps and non-finite entries follow the
+[endpoint rules](@ref spec-norml1-endpoints).
 
 | Operation | Call | Supported |
 |:--|:--|:--|
 | value | `g(x)` | ✓ |
-| proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ scalar step or one step per entry |
-| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns ``g(\text{out})`` |
+| proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ a scalar step, or an array with one step per entry in linear order |
+| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)` |
 | one coordinate | `prox_block(g, xᵢ, i, γ)` | ✓ |
 | optimality score | `kkt_violation(g, v, i)`, `(g, v, x, i)`, `(g, v, x)` | ✓ |
 | restriction | `restrict(g, S)` | ✓ |
 | gradient | `gradient(g, x)` | — not differentiable at zero |
 
+`prox!(x, g, x, γ)` may overwrite its input; an output that partly overlaps the input
+is not supported.
+
 ### Inputs and storage
 
 ✓ vectors, matrices and strided views of them ·
-✓ `SparseIterate` (visits stored entries only) ·
+✓ `SparseIterate`: the value, and prox into another `SparseIterate`, visit stored entries only ·
 ✓ `BlockIterate` ·
-◐ `SymmetricSparseIterate`: weights must form a symmetric ``p\times p`` array, the step must be a scalar, and the optimality score is available per coordinate only ·
+◐ `SymmetricSparseIterate`: the step must be a scalar and the optimality score is per
+coordinate; if you supply weights, give ``p^2`` of them in linear order with exactly
+equal mirrored entries ([symmetric parameters](@ref symmetric-parameter-guide)) ·
 ◐ `Symmetric` matrices: `prox` returns a dense `Matrix`.
 Element types: `Float64` or `Float32`, the same type for data, parameters, step and
 output ([precision rules](@ref numerical-usage)).
 
 ### Good to know
 
-- The step is not checked. A negative or `NaN` step returns a result without
-  mathematical meaning ([shared step rule](@ref numerics)).
+- Steps are not checked. A negative or `NaN` step is unsupported, and the result of
+  such a call has no mathematical meaning ([shared step rule](@ref numerics)).
 - Off-diagonal entries of a `SymmetricSparseIterate` count twice in the value,
   because each stands for two matrix entries.
-- An infinite weight fixes a finite entry at zero. For an infinite input or a
-  `NaN` input, see the [guarantee page](@ref spec-norml1-endpoints).
-- `prox!(x, g, x, γ)` may overwrite its input. A different array that shares memory
-  with `x` is not supported.
+- An infinite weight fixes a finite entry at zero. For infinite or `NaN` inputs, and
+  for the overflow limitation of the threshold, see the
+  [guarantee page](@ref spec-norml1-limitations).
 
 **See also:** [`ElasticNet`](@ref) (adds a ridge term),
 [`NormL1Nonneg`](@ref) (nonnegative coefficients),
-[`MCP`](@ref) and [`SCAD`](@ref) (less bias for large coefficients),
+[`MCP`](@ref) and [`SCAD`](@ref) (less shrinkage of large coefficients),
 [`IndBallL1`](@ref) (an ℓ₁ constraint instead of a penalty) ·
 [guarantees](@ref spec-norml1) · [API](@ref NormL1)

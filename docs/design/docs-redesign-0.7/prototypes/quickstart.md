@@ -78,7 +78,10 @@ f_mean(β)
 
 A lasso estimate minimizes ``f(\beta)+\lambda\|\beta\|_1``. One step of the
 proximal-gradient method takes a gradient step on the smooth loss and a proximal
-step on the penalty. [`lipschitz`](@ref) gives a safe step size ``1/L``.
+step on the penalty. For this dense ``X``, [`lipschitz`](@ref) computes
+``L=\|X\|_2^2`` in floating point, a positive bound on how fast the gradient changes, and ``1/L`` is a
+standard step size. (`lipschitz` can return `0` for an all-zero design, so check the
+value before dividing in your own code.)
 
 ```@example quickstart
 penalty = NormL1(0.2)
@@ -86,14 +89,14 @@ penalty = NormL1(0.2)
 β_next = prox(penalty, β - γ * gradient(f, β), γ)
 ```
 
-Repeating this step until the change is small is a complete, if slow, lasso
-solver. For real problems use [ProximalSolvers.jl](@ref with-proximalsolvers),
-which chooses steps, checks convergence and exploits sparsity.
+This is one update. The [proximal-gradient tutorial](proximal_gradient.md) explains
+how the update is repeated and how to measure optimality with the gradient mapping. To fit models without writing the loop,
+see [ProximalSolvers.jl](@ref with-proximalsolvers).
 
 ## Reuse memory with `!` functions
 
-Each allocating call has an in-place version that writes into an output you
-provide. The output comes first, as in Julia's `mul!`:
+`prox` and `gradient` have in-place versions, `prox!` and `gradient!`, that write
+into an output you provide. The output comes first, as in Julia's `mul!`:
 
 ```@example quickstart
 out = similar(x)
@@ -114,18 +117,18 @@ value_and_prox!(out, g, x, 1.0)       # g(out): value at the new point
 value_and_gradient!(grad, f, β)       # f(β): value at the input
 ```
 
-The output must have the shape of the input. `prox!(x, g, x, γ)` may overwrite
-its input, but a gradient needs a separate output array, and other partly
-overlapping views are not supported. `!` means "writes its first argument", not
-"never allocates". [Array conventions](@ref numerical-usage) gives the precise
-rules.
+For these four calls the output must have the shape of the input. `prox!(x, g, x, γ)`
+may overwrite its input; `gradient!` needs an output that does not share memory with
+the input; other partly overlapping arrays are not supported by either. The `!`
+means "writes its first argument", not "never allocates".
+[Array conventions](@ref numerical-usage) gives the precise rules.
 
 ## Where to go next
 
 - **Choose a function** for your model: the [function catalog](@ref function-catalog).
 - **Check what a function supports** (gradient, prox, coordinate updates,
   sparse or block storage): the [capability tables](@ref capability-tables).
-- **Write an algorithm**: [proximal gradient](@ref proximal-gradient-tutorial) and
-  [coordinate descent](@ref coordinate-descent-tutorial) tutorials, then [iterates](@ref Sparse-iterates)
-  for working-set storage.
+- **Write an algorithm**: the [proximal gradient](proximal_gradient.md) and
+  [coordinate descent](coordinate_descent.md) tutorials, then [iterates](@ref Sparse-iterates)
+  for storing only the coordinates an algorithm is updating.
 - **Solve a model** without writing an algorithm: [ProximalSolvers.jl](@ref with-proximalsolvers).

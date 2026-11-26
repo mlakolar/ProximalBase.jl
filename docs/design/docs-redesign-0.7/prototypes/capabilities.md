@@ -34,9 +34,10 @@ for [`SparseIterate`](@ref), *block* for [`BlockIterate`](@ref), *symmetric* for
 [`SymmetricSparseIterate`](@ref). Unless a note says otherwise, an output of the same
 kind as the input is accepted. The shared precision baseline is homogeneous `Float64`
 or `Float32` ([precision rules](@ref numerical-usage)); some families require or accept
-other types (for example, `PoissonLoss` takes `Float64` data). These family-specific
-types, `Symmetric` matrix wrappers and mixed precision are not in these tables: see each
-function's entry and guarantee page, where they are documented.
+other types (for example, `PoissonLoss` takes `Float64` data). Family-specific types,
+`Symmetric` matrix wrappers and mixed precision are not separate columns: some
+restrictions appear in the cell notes, and the others, where they are documented, are
+on the function's entry or guarantee page.
 
 ## Losses
 

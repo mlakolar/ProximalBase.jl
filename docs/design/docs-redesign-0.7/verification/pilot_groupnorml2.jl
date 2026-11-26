@@ -80,7 +80,7 @@ end
 println("  independent: group1 zero: ‖v[1:2]‖ − λ√2 = ", norm(v[1:2]) - sqrt(2), "; group2 nonzero: ‖v3 + 1·x3/|x3|‖ = ", abs(0.5 + 1.0));
 println("  independent entry 4 (unlisted) |v4| = ", 0.25)
 fp = kkt_violation(f, v, z); println("  kkt_violation(f,v,z) full-point = ", fp, "  independent max(0, max(group1, group2, |v4|)) = ", max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25)); chk("full-point", fp ≈ max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25))
-println("  BlockIterate point (layout must match f):")
+println("  BlockIterate per-group score (the selected group matches f, with as many groups as f):")
 tryshow("kkt_violation(f, v, BlockIterate(z, [[1,2],[3]]), 1) (BlockIterate group 1)", () -> kkt_violation(f, v[1:3], BlockIterate(copy(z[1:3]), [[1,2],[3]]), 1))
 println("== representations")
 M = [3.0 4.0; -2.0 7.0]

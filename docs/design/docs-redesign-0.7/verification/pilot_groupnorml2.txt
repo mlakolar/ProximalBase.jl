@@ -75,7 +75,7 @@
   independent entry 4 (unlisted) |v4| = 0.25
   kkt_violation(f,v,z) full-point = 1.5  independent max(0, max(group1, group2, |v4|)) = 1.5
   check full-point                                                  OK
-  BlockIterate point (layout must match f):
+  BlockIterate per-group score (the selected group matches f, with as many groups as f):
   kkt_violation(f, v, BlockIterate(z, [[1,2],[3]]), 1) (BlockIterate group 1) -> 0.8218544151266947
 == representations
   dense 2×2 matrix with linear-index groups [[1,2,3],[4]]: fM(M) = 16.327379053088812  independent 16.327379053088812

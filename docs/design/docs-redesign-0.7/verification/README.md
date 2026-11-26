@@ -14,15 +14,19 @@ that command.
 
 ## What the lines mean
 
-- **Reference comparisons**: `check` lines that compare a result with a value the
-  script computes independently (a formula, the normal equations, or the sorting-based
-  ℓ₁ projection, including its comparison on random inputs in `pilot_indballl1.jl`).
-- **Consistency checks**: `check` lines that compare one ProximalBase call with another:
-  `value_and_prox!` against `f(out)` (`pilot_norml1.jl`, `pilot_leastsquaresloss.jl`,
-  `pilot_groupnorml2.jl`), the projection at different steps and the matrix projection
-  against the vector one (`pilot_indballl1.jl`).
-- **Observed returns**: all other lines record what a call returned or which exception
-  it threw, with no reference value; section headings start with `==`.
+Lines are classified by what they compare, not by how they are printed:
+
+- **Reference comparisons** compare a result with a value the script computes
+  independently or states as expected: a formula, the normal equations, or the
+  sorting-based ℓ₁ projection (its comparison on random inputs and on a matrix in
+  `pilot_indballl1.jl`). Most are `check` lines; the matrix-response gradient and
+  proximal point in `pilot_leastsquaresloss.jl` print their comparison without the
+  `check` prefix.
+- **Consistency checks** compare one ProximalBase call with another: `value_and_prox!`
+  against `f(out)` (`pilot_norml1.jl`, `pilot_leastsquaresloss.jl`, `pilot_groupnorml2.jl`)
+  and the projection at different steps (`pilot_indballl1.jl`).
+- **Observed returns** are the other lines: what a call returned or which exception it
+  threw, with no reference value. Section headings start with `==`.
 
 The single `FAIL` line, in `pilot_groupnorml2.txt`, is the consistency check of
 `value_and_prox!`: the rounding discrepancy recorded in the audit's
@@ -32,7 +36,7 @@ The single `FAIL` line, in `pilot_groupnorml2.txt`, is the consistency check of
 
 | Function | Operations exercised | Inputs exercised | Not exercised |
 |:--|:--|:--|:--|
-| `NormL1` | value, prox (scalar and array steps), `value_and_prox!`, coordinate `prox_block`, the three `kkt_violation` forms; gradient and group `prox_block` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector and matrix), `BlockIterate`, `SymmetricSparseIterate` | `restrict`; scores on iterates |
+| `NormL1` | value, prox (scalar and array steps), `value_and_prox!`, coordinate `prox_block`, the three `kkt_violation` forms on a vector; gradient, group `prox_block` and the whole-point score on a `SymmetricSparseIterate` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector and matrix), `BlockIterate`, `SymmetricSparseIterate` | `restrict`; the other score forms on iterates |
 | `LeastSquaresLoss` | value, gradient, `value_and_gradient`, `lipschitz`, prox, `value_and_prox!`, whole-point score, `restrict`, `reset_cache!`, held-predictor calls; coordinate `prox_block` and coordinate scores throw | vector, strided view, `SparseIterate` (vector), `BlockIterate`, matrix with a matrix response; a matrix with a vector response, `Symmetric` and `SymmetricSparseIterate` throw | matrix `SparseIterate` |
 | `GroupNormL2` | value, prox, `value_and_prox!`, `prox_block`, `prox_block!`, per-group and whole-point scores; the coordinate screen, `restrict` and `prox_block` under `Scaled` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector), `BlockIterate` (block write and a per-group score with matching groups); `SymmetricSparseIterate` throws | prox and the whole-point score on a `BlockIterate`; scores with mismatched layouts |
 | `IndBallL1` | value, projection at several steps, `value_and_prox!`; gradient, `kkt_violation`, `prox_block` and `lipschitz` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector), `BlockIterate`; `SymmetricSparseIterate` throws | `restrict` |

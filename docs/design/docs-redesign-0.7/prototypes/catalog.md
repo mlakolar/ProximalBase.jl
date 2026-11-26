@@ -6,6 +6,10 @@ function by the role it plays in your model; each name links to its reference
 entry. Which operations and storage each one supports is in the
 [capability tables](@ref capability-tables).
 
+The definitions below are for ordinary finite inputs and parameters; infinite or `NaN`
+values follow each function's guarantee page. For a matrix argument, sums run over all
+entries and ``\|\cdot\|_2`` is the Frobenius norm.
+
 ## If your model needs…
 
 | If your model needs… | use |
@@ -20,7 +24,7 @@ entry. Which operations and storage each one supports is in the
 | sparse, nonnegative coefficients | [`NormL1Nonneg`](@ref) |
 | less shrinkage of large coefficients | [`MCP`](@ref) or [`SCAD`](@ref) (nonconvex) |
 | a cost per nonzero coefficient | [`NormL0`](@ref) (nonconvex) |
-| a cost per nonzero off-diagonal entry of a symmetric matrix | `NormL0(λ; diagonal = false)` (nonconvex) |
+| a cost per nonzero off-diagonal entry of a symmetric matrix | [`NormL0(λ; diagonal = false)`](@ref norml0offdiag-guide) (nonconvex) |
 | at most ``s`` nonzero coefficients | [`IndBallL0`](@ref) (nonconvex) |
 | whole groups selected together (group lasso) | [`GroupNormL2`](@ref) |
 | groups, and sparsity within groups | [`SparseGroupNormL2`](@ref) |
@@ -45,16 +49,16 @@ combine a loss and a penalty, evaluate them separately and add the values,
 |:--|:--|:--|:-:|
 | [`LeastSquaresLoss`](@ref) | ``\tfrac12\|y-X\beta\|_2^2`` | `LeastSquaresLoss(y, X)` | ✓ |
 | [`LogisticLoss`](@ref) | ``\sum_i w_i[\log(1+e^{\eta_i})-y_i\eta_i]``, ``\eta=X\beta+o`` | `LogisticLoss(y, X; weights, offset)` | ✓ |
-| [`PoissonLoss`](@ref) | ``\sum_i[e^{\eta_i}-y_i\eta_i]``, ``\eta=X\beta`` | `PoissonLoss(y, X)` | ✓ |
+| [`PoissonLoss`](@ref) | ``\sum_i[e^{\eta_i}-y_i\eta_i]``, ``\eta=X\beta`` | `PoissonLoss(y::Vector{Float64}, X::Matrix{Float64})` | ✓ |
 | [`SqrtLeastSquaresLoss`](@ref) | ``\|y-X\beta\|_2`` | `SqrtLeastSquaresLoss(y, X)` | ✓ |
 | [`LogDetLoss`](@ref) | ``w[\operatorname{tr}(S\Theta)-\log\det\Theta]``, ``\Theta`` symmetric positive definite | `LogDetLoss(S, w = 1)` | ✓ |
 
 - With an ``n\times k`` response ``Y``, `LeastSquaresLoss` is ``\tfrac12\|Y-XB\|_F^2``.
 - `LogisticLoss` defaults to unit weights ``w_i=1`` and zero offset ``o``.
-  `PoissonLoss` takes `Float64` data. `LogDetLoss` needs a finite, exactly symmetric
-  ``S`` and a finite ``w>0``.
-- These are sums over observations. For the mean, multiply the first three by ``1/n``;
-  for the normalized square-root lasso, multiply `SqrtLeastSquaresLoss` by ``1/\sqrt n``.
+  `LogDetLoss` needs a finite, exactly symmetric ``S`` and a finite ``w>0``.
+- The first three are sums over the ``n`` observations: with ``n>0``, multiply them by
+  ``1/n`` for the mean. For the normalized square-root lasso, multiply
+  `SqrtLeastSquaresLoss` by ``1/\sqrt n``. `LogDetLoss` is not a sum over observations.
 
 ## Sparsity penalties
 
@@ -68,7 +72,7 @@ combine a loss and a penalty, evaluate them separately and add the values,
 | [`MCP`](@ref) | ``\sum_i p_{\lambda,a}(x_i)`` | `MCP(λ, a = 3)` | — |
 | [`SCAD`](@ref) | ``\sum_i p_{\lambda,a}(x_i)`` | `SCAD(λ, a = 3.7)` | — |
 | [`NormL0`](@ref) | ``\lambda\cdot\#\{i: x_i\ne0\}`` | `NormL0(λ = 1)` | — |
-| off-diagonal ℓ₀ | ``\lambda\cdot\#\{(i,j): i\ne j,\ X_{ij}\ne0\}`` | `NormL0(λ; diagonal = false)` | — |
+| [off-diagonal ℓ₀](@ref norml0offdiag-guide) | ``\lambda\cdot\#\{(i,j): i\ne j,\ X_{ij}\ne0\}`` for a square ``X``, symmetric by precondition | `NormL0(λ; diagonal = false)` | — |
 
 Weights ``w`` are optional (all one by default); `NormL1()` and `NormL1Nonneg()` also
 default to ``\lambda=1``. The MCP and SCAD penalties ``p_{\lambda,a}`` are defined in

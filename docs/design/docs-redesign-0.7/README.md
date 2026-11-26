@@ -10,8 +10,8 @@ It is outside the published manual and changes no page of it. The audited revisi
 API reference covers every export, but it is organized around how it was written
 rather than what a newcomer wants to do. There is no installation command on Home or in
 the README, and nothing says that the registered release (0.5.4) has a different
-interface. No table says which function supports which operation or kind of input: the
-one trait table covers 21 of 30 functions, and the README and the selection guide each
+interface. There is no complete table of which function supports which operation or kind of
+input: the one trait table covers 21 of 30 functions, and the README and the selection guide each
 cover 20. Page titles hide what they contain: "The ℓ₂ and group ℓ₂ norms" covers seven
 functions, losses share `smooth.md` with quadratic utilities, and constraints have no
 page. The numerical-contract index, the entry point for guarantees, carries a "Migration
@@ -36,8 +36,8 @@ tool, not as four folders. → [Research](research.md)
   start with ordinary arrays. → [Home](prototypes/index.md), [quick start](prototypes/quickstart.md)
 - **Finding functions by purpose:** a catalog grouped as losses, penalties, constraints and
   building blocks, with "if your model needs… use…" rows; and one capability reference
-  with, for each role, an operations table and an inputs table, every cell backed by a
-  recorded probe. → [Catalog](prototypes/catalog.md),
+  with, for each role, an operations table and an inputs table; the cells of the four
+  pilot functions rest on reproducible probes, and the rest are confirmed in G4. → [Catalog](prototypes/catalog.md),
   [capability tables](prototypes/capabilities.md), [table design](compatibility-tables.md),
   [verification record](verification/README.md)
 - **One entry format for every function**, placed on six role pages: definition,
@@ -88,8 +88,9 @@ and a walkthrough of the rendered site. The orchestrating session consolidated t
 findings, wrote the prototypes and figures, and checked formulas and examples against
 the implementation; an independent review on the PR checked them again. **The
 walkthroughs were done by an agent, not by people**; G10 of the roadmap is the
-independent review. The probe scripts are committed in [verification/](verification/);
-crawl data and the raw screenshots were not committed.
+independent review. The probe scripts of the four pilot entries are committed in
+[verification/](verification/); the exploratory probe run, crawl data and raw screenshots
+were not committed.
 
 ## Decisions for the maintainer
 
@@ -147,6 +148,6 @@ were accepted.
 | [roadmap.md](roadmap.md) | the implementation PRs |
 | [prototypes/](prototypes/) | Home, quick start, catalog, capability tables, four function entries, guarantee overview, figures |
 | [figures/](figures/) | figure generator, its Julia check and the SVGs |
-| [verification/](verification/) | capability probe scripts, their outputs and the evidence matrices |
+| [verification/](verification/) | the probe scripts of the four pilot entries and their outputs |
 | [preview/](preview/) | the preview build script |
 | [screenshots/](screenshots/) | current site and preview screenshots |

@@ -115,7 +115,7 @@ Cost: S is under half a day, M is one to three days.
 ## Choices that do not fit ProximalBase
 
 - **A generated page per symbol** (PyTorch `torch.nn.<Name>`, SciPy per-function pages).
-  Thirty function types and one maintainer: per-symbol pages multiply navigation and
+  Thirty functions and one maintainer: per-symbol pages multiply navigation and
   maintenance and split the comparison a reader wants to make. Function entries
   are grouped by role instead (see [architecture](architecture.md#function-entries-grouped-pages-not-one-page-per-function)).
 - **Example galleries** (scikit-learn's sphinx-gallery). They need Sphinx tooling. The

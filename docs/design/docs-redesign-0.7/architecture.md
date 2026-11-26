@@ -73,7 +73,12 @@ Developer guide
   Writing documentation                      developer/writing_documentation.md
 ```
 
-![The proposed sidebar in the preview build, with Getting started and Functions expanded. The preview lists each prototype role page next to the current page it would replace.](screenshots/preview-sidebar.png)
+![The sidebar of the preview build, with Getting started and Functions expanded.](screenshots/preview-sidebar.png)
+
+The preview is a surrogate for the final file map: it shows each prototype entry as a
+standalone page ("Losses (prototype)", "Sparsity penalties (prototype)", …) next to the
+unmodified current page, and it does not perform the move of the quadratic family out of
+`smooth.md`. The forwarding headings of that move are checked in G7e.
 
 The rendered preview has 6 groups and 10 collapse controls (today 7 and 9); the 30
 guarantee pages are one level deeper than today and collapsed by default, so readers A
@@ -140,7 +145,7 @@ on one of six role pages:
 | Quadratic and linear functions (`quadratic.md`, new) | `SqrNormL2`, `QuadraticFunction`, `KronQuadratic`, `LinearFunction`, `ZeroFunction` |
 | Scaling a function (`calculus.md`) | `Scaled` |
 
-That is 30 function types and 31 entries, since the two forms of `NormL0` get
+That is 30 functions (29 types and the `IndBallLinf` constructor) and 31 entries, since the two forms of `NormL0` get
 separate entries. Why grouped pages: #1212 asks to prefer existing pages over
 per-function pages; related functions are compared on one page (lasso, elastic net and
 MCP); the sidebar stays short; and most existing anchors stay where they are. The cost
@@ -250,7 +255,8 @@ is introduced.
    | `function_library.md` | `Browse-available-functions`, `Functions-of-a-vector-or-matrix`, `Combining-functions`, the "Which squared-loss object" note | the catalog's role sections and its paragraph on combining functions |
    | `spec/index.md` | `Shared-rules`, `Family-map`, `Status-vocabulary`, `Clause-identifiers-and-ownership` | "Rules that apply across functions", "Guarantees for each function", "How to read a guarantee page", and the developer page |
 
-   Each also has a `-1` variant on the live page, which Documenter generates alongside it.
+   That is 13 headings; all but the admonition anchor also have a `-1` variant on the
+   live page, which Documenter generates alongside them, for 25 anchors in all.
 5. **External links.** Only the `/dev/` root is known to be linked from ProximalSolvers.
    `/stable/` is the frozen 0.5.4 manual and is not touched.
 6. **Checks that change with the navigation**, in the PR that changes it:

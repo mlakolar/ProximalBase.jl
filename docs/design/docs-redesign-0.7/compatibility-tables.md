@@ -59,7 +59,7 @@ guaranteed and are not tabulated, even where a probe shows that they work.
 | ✓ | implemented for the function's ordinary inputs; the entry gives the conditions (shapes, steps, preconditions) |
 | ◐ *a* | implemented with the restriction in note *a* |
 | — | not implemented: the call throws |
-| ? | not verified (not used in the prototype, where every cell was probed; G4 uses it for any cell it cannot confirm) |
+| ? | not verified; G4 uses it for any cell it cannot confirm with a test |
 
 A ✓ is not a promise that every input works: it means the operation is implemented and
 its conditions are on the entry. No cell is left blank, unlike PETSc's tables, where a
@@ -73,10 +73,11 @@ sentence and links to its owner when the condition affects correctness.
 A cell is ✓ or ◐ only when a test or a recorded probe exercises that operation on that
 kind of input; a method that exists, a trait value (`isproximable`, `isseparable`) or a
 generic fallback is not enough (#1212 G4). A — means the call was seen to throw or is
-documented as unsupported. For the prototype, the probes, their outputs and an evidence
-level for each cell are in the [verification record](verification/README.md); for the
-published table, G4 records the test behind each cell in the API coverage matrix of the
-developer guide, not in the user table.
+documented as unsupported. In the prototype, the cells of the four pilot functions rest
+on the reproducible scripts of the [verification record](verification/README.md), and the
+other cells on an exploratory probe run and the docstrings. For the published table, G4
+records the test behind each cell in the API coverage matrix of the developer guide, not
+in the user table.
 
 Two distinctions from #1212 stay visible:
 

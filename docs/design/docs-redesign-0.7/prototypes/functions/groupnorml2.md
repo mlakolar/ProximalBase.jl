@@ -39,7 +39,7 @@ prox(g, x, 1.0)                       # the second group becomes zero
 
 ### Proximal operator: group soft thresholding
 
-For finite entries, finite parameters and a step ``\gamma>0``,
+For finite entries, finite parameters and a finite step ``\gamma>0``,
 
 ```math
 \operatorname{prox}_{\gamma g}(v)_{G_k}=
@@ -59,7 +59,7 @@ group to zero even at a zero step.
 |:--|:--|:--|
 | value | `g(x)` | ✓ |
 | proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ scalar step ``\gamma\ge0`` |
-| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)` |
+| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)`, the documented value; the computed value can differ from `g(out)` in the last digit ([recorded discrepancy](../../audit.md#defects-and-gaps-recorded-separately)) |
 | one group | `prox_block(g, u, k, γ)`, `prox_block!(out, g, u, k, γ)` | ✓ on a separate buffer `u` holding the entries of group `k` |
 | optimality score | `kkt_violation(g, v, x, k)`, `kkt_violation(g, v, x)` | ✓ for one group, or the whole point |
 | one coordinate | `prox_block(g, xᵢ, i, γ)` | — groups are not separable |
@@ -88,8 +88,10 @@ collect(xb)
 
 ✓ vectors, matrices (groups use linear indices) and strided views ·
 ✓ `SparseIterate` ·
-◐ `BlockIterate`: values and proximal steps work for any partition into groups;
-optimality scores need the iterate's groups to be `g`'s groups in the same order.
+◐ `BlockIterate`: values and proximal steps work for any partition into groups. The
+score of one group needs the iterate to have as many groups as `g` and the selected
+group to list the same indices in the same order; the whole-point score needs every
+group to match.
 A `BlockIterate` must cover every index, so if `g` leaves entries in no group, either
 score a plain array, or give `g` zero-weight singleton groups for those entries and
 build the iterate with `BlockIterate(x, g)` ·

@@ -6,12 +6,15 @@ the kinds of **input** that value and prox accept.
 | Symbol | Meaning |
 |:--|:--|
 | ✓ | implemented for the function's ordinary inputs; the function's entry gives the conditions (shapes, steps, preconditions) |
-| ◐ *a* | implemented with the restriction in note *a* below the table |
+| ◐ *a* | implemented with the main restriction in note *a* below the table; the entry gives the complete rules |
 | — | not implemented: the call throws |
 
-*Prototype note: the cells come from the G0 capability probes (Julia 1.13.4, recorded
-in [the verification record](../verification/README.md)), not from a review of every
-test. G4 confirms each cell against the tests before publication.*
+On a phone, the tables scroll sideways.
+
+*Prototype note, not for publication: the cells of the four pilot functions rest on the
+reproducible scripts of the [verification record](../verification/README.md). The other
+cells come from an exploratory probe run and the docstrings, and G4 confirms each cell
+against the tests before publication.*
 
 **Operation columns**
 
@@ -44,7 +47,7 @@ kind as the input is accepted. `Symmetric` matrix wrappers, element types other 
 
 - *a* — whole point only.
 - *b* — vector response only.
-- *c* — a finite nonnegative scalar step.
+- *c* — a scalar step; see the entry for the step and input rules.
 
 The first four also evaluate from a linear predictor that you already hold (for
 `LogisticLoss`, including its offset), and all but `SqrtLeastSquaresLoss` compute a
@@ -61,9 +64,9 @@ gradient from it; see each loss's entry.
 - *d* — with an ``n\times k`` response; the coefficients are ``p\times k``.
 - *e* — a vector, or a matrix with an ``n\times k`` response.
 - *f* — a dense vector or strided view with the loss's element type.
-- *g* — a dense `Float64` vector or strided view; the loss itself takes `Float64` data.
-- *h* — square, with the element type of ``S``; `gradient!` and `prox!` need a separate strided dense output.
-- *i* — matrix input; value, gradient and `prox` with a dense output.
+- *g* — the loss is built from a `Vector{Float64}` and a `Matrix{Float64}`; the coefficients are a `Float64` vector or a strided view of one.
+- *h* — the size and element type of ``S``; mutating calls need a writable strided output (see the entry).
+- *i* — matrix input; value, gradient and `prox` with a dense output (see the entry).
 
 ## Sparsity penalties
 
@@ -104,9 +107,11 @@ gradient from it; see each loss's entry.
 | [`GroupSCAD`](@ref) | ✓ | — | ✓ | — | ✓ | ◐ *c* | — |
 
 - *a* — whole point only.
-- *b* — per group and for the whole point; with a `BlockIterate`, its groups must be the
-  function's groups, in the same order.
-- *c* — zero groups and entries in no group only; no whole-point score.
+- *b* — per group and for the whole point. With a `BlockIterate`, the per-group score
+  needs the selected group to list the same indices in the same order, and the
+  whole-point score needs every group to match.
+- *c* — zero groups and entries in no group only, with the per-group layout rule of *b*;
+  no whole-point score.
 
 | Function | vector | matrix | sparse | block | symmetric |
 |:--|:-:|:-:|:-:|:-:|:-:|
@@ -128,7 +133,7 @@ For a constraint, prox is the Euclidean projection onto the set.
 | [`IndBallL2`](@ref) | ✓ | — | ✓ | — | — | — | — |
 | [`IndBallL0`](@ref) | ✓ | — | ◐ *c* | — | — | — | — |
 
-- *a* — throws unless every omitted interval contains zero.
+- *a* — throws unless the omitted intervals contain zero (scalar bounds must contain zero).
 - *b* — the screen of a coordinate assumed to be zero only.
 - *c* — finite counted entries.
 
@@ -138,8 +143,9 @@ For a constraint, prox is the Euclidean projection onto the set.
 | `IndBallL1`, `IndBallL2` | ✓ | ✓ | ✓ | ✓ | — |
 | `IndBallL0` | ◐ *d* | ◐ *d* | ◐ *e* | — | ◐ *e* |
 
-- *d* — `Float32` or `Float64` arrays, not views.
-- *e* — the output must be of the same kind as the input.
+- *d* — `Float32` or `Float64` arrays, not views. A `Symmetric` input counts pairs of
+  entries and gives a dense output ([`IndBallL0`](@ref)).
+- *e* — the output must be of the same kind as the input; symmetric storage counts pairs.
 
 ## Quadratic and linear functions
 
@@ -164,28 +170,33 @@ For a constraint, prox is the Euclidean projection onto the set.
 | `QuadraticFunction` | ✓ | — | ◐ *f* | ✓ | — |
 | `KronQuadratic` | — | ◐ *g* | ◐ *i* | — | ◐ *h* |
 
-- *c* — no whole-point score.
+- *c* — centers or coefficients exactly mirrored ([symmetric parameters](@ref symmetric-parameter-guide)); no whole-point score.
 - *d* — the coefficients must have the shape of the input.
 - *e* — value, a coordinate score, and `prox` into a `SymmetricSparseIterate` output only.
 - *f* — a vector `SparseIterate`.
-- *g* — `gradient!` needs a writable strided output.
+- *g* — `gradient!` needs a writable strided output, for every input kind.
 - *h* — square variable, matching element types, and ``C`` exactly symmetric when given.
 - *i* — a matrix `SparseIterate`; value and gradient.
 
 ## Scaled functions
 
-`Scaled(f, α)`, written `α * f`, with a finite ``\alpha>0`` provides the operations of
-`f` above except group steps. Zero and infinite scales, scaled indicators (which return
-the indicator itself) and the remaining exceptions follow the
-[scaling rules](@ref scaling-guide). The G0 probes covered `NormL1`,
-`LeastSquaresLoss` and `GroupNormL2` as inner functions only.
+For `Scaled(f, α)`, written `α * f`, with a finite ``\alpha>0``, the pilot scripts check
+the value of `NormL1`, the value, gradient and `lipschitz` of `LeastSquaresLoss`, and the
+value and prox of `GroupNormL2`, whose group steps are not available under `Scaled`. Other
+functions, operations and scales, including scaled indicators (which return the
+indicator itself), follow the [scaling rules](@ref scaling-guide). One known exception is
+recorded in the audit: the allocating `prox` of a scaled `LogDetLoss` on a matrix
+`SparseIterate` throws.
 
 ## Other operations
 
-- `lipschitz(f)` returns a computed bound on the gradient's Lipschitz constant for
-  `SqrNormL2`, `QuadraticFunction`, `KronQuadratic`, `LeastSquaresLoss`,
-  `LinearFunction`, `ZeroFunction` and their positive multiples. It is `0` for
-  `ZeroFunction` and `LinearFunction` and can be `0` for others, so check before dividing. `LogDetLoss` returns `Inf`. The other functions throw.
+- `lipschitz(f)` evaluates, in floating point, a formula for the gradient's Lipschitz
+  constant or a bound on it, for `SqrNormL2`, `QuadraticFunction`, `KronQuadratic`,
+  `LeastSquaresLoss`, `LinearFunction`, `ZeroFunction` and their positive multiples.
+  Rounding can make the result slightly smaller than the exact value. It is `0` for
+  `ZeroFunction` and `LinearFunction` and can be `0` for others, so use it as a step only
+  when it is positive and finite. `LogDetLoss` and its multiples return `Inf`; the other
+  unscaled functions throw.
 - There is no Hessian or Hessian-vector product in this version.
 
 ## What these tables do not say

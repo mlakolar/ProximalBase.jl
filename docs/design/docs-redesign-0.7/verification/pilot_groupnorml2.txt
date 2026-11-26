@@ -60,7 +60,7 @@
   prox_block(f,[3.0],1,0.5) wrong block length             -> THROWS DimensionMismatch: DimensionMismatch: group 1 of GroupNormL2 has 2 entries, but the input has 1 and the output 1
   prox_block(f,[3.0,4.0],3,0.5) group index out of range   -> THROWS BoundsError: BoundsError: attempt to access 2-element Base.OneTo{Int64} at index [3]
   prox_block(f, 3.0, 1, 0.5) scalar form                   -> THROWS MethodError: MethodError: no method matching prox_block(::GroupNormL2{Float64, Vector{Vector{Int64}}}, ::Float64, ::Int64, ::Float64)
-  commit pattern with BlockIterate: 
+  commit pattern with BlockIterate:
   BlockIterate(x4, [[1,2],[3]]) groups not a partition of 1:4 -> THROWS ArgumentError: ArgumentError: The groups must partition 1:4.
     BlockIterate(x[1:3], f) constructor with the function: BlockIterate{Float64, Vector{Vector{Int64}}}
     committed block 1 via copyto!(blockview(x,1), out): [2.5757359312880714, 3.434314575050762, -2.0]
@@ -75,7 +75,7 @@
   independent entry 4 (unlisted) |v4| = 0.25
   kkt_violation(f,v,z) full-point = 1.5  independent max(0, max(group1, group2, |v4|)) = 1.5
   check full-point                                                  OK
-  BlockIterate point (layout must match f): 
+  BlockIterate point (layout must match f):
   kkt_violation(f, v, BlockIterate(z, [[1,2],[3]]), 1) (BlockIterate group 1) -> 0.8218544151266947
 == representations
   dense 2×2 matrix with linear-index groups [[1,2,3],[4]]: fM(M) = 16.327379053088812  independent 16.327379053088812

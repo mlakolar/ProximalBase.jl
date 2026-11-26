@@ -1,49 +1,43 @@
-# Verification record for the capability claims
+# Verification record for the four pilot entries
 
-The evidence behind the [capability-table prototype](../prototypes/capabilities.md),
-the four function entries and the drift findings of the [audit](../audit.md). All runs
-used Julia 1.13.4 at the audited revision, locally. Run the scripts from the
-repository root with `julia --project=docs <script>`.
+Reproducible probes behind the four [function-entry prototypes](../prototypes/functions/).
+They ran on Julia 1.13.4 at the audited revision, locally. Run them from the
+repository root with `julia --project=docs <script>`; the outputs below were produced
+that way.
 
-## Files
+| Script | Output |
+|:--|:--|
+| `pilot_norml1.jl` | `pilot_norml1.txt` |
+| `pilot_leastsquaresloss.jl` | `pilot_leastsquaresloss.txt` |
+| `pilot_groupnorml2.jl` | `pilot_groupnorml2.txt` |
+| `pilot_indballl1.jl` | `pilot_indballl1.txt` |
 
-| File | What it does | Evidence |
-|:--|:--|:--|
-| `pilot_norml1.jl`, `pilot_leastsquaresloss.jl`, `pilot_groupnorml2.jl`, `pilot_indballl1.jl` | constructors and their validation, value, gradient, prox, `value_and_prox!`, `prox_block`, `kkt_violation`, storage kinds, `Scaled`, display | each operation compared with an independent formula; printed `check … OK/FAIL` lines |
-| `pilot_*.txt` | the output of each script | rerun on the audited revision: identical |
-| `smoke_matrix.jl` | every function type × 15 kinds of input × 14 operations | each call compared with the dense `Float64` result for the same point: a consistency check, not an independent formula |
-| `operations.tsv` | one row per function × operation (33 functions including three `Scaled` wrappers, 17 operations) | support, evidence level, restriction note, probe detail, test references |
-| `representations.tsv` | one row per function × kind of input (15 kinds) | `ok`, a mismatch or the exception for each operation group; test references |
+Each script covers the constructors and their validation, the value, gradient or
+proximal operator, `value_and_prox!`, `prox_block`, `kkt_violation`, a set of input
+kinds, `Scaled` and the printed form. Two kinds of line appear in the outputs:
+
+- a line `check … OK` or `check … FAIL` compares the result with a value computed
+  independently in the script (a formula, normal equations, or a sorting-based
+  projection);
+- every other line records what a call returned or which exception it threw, without
+  an independent reference.
 
 The single `FAIL` line, in `pilot_groupnorml2.txt`, is the `value_and_prox!` rounding
 discrepancy recorded in the audit's
 [separately recorded findings](../audit.md#defects-and-gaps-recorded-separately).
 
-## Evidence levels in `operations.tsv`
+## Scope
 
-| Level | Meaning | Rows |
-|:--|:--|--:|
-| `probed+tested` | probed, and a test file exercises the call | 87 |
-| `tested` | a test file exercises the call; not probed independently | 123 |
-| `probed` | probed (consistency or formula), no test found | 38 |
-| `throws` | the call throws (`MethodError` or an explicit `ArgumentError`) | 280 |
-| `method-only` | a method exists, but neither a probe nor a test was found | 3 |
-| `untested-fallback` | the generic no-op `reset_cache!` | 30 |
+The scripts include some non-finite inputs and steps, an integer level and integer
+data, `Float32` and `BigFloat` data with a `Float64` function, and exact in-place calls.
+They do not cover Julia versions other than 1.13.4, offset arrays, `Float16`,
+concurrency, partially overlapping arrays or most endpoint rules, which the guarantee
+pages own.
 
-Test references were found by searching the test files for the operation near a
-constructor of the function. No test was run, and the search can miss or overcount.
+## The capability tables
 
-## What was not verified
-
-- Julia 1.10 or any version other than 1.13.4.
-- Offset arrays, `Float16`, element types other than `Float64` and `Float32` beyond the
-  smoke cases, mixed precision, non-finite inputs, concurrency and partially overlapping
-  arrays.
-- `Scaled` around inner functions other than `NormL1`, `LeastSquaresLoss` and
-  `GroupNormL2`.
-- The conditions in the capability notes that come from the documentation rather
-  than from probes (for example the restriction rule of `IndBox` and the step rule of
-  `LogDetLoss`) were read from the docstrings and guarantee pages, not re-probed.
-
-G4 replaces this record with a column of the API coverage matrix that names the test
-behind each cell.
+The cells of the [capability-table prototype](../prototypes/capabilities.md) for these
+four functions rest on these scripts. The cells for the other functions come from an
+exploratory probe run during the audit, whose scripts are not part of this record, and
+from the docstrings and guarantee pages; they are to be confirmed in G4, which records
+the test behind each cell in the API coverage matrix.

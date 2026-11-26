@@ -27,10 +27,12 @@ instead of the lasso. Values: `NormL1(1)`, `MCP(1, 3)`, `SCAD(1, 3.7)`.
 thresholding (`NormL1`) shrinks every surviving entry, hard thresholding (`NormL0`)
 keeps or removes an entry, and firm thresholding (`MCP` at a step below `a`) shrinks
 moderately large entries less and leaves large ones unchanged. The open circles mark
-the jump of hard thresholding at magnitude ``\sqrt{2\gamma\lambda}``. ProximalBase
-keeps an entry ``v`` when ``v^2>2\gamma\lambda`` in floating point, so an entry exactly
-at the threshold becomes zero, while the computed `sqrt(2.0)` is kept at ``\gamma=\lambda=1``
-because its square rounds to `2.0000000000000004`.
+the jump of hard thresholding at magnitude ``\sqrt{2\gamma\lambda}``. The curve is the
+exact rule for positive finite parameters: keep ``v`` when ``v^2>2\gamma\lambda`` and
+return zero otherwise, including at an exact tie. ProximalBase decides the comparison
+exactly for finite `Float32` and `Float64` inputs; for example, the floating-point number
+`sqrt(2.0)` lies slightly above the exact cutoff ``\sqrt2`` and is kept at
+``\gamma=\lambda=1``.
 
 ## Group shrinkage
 

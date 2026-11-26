@@ -19,8 +19,8 @@
   gradient!(out, f, β)  [destination FIRST]; returns out? true; out = [-6.0, -12.1]
   check gradient!                                                   OK
   gradient!(f, out, β) (wrong order)                     -> THROWS MethodError: MethodError: no method matching gradient!(::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Vector{Float64}, ::Vector{Float64})
-  gradient!(β, f, β) aliasing                            -> [-6.0, -12.1]
-  gradient!(b, f, b) with b===β                          -> THROWS ArgumentError: ArgumentError: the gradient must not overwrite x
+  gradient!(copy(β), f, β) (separate output)             -> [-6.0, -12.1]
+  gradient!(b, f, b) (output is the input)               -> THROWS ArgumentError: ArgumentError: the gradient must not overwrite x
   value_and_gradient(f,β) = (9.469999999999999, [-6.0, -12.1])
   check value_and_gradient                                          OK
   value_and_gradient!(out,f,β) = 9.469999999999999 (scalar, value at INPUT β); out = [-6.0, -12.1]
@@ -30,7 +30,7 @@
 == lipschitz
   lipschitz(f) = 14.524937810560445   independent σmax(X)² = 14.524937810560445
   check lipschitz = spectral norm squared (dense)                   OK
-  lipschitz(sparse X LS) = 20.000000000000004  (documented: other matrices use a safe one/inf-norm bound, >= σmax²)
+  lipschitz(sparse X LS) = 20.000000000000004  (a floating-point one/inf-norm bound for a sparse design)
 == scaling:  (1/n) * f
   typeof((1/n)*f) = Scaled{LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, Float64}
   ((1/n)*f)(β) = 3.1566666666666663  independent ‖y−Xβ‖²/(2n) = 3.1566666666666663
@@ -58,7 +58,7 @@
   prox(f, x0, 0.0) zero step                             -> [0.6999999999999998, -1.1999999999999997]
   prox(f, x0, [0.1,0.2]) array step                      -> THROWS MethodError: MethodError: no method matching prox!(::Vector{Float64}, ::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Vector{Float64}, ::Vector{Float64})
   prox_block(f, 0.5, 1, 0.1) scalar                      -> THROWS MethodError: MethodError: no method matching prox_block(::LeastSquaresLoss{Float64, Vector{Float64}, Matrix{Float64}, 1, Vector{Float64}}, ::Float64, ::Int64, ::Float64)
-  p > n case (wide X): 
+  p > n case (wide X):
     prox = [0.004285119955623487, 0.16078213839966715, 0.40435445846623214, 0.6087089169324643]  independent = [0.004285119955623348, 0.1607821383996672, 0.4043544584662323, 0.6087089169324641]
   check prox p>n                                                    OK
 == cache: reset_cache! after in-place data change

@@ -42,14 +42,14 @@ G0 brief with three changes, each motivated by the audit:
 | G4 | Capability tables | G3 | no (`make.jl`) | G4 |
 | G5 | Function catalog | G4 | no (forwarding page for `choosing.md`) | G4 |
 | G6 | Function-entry pilot: four entries and the constraints page | G4 | no (`make.jl`) | G5 |
-| G7a–e | Remaining function entries, one PR per role page | G6 | yes, unless docstrings change | G5 |
+| G7a–e | Remaining function entries, one PR per role page | G5, G6 | G7a–d yes, unless docstrings change; G7e no (`make.jl`) | G5 |
 | G8 | Examples and figures | G3 | no (`make.jl`, figure script, CI job) | G6 |
-| G9 | User-facing guarantees, separated from contributor material | G3 | no (`check_contract_schema.py`) | G7 |
+| G9 | User-facing guarantees, separated from contributor material | G3 | no (`make.jl`, `check_contract_schema.py`) | G7 |
 | G10 | Independent usability review and final cleanup | all | yes, unless fixes need code | G8 |
 
 ```text
-G0 ── G1 ── G2 ── G3 ──┬── G4 ──┬── G5
-                       │        └── G6 ── G7a, G7b, G7c, G7d, G7e (parallel)
+G0 ── G1 ── G2 ── G3 ──┬── G4 ──┬── G5 ──┐
+                       │        └── G6 ──┴── G7a, G7b, G7c, G7d, G7e (parallel)
                        ├── G8 (the figure work may start right after G0)
                        └── G9
                                               all ── G10
@@ -57,7 +57,8 @@ G0 ── G1 ── G2 ── G3 ──┬── G4 ──┬── G5
 
 After G3, the tracks G4–G7, G8 and G9 touch different pages and can proceed in
 parallel. G5 and G6 can run in parallel once G4 is merged; the later of the two links
-the catalog rows to the new entries.
+the catalog rows to the four pilot entries. The G7 PRs start when both have merged, so
+that each can link its entries from the new catalog.
 
 ## Validation that applies to every PR
 
@@ -109,10 +110,12 @@ the catalog rows to the new entries.
   pages that exist at that point; sidebar labels and page headings aligned; the
   "Assumes · You will learn" banners kept on tutorials only; `check_html.py` constants
   updated.
-- **Acceptance:** every existing URL still resolves (no page path changes); the
-  [reader tasks](architecture.md#paths-for-the-readers-tasks) whose destinations exist
-  take at most the listed number of choices on desktop and on a phone (counting the menu
-  tap); `check_html.py` passes; the rendered sidebar is checked on desktop and phone.
+- **Acceptance:** every existing URL still resolves (no page path changes); install,
+  the quick start, the tutorials and the extension guide are reachable from Home within
+  the choices listed in the [reader tasks](architecture.md#paths-for-the-readers-tasks),
+  on desktop and on a phone (counting the menu tap); `check_html.py` passes. The tasks
+  that need the catalog and the capability tables are accepted in G10, once those pages
+  exist.
 - **Areas:** `docs/make.jl`, `docs/check_html.py`, the headings of retitled pages,
   `AGENTS.md` and `CONTRIBUTING.md` where they name sidebar sections.
 - **Note:** keep this PR free of content edits.
@@ -120,7 +123,8 @@ the catalog rows to the new entries.
 ### G4 — Capability tables
 
 - **Scope:** `capabilities.md` following the [prototype](prototypes/capabilities.md),
-  for all 30 function types, with function names linking to their API entries; the
+  for all 30 functions, with function names linking to their API entries and without the
+  prototype's note on its verification record; the
   built-in trait table of `function_objects.md` replaced by a link; iterate pages link
   to the tables; the API coverage matrix gains the test behind each ✓ and ◐.
 - **Acceptance:** every ✓ and ◐ is backed by a named test, or by a probe recorded in the
@@ -128,15 +132,15 @@ the catalog rows to the new entries.
   seen to throw or is documented as unsupported; each condition is one sentence with a
   link to its owner; the rendered note labels match the cells; no table is wider than
   about twice the content column of a 390 px phone.
-- **Areas:** `capabilities.md` (new), `function_objects.md`, iterate pages, `api/coverage.md`.
+- **Areas:** `capabilities.md` (new), its line in `make.jl`, `function_objects.md`, iterate pages, `api/coverage.md`.
 
 ### G5 — Function catalog
 
 - **Scope:** rewrite `function_library.md` as the [catalog](prototypes/catalog.md); move
   the "choose an operation" table of `choosing.md` into `operations.md`; keep
   `choosing.md` as a hidden forwarding page that keeps `@id choosing`.
-- **Acceptance:** all 30 function types appear, with 31 definition rows for the two
-  forms of `NormL0`; the "If your model needs…" rows cover every row of the old
+- **Acceptance:** all 30 functions (29 types and the `IndBallLinf` constructor) appear,
+  with 31 definition rows for the two forms of `NormL0`; the "If your model needs…" rows cover every row of the old
   selection guide; table cells stay short; every row links to the function's API entry,
   or to its entry where one exists.
 - **Areas:** `function_library.md`, `choosing.md`, `operations.md`, `make.jl` (hidden
@@ -204,8 +208,8 @@ the catalog rows to the new entries.
   status; the checker reports the same families and owners before and after; no user
   page mentions the migration process. The treatment of "Links only." sections follows
   the maintainer's [decision](README.md#decisions-for-the-maintainer).
-- **Areas:** `spec/`, `numerical_usage.md`, `numerics.md`, `developer/`,
-  `docs/check_contract_schema.py`, `docs/src/developer/writing_documentation.md` (link to
+- **Areas:** `spec/`, `numerical_usage.md`, `numerics.md`, `developer/` (new page and its
+  line in `make.jl`), `docs/check_contract_schema.py`, `docs/src/developer/writing_documentation.md` (link to
   the moved schema).
 
 ### G10 — Independent usability review and final cleanup
@@ -213,6 +217,7 @@ the catalog rows to the new entries.
 - **Scope:** a reviewer who has not followed the work does the
   [reader tasks](architecture.md#paths-for-the-readers-tasks) from Home, without
   instructions on where to click, and reports paths, time and friction with screenshots;
+  the task paths of the architecture are the acceptance targets;
   small fixes; the catalog reconciled with the 0.7 release candidate.
 - **Acceptance:** the report says whether people or agents did the review and keeps
   their observations apart; each task is completed, or the remaining friction is

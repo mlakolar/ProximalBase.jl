@@ -76,7 +76,7 @@ z = [0.0, 0.0, 2.0, 0.0]
 for k in 1:4
   s = tryshow("kkt_violation(f,v,z,$k)  z=$z", () -> kkt_violation(f, v, z, k))
 end
-println("  independent: group1 zero: ‖v[1:2]‖ − λ√2 = ", norm(v[1:2]) - sqrt(2), "; group2 nonzero: ‖v3 + 1·x3/|x3|‖ = ", abs(0.5 + 1.0)); 
+println("  independent: group1 zero: ‖v[1:2]‖ − λ√2 = ", norm(v[1:2]) - sqrt(2), "; group2 nonzero: ‖v3 + 1·x3/|x3|‖ = ", abs(0.5 + 1.0));
 println("  independent entry 4 (unlisted) |v4| = ", 0.25)
 fp = kkt_violation(f, v, z); println("  kkt_violation(f,v,z) full-point = ", fp, "  independent max(0, max(group1, group2, |v4|)) = ", max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25)); chk("full-point", fp ≈ max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25))
 println("  BlockIterate point (layout must match f): ")

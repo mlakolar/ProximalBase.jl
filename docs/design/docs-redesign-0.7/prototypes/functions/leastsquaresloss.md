@@ -14,7 +14,7 @@ f(\beta)=\tfrac12\,\|y-X\beta\|_2^2,\qquad
 ```
 
 Note the factor ``\tfrac12`` and the absence of ``1/n``. For the mean loss
-``\tfrac1{2n}\|y-X\beta\|_2^2`` use `(1/n) * LeastSquaresLoss(y, X)`. With an
+``\tfrac1{2n}\|y-X\beta\|_2^2`` with ``n>0`` observations, use `(1/n) * LeastSquaresLoss(y, X)`. With an
 ``n\times k`` response ``Y``, the coefficients ``B`` are ``p\times k`` and the loss is
 ``\tfrac12\|Y-XB\|_F^2``.
 
@@ -48,17 +48,17 @@ f_mean(β), lipschitz(f_mean)
 | value | `f(β)` | ✓ |
 | gradient | `gradient(f, β)`, `gradient!(out, f, β)` | ✓ |
 | value and gradient | `value_and_gradient(f, β)`, `value_and_gradient!(out, f, β)` | ✓ the value is at the input ``\beta`` |
-| step size | `lipschitz(f)` | ✓ a computed bound: ``\|X\|_2^2`` in floating point for a dense ``X``, an upper bound on it for other matrices |
+| step size | `lipschitz(f)` | ✓ ``\|X\|_2^2`` evaluated in floating point for a dense ``X``, a bound on it for other matrices; rounding can make it slightly smaller than the exact value |
 | proximal step | `prox(f, β, γ)`, `prox!(out, f, β, γ)` | ✓ scalar step |
 | optimality score | `kkt_violation(f, v, β)` | ✓ whole point only |
 | restriction | `restrict(f, S)` | ✓ vector response; coordinates outside `S` fixed at zero |
 | one coordinate | `prox_block` | — |
 | from a held predictor | `ProximalBase.value_from_predictor(f, Xβ)` and related calls | ✓ [details](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds) |
 
-For finite data and a finite step ``\gamma>0``, the proximal point solves
-``(X^\top X+\gamma^{-1}I)\,z=X^\top y+\gamma^{-1}v``. It is computed from a thin SVD of
-``X`` (a sparse ``X`` is converted to a dense matrix for it), which later calls reuse
-for other steps.
+For finite data and a finite step ``\gamma>0``, the proximal point is the solution of
+``(X^\top X+\gamma^{-1}I)\,z=X^\top y+\gamma^{-1}v``. ProximalBase computes it from a thin
+SVD of a nonempty ``X`` (a sparse ``X`` is converted to a dense matrix for it), which
+later calls reuse for other steps.
 
 ### Inputs and storage
 

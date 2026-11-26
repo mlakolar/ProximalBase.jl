@@ -38,7 +38,7 @@ r1 = prox!(out, gw, x, 1.0)
 println("  prox!(out,gw,x,1.0) returns out? ", r1 === out, "; out = ", out)
 r2 = value_and_prox!(out, gw, x, 1.0)
 println("  value_and_prox!(out,gw,x,1.0) = ", r2, " (a scalar, ", typeof(r2), "); f(out) = ", gw(out)); chk("value_and_prox! returns f at stored output", r2 == gw(out) && r2 isa Real)
-println("  prox!(x,gw,x,1.0) in place on a copy: ", (c = copy(x); prox!(c, gw, c, 1.0); c)); 
+println("  prox!(x,gw,x,1.0) in place on a copy: ", (c = copy(x); prox!(c, gw, c, 1.0); c));
 tryshow("prox with array step [0.1,0.2,0.3,0.4]", () -> prox(g, x, [0.1,0.2,0.3,0.4]))
 chk("array step formula", prox(g, x, [0.1,0.2,0.3,0.4]) == soft.(x, [0.1,0.2,0.3,0.4] .* λ))
 tryshow("prox with negative step", () -> prox(g, x, -1.0))

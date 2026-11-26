@@ -5,8 +5,8 @@ with a short explanation of indicator functions and projections and the figure
 below, followed by `IndBox`, `IndBallLinf`, `IndNonnegative`, `IndBallL2` and `IndBallL0`.*
 
 A constraint ``x\in C`` is written as its *indicator function*: zero on ``C`` and
-``+\infty`` outside. Its proximal operator is the Euclidean projection onto ``C``, the
-nearest point of ``C``, for any step ``\gamma\ge0``.
+``+\infty`` outside. Its proximal operator, at any supported step, is the Euclidean
+projection onto ``C``: a nearest point of ``C`` (the nearest point, when ``C`` is convex).
 
 ![Projections of one point onto three unit balls.](../../figures/projections.svg)
 
@@ -75,8 +75,8 @@ output ([precision rules](@ref numerical-usage)).
 
 - Membership is decided with the computed sum of magnitudes, with no tolerance,
   so rounding can decide a point on the boundary.
-- `α * C` for any finite or infinite `α ≥ 0` is `C` itself, because scaling an
-  indicator does not change it.
+- `α * C` is `C` itself for every `α ≥ 0`, including `0` and `Inf`: a ProximalBase
+  convention for indicators ([guarantees](@ref spec-indballl1)).
 - When the projection cannot use the output array as workspace, it uses a buffer
   stored in `C`. Use a separate `IndBallL1(r)` in each task that may run
   concurrently ([details](@ref IndBallL1)).

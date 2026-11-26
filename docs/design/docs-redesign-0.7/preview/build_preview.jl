@@ -52,6 +52,8 @@ function place(prototype, destination)
     # Links to the figure scripts point outside any documentation build: keep the text only.
     text = replace(text, r"\[(`[^`]+`)\]\((?:\.\./)+figures/[a-z_]+\.(?:py|jl)\)" => s"\1")
     text = replace(text, r"\[([^\]]+)\]\((?:\.\./)+verification/[^)]*\)" => s"\1")
+    # Links to the design documents themselves exist only in this folder: keep the text.
+    text = replace(text, r"\[([^\]]+)\]\((?:\.\./)+[a-z-]+\.md(?:#[^)]*)?\)" => s"\1")
     write(joinpath(SRC, destination), text)
 end
 place("index.md", "index.md")
@@ -100,13 +102,13 @@ makedocs(;
         "Functions" => [
             "Function catalog" => "function_library.md",
             "Capability tables" => "capabilities.md",
-            "Losses (prototype)" => "losses.md",
-            "Sparsity penalties (prototype)" => "proto_norml1.md",
+            "Losses (prototype entry, standalone)" => "losses.md",
+            "Sparsity penalties (prototype entry, standalone)" => "proto_norml1.md",
             "Sparsity penalties (current page)" => "penalties.md",
-            "Norm and group penalties (prototype)" => "proto_groupnorml2.md",
+            "Norm and group penalties (prototype entry, standalone)" => "proto_groupnorml2.md",
             "Norm and group penalties (current page)" => "group_penalty.md",
-            "Constraints (prototype)" => "constraints.md",
-            "Quadratic and linear functions" => "smooth.md",
+            "Constraints (prototype entry)" => "constraints.md",
+            "smooth.md (current page, unmodified)" => "smooth.md",
             "Scaling a function" => "calculus.md",
             "Figures (prototype)" => "visualizations.md",
         ],

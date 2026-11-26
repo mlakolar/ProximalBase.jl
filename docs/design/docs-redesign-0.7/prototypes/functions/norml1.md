@@ -45,7 +45,7 @@ prox(h, x, 1.0)
 
 ### Proximal operator: soft thresholding
 
-For finite entries, finite parameters and a step ``\gamma>0``,
+For finite entries, finite parameters and a finite step ``\gamma>0``,
 
 ```math
 \operatorname{prox}_{\gamma g}(v)_i=\operatorname{sign}(v_i)\,
@@ -60,7 +60,7 @@ zero. Infinite levels or weights, zero steps and non-finite entries follow the
 |:--|:--|:--|
 | value | `g(x)` | ✓ |
 | proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ a scalar step, or an array with one step per entry in linear order |
-| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)` |
+| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)`, the documented value; the computed value can differ from `g(out)` in the last digit ([recorded discrepancy](../../audit.md#defects-and-gaps-recorded-separately)) |
 | one coordinate | `prox_block(g, xᵢ, i, γ)` | ✓ |
 | optimality score | `kkt_violation(g, v, i)`, `(g, v, x, i)`, `(g, v, x)` | ✓ |
 | restriction | `restrict(g, S)` | ✓ |

@@ -1,7 +1,11 @@
 # [Numerical guarantees](@id numerical-contracts-guide)
 
-*Prototype for `docs/src/spec/index.md`. The page keeps its path and its explicit
-anchor; the authoring rules it holds today move to a developer page.*
+*Prototype for `docs/src/spec/index.md`, not for publication as written: the page keeps
+its path and its explicit anchor, and the authoring rules it holds today move to a
+developer page. The family table below replaces the current family map with one row per
+family and the same links, without the "Migration state" column and with a role column;
+G9 updates `docs/check_contract_schema.py` to parse it with the same coverage and owner
+checks.*
 
 The function entries describe what each function computes for ordinary finite
 inputs. The pages in this section state precisely what is promised and what is not,
@@ -18,7 +22,7 @@ contribute a function.
 | [Range, non-finite values and sparse products](@ref numerics) | values may overflow or underflow, inputs may contain `Inf` or `NaN`, or you multiply sparse iterates |
 | [Why floating-point range matters](@ref learn-floating-point) | you want a worked example before reading the range rules |
 
-A family page adds to these shared rules; it links to them rather than repeating them.
+A family page adds to these shared rules and links to them; it restates one only for an example or a safety reminder.
 
 ## Guarantees for each function
 
@@ -55,17 +59,12 @@ A family page adds to these shared rules; it links to them rather than repeating
 | `Scaled` | wrapper | [guarantees](@ref spec-scaled) |
 | `kkt_violation` | operation | [guarantees](@ref spec-kkt_violation) |
 
-This table replaces the family map of the current page. It keeps one row per family
-and the same links, drops the "Migration state" column and adds the role;
-`docs/check_contract_schema.py` is updated to parse it with the same coverage and
-owner checks.
-
 ## How to read a guarantee page
 
-Each page has the same sections, from the definition and supported arguments to
-the behavior at extreme values, and ends with **Limitations and non-guarantees**
-(for example [`NormL1`](@ref spec-norml1-limitations)). Some statements carry one
-of these words:
+Each page has the same fourteen sections, from the definition and supported arguments
+to the behavior at extreme values, the evidence and the history, including a section
+**Limitations and non-guarantees** (for example [`NormL1`](@ref spec-norml1-limitations)).
+Some statements carry one of these words:
 
 | Word on the page | Meaning |
 |:--|:--|
@@ -77,9 +76,9 @@ of these words:
 | unclassified | The text does not establish a status, and the maintainer has to decide one. Do not rely on it as a promise. |
 
 Statements without one of these words are unclassified: assigning a status to every
-statement is pending review. When a page and the code disagree, the source code and
-its tests take precedence over the guarantee pages, which take precedence over the
-user guides; please [report the discrepancy](https://github.com/mlakolar/ProximalBase.jl/issues).
+statement is pending review. When sources disagree, the order of authority is: the
+source code and its tests, then the guarantee pages, then the user and learning guides,
+then the design history. Please [report the discrepancy](https://github.com/mlakolar/ProximalBase.jl/issues).
 
 ## For contributors
 

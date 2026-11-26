@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 300" role="img" aria-labelledby="title description">
+  <title id="title">One vector, three ways to store it</title>
+  <desc id="description">A dense vector stores every entry. A SparseIterate stores a working set of entry indices with their values, which may include a deliberately active zero. A BlockIterate divides the entries into ordered groups and works with whole groups.</desc>
+  <rect width="560" height="300" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="14" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="20.0" y="28.0" fill="#192438" text-anchor="start" font-size="15">One vector, three ways to store it</text>
+    <text x="20.0" y="73.0" fill="#192438" text-anchor="start" font-size="13">Vector</text>
+    <text x="20.0" y="89.0" fill="#586577" text-anchor="start" font-size="11">every entry stored</text>
+    <rect x="196.0" y="52.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="213.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="213.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">1</text>
+    <rect x="230.0" y="52.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="247.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">2.5</text>
+    <text x="247.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">2</text>
+    <rect x="264.0" y="52.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="281.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="281.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">3</text>
+    <rect x="298.0" y="52.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="315.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="315.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">4</text>
+    <rect x="332.0" y="52.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="349.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">-1</text>
+    <text x="349.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">5</text>
+    <rect x="366.0" y="52.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="383.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="383.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">6</text>
+    <rect x="400.0" y="52.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="417.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="417.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">7</text>
+    <rect x="434.0" y="52.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="451.0" y="71.0" fill="#192438" text-anchor="middle" font-size="12">0.7</text>
+    <text x="451.0" y="94.0" fill="#586577" text-anchor="middle" font-size="10">8</text>
+    <text x="20.0" y="137.0" fill="#192438" text-anchor="start" font-size="13">SparseIterate</text>
+    <text x="20.0" y="153.0" fill="#586577" text-anchor="start" font-size="11">working set of entries</text>
+    <text x="190.0" y="133.0" fill="#586577" text-anchor="end" font-size="11">ids</text>
+    <text x="190.0" y="163.0" fill="#586577" text-anchor="end" font-size="11">values</text>
+    <rect x="196.0" y="116.0" width="34.0" height="24.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="213.0" y="133.0" fill="#192438" text-anchor="middle" font-size="12">2</text>
+    <rect x="196.0" y="146.0" width="34.0" height="24.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="213.0" y="163.0" fill="#192438" text-anchor="middle" font-size="12">2.5</text>
+    <rect x="236.0" y="116.0" width="34.0" height="24.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="253.0" y="133.0" fill="#192438" text-anchor="middle" font-size="12">5</text>
+    <rect x="236.0" y="146.0" width="34.0" height="24.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="253.0" y="163.0" fill="#192438" text-anchor="middle" font-size="12">-1</text>
+    <rect x="276.0" y="116.0" width="34.0" height="24.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="293.0" y="133.0" fill="#192438" text-anchor="middle" font-size="12">8</text>
+    <rect x="276.0" y="146.0" width="34.0" height="24.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="293.0" y="163.0" fill="#192438" text-anchor="middle" font-size="12">0.7</text>
+    <rect x="316.0" y="116.0" width="34.0" height="24.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="333.0" y="133.0" fill="#192438" text-anchor="middle" font-size="12">3</text>
+    <rect x="316.0" y="146.0" width="34.0" height="24.0" fill="#ffffff" stroke="#1e55b3" stroke-width="1.8" rx="3" />
+    <text x="333.0" y="163.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <text x="360.0" y="163.0" fill="#1e55b3" text-anchor="start" font-size="11">← an active zero</text>
+    <text x="20.0" y="217.0" fill="#192438" text-anchor="start" font-size="13">BlockIterate</text>
+    <text x="20.0" y="233.0" fill="#586577" text-anchor="start" font-size="11">ordered groups of entries</text>
+    <rect x="196.0" y="200.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="213.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <rect x="230.0" y="200.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="247.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">2.5</text>
+    <rect x="264.0" y="200.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="281.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <polyline points="197.00,236.00 197.00,241.00 297.00,241.00 297.00,236.00" fill="none" stroke="#1e55b3" stroke-width="1.5" />
+    <text x="247.0" y="257.0" fill="#1e55b3" text-anchor="middle" font-size="11">group 1</text>
+    <rect x="306.0" y="200.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="323.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <rect x="340.0" y="200.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="357.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">-1</text>
+    <polyline points="307.00,236.00 307.00,241.00 373.00,241.00 373.00,236.00" fill="none" stroke="#1e55b3" stroke-width="1.5" />
+    <text x="340.0" y="257.0" fill="#1e55b3" text-anchor="middle" font-size="11">group 2</text>
+    <rect x="382.0" y="200.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="399.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <rect x="416.0" y="200.0" width="34.0" height="28.0" fill="#ffffff" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="433.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0</text>
+    <rect x="450.0" y="200.0" width="34.0" height="28.0" fill="#e3ebf8" stroke="#8492a6" stroke-width="1.2" rx="3" />
+    <text x="467.0" y="219.0" fill="#192438" text-anchor="middle" font-size="12">0.7</text>
+    <polyline points="383.00,236.00 383.00,241.00 483.00,241.00 483.00,236.00" fill="none" stroke="#1e55b3" stroke-width="1.5" />
+    <text x="433.0" y="257.0" fill="#1e55b3" text-anchor="middle" font-size="11">group 3</text>
+    <text x="20.0" y="286.0" fill="#586577" text-anchor="start" font-size="11">SymmetricSparseIterate (not shown) stores one value per lower-triangle entry of a symmetric matrix.</text>
+  </g>
+</svg>

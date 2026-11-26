@@ -1,0 +1,98 @@
+== constructors / validation
+  GroupNormL2(1.0, [[1,2],[3]])                            -> GroupNormL2{Float64, Vector{Vector{Int64}}}(1.0, [[1, 2], [3]], [1.4142135623730951, 1.0], [1, 1, 2], Int64[])
+  GroupNormL2(1.0, [1:2, 3:3])  (ranges)                   -> GroupNormL2{Float64, Vector{UnitRange{Int64}}}(1.0, UnitRange{Int64}[1:2, 3:3], [1.4142135623730951, 1.0], [1, 1, 2], Int64[])
+  GroupNormL2(1.0, [[1,2],[3]], [1.0, 2.0])                -> GroupNormL2{Float64, Vector{Vector{Int64}}}(1.0, [[1, 2], [3]], [1.0, 2.0], [1, 1, 2], Int64[])
+  default weights f.w = [1.4142135623730951, 1.0]  (sqrt of group size: [1.4142135623730951, 1.0])
+  GroupNormL2(1.0)  (no groups)                            -> THROWS MethodError: MethodError: no method matching GroupNormL2(::Float64)
+  GroupNormL2(1.0, [1,2])  (flat vector, not vector of vectors) -> THROWS MethodError: MethodError: no method matching GroupNormL2(::Float64, ::Vector{Int64})
+  GroupNormL2(1.0, (1:2, 3:3))  (tuple of groups)          -> THROWS MethodError: MethodError: no method matching GroupNormL2(::Float64, ::Tuple{UnitRange{Int64}, UnitRange{Int64}})
+  GroupNormL2(1.0, [[1,2],[2,3]])  overlapping groups      -> THROWS ArgumentError: ArgumentError: Groups must be disjoint, but index 2 is in groups 1 and 2.
+  GroupNormL2(1.0, [[1,1]])  repeated index in a group     -> THROWS ArgumentError: ArgumentError: Groups must be disjoint, but index 1 is in groups 1 and 1.
+  GroupNormL2(1.0, [Int[]])  empty group                   -> THROWS ArgumentError: ArgumentError: Groups must not be empty.
+  GroupNormL2(1.0, [[0,1]])  zero index                    -> THROWS ArgumentError: ArgumentError: Group indices must be positive.
+  GroupNormL2(1.0, [[-1,1]])  negative index               -> THROWS ArgumentError: ArgumentError: Group indices must be positive.
+  GroupNormL2(-1.0, [[1,2]])  negative level               -> THROWS ArgumentError: ArgumentError: λ0 must be nonnegative, got -1.0
+  GroupNormL2(NaN, [[1,2]])                                -> THROWS ArgumentError: ArgumentError: λ0 must be nonnegative, got NaN
+  GroupNormL2(1.0, [[1,2]], [-1.0])  negative weight       -> THROWS ArgumentError: ArgumentError: the weights must be nonnegative
+  GroupNormL2(1.0, [[1,2],[3]], [1.0])  wrong # of weights -> THROWS DimensionMismatch: DimensionMismatch: GroupNormL2 needs one weight per group: 2 groups and 1 weights
+  GroupNormL2(1.0, [[1,2.0]])  non-integer index           -> THROWS MethodError: MethodError: no method matching GroupNormL2(::Float64, ::Vector{Vector{Float64}})
+  GroupNormL2(1, [[1,2]]) Int level                        -> GroupNormL2{Float64, Vector{Vector{Int64}}}
+  GroupNormL2(1.0, [[1,2]], [1,2])  Int weights eltype     -> GroupNormL2{Float64, Vector{Vector{Int64}}}
+== traits
+  issmooth=false isproximable=true isseparable=false isconvex=true iszeropreserving=false
+== value: f(x) = λ0 Σ w_k ‖x[G_k]‖
+  f(x[1:3]) with groups [[1,2],[3]]: 9.071067811865476  independent √2·5 + 1·2 = 9.071067811865476
+  check value                                                       OK
+  f(x) with x of length 4 (index 4 unlisted): 9.071067811865476  (unlisted index not penalized)
+  check unlisted index unpenalized                                  OK
+  f([3.0, 4.0])  argument shorter than the largest group index -> THROWS DimensionMismatch: DimensionMismatch: the groups of GroupNormL2 reach index 3, but the argument has 2 entries
+  GroupNormL2(1.0,[1:2],[1.0])([3.0,4.0]) = 5.0  independent 5
+  check explicit weight 1                                           OK
+== prox: group soft threshold; step γ
+  γ=0.0: prox = [3.0, 4.0, -2.0, 7.0]
+        independent = [3.0, 4.0, -2.0, 7.0]
+  check prox γ=0.0 (index 4 untouched)                              OK
+  γ=0.5: prox = [2.5757359312880714, 3.434314575050762, -1.5, 7.0]
+        independent = [2.5757359312880714, 3.434314575050762, -1.5, 7.0]
+  check prox γ=0.5 (index 4 untouched)                              OK
+  γ=2.0: prox = [1.302943725152286, 1.737258300203048, 0.0, 7.0]
+        independent = [1.302943725152286, 1.737258300203048, -0.0, 7.0]
+  check prox γ=2.0 (index 4 untouched)                              OK
+  γ=10.0: prox = [0.0, 0.0, 0.0, 7.0]
+        independent = [0.0, 0.0, -0.0, 7.0]
+  check prox γ=10.0 (index 4 untouched)                             OK
+  prox!(out,f,x,0.5) returns out? true
+  value_and_prox!(out,f,x,0.5) = 7.571067811865476  f(out) = 7.5710678118654755 (scalar)
+  check value_and_prox! returns f(out)                              FAIL
+  in-place prox!(c,f,c,0.5) ≈ prox? true
+  prox with negative step                                  -> THROWS ArgumentError: ArgumentError: the step of GroupNormL2 must be nonnegative, got -1.0
+  prox with NaN step                                       -> THROWS ArgumentError: ArgumentError: the step of GroupNormL2 must be nonnegative, got NaN
+  prox with array step [.1,.2,.3,.4]                       -> THROWS MethodError: MethodError: no method matching prox!(::Vector{Float64}, ::GroupNormL2{Float64, Vector{Vector{Int64}}}, ::Vector{Float64}, ::Vector{Float64})
+  prox with x shorter than the largest group index         -> THROWS DimensionMismatch: DimensionMismatch: the groups of GroupNormL2 reach index 3, but the argument has 2 entries
+== groups in non-sorted order: GroupNormL2(1.0, [[3,1]], [1.0]) (order = compact-vector order)
+  prox(h,[3.0,9.0,4.0],2.5) = [1.5, 9.0, 2.0]  (independent: group (x3,x1)=(4,3), norm 5, factor 1-2.5/5=.5 -> x3=2, x1=1.5; x2=9 free)
+  check order-insensitive prox                                      OK
+== compact block hooks prox_block / prox_block!
+  prox_block(f,[3,4],1,0.5) = [2.5757359312880714, 3.434314575050762]  independent [2.5757359312880714, 3.434314575050762]
+  check prox_block                                                  OK
+  prox_block!(out,f,u,1,0.5) returns out? true
+  prox_block! out===u: [2.5757359312880714, 3.434314575050762] == prox_block? true
+  prox_block(f,[3.0],1,0.5) wrong block length             -> THROWS DimensionMismatch: DimensionMismatch: group 1 of GroupNormL2 has 2 entries, but the input has 1 and the output 1
+  prox_block(f,[3.0,4.0],3,0.5) group index out of range   -> THROWS BoundsError: BoundsError: attempt to access 2-element Base.OneTo{Int64} at index [3]
+  prox_block(f, 3.0, 1, 0.5) scalar form                   -> THROWS MethodError: MethodError: no method matching prox_block(::GroupNormL2{Float64, Vector{Vector{Int64}}}, ::Float64, ::Int64, ::Float64)
+  commit pattern with BlockIterate:
+  BlockIterate(x4, [[1,2],[3]]) groups not a partition of 1:4 -> THROWS ArgumentError: ArgumentError: The groups must partition 1:4.
+    BlockIterate(x[1:3], f) constructor with the function: BlockIterate{Float64, Vector{Vector{Int64}}}
+    committed block 1 via copyto!(blockview(x,1), out): [2.5757359312880714, 3.434314575050762, -2.0]
+  BlockIterate(x, f) with 4-vector (unlisted index 4)      -> THROWS ArgumentError: ArgumentError: The groups must partition 1:4.
+== kkt_violation
+  kkt_violation(f, v, 1) screen (coordinate form)          -> THROWS ArgumentError: ArgumentError: GroupNormL2 is not separable: use kkt_violation(f, g, x, i) with an array point or a BlockIterate
+  kkt_violation(f,v,z,1)  z=[0.0, 0.0, 2.0, 0.0]           -> 0.8218544151266947
+  kkt_violation(f,v,z,2)  z=[0.0, 0.0, 2.0, 0.0]           -> 0.8218544151266947
+  kkt_violation(f,v,z,3)  z=[0.0, 0.0, 2.0, 0.0]           -> 1.5
+  kkt_violation(f,v,z,4)  z=[0.0, 0.0, 2.0, 0.0]           -> 0.25
+  independent: group1 zero: ‖v[1:2]‖ − λ√2 = 0.8218544151266947; group2 nonzero: ‖v3 + 1·x3/|x3|‖ = 1.5
+  independent entry 4 (unlisted) |v4| = 0.25
+  kkt_violation(f,v,z) full-point = 1.5  independent max(0, max(group1, group2, |v4|)) = 1.5
+  check full-point                                                  OK
+  BlockIterate per-group score (the selected group matches f, with as many groups as f):
+  kkt_violation(f, v, BlockIterate(z, [[1,2],[3]]), 1) (BlockIterate group 1) -> 0.8218544151266947
+== representations
+  dense 2×2 matrix with linear-index groups [[1,2,3],[4]]: fM(M) = 16.327379053088812  independent 16.327379053088812
+  check matrix value (linear index, column-major)                   OK
+  prox(fM, M, 0.5) = [2.5175493593229925 3.356732479097323; -1.6783662395486616 6.5]
+  Symmetric: Matrix{Float64}
+  SymmetricSparseIterate value                             -> THROWS MethodError: MethodError: no method matching (::GroupNormL2{Float64, Vector{Vector{Int64}}})(::SymmetricSparseIterate{Float64})
+  SymmetricSparseIterate prox                              -> THROWS ArgumentError: ArgumentError: GroupNormL2 has no proximal operator for a SymmetricSparseIterate; use a dense matrix such as Matrix(x)
+  SparseIterate vector: value 9.071067811865476 prox type SparseIterate{Float64, 1} values [2.5757359312880714, 3.434314575050762, -1.5, 0.0]
+  strided view: prox [2.5757359312880714, 3.434314575050762, -1.5, 7.0]
+  Float32: Float32[2.575736, 3.4343147, -1.5, 7.0] eltype Float32 (Float64 f, Float32 x)
+  BigFloat: BigFloat[2.575735931288071456357613442378351464867591857910156249999999999999999999999986, 3.434314575050761941810151256504468619823455810546874999999999999999999999999993]
+  Int: [2.5757359312880714, 3.434314575050762, -1.5, 7.0]
+== Scaled
+  typeof(2.0*f) = Scaled{GroupNormL2{Float64, Vector{Vector{Int64}}}, Float64}; value 18.14213562373095 expected 18.14213562373095
+  prox(2.0*f, x, 0.5) ≈ prox(f, x, 1.0)? true
+  prox_block(2.0*f, [3.0,4.0], 1, 0.5) under Scaled        -> THROWS MethodError: MethodError: no method matching prox_block!(::Vector{Float64}, ::Scaled{GroupNormL2{Float64, Vector{Vector{Int64}}}, Float64}, ::Vector{Float64}, ::Int64, ::Float64)
+  restrict(f, [1,2])                                       -> THROWS MethodError: MethodError: no method matching restrict(::GroupNormL2{Float64, Vector{Vector{Int64}}}, ::Vector{Int64})
+== show / repr
+  repr(f) = GroupNormL2{Float64, Vector{Vector{Int64}}}(1.0, [[1, 2], [3]], [1.4142135623730951, 1.0], [1, 1, 2], Int64[])

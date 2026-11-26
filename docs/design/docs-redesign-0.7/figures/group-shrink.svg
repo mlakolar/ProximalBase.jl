@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 260" role="img" aria-labelledby="title description">
+  <title id="title">Group soft thresholding (GroupNormL2, weight 1)</title>
+  <desc id="description">Points inside the disc of radius γλ = 1 map to zero. Points outside move toward the origin along their own direction, and their length decreases by one.</desc>
+  <rect width="540" height="260" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="14" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="20.0" y="28.0" fill="#192438" text-anchor="start" font-size="15">Group soft thresholding (GroupNormL2, weight 1)</text>
+    <polyline points="80.00,140.00 300.00,140.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="190.00,44.00 190.00,236.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <polyline points="105.38,137.00 105.38,143.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="105.4" y="157.0" fill="#586577" text-anchor="middle" font-size="12">-2</text>
+    <polyline points="274.62,137.00 274.62,143.00" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="274.6" y="157.0" fill="#586577" text-anchor="middle" font-size="12">2</text>
+    <polyline points="187.00,224.62 193.00,224.62" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="183.0" y="228.6" fill="#586577" text-anchor="end" font-size="12">-2</text>
+    <polyline points="187.00,55.38 193.00,55.38" fill="none" stroke="#8492a6" stroke-width="1.5" />
+    <text x="183.0" y="59.4" fill="#586577" text-anchor="end" font-size="12">2</text>
+    <text x="306.0" y="144.0" fill="#586577" text-anchor="start" font-style="italic">x₁</text>
+    <text x="196.0" y="46.0" fill="#586577" text-anchor="start" font-style="italic">x₂</text>
+    <circle cx="190.00" cy="140.00" r="42.31" fill="#e3ebf8" stroke="#1e55b3" stroke-width="1.5" stroke-dasharray="5 4" />
+    <polyline points="274.62,89.23 238.34,111.00" fill="none" stroke="#586577" stroke-width="1.5" />
+    <polyline points="247.25,110.31 238.34,111.00 243.14,103.45" fill="none" stroke="#586577" stroke-width="1.5" />
+    <circle cx="274.62" cy="89.23" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="238.34" cy="111.00" r="4.5" fill="#1e55b3" />
+    <polyline points="122.31,63.85 150.42,95.47" fill="none" stroke="#586577" stroke-width="1.5" />
+    <polyline points="148.09,86.83 150.42,95.47 142.11,92.15" fill="none" stroke="#586577" stroke-width="1.5" />
+    <circle cx="122.31" cy="63.85" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="150.42" cy="95.47" r="4.5" fill="#1e55b3" />
+    <polyline points="96.92,178.08 136.08,162.06" fill="none" stroke="#586577" stroke-width="1.5" />
+    <polyline points="127.16,161.38 136.08,162.06 130.19,168.79" fill="none" stroke="#586577" stroke-width="1.5" />
+    <circle cx="96.92" cy="178.08" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="136.08" cy="162.06" r="4.5" fill="#1e55b3" />
+    <polyline points="228.08,224.62 210.72,186.03" fill="none" stroke="#586577" stroke-width="1.5" />
+    <polyline points="210.35,194.97 210.72,186.03 217.65,191.69" fill="none" stroke="#586577" stroke-width="1.5" />
+    <circle cx="228.08" cy="224.62" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="210.72" cy="186.03" r="4.5" fill="#1e55b3" />
+    <polyline points="209.04,118.85 194.00,136.00" fill="none" stroke="#586577" stroke-width="1.5" />
+    <polyline points="202.28,132.62 194.00,136.00 196.27,127.35" fill="none" stroke="#586577" stroke-width="1.5" />
+    <circle cx="209.04" cy="118.85" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <text x="340.0" y="100.0" fill="#586577" text-anchor="start">○ input u</text>
+    <text x="340.0" y="120.0" fill="#1e55b3" text-anchor="start" font-size="13">● prox(u), step γ = 1</text>
+    <text x="340.0" y="150.0" fill="#586577" text-anchor="start" font-size="12">Inside the disc ‖u‖ ≤ γλ:</text>
+    <text x="340.0" y="166.0" fill="#586577" text-anchor="start" font-size="12">the whole group is set to 0.</text>
+    <text x="340.0" y="190.0" fill="#586577" text-anchor="start" font-size="12">Outside: ‖u‖ shrinks by γλ,</text>
+    <text x="340.0" y="206.0" fill="#586577" text-anchor="start" font-size="12">direction unchanged.</text>
+  </g>
+</svg>

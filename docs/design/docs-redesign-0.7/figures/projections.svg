@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 250" role="img" aria-labelledby="title description">
+  <title id="title">Projections of the same point onto three unit balls</title>
+  <desc id="description">The point (1.5, 0.3) projects to (1, 0) on the l1 ball, where its second coordinate becomes zero, to (0.98, 0.20) on the l2 ball and to (1, 0.3) on the box. Each projection is the nearest point of the set.</desc>
+  <rect width="560" height="250" rx="12" fill="#f7f9fc" />
+  <g font-family="system-ui, sans-serif" font-size="14" fill="#192438" stroke-linecap="round" stroke-linejoin="round">
+    <text x="20.0" y="28.0" fill="#192438" text-anchor="start" font-size="15">Projections of the same point onto three unit balls</text>
+    <polyline points="26.90,150.00 171.80,150.00" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <polyline points="92.00,215.10 92.00,84.90" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <polygon points="134.00,150.00 92.00,108.00 50.00,150.00 92.00,192.00" fill="#e3ebf8" stroke="#1e55b3" stroke-width="1.8" />
+    <polyline points="155.00,137.40 134.00,150.00" fill="none" stroke="#586577" stroke-width="1.5" stroke-dasharray="4 3" />
+    <circle cx="155.00" cy="137.40" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="134.00" cy="150.00" r="4.5" fill="#1e55b3" />
+    <text x="92.0" y="226.0" fill="#192438" text-anchor="middle" font-size="13">IndBallL1(1)</text>
+    <text x="92.0" y="243.0" fill="#1e55b3" text-anchor="middle" font-size="12">prox = (1, 0)</text>
+    <polyline points="206.90,150.00 351.80,150.00" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <polyline points="272.00,215.10 272.00,84.90" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <circle cx="272.00" cy="150.00" r="42" fill="#e3ebf8" stroke="#1e55b3" stroke-width="1.8" />
+    <polyline points="335.00,137.40 313.18,141.76" fill="none" stroke="#586577" stroke-width="1.5" stroke-dasharray="4 3" />
+    <circle cx="335.00" cy="137.40" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="313.18" cy="141.76" r="4.5" fill="#1e55b3" />
+    <text x="272.0" y="226.0" fill="#192438" text-anchor="middle" font-size="13">IndBallL2(1)</text>
+    <text x="272.0" y="243.0" fill="#1e55b3" text-anchor="middle" font-size="12">prox = (0.98, 0.20)</text>
+    <polyline points="386.90,150.00 531.80,150.00" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <polyline points="452.00,215.10 452.00,84.90" fill="none" stroke="#d5dbe5" stroke-width="1" />
+    <polygon points="494.00,108.00 410.00,108.00 410.00,192.00 494.00,192.00" fill="#e3ebf8" stroke="#1e55b3" stroke-width="1.8" />
+    <polyline points="515.00,137.40 494.00,137.40" fill="none" stroke="#586577" stroke-width="1.5" stroke-dasharray="4 3" />
+    <circle cx="515.00" cy="137.40" r="4.5" fill="#f7f9fc" stroke="#586577" stroke-width="2" />
+    <circle cx="494.00" cy="137.40" r="4.5" fill="#1e55b3" />
+    <text x="452.0" y="226.0" fill="#192438" text-anchor="middle" font-size="13">IndBox(-1, 1)</text>
+    <text x="452.0" y="243.0" fill="#1e55b3" text-anchor="middle" font-size="12">prox = (1, 0.3)</text>
+    <text x="540.0" y="28.0" fill="#586577" text-anchor="end" font-size="12">○ u = (1.5, 0.3)</text>
+  </g>
+</svg>

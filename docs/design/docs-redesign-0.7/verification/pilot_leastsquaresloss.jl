@@ -1,0 +1,121 @@
+# Pilot 2: LeastSquaresLoss.  Reference formulas for finite data and a finite step γ > 0:
+# f = ½‖y−Xβ‖², ∇f = Xᵀ(Xβ−y), L = σmax(X)² (compared for a dense X),
+# prox_{γf}(x) = (XᵀX + I/γ)⁻¹ (Xᵀy + x/γ).
+using ProximalBase, LinearAlgebra, SparseArrays
+const PB = ProximalBase
+chk(label, ok) = println("  check ", rpad(label, 60), ok ? "OK" : "FAIL")
+tryshow(label, f) = try; r = f(); println("  ", rpad(label, 54), " -> ", repr(r)); r; catch e; println("  ", rpad(label, 54), " -> THROWS ", typeof(e), ": ", first(split(sprint(showerror, e), '\n'))); nothing; end
+X = [1.0 2.0; 3.0 1.0; 0.0 2.0]; y = [1.0, 2.0, 3.0]; β = [0.3, -0.4]; n = 3
+println("== constructors / validation")
+f = tryshow("LeastSquaresLoss(y, X)  (response FIRST)", () -> typeof(LeastSquaresLoss(y, X)))
+f = LeastSquaresLoss(y, X)
+tryshow("LeastSquaresLoss(X, y)  (wrong order)", () -> LeastSquaresLoss(X, y))
+tryshow("LeastSquaresLoss(y[1:2], X)  (row mismatch)", () -> LeastSquaresLoss(y[1:2], X))
+tryshow("LeastSquaresLoss(Int y, Int X) element type", () -> typeof(LeastSquaresLoss([1,2,3], [1 2; 3 1; 0 2])))
+tryshow("LeastSquaresLoss(Float32 y, Float32 X)", () -> typeof(LeastSquaresLoss(Float32.(y), Float32.(X))))
+tryshow("LeastSquaresLoss(y, sparse(X))", () -> typeof(LeastSquaresLoss(y, sparse(X))))
+tryshow("LeastSquaresLoss(complex y, X)", () -> LeastSquaresLoss(complex.(y), X))
+tryshow("LeastSquaresLoss(y, X, extra arg)", () -> LeastSquaresLoss(y, X, 1.0))
+tryshow("LeastSquaresLoss(y)", () -> LeastSquaresLoss(y))
+tryshow("LeastSquaresLoss with NaN in X (no finiteness check?)", () -> typeof(LeastSquaresLoss(y, [NaN 1.0; 1.0 1.0; 1.0 1.0])))
+println("== traits")
+println("  issmooth=", issmooth(f), " isproximable=", isproximable(f), " isseparable=", isseparable(f), " isconvex=", isconvex(f), " iszeropreserving=", iszeropreserving(f))
+println("== value, gradient, value_and_gradient")
+fv = f(β); fref = sum(abs2, y - X*β)/2
+println("  f(β) = ", fv, "   independent ½‖y−Xβ‖² = ", fref); chk("value = ½ residual sum of squares (NOT mean, NOT 1/n)", fv ≈ fref)
+gr = gradient(f, β); gref = X' * (X*β - y)
+println("  gradient(f,β) = ", gr, "   independent Xᵀ(Xβ−y) = ", gref); chk("gradient", gr ≈ gref)
+out = zeros(2)
+r = gradient!(out, f, β)
+println("  gradient!(out, f, β)  [destination FIRST]; returns out? ", r === out, "; out = ", out); chk("gradient!", out ≈ gref)
+tryshow("gradient!(f, out, β) (wrong order)", () -> gradient!(f, out, β))
+tryshow("gradient!(copy(β), f, β) (separate output)", () -> gradient!(copy(β), f, β))
+tryshow("gradient!(b, f, b) (output is the input)", () -> (b = copy(β); gradient!(b, f, b)))
+out2 = zeros(2)
+v, g2 = value_and_gradient(f, β)
+println("  value_and_gradient(f,β) = (", v, ", ", g2, ")"); chk("value_and_gradient", v ≈ fref && g2 ≈ gref)
+vv = value_and_gradient!(out2, f, β)
+println("  value_and_gradient!(out,f,β) = ", vv, " (scalar, value at INPUT β); out = ", out2); chk("value_and_gradient!", vv ≈ fref && out2 ≈ gref)
+tryshow("gradient!(zeros(3), f, β) wrong output length", () -> gradient!(zeros(3), f, β))
+tryshow("f(zeros(3)) wrong argument length", () -> f(zeros(3)))
+println("== lipschitz")
+L = lipschitz(f)
+println("  lipschitz(f) = ", L, "   independent σmax(X)² = ", opnorm(X)^2); chk("lipschitz = spectral norm squared (dense)", L ≈ opnorm(X)^2)
+println("  lipschitz(sparse X LS) = ", lipschitz(LeastSquaresLoss(y, sparse(X))), "  (a one/inf-norm bound for a sparse design, computed in floating point and subject to rounding)")
+println("== scaling:  (1/n) * f")
+fs = (1/n) * f
+println("  typeof((1/n)*f) = ", typeof(fs)); println("  ((1/n)*f)(β) = ", fs(β), "  independent ‖y−Xβ‖²/(2n) = ", sum(abs2, y - X*β)/(2n)); chk("scaled value", fs(β) ≈ sum(abs2, y - X*β)/(2n))
+println("  gradient(fs, β) = ", gradient(fs, β), "  independent ", gref/n); chk("scaled gradient", gradient(fs, β) ≈ gref/n)
+println("  lipschitz(fs) = ", lipschitz(fs), "  independent ", opnorm(X)^2/n); chk("scaled lipschitz", lipschitz(fs) ≈ opnorm(X)^2/n)
+println("  f*(1/n) type: ", typeof(f*(1/n)), "; Scaled(f, 1/n) same type? ", typeof(Scaled(f, 1/n)) == typeof(fs))
+println("  (1/n)*f traits: issmooth=", issmooth(fs), " isproximable=", isproximable(fs), " isconvex=", isconvex(fs))
+println("== prox  argmin ½‖y−Xz‖² + ‖z−x‖²/(2γ)")
+x0 = [0.7, -1.2]
+for γ in (0.01, 0.1, 1.0, 10.0)
+  p = prox(f, x0, γ); ref = (X'X + I/γ) \ (X'y + x0/γ)
+  println("  γ=", γ, ": prox = ", p, "  independent normal equations = ", ref); chk("prox γ=$γ", p ≈ ref)
+end
+let o = zeros(2), γ = 0.5
+  r = prox!(o, f, x0, γ); println("  prox!(out,f,x,γ) returns out? ", r === o)
+  val = value_and_prox!(o, f, x0, γ)
+  println("  value_and_prox!(out,f,x0,0.5) = ", val, "  f(out) = ", f(o), " (scalar f at the proximal point)"); chk("value_and_prox! = f(prox)", val == f(o) && val ≈ sum(abs2, y - X*o)/2)
+  c = copy(x0); prox!(c, f, c, γ); println("  in-place prox!(c,f,c,γ) = ", c, " == out? ", c ≈ o)
+end
+tryshow("prox(f, x0, -1.0) negative step", () -> prox(f, x0, -1.0))
+tryshow("prox(f, x0, 0.0) zero step", () -> prox(f, x0, 0.0))
+tryshow("prox(f, x0, [0.1,0.2]) array step", () -> prox(f, x0, [0.1,0.2]))
+tryshow("prox_block(f, 0.5, 1, 0.1) scalar", () -> prox_block(f, 0.5, 1, 0.1))
+println("  p > n case (wide X):")
+Xw = [1.0 2.0 0.5 1.0; 0.0 1.0 1.0 2.0]; yw = [1.0, 2.0]; fw = LeastSquaresLoss(yw, Xw); xw = [0.1,0.2,0.3,0.4]
+pw = prox(fw, xw, 0.7); refw = (Xw'Xw + I/0.7) \ (Xw'yw + xw/0.7)
+println("    prox = ", pw, "  independent = ", refw); chk("prox p>n", pw ≈ refw)
+println("== cache: reset_cache! after in-place data change")
+Xc = copy(X); fc = LeastSquaresLoss(y, Xc); p_before = prox(fc, x0, 0.5)
+Xc .*= 2.0
+p_stale = prox(fc, x0, 0.5)
+reset_cache!(fc)
+p_fresh = prox(fc, x0, 0.5); ref_new = (Xc'Xc + I/0.5) \ (Xc'y + x0/0.5)
+println("  before change: ", p_before, "\n  after Xc .*= 2 without reset_cache!: ", p_stale, "\n  after reset_cache!: ", p_fresh, "\n  independent for new X: ", ref_new)
+chk("stale prox differs from fresh (cache is real)", !(p_stale ≈ ref_new)); chk("fresh prox correct after reset_cache!", p_fresh ≈ ref_new)
+println("  value/gradient need no reset: f(β) = ", fc(β), " independent ", sum(abs2, y - Xc*β)/2)
+println("== kkt_violation: only the full-point form  ‖v + ∇f(β)‖∞")
+v = [0.2, -0.1]; kk = kkt_violation(f, v, β); kref = maximum(abs.(v + gref))
+println("  kkt_violation(f,v,β) = ", kk, "  independent ", kref); chk("full-point score", kk ≈ kref)
+tryshow("kkt_violation(f, v, β, 1) coordinate form", () -> kkt_violation(f, v, β, 1))
+tryshow("kkt_violation(f, v, 1) screen form", () -> kkt_violation(f, v, 1))
+println("== restrict (vector response): omitted coordinates fixed at zero")
+fr = restrict(f, [2]); println("  restrict(f,[2])([b]) at b=-0.4: ", fr([-0.4]), "  independent f([0,-0.4]) = ", f([0.0, -0.4])); chk("restrict value", fr([-0.4]) ≈ f([0.0, -0.4]))
+println("== supplied-predictor oracles (qualified, not exported)")
+z = X*β
+println("  PB.value_from_predictor(f, X*β) = ", PB.value_from_predictor(f, z), "; PB.value_from_residual(f, X*β−y) = ", PB.value_from_residual(f, z - y)); chk("predictor/residual value", PB.value_from_predictor(f, z) ≈ fref && PB.value_from_residual(f, z - y) ≈ fref)
+gg = zeros(2); dd = zeros(3)
+vp = PB.value_and_gradient_from_predictor!(gg, dd, f, z)
+println("  PB.value_and_gradient_from_predictor!(g, d, f, z) = ", vp, "; g = ", gg, "; d = z−y = ", dd); chk("predictor value+gradient", vp ≈ fref && gg ≈ gref && dd ≈ z - y)
+println("  PB.leastsquares_data(f) keys/α: ", keys(PB.leastsquares_data(f)), " α = ", PB.leastsquares_data(f).α, "; with (1/n)*f: α = ", PB.leastsquares_data(fs).α)
+println("== matrix response Y (n×k), coefficient B (p×k), Frobenius norm")
+Y2 = hcat(y, 2y); B = [0.3 0.1; -0.4 0.2]; fm = LeastSquaresLoss(Y2, X)
+println("  fm(B) = ", fm(B), "  independent ½‖Y−XB‖_F² = ", sum(abs2, Y2 - X*B)/2); chk("matrix value", fm(B) ≈ sum(abs2, Y2 - X*B)/2)
+println("  gradient(fm,B) ≈ Xᵀ(XB−Y)? ", gradient(fm, B) ≈ X'*(X*B - Y2))
+println("  prox(fm,B,0.5) ≈ (XᵀX+I/γ)⁻¹(XᵀY + B/γ)? ", prox(fm, B, 0.5) ≈ (X'X + I/0.5) \ (X'Y2 + B/0.5))
+println("== representations")
+xd = [0.3, -0.4]
+sp = SparseIterate(2); sp[1] = 0.3; sp[2] = -0.4
+bl = BlockIterate(copy(xd), [[1],[2]])
+b8 = zeros(4); b8[1:2:3] .= xd
+for (nm, xr) in ("dense vector" => xd, "strided view" => view(b8, 1:2:3), "SparseIterate vector" => sp, "BlockIterate" => bl, "Float32 vector (Float64 f)" => Float32.(xd), "BigFloat vector (Float64 f)" => BigFloat.(xd), "Vector{Int}" => [1, 2])
+  r1 = try; string(round(f(xr); sigdigits=6)); catch e; "THROWS " * string(typeof(e)); end
+  r2 = try; string(typeof(gradient(f, xr))); catch e; "THROWS " * string(typeof(e)); end
+  r3 = try; p = prox(f, xr, 0.5); string(typeof(p)); catch e; "THROWS " * string(typeof(e)); end
+  println("  ", rpad(nm, 28), " value=", rpad(r1, 22), " gradient type=", rpad(r2, 24), " prox type=", r3)
+end
+tryshow("dense matrix argument (p×p) with vector-response f", () -> f(ones(2,2)))
+tryshow("Symmetric argument", () -> f(Symmetric([1.0 0.0; 0.0 1.0])))
+ss = SymmetricSparseIterate([1.0 0.0; 0.0 1.0])
+tryshow("SymmetricSparseIterate argument (value)", () -> f(ss))
+tryshow("SymmetricSparseIterate prox", () -> prox(f, ss, 0.5))
+tryshow("Float32 function, Float32 data prox eltype", () -> (ff = LeastSquaresLoss(Float32.(y), Float32.(X)); eltype(prox(ff, Float32.(x0), 0.5f0))))
+tryshow("Float64 function, Float32 argument: value type", () -> typeof(f(Float32.(xd))))
+tryshow("BigFloat function (BigFloat data) value", () -> typeof(LeastSquaresLoss(BigFloat.(y), BigFloat.(X))(BigFloat.(xd))))
+tryshow("BigFloat function prox", () -> prox(LeastSquaresLoss(BigFloat.(y), BigFloat.(X)), BigFloat.(xd), BigFloat(0.5)))
+println("== show / repr (first 300 chars)")
+println("  ", first(repr(f), 300))

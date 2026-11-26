@@ -7,8 +7,9 @@ entry. Which operations and storage each one supports is in the
 [capability tables](@ref capability-tables).
 
 The definitions below are for ordinary finite inputs and parameters; infinite or `NaN`
-values follow each function's guarantee page. For a matrix argument, sums run over all
-entries and ``\|\cdot\|_2`` is the Frobenius norm.
+values follow each function's guarantee page. For a matrix argument, indices are linear
+(column-major), an entrywise sum runs over all entries and ``\|\cdot\|_2`` is the Frobenius
+norm, unless the definition says otherwise.
 
 ## If your model needs…
 
@@ -58,7 +59,7 @@ combine a loss and a penalty, evaluate them separately and add the values,
   `LogDetLoss` needs a finite, exactly symmetric ``S`` and a finite ``w>0``.
 - The first three are sums over the ``n`` observations: with ``n>0``, multiply them by
   ``1/n`` for the mean. For the normalized square-root lasso, multiply
-  `SqrtLeastSquaresLoss` by ``1/\sqrt n``. `LogDetLoss` is not a sum over observations.
+  `SqrtLeastSquaresLoss` by ``1/\sqrt n``, again with ``n>0``. `LogDetLoss` is not a sum over observations.
 
 ## Sparsity penalties
 
@@ -108,7 +109,8 @@ defaults ``\sqrt{\lvert G_k\rvert}``, except ``1`` for `GroupNormLinf`. For a ma
 | [`IndBallL0`](@ref) | at most ``s`` counted nonzeros | `IndBallL0(s; diagonal = true)` | — |
 
 A constraint is represented by its indicator, zero on the set and ``+\infty`` outside;
-its proximal step is the Euclidean projection onto the set. `IndBallL0` takes an integer
+at a supported step its proximal step is, in exact arithmetic, the Euclidean projection
+onto the set, with each entry giving the rules for structured inputs and non-finite values. `IndBallL0` takes an integer
 budget ``s``; `diagonal = false` leaves the diagonal of a matrix uncounted.
 
 ## Quadratic, linear and scaled functions

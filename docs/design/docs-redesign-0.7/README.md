@@ -36,8 +36,8 @@ tool, not as four folders. → [Research](research.md)
   start with ordinary arrays. → [Home](prototypes/index.md), [quick start](prototypes/quickstart.md)
 - **Finding functions by purpose:** a catalog grouped as losses, penalties, constraints and
   building blocks, with "if your model needs… use…" rows; and one capability reference
-  with, for each role, an operations table and an inputs table; the cells of the four
-  pilot functions rest on reproducible probes, and the rest are confirmed in G4. → [Catalog](prototypes/catalog.md),
+  with, for each role, an operations table and an inputs table; the cells that the
+  pilot scripts exercise rest on reproducible probes, and the rest are provisional until G4. → [Catalog](prototypes/catalog.md),
   [capability tables](prototypes/capabilities.md), [table design](compatibility-tables.md),
   [verification record](verification/README.md)
 - **One entry format for every function**, placed on six role pages: definition,
@@ -119,8 +119,9 @@ were accepted.
    legend of the [guarantee prototype](prototypes/guarantees.md), which keeps their current
    meanings: 34 non-guarantees and 17 characterized statements already use them, and
    unmarked statements stay unclassified.
-6. **How the capability tables stay correct.** *Recommended:* hand-written, with the test
-   behind each cell recorded in the developer coverage matrix, and a checklist item in the
+6. **How the capability tables stay correct.** *Recommended:* hand-written, with the
+   evidence for each cell (a test, or a recorded probe where no test exists) in the
+   developer coverage matrix, and a checklist item in the
    family-change process. A test that derives cells from method tables would contradict
    #1212's rule that methods and traits are not proof of support.
 7. **A "Common pitfalls" page.** *Recommended: not now.* The "Good to know" lists of the

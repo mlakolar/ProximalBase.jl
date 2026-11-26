@@ -7,14 +7,15 @@ the kinds of **input** that value and prox accept.
 |:--|:--|
 | ✓ | implemented for the function's ordinary inputs; the function's entry gives the conditions (shapes, steps, preconditions) |
 | ◐ *a* | implemented with the main restriction in note *a* below the table; the entry gives the complete rules |
-| — | not implemented: the call throws |
+| — | not implemented: the call throws, or the docstring says it is not supported |
+| ? | not yet verified |
 
 On a phone, the tables scroll sideways.
 
-*Prototype note, not for publication: the cells of the four pilot functions rest on the
-reproducible scripts of the [verification record](../verification/README.md). The other
-cells come from an exploratory probe run and the docstrings, and G4 confirms each cell
-against the tests before publication.*
+*Prototype note, not for publication: only the cells listed in the
+[verification record](../verification/README.md) rest on reproducible scripts. All other
+cells are provisional, taken from an exploratory probe run and the docstrings, and G4
+establishes each one before publication.*
 
 **Operation columns**
 
@@ -31,9 +32,11 @@ against the tests before publication.*
 **Input columns**: dense vectors, dense matrices (strided views included), *sparse*
 for [`SparseIterate`](@ref), *block* for [`BlockIterate`](@ref), *symmetric* for
 [`SymmetricSparseIterate`](@ref). Unless a note says otherwise, an output of the same
-kind as the input is accepted. `Symmetric` matrix wrappers, element types other than
-`Float64` and `Float32`, and mixed precision are covered in each entry and in the
-[precision rules](@ref numerical-usage), not in these tables.
+kind as the input is accepted. The shared precision baseline is homogeneous `Float64`
+or `Float32` ([precision rules](@ref numerical-usage)); some families require or accept
+other types (for example, `PoissonLoss` takes `Float64` data). These family-specific
+types, `Symmetric` matrix wrappers and mixed precision are not in these tables: see each
+function's entry and guarantee page, where they are documented.
 
 ## Losses
 
@@ -64,7 +67,7 @@ gradient from it; see each loss's entry.
 - *d* — with an ``n\times k`` response; the coefficients are ``p\times k``.
 - *e* — a vector, or a matrix with an ``n\times k`` response.
 - *f* — a dense vector or strided view with the loss's element type.
-- *g* — the loss is built from a `Vector{Float64}` and a `Matrix{Float64}`; the coefficients are a `Float64` vector or a strided view of one.
+- *g* — the loss is built from a `Vector{Float64}` and a `Matrix{Float64}`; the coefficients are a one-based `StridedVector{Float64}`.
 - *h* — the size and element type of ``S``; mutating calls need a writable strided output (see the entry).
 - *i* — matrix input; value, gradient and `prox` with a dense output (see the entry).
 
@@ -108,8 +111,8 @@ gradient from it; see each loss's entry.
 
 - *a* — whole point only.
 - *b* — per group and for the whole point. With a `BlockIterate`, the per-group score
-  needs the selected group to list the same indices in the same order, and the
-  whole-point score needs every group to match.
+  needs as many groups as the function, with the selected group listing the same indices
+  in the same order; the whole-point score needs every group to match.
 - *c* — zero groups and entries in no group only, with the per-group layout rule of *b*;
   no whole-point score.
 
@@ -123,7 +126,7 @@ gradient from it; see each loss's entry.
 
 ## Constraints
 
-For a constraint, prox is the Euclidean projection onto the set.
+For a constraint, prox at a supported step is, in exact arithmetic, the Euclidean projection onto the set (the entry gives the rules for structured inputs and non-finite values).
 
 | Function | value | grad | prox | coord | group | score | restrict |
 |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -190,13 +193,14 @@ recorded in the audit: the allocating `prox` of a scaled `LogDetLoss` on a matri
 
 ## Other operations
 
-- `lipschitz(f)` evaluates, in floating point, a formula for the gradient's Lipschitz
-  constant or a bound on it, for `SqrNormL2`, `QuadraticFunction`, `KronQuadratic`,
-  `LeastSquaresLoss`, `LinearFunction`, `ZeroFunction` and their positive multiples.
-  Rounding can make the result slightly smaller than the exact value. It is `0` for
-  `ZeroFunction` and `LinearFunction` and can be `0` for others, so use it as a step only
-  when it is positive and finite. `LogDetLoss` and its multiples return `Inf`; the other
-  unscaled functions throw.
+- `lipschitz(f)` evaluates in floating point, subject to rounding and range limits, a
+  formula for the gradient's Lipschitz constant ``L`` or a bound on it, for `SqrNormL2`,
+  `QuadraticFunction`, `KronQuadratic`, `LeastSquaresLoss`, `LinearFunction`,
+  `ZeroFunction` and their positive multiples. It is `0` for `ZeroFunction` and
+  `LinearFunction` and can be `0` for others: check for a positive finite ``L`` before
+  considering a step ``1/L``, as in the [proximal-gradient tutorial](proximal_gradient.md).
+  `LogDetLoss` returns `Inf`, and so can its positive multiples; the other unscaled
+  functions throw.
 - There is no Hessian or Hessian-vector product in this version.
 
 ## What these tables do not say

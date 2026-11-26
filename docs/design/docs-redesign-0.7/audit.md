@@ -44,13 +44,13 @@ Severity is for a first-time user.
 
 | # | Finding | Severity | Where |
 |:--|:--|:--|:--|
-| 1 | **No installation on Home or in the README.** The only install command is on the second Learn page and installs `master`. Nothing says that the registered version is 0.5.4 with a different interface, and the site root redirects to `stable` (0.5.4) | high | [Home](https://mlakolar.github.io/ProximalBase.jl/dev/), [Getting started](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/#Installation) |
+| 1 | **No installation on Home or in the README.** The only install command is on the first page of the Learn group ("A first lasso problem") and installs `master`. Nothing says that the registered version is 0.5.4 with a different interface, and the site root redirects to `stable` (0.5.4) | high | [Home](https://mlakolar.github.io/ProximalBase.jl/dev/), [Getting started](https://mlakolar.github.io/ProximalBase.jl/dev/getting_started/#Installation) |
 | 2 | **No capability table.** The only function × property table (`function_objects.md`) lists 21 of 30 functions; its "Proximable" column says whether a prox exists, but there is no column for coordinate or group operations or for storage kinds. Which function works with which iterate is spread over the guide and guarantee pages | high | [Function objects](https://mlakolar.github.io/ProximalBase.jl/dev/function_objects/#Properties-of-the-built-in-functions) |
 | 3 | **Function lists disagree.** The README, the selection guide and the trait table each list a different subset of the 30 functions, and docstrings list only some of the functions that implement an operation; the catalog, the API reference and the contract map are complete (see [drift](#capability-information-and-drift)) | high | README, `choosing.md`, `function_objects.md`, docstrings |
 | 4 | **Page titles hide their contents.** "The ℓ₂ and group ℓ₂ norms" covers seven functions; "The ℓ₁ norm and soft thresholding" covers `NormL1` and five others. Losses share `smooth.md` with quadratic utilities, and `LogisticLoss` and `PoissonLoss` are its last two sections. Constraints have no page | high | [group penalties](https://mlakolar.github.io/ProximalBase.jl/dev/group_penalty/), [smooth](https://mlakolar.github.io/ProximalBase.jl/dev/smooth/) |
 | 5 | **The guarantee index is a maintainer document.** Its table has a "Migration state" column ("Verbatim pilot", "Authored contract"), and some family pages open with "This pilot gathers…". 23 of 30 contain "Links only." stubs (206 in total) | high | [contract index](https://mlakolar.github.io/ProximalBase.jl/dev/spec/), [NormL1](https://mlakolar.github.io/ProximalBase.jl/dev/spec/norml1/) |
 | 6 | **README links open Markdown source on GitHub**, where `@ref` links and `@example` blocks show as raw text | high | [README](https://github.com/mlakolar/ProximalBase.jl#readme) |
-| 7 | **Table cells hold paragraphs.** In the selection guide the `GroupNormLinf` cell is about 80 words; catalog cells carry storage preconditions. On a phone the catalog table is 2.3 times the screen width | medium | [choosing](https://mlakolar.github.io/ProximalBase.jl/dev/choosing/), [catalog](https://mlakolar.github.io/ProximalBase.jl/dev/function_library/) |
+| 7 | **Table cells hold paragraphs.** In the selection guide the `GroupNormLinf` cell is about 80 words; catalog cells carry storage preconditions. On a phone the catalog table is 2.3 times the width of the content column | medium | [choosing](https://mlakolar.github.io/ProximalBase.jl/dev/choosing/), [catalog](https://mlakolar.github.io/ProximalBase.jl/dev/function_library/) |
 | 8 | **When to use ProximalSolvers is not said.** `optimization_algorithms.md` explains the division of labor (the solver chooses steps, order, caches and stopping), but no page says when to switch, how to install ProximalSolvers or which versions work together | medium | [Home](https://mlakolar.github.io/ProximalBase.jl/dev/), [What a solver adds](https://mlakolar.github.io/ProximalBase.jl/dev/optimization_algorithms/) |
 | 9 | **Home opens with theory.** The first screen is a banner listing prerequisites, the composite model, the prox definition and a subdifferential paragraph; "does not provide a `solve()` function" is on the second screen | medium | [Home](https://mlakolar.github.io/ProximalBase.jl/dev/) |
 | 10 | **Terms before definitions.** "Working-set storage" is in the Home tagline; "oracle" is used on 60 pages but is not in the glossary; "active zeros", "compact vector" and "clause" appear in the selection guide or user guides before any definition | medium | [term scan](#terminology) |
@@ -185,8 +185,8 @@ practical remedy.
 `ProximalBase.value_from_predictor`). The exports include 29 concrete function types and
 the constructor `IndBallLinf` (which builds an `IndBox`), so 30 user-facing functions; two abstract types; three iterate types; five traits (`issmooth`, `isproximable`,
 `isseparable`, `isconvex`, `iszeropreserving`); and the operations and utilities. Every
-export and documented qualified name has an `@docs` entry and a row in the API coverage
-matrix (the module itself is exempt), so the API reference is complete. The lists
+export and documented qualified name appears in an `@docs` block and is named in the
+API coverage matrix (the module itself is exempt), so the API reference is complete. The lists
 written for users are not:
 
 | List | Functions covered | Missing |
@@ -213,16 +213,18 @@ This is the case for a single capability table: each hand-maintained list above 
 partial copy of the same facts, and each copy drifts on its own.
 
 **How support was established.** The four pilot functions were probed with scripts that
-compare results with independently computed values; the scripts and their outputs are in
-the [verification record](verification/README.md) and reproduce at the audited revision.
+check results against independently computed values or against other ProximalBase calls
+and record what the remaining calls return; the scripts, their outputs and the capability
+cells they exercise are in the [verification record](verification/README.md), and the
+outputs reproduce at the audited revision.
 For the other functions, an exploratory probe run called each operation on each of 15
 kinds of input and compared the result with the dense `Float64` result; it found the
 support patterns and drift reported here, but its comparison of block scores was flawed
 and its scripts are not part of the record. Test references were found by searching the
 test files, not by running them. All probes ran on Julia 1.13.4 only. The
 [capability-table prototype](prototypes/capabilities.md) combines these results with the
-conditions stated in the docstrings and guarantee pages; G4 confirms each cell against
-the tests.
+conditions stated in the docstrings and guarantee pages; its cells outside the
+verification record are provisional until G4 establishes them.
 
 **Version facts for installation.** The General registry has ProximalBase 0.2.0 to
 0.5.4; 0.6 and 0.7 are not registered, and the last tag is v0.5.4. ProximalSolvers
@@ -235,11 +237,14 @@ as `getting_started.md` says, is the accurate instruction for this manual today.
 
 ## Constraints a redesign must respect
 
-- **Every published fragment is a promise.** The manual has 580 explicit `(@id …)` anchors.
-  About 50 of them are cited from `src/` docstrings with `@ref`, and about 420 relative
-  `page.md#Heading` links rely on automatic heading anchors. The strict build fails when
-  a removed `@id` is still referenced inside the manual or a docstring, but not when an
-  anchor cited from outside the manual disappears.
+- **Published fragments are preserved by rule.** The manual has 580 explicit `(@id …)`
+  anchors. About 50 of them are cited from `src/` docstrings with `@ref`, and about 420
+  relative `page.md#Heading` links rely on automatic heading anchors. The writing guide
+  keeps explicit anchors and cited automatic anchors through forwarding headings and lets
+  uncited automatic anchors retire with a successor. Documenter's strict build fails when
+  an `@ref` points to a removed `@id`; `docs/check_html.py` separately reports relative
+  links to missing fragments in the rendered pages. Neither notices an anchor cited only
+  from outside the manual.
 - **Documenter has no redirects.** A moved page needs a stub at its old path, hidden from
   the sidebar (`interface.md` and `storage.md` are the existing examples) and listed in
   `docs/check_html.py`.
@@ -247,11 +252,13 @@ as `getting_started.md` says, is the accurate instruction for this manual today.
   9 collapse controls and the hidden pages, and that Home has at least two math
   elements. `docs/check_contract_schema.py` asserts the fourteen headings of every
   family page in `spec/`, and parses the family-map table of `spec/index.md`, whose
-  header must include "Migration state". `docs/check_api.jl` checks that every export and
-  documented qualified name has an entry in `api/*.md` and a row in the coverage
-  matrix; it matters when API pages or the coverage matrix change (G4). A navigation change edits `check_html.py` in the same
+  header must include "Migration state". `docs/check_api.jl` checks that every name returned by
+  `names(ProximalBase)`, plus nine listed qualified names, appears in an `@docs` block of
+  `api/*.md` and in backticks in the coverage matrix (the module name excepted); it
+  matters when API pages or the coverage matrix change (G4). A navigation change edits `check_html.py` in the same
   PR; G9 edits `check_contract_schema.py`.
-- **Documentation-only CI.** A PR is documentation-only when every changed path (both
+- **Documentation-only CI.** When the classification job succeeds, a PR is
+  documentation-only if its set of changed paths is not empty and every changed path (both
   sides of a rename, and each deletion) is a regular, non-executable file that is a
   top-level Markdown file, a Markdown, SVG, PNG or Mermaid file under `docs/`, or a `.tsv`,
   `.json`, `.csv` or `.txt` file in `docs/audit/docs-tracks-1019/`, with suffixes matched

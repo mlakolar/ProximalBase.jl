@@ -1,5 +1,6 @@
-# Pilot 3: GroupNormL2.  Independent formulas: f = λ0 Σ_k w_k ‖x[G_k]‖₂, default w_k = √|G_k|,
-# prox: x[G] · max(0, 1 − γ λ0 w_k / ‖x[G]‖₂)  (group soft threshold); unlisted indices unpenalized (prox = identity).
+# Pilot 3: GroupNormL2.  Reference formulas for finite entries and parameters and a finite step γ > 0:
+# f = λ0 Σ_k w_k ‖x[G_k]‖₂, default w_k = √|G_k|; prox: x[G] · max(0, 1 − γ λ0 w_k / ‖x[G]‖₂)
+# (group soft threshold; a zero group stays zero); unlisted indices unpenalized (prox = identity).
 using ProximalBase, LinearAlgebra
 const PB = ProximalBase
 chk(label, ok) = println("  check ", rpad(label, 60), ok ? "OK" : "FAIL")
@@ -64,7 +65,7 @@ ub = copy(u); prox_block!(ub, f, ub, 1, 0.5); println("  prox_block! out===u: ",
 tryshow("prox_block(f,[3.0],1,0.5) wrong block length", () -> prox_block(f, [3.0], 1, 0.5))
 tryshow("prox_block(f,[3.0,4.0],3,0.5) group index out of range", () -> prox_block(f, [3.0,4.0], 3, 0.5))
 tryshow("prox_block(f, 3.0, 1, 0.5) scalar form", () -> prox_block(f, 3.0, 1, 0.5))
-println("  commit pattern with BlockIterate: ")
+println("  commit pattern with BlockIterate:")
 tryshow("BlockIterate(x4, [[1,2],[3]]) groups not a partition of 1:4", () -> BlockIterate(copy(x), [[1,2],[3]]))
 bf = BlockIterate(copy(x[1:3]), f); println("    BlockIterate(x[1:3], f) constructor with the function: ", typeof(bf))
 bu = BlockIterate(copy(x[1:3]), f); out_b = zeros(2); prox_block!(out_b, f, collect(blockview(bu, 1)), 1, 0.5); copyto!(blockview(bu, 1), out_b); println("    committed block 1 via copyto!(blockview(x,1), out): ", collect(bu))
@@ -79,7 +80,7 @@ end
 println("  independent: group1 zero: ‖v[1:2]‖ − λ√2 = ", norm(v[1:2]) - sqrt(2), "; group2 nonzero: ‖v3 + 1·x3/|x3|‖ = ", abs(0.5 + 1.0));
 println("  independent entry 4 (unlisted) |v4| = ", 0.25)
 fp = kkt_violation(f, v, z); println("  kkt_violation(f,v,z) full-point = ", fp, "  independent max(0, max(group1, group2, |v4|)) = ", max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25)); chk("full-point", fp ≈ max(0, norm(v[1:2]) - sqrt(2), 1.5, 0.25))
-println("  BlockIterate point (layout must match f): ")
+println("  BlockIterate point (layout must match f):")
 tryshow("kkt_violation(f, v, BlockIterate(z, [[1,2],[3]]), 1) (BlockIterate group 1)", () -> kkt_violation(f, v[1:3], BlockIterate(copy(z[1:3]), [[1,2],[3]]), 1))
 println("== representations")
 M = [3.0 4.0; -2.0 7.0]

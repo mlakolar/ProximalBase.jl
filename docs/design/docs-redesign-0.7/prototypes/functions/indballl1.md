@@ -5,8 +5,10 @@ with a short explanation of indicator functions and projections and the figure
 below, followed by `IndBox`, `IndBallLinf`, `IndNonnegative`, `IndBallL2` and `IndBallL0`.*
 
 A constraint ``x\in C`` is written as its *indicator function*: zero on ``C`` and
-``+\infty`` outside. Its proximal operator, at any supported step, is the Euclidean
-projection onto ``C``: a nearest point of ``C`` (the nearest point, when ``C`` is convex).
+``+\infty`` outside. For a nonempty closed set and a supported step, its proximal
+operator is, in exact arithmetic, the Euclidean projection onto ``C``: a nearest point of
+``C`` (the nearest point, when ``C`` is convex). Each constraint's entry gives its rules
+for structured inputs and non-finite values.
 
 ![Projections of one point onto three unit balls.](../../figures/projections.svg)
 

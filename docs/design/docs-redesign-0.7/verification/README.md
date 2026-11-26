@@ -1,9 +1,9 @@
 # Verification record for the four pilot entries
 
 Reproducible probes behind the four [function-entry prototypes](../prototypes/functions/).
-They ran on Julia 1.13.4 at the audited revision, locally. Run them from the
-repository root with `julia --project=docs <script>`; the outputs below were produced
-that way.
+They ran on Julia 1.13.4 at the audited revision, locally. Run them from the repository
+root with `julia --project=docs <script>`; the outputs below are the unedited output of
+that command.
 
 | Script | Output |
 |:--|:--|
@@ -12,32 +12,42 @@ that way.
 | `pilot_groupnorml2.jl` | `pilot_groupnorml2.txt` |
 | `pilot_indballl1.jl` | `pilot_indballl1.txt` |
 
-Each script covers the constructors and their validation, the value, gradient or
-proximal operator, `value_and_prox!`, `prox_block`, `kkt_violation`, a set of input
-kinds, `Scaled` and the printed form. Two kinds of line appear in the outputs:
+## What the lines mean
 
-- a line `check … OK` or `check … FAIL` compares the result with a value computed
-  independently in the script (a formula, normal equations, or a sorting-based
-  projection);
-- every other line records what a call returned or which exception it threw, without
-  an independent reference.
+- **Reference comparisons**: `check` lines that compare a result with a value the
+  script computes independently (a formula, the normal equations, or the sorting-based
+  ℓ₁ projection, including its comparison on random inputs in `pilot_indballl1.jl`).
+- **Consistency checks**: `check` lines that compare one ProximalBase call with another:
+  `value_and_prox!` against `f(out)` (`pilot_norml1.jl`, `pilot_leastsquaresloss.jl`,
+  `pilot_groupnorml2.jl`), the projection at different steps and the matrix projection
+  against the vector one (`pilot_indballl1.jl`).
+- **Observed returns**: all other lines record what a call returned or which exception
+  it threw, with no reference value; section headings start with `==`.
 
-The single `FAIL` line, in `pilot_groupnorml2.txt`, is the `value_and_prox!` rounding
-discrepancy recorded in the audit's
+The single `FAIL` line, in `pilot_groupnorml2.txt`, is the consistency check of
+`value_and_prox!`: the rounding discrepancy recorded in the audit's
 [separately recorded findings](../audit.md#defects-and-gaps-recorded-separately).
 
-## Scope
+## Capability cells the scripts exercise
 
-The scripts include some non-finite inputs and steps, an integer level and integer
+| Function | Operations exercised | Inputs exercised | Not exercised |
+|:--|:--|:--|:--|
+| `NormL1` | value, prox (scalar and array steps), `value_and_prox!`, coordinate `prox_block`, the three `kkt_violation` forms; gradient and group `prox_block` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector and matrix), `BlockIterate`, `SymmetricSparseIterate` | `restrict`; scores on iterates |
+| `LeastSquaresLoss` | value, gradient, `value_and_gradient`, `lipschitz`, prox, `value_and_prox!`, whole-point score, `restrict`, `reset_cache!`, held-predictor calls; coordinate `prox_block` and coordinate scores throw | vector, strided view, `SparseIterate` (vector), `BlockIterate`, matrix with a matrix response; a matrix with a vector response, `Symmetric` and `SymmetricSparseIterate` throw | matrix `SparseIterate` |
+| `GroupNormL2` | value, prox, `value_and_prox!`, `prox_block`, `prox_block!`, per-group and whole-point scores; the coordinate screen, `restrict` and `prox_block` under `Scaled` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector), `BlockIterate` (block write and a per-group score with matching groups); `SymmetricSparseIterate` throws | prox and the whole-point score on a `BlockIterate`; scores with mismatched layouts |
+| `IndBallL1` | value, projection at several steps, `value_and_prox!`; gradient, `kkt_violation`, `prox_block` and `lipschitz` throw | vector, strided view, matrix, `Symmetric`, `SparseIterate` (vector), `BlockIterate`; `SymmetricSparseIterate` throws | `restrict` |
+
+The scripts also include some non-finite inputs and steps, an integer level and integer
 data, `Float32` and `BigFloat` data with a `Float64` function, and exact in-place calls.
 They do not cover Julia versions other than 1.13.4, offset arrays, `Float16`,
 concurrency, partially overlapping arrays or most endpoint rules, which the guarantee
 pages own.
 
-## The capability tables
+## The rest of the capability tables
 
-The cells of the [capability-table prototype](../prototypes/capabilities.md) for these
-four functions rest on these scripts. The cells for the other functions come from an
-exploratory probe run during the audit, whose scripts are not part of this record, and
-from the docstrings and guarantee pages; they are to be confirmed in G4, which records
-the test behind each cell in the API coverage matrix.
+Only the cells listed above rest on these scripts. All other cells of the
+[capability-table prototype](../prototypes/capabilities.md), including the cells of the
+pilot functions marked "not exercised", are provisional: they come from an exploratory
+probe run during the audit, whose scripts are not part of this record, and from the
+docstrings. G4 establishes each cell by the rule in the
+[table design](../compatibility-tables.md#what-counts-as-evidence).

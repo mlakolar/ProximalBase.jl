@@ -1,4 +1,5 @@
-# Pilot 2: LeastSquaresLoss.  Independent formulas: f = ½‖y−Xβ‖², ∇f = Xᵀ(Xβ−y), L = σmax(X)²,
+# Pilot 2: LeastSquaresLoss.  Reference formulas for finite data and a finite step γ > 0:
+# f = ½‖y−Xβ‖², ∇f = Xᵀ(Xβ−y), L = σmax(X)² (compared for a dense X),
 # prox_{γf}(x) = (XᵀX + I/γ)⁻¹ (Xᵀy + x/γ).
 using ProximalBase, LinearAlgebra, SparseArrays
 const PB = ProximalBase
@@ -40,7 +41,7 @@ tryshow("f(zeros(3)) wrong argument length", () -> f(zeros(3)))
 println("== lipschitz")
 L = lipschitz(f)
 println("  lipschitz(f) = ", L, "   independent σmax(X)² = ", opnorm(X)^2); chk("lipschitz = spectral norm squared (dense)", L ≈ opnorm(X)^2)
-println("  lipschitz(sparse X LS) = ", lipschitz(LeastSquaresLoss(y, sparse(X))), "  (a floating-point one/inf-norm bound for a sparse design)")
+println("  lipschitz(sparse X LS) = ", lipschitz(LeastSquaresLoss(y, sparse(X))), "  (a one/inf-norm bound for a sparse design, computed in floating point and subject to rounding)")
 println("== scaling:  (1/n) * f")
 fs = (1/n) * f
 println("  typeof((1/n)*f) = ", typeof(fs)); println("  ((1/n)*f)(β) = ", fs(β), "  independent ‖y−Xβ‖²/(2n) = ", sum(abs2, y - X*β)/(2n)); chk("scaled value", fs(β) ≈ sum(abs2, y - X*β)/(2n))
@@ -64,7 +65,7 @@ tryshow("prox(f, x0, -1.0) negative step", () -> prox(f, x0, -1.0))
 tryshow("prox(f, x0, 0.0) zero step", () -> prox(f, x0, 0.0))
 tryshow("prox(f, x0, [0.1,0.2]) array step", () -> prox(f, x0, [0.1,0.2]))
 tryshow("prox_block(f, 0.5, 1, 0.1) scalar", () -> prox_block(f, 0.5, 1, 0.1))
-println("  p > n case (wide X): ")
+println("  p > n case (wide X):")
 Xw = [1.0 2.0 0.5 1.0; 0.0 1.0 1.0 2.0]; yw = [1.0, 2.0]; fw = LeastSquaresLoss(yw, Xw); xw = [0.1,0.2,0.3,0.4]
 pw = prox(fw, xw, 0.7); refw = (Xw'Xw + I/0.7) \ (Xw'yw + xw/0.7)
 println("    prox = ", pw, "  independent = ", refw); chk("prox p>n", pw ≈ refw)

@@ -21,6 +21,12 @@ G0 brief with three changes, each motivated by the audit:
   `function_library.md` before the catalog rewrite, the API entry of a function before
   its entry exists). The PR that creates a destination updates the links that should
   point to it.
+- **No design-folder links or files in the manual.** The prototypes link to this
+  folder (the audit, the verification record, the figure files); a PR that moves a
+  prototype into `docs/src` drops those links or replaces them with a public issue link.
+- **Figures arrive with G8.** The catalog (G5) and the entries (G6, G7) embed the
+  prototype figures only if G8 has merged and installed them under `docs/src/assets`;
+  otherwise G8 adds the embeds to those pages.
 - **A page joins the sidebar in the PR that creates it**, with its line in
   `docs/make.jl`. `docs/check_html.py` changes only when the number of groups or
   collapse controls changes, or a hidden page is added.
@@ -126,10 +132,11 @@ that each can link its entries from the new catalog.
   for all 30 functions, with function names linking to their API entries and without the
   prototype's note on its verification record; the
   built-in trait table of `function_objects.md` replaced by a link; iterate pages link
-  to the tables; the API coverage matrix gains the test behind each ✓ and ◐.
-- **Acceptance:** every ✓ and ◐ is backed by a named test, or by a probe recorded in the
-  PR when no test exists (never by a method, trait or fallback alone); every — has been
-  seen to throw or is documented as unsupported; each condition is one sentence with a
+  to the tables; the API coverage matrix records the evidence for each cell.
+- **Acceptance:** every cell follows the evidence rule of the
+  [table design](compatibility-tables.md#what-counts-as-evidence) (✓ or ◐ from a named
+  test, or a probe recorded in the PR where no test exists; — from an observed exception or
+  a docstring; ? otherwise), and the evidence is recorded in the coverage matrix; each condition is one sentence with a
   link to its owner; the rendered note labels match the cells; no table is wider than
   about twice the content column of a 390 px phone.
 - **Areas:** `capabilities.md` (new), its line in `make.jl`, `function_objects.md`, iterate pages, `api/coverage.md`.
@@ -183,7 +190,8 @@ that each can link its entries from the new catalog.
 
 - **Scope:** the [prototype figures](prototypes/visualizations.md) moved into
   `docs/generate_learn_figures.py`, their coordinates computed by ProximalBase in the
-  build, and the figure check added to the documentation job; example titles changed to
+  build (with a small independent check of the mathematical fixtures, so that a wrong
+  result is not drawn unnoticed), and the figure check added to the documentation job; example titles changed to
   tasks; one new Literate example that changes one argument at a time (lasso → MCP →
   `SparseIterate`), added to the example registry in `make.jl` and to the isolated
   example run.
@@ -191,7 +199,8 @@ that each can link its entries from the new catalog.
   against ProximalBase by the build; the example inventory grows from nine to ten with
   its title and order registered.
 - **Areas:** `examples/`, `docs/make.jl`, `docs/run_examples.jl` if needed,
-  `docs/generate_learn_figures.py`, `docs/src/assets/`, the CI documentation job.
+  `docs/generate_learn_figures.py`, `docs/src/assets/`, the CI documentation job, and the
+  figure embeds in the catalog and role pages that merged before G8.
 
 ### G9 — User-facing guarantees
 

@@ -16,8 +16,8 @@ release is older and has a different interface; see
 
 ## A function is an object
 
-Construct a function once and call it like a Julia function. The weighted ℓ₁
-norm ``g(x)=\lambda\sum_i|x_i|`` with ``\lambda=0.5`` is
+Construct a function once and call it like a Julia function. The ℓ₁ norm
+``g(x)=\lambda\sum_i|x_i|`` (all weights equal to one) with ``\lambda=0.5`` is
 
 ```@example quickstart
 using ProximalBase
@@ -28,7 +28,7 @@ g(x)                      # 0.5 * (2 + 1 + 0.25)
 ```
 
 The object stores the parameters (here ``\lambda``). The point ``x`` is supplied
-at each call, so the same `g` can be evaluated anywhere.
+at each call, so the same `g` can be evaluated at other inputs.
 
 ## Take a proximal step
 
@@ -65,8 +65,8 @@ f = LeastSquaresLoss(y, X)
 f(β), gradient(f, β)      # gradient is X' * (X * β - y)
 ```
 
-To use the mean loss ``\tfrac{1}{2n}\|y-X\beta\|_2^2``, multiply by a
-nonnegative number. The result is again a function object:
+To use the mean loss ``\tfrac{1}{2n}\|y-X\beta\|_2^2`` with ``n>0`` observations,
+multiply by ``1/n``. The result is again a function object:
 
 ```@example quickstart
 n = size(X, 1)

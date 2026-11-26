@@ -30,9 +30,9 @@ moderately large entries less and leaves large ones unchanged. The open circles 
 the jump of hard thresholding at magnitude ``\sqrt{2\gamma\lambda}``. The curve is the
 exact rule for positive finite parameters: keep ``v`` when ``v^2>2\gamma\lambda`` and
 return zero otherwise, including at an exact tie. ProximalBase decides the comparison
-exactly for finite `Float32` and `Float64` inputs; for example, the floating-point number
-`sqrt(2.0)` lies slightly above the exact cutoff ``\sqrt2`` and is kept at
-``\gamma=\lambda=1``.
+exactly when the input, the level and the step are finite and of the same type, `Float32`
+or `Float64`. For example, the floating-point number `sqrt(2.0)` lies slightly above the
+exact cutoff ``\sqrt2`` and is kept at ``\gamma=\lambda=1``.
 
 ## Group shrinkage
 

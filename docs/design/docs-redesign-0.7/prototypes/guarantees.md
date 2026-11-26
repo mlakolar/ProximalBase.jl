@@ -8,9 +8,9 @@ G9 updates `docs/check_contract_schema.py` to parse it with the same coverage an
 checks.*
 
 The function entries describe what each function computes for ordinary finite
-inputs. The pages in this section state precisely what is promised and what is not,
-including for very large or very small values, infinities, `NaN`, zero or infinite
-parameters and steps, and each kind of storage. Most users need them only when an
+inputs. The pages in this section state what is promised and what is not, where it is
+documented, including the rules and known gaps for very large or very small values,
+infinities, `NaN`, zero or infinite parameters and steps, and kinds of storage. Most users need them only when an
 algorithm meets extreme data, when tests depend on exact results, or when they
 contribute a function.
 
@@ -22,7 +22,7 @@ contribute a function.
 | [Range, non-finite values and sparse products](@ref numerics) | values may overflow or underflow, inputs may contain `Inf` or `NaN`, or you multiply sparse iterates |
 | [Why floating-point range matters](@ref learn-floating-point) | you want a worked example before reading the range rules |
 
-A family page adds to these shared rules and links to them; it restates one only for an example or a safety reminder.
+The shared rules apply alongside each family's rules, and the family pages link to them.
 
 ## Guarantees for each function
 

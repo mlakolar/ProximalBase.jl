@@ -1,4 +1,4 @@
-# Pilot 4: IndBallL1.  Independent formula: Euclidean projection onto {‖x‖₁ ≤ r} by sorting (Duchi et al. 2008).
+# Pilot 4: IndBallL1.  Reference: Euclidean projection onto {‖x‖₁ ≤ r}, finite x and finite r > 0, by sorting (Duchi et al. 2008).
 using ProximalBase, LinearAlgebra, Random
 const PB = ProximalBase
 chk(label, ok) = println("  check ", rpad(label, 60), ok ? "OK" : "FAIL")

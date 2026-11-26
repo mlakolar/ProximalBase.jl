@@ -47,10 +47,12 @@ entries.
 block (`BlockIterate`), symmetric (`SymmetricSparseIterate`). `Symmetric` wrappers differ
 between functions (most return a dense matrix from `prox`, `ZeroFunction` writes into a
 `Symmetric` output, the off-diagonal `NormL0` refuses them), so they are covered in the
-entries rather than in a column. Element types are not a column: the supported
-precision is `Float64` or `Float32` for every function, used for data, parameters, step
-and output alike, so it is one sentence above the tables. Other element types are not
-guaranteed and are not tabulated, even where a probe shows that they work.
+entries rather than in a column. Element types are not a column either: the shared
+baseline is homogeneous `Float64` or `Float32`, one sentence above the tables, and the
+family-specific required or accepted types (for example `Float64` data for `PoissonLoss`,
+integer weights and steps for `LogDetLoss`) are on each family's entry and guarantee
+page. Types outside what is documented are not tabulated, even where a probe shows that
+they work.
 
 ## Symbols
 
@@ -58,8 +60,8 @@ guaranteed and are not tabulated, even where a probe shows that they work.
 |:--|:--|
 | ✓ | implemented for the function's ordinary inputs; the entry gives the conditions (shapes, steps, preconditions) |
 | ◐ *a* | implemented with the restriction in note *a* |
-| — | not implemented: the call throws |
-| ? | not verified; G4 uses it for any cell it cannot confirm with a test |
+| — | not implemented: the call throws, or the docstring says it is not supported |
+| ? | not yet verified by the rule below |
 
 A ✓ is not a promise that every input works: it means the operation is implemented and
 its conditions are on the entry. No cell is left blank, unlike PETSc's tables, where a
@@ -70,14 +72,15 @@ sentence and links to its owner when the condition affects correctness.
 
 ## What counts as evidence
 
-A cell is ✓ or ◐ only when a test or a recorded probe exercises that operation on that
-kind of input; a method that exists, a trait value (`isproximable`, `isseparable`) or a
-generic fallback is not enough (#1212 G4). A — means the call was seen to throw or is
-documented as unsupported. In the prototype, the cells of the four pilot functions rest
-on the reproducible scripts of the [verification record](verification/README.md), and the
-other cells on an exploratory probe run and the docstrings. For the published table, G4
-records the test behind each cell in the API coverage matrix of the developer guide, not
-in the user table.
+A cell is ✓ or ◐ only when a named test exercises that operation on that kind of input
+or, where no test exists, a probe recorded in the PR that publishes the table; a method
+that exists, a trait value (`isproximable`, `isseparable`) or a generic fallback is not
+enough (#1212 G4). A cell is — when the call was seen to throw or the docstring says it is
+not supported, and ? otherwise. In the prototype, only the cells listed in the
+[verification record](verification/README.md) rest on reproducible scripts; the others
+are provisional, taken from an exploratory probe run and the docstrings. For the
+published table, G4 records the evidence for each cell (the test, or the recorded probe)
+in the API coverage matrix of the developer guide, not in the user table.
 
 Two distinctions from #1212 stay visible:
 

@@ -17,7 +17,8 @@ cp(joinpath(ROOT, "docs", "src"), SRC)
 rm(joinpath(SRC, "examples"); force=true, recursive=true)
 rm(joinpath(SRC, "developer", "contracts"); force=true, recursive=true)
 
-# Examples and design contracts, generated exactly as docs/make.jl does.
+# Examples and design contracts from the same inputs as docs/make.jl, with preview
+# titles and order for the examples and without the EditURL metadata of the contracts.
 const EXAMPLES = ["lasso" => "Evaluate a lasso objective and its proximal step",
     "proximal_gradient" => "Write a proximal-gradient loop",
     "coordinate_operations" => "Update one coordinate at a time",
@@ -49,11 +50,10 @@ function place(prototype, destination)
     depth = count(==('/'), destination)
     prefix = depth == 0 ? "assets/redesign/" : repeat("../", depth) * "assets/redesign/"
     text = replace(text, r"\((?:\.\./)+figures/([a-z-]+\.svg)\)" => SubstitutionString("($(prefix)\\1)"))
-    # Links to the figure scripts point outside any documentation build: keep the text only.
+    # Links to the figure scripts and the verification record exist only in the design
+    # folder (the capability prototype's note is not for publication): keep the text only.
     text = replace(text, r"\[(`[^`]+`)\]\((?:\.\./)+figures/[a-z_]+\.(?:py|jl)\)" => s"\1")
     text = replace(text, r"\[([^\]]+)\]\((?:\.\./)+verification/[^)]*\)" => s"\1")
-    # Links to the design documents themselves exist only in this folder: keep the text.
-    text = replace(text, r"\[([^\]]+)\]\((?:\.\./)+[a-z-]+\.md(?:#[^)]*)?\)" => s"\1")
     write(joinpath(SRC, destination), text)
 end
 place("index.md", "index.md")

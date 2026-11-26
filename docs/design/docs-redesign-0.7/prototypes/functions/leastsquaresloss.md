@@ -48,14 +48,14 @@ f_mean(β), lipschitz(f_mean)
 | value | `f(β)` | ✓ |
 | gradient | `gradient(f, β)`, `gradient!(out, f, β)` | ✓ |
 | value and gradient | `value_and_gradient(f, β)`, `value_and_gradient!(out, f, β)` | ✓ the value is at the input ``\beta`` |
-| step size | `lipschitz(f)` | ✓ ``\|X\|_2^2`` evaluated in floating point for a dense ``X``, a bound on it for other matrices; rounding can make it slightly smaller than the exact value |
+| step size | `lipschitz(f)` | ✓ ``\|X\|_2^2`` for a dense ``X`` and a bound on it for other matrices, evaluated in floating point and subject to rounding and range limits |
 | proximal step | `prox(f, β, γ)`, `prox!(out, f, β, γ)` | ✓ scalar step |
 | optimality score | `kkt_violation(f, v, β)` | ✓ whole point only |
 | restriction | `restrict(f, S)` | ✓ vector response; coordinates outside `S` fixed at zero |
 | one coordinate | `prox_block` | — |
 | from a held predictor | `ProximalBase.value_from_predictor(f, Xβ)` and related calls | ✓ [details](@ref Least-squares-at-a-predictor-or-residual-that-the-caller-holds) |
 
-For finite data and a finite step ``\gamma>0``, the proximal point is the solution of
+For finite data and a finite step ``\gamma>0``, the proximal point is, in exact arithmetic, the solution of
 ``(X^\top X+\gamma^{-1}I)\,z=X^\top y+\gamma^{-1}v``. ProximalBase computes it from a thin
 SVD of a nonempty ``X`` (a sparse ``X`` is converted to a dense matrix for it), which
 later calls reuse for other steps.

@@ -1,4 +1,5 @@
-# Pilot 1: NormL1.  Independent formulas: value = λ Σ w|x|, prox = soft threshold sign(x)·max(|x|−γλw,0).
+# Pilot 1: NormL1.  Reference formulas for finite entries and parameters and a finite step γ > 0:
+# value = λ Σ w|x|, prox = soft threshold sign(x)·max(|x|−γλw,0).
 using ProximalBase, LinearAlgebra
 const PB = ProximalBase
 chk(label, ok) = println("  check ", rpad(label, 58), ok ? "OK" : "FAIL")

@@ -60,7 +60,7 @@ zero. Infinite levels or weights, zero steps and non-finite entries follow the
 |:--|:--|:--|
 | value | `g(x)` | ✓ |
 | proximal step | `prox(g, x, γ)`, `prox!(out, g, x, γ)` | ✓ a scalar step, or an array with one step per entry in linear order |
-| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)`, the documented value; the computed value can differ from `g(out)` in the last digit ([recorded discrepancy](../../audit.md#defects-and-gaps-recorded-separately)) |
+| value at the new point | `value_and_prox!(out, g, x, γ)` | ✓ returns `g(out)`, the documented value; the computed value can differ from `g(out)` in the last digit |
 | one coordinate | `prox_block(g, xᵢ, i, γ)` | ✓ |
 | optimality score | `kkt_violation(g, v, i)`, `(g, v, x, i)`, `(g, v, x)` | ✓ |
 | restriction | `restrict(g, S)` | ✓ |
@@ -83,8 +83,9 @@ output ([precision rules](@ref numerical-usage)).
 
 ### Good to know
 
-- Steps are not checked. A negative or `NaN` step is unsupported, and the result of
-  such a call has no mathematical meaning ([shared step rule](@ref numerics)).
+- Step values are not checked (an array of steps must still have one entry per entry
+  of ``x``). A negative or `NaN` step is unsupported, and the result of such a call has
+  no mathematical meaning ([shared step rule](@ref numerics)).
 - Off-diagonal entries of a `SymmetricSparseIterate` count twice in the value,
   because each stands for two matrix entries.
 - An infinite weight fixes a finite entry at zero. For infinite or `NaN` inputs, and

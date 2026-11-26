@@ -47,7 +47,7 @@ g(x)                      # value: 1.625
 prox(g, x, 1.0)           # proximal step of size 1: soft thresholding
 ```
 
-Each entry moved toward zero by ``0.5``, and the small one became exactly zero.
+Each entry moved toward zero by up to ``0.5``, and the small one became exactly zero.
 The [five-minute quick start](@ref quickstart) continues from here with losses,
 gradients and in-place calls.
 
@@ -59,7 +59,7 @@ gradients and in-place calls.
 | **[Operations](@ref operation-guide)** | Values, gradients, proximal operators and projections, single-coordinate and group steps, and optimality checks. |
 | **[Capability tables](@ref capability-tables)** | Which operations each function implements and which storage it accepts, with the main conditions. |
 | **[Iterates](@ref Sparse-iterates)** | `SparseIterate`, `BlockIterate` and `SymmetricSparseIterate` for algorithms that work on part of a variable. Most functions also accept ordinary arrays. |
-| **[Guarantees](@ref numerical-contracts-guide)** | What is promised, for each function, including at extreme, infinite and `NaN` inputs. |
+| **[Guarantees](@ref numerical-contracts-guide)** | The documented promises and known gaps for each function, including rules for extreme, infinite and `NaN` inputs. |
 
 ## [Find your starting point](@id Where-to-start)
 
